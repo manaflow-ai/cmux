@@ -153,7 +153,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
-        self.assertTrue(runs_on.rstrip("} ").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac'"))
+        # The fallback must land on an Xcode 27 Mac: plain cmux-mac took 26.6-only Macs.
+        self.assertTrue(runs_on.rstrip("} ").endswith(
+            "|| vars.CI_OVERFLOW_MAC || fromJSON('[\"cmux-mac\",\"xcode-27.0\"]')"), runs_on)
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])

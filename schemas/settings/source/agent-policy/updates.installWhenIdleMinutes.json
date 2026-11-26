@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "On, cmux restarts into a downloaded update by itself once idle: the person's call."
+}

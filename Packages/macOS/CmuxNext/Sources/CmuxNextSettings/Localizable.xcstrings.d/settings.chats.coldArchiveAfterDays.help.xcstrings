@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chats.coldArchiveAfterDays.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Days unused before a chat is compressed. Busy chats never are."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عدد أيام عدم الاستخدام قبل ضغط الدردشة. لا تُضغط الدردشات النشطة أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dani bez korištenja prije nego što se razgovor sažme. Zauzeti razgovori se nikad ne sažimaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dage uden brug, før en chat komprimeres. Travle chats komprimeres aldrig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tage ohne Nutzung, bevor ein Chat komprimiert wird. Aktive Chats nie."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Días sin uso antes de comprimir un chat. Los chats activos nunca se comprimen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nombre de jours sans utilisation avant qu'une discussion soit compressée. Jamais les discussions actives."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giorni di inutilizzo prima che una chat venga compressa. Le chat attive non lo sono mai."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットが圧縮されるまでの未使用日数。作業中のチャットは圧縮されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួនថ្ងៃដែលមិនបានប្រើ មុនពេលការជជែកត្រូវបានបង្ហាប់។ ការជជែកដែលកំពុងរវល់មិនត្រូវបានបង្ហាប់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅을 압축하기 전까지 사용하지 않은 일수입니다. 작업 중인 채팅은 압축되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dager ubrukt før en chat komprimeres. Aktive chatter komprimeres aldri."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liczba dni bez użycia przed kompresją czatu. Zajęte czaty nigdy nie są kompresowane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dias sem uso antes de um chat ser compactado. Chats ativos nunca são."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сколько дней чат не используется до сжатия. Занятые чаты не сжимаются никогда."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำนวนวันที่แชตไม่ได้ใช้ก่อนถูกบีบอัด แชตที่กำลังทำงานจะไม่ถูกบีบอัด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sohbet sıkıştırılmadan önce kullanılmadan geçen gün sayısı. Meşgul sohbetler asla sıkıştırılmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скільки днів без використання до стискання чату. Активні чати не стискаються ніколи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Số ngày không dùng trước khi cuộc trò chuyện bị nén. Cuộc trò chuyện đang bận không bao giờ bị nén."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天闲置多少天后进行压缩。忙碌的聊天永远不会被压缩。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天閒置多少天後進行壓縮。忙碌中的聊天永遠不會被壓縮。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

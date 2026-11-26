@@ -37,6 +37,14 @@
       "scope": "agents:write",
       "class": "mutation"
     },
+    "app.pane.close": {
+      "scope": "none",
+      "class": "runtime"
+    },
+    "app.pane.open": {
+      "scope": "none",
+      "class": "runtime"
+    },
     "app.storage.delete": {
       "scope": "storage:local",
       "class": "mutation"
@@ -52,6 +60,10 @@
     "app.storage.set": {
       "scope": "storage:local",
       "class": "mutation"
+    },
+    "app.view.state": {
+      "scope": "none",
+      "class": "runtime"
     },
     "automation.audit.list": {
       "scope": "automation:read",
@@ -498,6 +510,10 @@
       "class": "mutation"
     },
     "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.machine.request": {
       "scope": "cloud:execute",
       "class": "mutation"
     },
@@ -2006,6 +2022,10 @@
       "class": "read"
     },
     "theme.scheme.from_image": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.slots.resolve": {
       "scope": "theme:read",
       "class": "read"
     },

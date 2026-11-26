@@ -33,7 +33,8 @@
 .wq-reason{flex:none;white-space:nowrap;padding:0 var(--ds-space-1);border-radius:var(--radius-sm);background:var(--ds-surface-card)}
 .wq-reason[data-reason="blocksTurn"]{background:color-mix(in srgb,var(--warning,var(--agent-text)) 14%,transparent);color:var(--agent-text)}
 .wq-detail{font-size:var(--text-detail);color:var(--agent-muted);white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
-.wq-detail[data-plan]{-webkit-line-clamp:4;padding:var(--ds-space-2);border-radius:var(--radius-control);background:var(--ds-surface-card);color:var(--agent-text)}
+/* The plan's inset is a transparent border, not padding: overflow clips at the padding edge, so padding showed a sliver of a fifth line (as .cv-thought__preview). */
+.wq-detail[data-plan]{-webkit-line-clamp:4;border:var(--ds-space-2) solid transparent;border-radius:var(--radius-control);background:var(--ds-surface-card);color:var(--agent-text)}
 .wq-answers{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);opacity:0;visibility:hidden;transition:opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .wq-answers[data-shown]{opacity:1;visibility:visible}
 .wq-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);border:0;background:var(--ds-surface-inset);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}

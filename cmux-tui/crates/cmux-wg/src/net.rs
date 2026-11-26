@@ -608,10 +608,7 @@ impl Driver {
             });
         let schedule = TimerSchedule::new(Instant::now(), keepalive);
         let probe_route = probing::probe_route(&config);
-        let mut stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
-        if crate::ultra::loss_blind_from_env() {
-            stack.congestion = smoltcp::socket::tcp::CongestionControl::None;
-        }
+        let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
 
         Ok(Self {
             config,

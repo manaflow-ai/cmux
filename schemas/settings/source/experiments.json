@@ -387,7 +387,7 @@
         },
         {
           "key": "experiments.composerHatGroups",
-          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks, and aligns the hat's leading column with the composer's plus glyph (webviews experiments subagent-tray-fold-head, arm groups, and subagent-tray-column, arm glyph). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally and chip look (hostSettings.ts SETTING_OFF_ARMS).",
+          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks (webviews experiment subagent-tray-fold-head, arm groups). The hat's leading column always centres its marks on the composer's plus glyph and starts its words at the prompt's (cmux#56151 retired the subagent-tray-column experiment, whose glyph arm offset it twice). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally header (hostSettings.ts SETTING_OFF_ARMS).",
           "title": {
             "key": "settings.experiments.composerHatGroups",
             "text": "Composer Hat: Two Groups"
@@ -484,7 +484,7 @@
         },
         {
           "key": "experiments.terminalHistoryFind",
-          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps Ghostty's own screen search, unchanged. Applies to terminals opened after the switch.",
+          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). On by default (Leo asked for it, cmux#53180: \"can we have better cmd f find for terminal gui chats? maybe terminals in general\"); off keeps Ghostty's own screen search. Applies to terminals opened after the switch.",
           "title": {
             "key": "settings.experiments.terminalHistoryFind",
             "text": "Terminal History Find"
@@ -494,7 +494,7 @@
             "text": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "experiments",
             "experimental",
@@ -530,6 +530,34 @@
             "widget",
             "tool",
             "card"
+          ]
+        },
+        {
+          "key": "experiments.introWalk",
+          "note": "Make cmux Yours as the intro walk's four screens (hq RFD 0057): look bundles with light and dark faces and a Tidy switch, how you work, trust and noise (agents' permission, banners and sound), then tune (density, background). The onboarding page reads it from its state (MakeItYoursStepModel.introWalk; webviews onboarding walk.ts). Off by default; off keeps today's one Make cmux Yours screen.",
+          "title": {
+            "key": "settings.experiments.introWalk",
+            "text": "Intro Walk"
+          },
+          "help": {
+            "key": "settings.experiments.introWalk.help",
+            "text": "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "onboarding",
+            "intro",
+            "first run",
+            "walk",
+            "look",
+            "bundle",
+            "trust",
+            "permission",
+            "notifications"
           ]
         },
         {

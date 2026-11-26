@@ -2077,7 +2077,8 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
         && (matches!(head, "acp" | "harness" | "chats" | "board")
-            || cli::agent_engine_requested(&raw_args))
+            || cli::agent_engine_requested(&raw_args)
+            || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and

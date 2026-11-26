@@ -226,6 +226,9 @@ enum Way {
     Relay,
 }
 
+/// What acpmux's refusal of a bundle file a guarded move does not take says.
+const UNTAKEN_FILE: &str = "is not a file a guarded move takes";
+
 /// A move that failed, as its JSON line reports it.
 struct Failed {
     code: String,
@@ -255,9 +258,30 @@ impl Failed {
     /// `<side>_unreachable` when no answer came.
     fn call(side: &str, error: &CallError) -> Self {
         match error {
+            CallError::Refused { message, .. }
+                if side == "target" && message.contains(UNTAKEN_FILE) =>
+            {
+                Self::untaken_file(message)
+            }
             CallError::Refused { code, message, .. } => Self::new(code.clone(), message.clone()),
             CallError::Lost(message) => Self::new(format!("{side}_unreachable"), message.clone()),
         }
+    }
+
+    /// A target that refuses a file of the bundle (acpmux `transfer_guard.rs`, `transfer_in.rs`)
+    /// runs a cmux-tui older than the source's, which wrote the file: [`taken_by_target`] leaves
+    /// such files out when it can ask the target, so this is the move it could not ask. It reads
+    /// as the machine being outdated (the app says "update the machine"), never the raw
+    /// `transfer.path` line; the source's chat is untouched (2026-11-24 kill-mid-move drills).
+    fn untaken_file(message: &str) -> Self {
+        let mut failed = Self::new(
+            super::machine_gate::OUTDATED,
+            format!(
+                "the machine runs an older cmux-tui that refused a file of this chat ({message}); update the machine"
+            ),
+        );
+        failed.side = Some("target");
+        failed
     }
 
     fn bad_answer(error: impl Into<String>) -> Self {
@@ -725,6 +749,11 @@ fn fresh(
         source_session_id: begun["source_session"].as_str().map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
+        source_tab: begun
+            .get("tab")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| pinned.as_ref().and_then(|pinned| pinned.source_tab.clone())),
         begin_token: pinned.and_then(|pinned| pinned.begin_token),
         ..Record::default()
     };
@@ -896,7 +925,10 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 .map_err(|e| {
                     Failed::new(
                         super::seed_cli::failure_code(&e),
-                        format!("the folder's last changes: {e:#}"),
+                        format!(
+                            "the folder's last changes: {}",
+                            super::seed_cli::failure_message(&e)
+                        ),
                     )
                 });
         }
@@ -907,7 +939,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
             let failed = |e: anyhow::Error| {
                 Failed::new(
                     super::seed_cli::failure_code(&e),
-                    format!("the folder's last changes: {e:#}"),
+                    format!("the folder's last changes: {}", super::seed_cli::failure_message(&e)),
                 )
             };
             // A folder the bulk pass sent as git sends its last changes as git too ([`relay_bulk`]).
@@ -1249,7 +1281,8 @@ fn give_back(args: &Args, records: &Records, record: &mut Record) -> Result<(), 
     // Kept for a rerun if the source cannot be told now.
     record.landed = Some(false);
     let _ = records.save(record);
-    let params = json!({"surface": args.surface, "transfer_id": record.transfer_id});
+    let mut params = source_tab(args, record);
+    params.set("transfer_id", json!(record.transfer_id));
     match call_once(&args.from, "agent-transfer-abort", params, CALL_TIMEOUT) {
         Ok(_) => {}
         // Ended already (the source's own lease aborts an unread move), as
@@ -1277,8 +1310,9 @@ fn commit(
 ) -> Result<Moved, Failed> {
     record.landed = Some(true);
     let _ = records.save(record);
-    let params = json!({"surface": args.surface, "transfer_id": record.transfer_id,
-                        "to": {"cwd": record.cwd}});
+    let mut params = source_tab(args, record);
+    params.set("transfer_id", json!(record.transfer_id));
+    params.set("to", json!({"cwd": record.cwd}));
     if let Err(error) = call_once(&args.from, "agent-transfer-commit", params, CALL_TIMEOUT) {
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
@@ -1338,6 +1372,7 @@ fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Re
     let session = answer["session"].as_str().filter(|id| !id.is_empty())?;
     let record = Record {
         source_session_id: Some(session.to_owned()),
+        source_tab: answer.get("tab").and_then(serde_json::Value::as_str).map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
         begin_token: Some(token.or_else(new_begin_token)?),
@@ -1352,9 +1387,19 @@ fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Re
 /// cannot be told.
 fn same_chat(args: &Args, record: &Record) -> bool {
     let Some(pinned) = record.source_session_id.as_deref() else { return false };
-    let params = json!({"surface": args.surface});
+    let params = source_tab(args, record);
     call_once(&args.from, "agent-transfer-source", params, CALL_TIMEOUT)
         .is_ok_and(|answer| answer["session"].as_str() == Some(pinned))
+}
+
+/// How the source verbs of `record`'s move name its tab: by the public id the source answered
+/// (it outlives a restart of the source daemon, which gives the tab a new surface), else by
+/// `--surface` (a source too old to answer one).
+fn source_tab(args: &Args, record: &Record) -> Value {
+    match &record.source_tab {
+        Some(tab) => json!({"tab": tab}),
+        None => json!({"surface": args.surface}),
+    }
 }
 
 /// The chat is frozen in a move this command did not record.

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.autoArchive.idleDays.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Days unopened and unchanged. Pinned, running and waiting workspaces never archive."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أيام دون فتح أو تغيير. لا تُؤرشف أبدًا مساحات العمل المثبتة أو العاملة أو المنتظرة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dani bez otvaranja i promjena. Prikačeni, pokrenuti i radni prostori koji čekaju nikad se ne arhiviraju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dage uden at være åbnet eller ændret. Fastgjorte, kørende og ventende arbejdsområder arkiveres aldrig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tage ohne Öffnen und ohne Änderung. Angeheftete, laufende und wartende Arbeitsbereiche werden nie archiviert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Días sin abrirse ni cambiar. Los espacios de trabajo fijados, en ejecución o en espera nunca se archivan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jours sans ouverture ni changement. Les espaces épinglés, actifs ou en attente ne sont jamais archivés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giorni senza aperture né modifiche. Gli spazi di lavoro fissati, in esecuzione o in attesa non vengono mai archiviati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開かず、変更もなかった日数。ピン留め中、実行中、対応待ちのワークスペースはアーカイブしません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួនថ្ងៃដែលមិនបានបើក និងមិនផ្លាស់ប្តូរ។ កន្លែងធ្វើការដែលខ្ទាស់ កំពុងដំណើរការ ឬកំពុងរង់ចាំ មិនដែលទុកក្នុងប័ណ្ណសារទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열지 않았고 바뀌지 않은 일수입니다. 고정된 워크스페이스, 실행 중이거나 확인이 필요한 워크스페이스는 보관하지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dager uten å bli åpnet eller endret. Festede, kjørende og ventende arbeidsområder arkiveres aldri."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dni bez otwarcia i bez zmian. Przypięte, działające i czekające obszary robocze nigdy nie są archiwizowane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dias sem abrir nem mudar. Espaços fixados, em execução ou aguardando você nunca são arquivados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дней без открытия и изменений. Закреплённые, работающие и ждущие рабочие пространства не архивируются."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำนวนวันที่ไม่ได้เปิดและไม่มีการเปลี่ยนแปลง เวิร์กสเปซที่ปักหมุด กำลังรัน หรือกำลังรอจะไม่ถูกเก็บถาวร"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Açılmadan ve değişmeden geçen gün sayısı. Sabitlenmiş, çalışan ve bekleyen çalışma alanları hiç arşivlenmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скільки днів без відкриття й змін. Закріплені, активні й ті, що чекають на вас, робочі простори ніколи не архівуються."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Số ngày không mở và không thay đổi. Không gian đã ghim, đang chạy hoặc đang chờ không bao giờ bị lưu trữ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未打开且无变化的天数。已固定、正在运行和等待中的工作区不会被归档。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未開啟且無變化的天數。已釘選、執行中和等待中的工作區不會被封存。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -11,7 +11,8 @@ import CmuxNextWakeups
 /// is kept, the stack's order and the rule that the higher entry that is on wins, so the card and
 /// the CLI never differ, and this type keeps no state.
 ///
-/// `list` only reads, so the page may ask for it; `on`, `off`, `order` and `remove` rewrite the
+/// `list` and `standup` (one line per entry, to read out at standup) only read, so the page may ask
+/// for them; `on`, `off`, `order` and `remove` rewrite the
 /// person's settings and files, so they run only on the person's click or key in the page
 /// (`context.userGesture`, the host's record) or a call they approved, as Agent integrations'
 /// installs do: a page script alone gets `cmux.app.user_only`.
@@ -22,7 +23,7 @@ import CmuxNextWakeups
 /// (cmux-customize `checklist.rs`); `has` names the connections the page already holds. It only reads.
 ///
 /// The customize doctor (cmux-customize `library/doctor.rs`, Settings' doctor card) rides the same
-/// op: `doctor` reads `cmux --json customize doctor`; `doctor-fix` {id, fix: off|remove|restore|follow-default},
+/// op: `doctor` reads `cmux --json customize doctor`; `doctor-fix` {id, fix: off|remove|restore},
 /// `doctor-dismiss` {id} and `doctor-recover` run its `fix`, `dismiss` and `recover` verbs;
 /// `doctor-open` {id} reads the report
 /// and opens the finding's `path` (a folder revealed in Finder, a file in its default app), the
@@ -139,16 +140,16 @@ public final class SettingsCustomizeLibrary: PageProvider {
             return doctor
         case "doctor-fix":
             let id = try findingID()
-            guard let fix = params["fix"]?.stringValue, ["off", "remove", "restore", "follow-default"].contains(fix) else {
-                throw PageError.invalidParams("fix is off, remove, restore or follow-default")
+            guard let fix = params["fix"]?.stringValue, ["off", "remove", "restore"].contains(fix) else {
+                throw PageError.invalidParams("fix is off, remove or restore")
             }
             return doctor + ["fix", id, fix]
         case "doctor-dismiss":
             return doctor + ["dismiss", try findingID()]
         case "doctor-recover":
             return doctor + ["recover"]
-        case "list":
-            return base + ["list"]
+        case "list", "standup":
+            return base + [verb]
         case "reset":
             // Every entry off (`cmux customize library reset`), the palette's Reset Customization Library.
             return base + ["reset"]
@@ -162,7 +163,7 @@ public final class SettingsCustomizeLibrary: PageProvider {
             }
             return base + [verb, name, position]
         default:
-            throw PageError.invalidParams("verb is list, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
+            throw PageError.invalidParams("verb is list, standup, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
         }
     }
 
@@ -221,5 +222,91 @@ public final class SettingsCustomizeLibrary: PageProvider {
                                      timeout: timeout, onCancel: .finish)
         let outcome = try await AsyncProcess().run(request)
         return (outcome.succeeded ? 0 : max(outcome.status, 1), outcome.output, outcome.errorOutput)
+    }
+}
+
+/// Settings > Appearance > Looks (webviews `LooksGalleryCard.tsx`): `cmux.settings.looks {verb, id?,
+/// reference?, scheme?, yes?, ids?}` runs `cmux --json setup VERB …` through the bundled CLI and
+/// answers its JSON, or its error envelope (an install with no `yes` answers `setup.needs_consent`
+/// with the card the page shows before it installs). The catalog, the previews, the layers and every
+/// write are the CLI's (cmux-customize `setup`, cmux-tui `cli/setup/repo.rs`); this type keeps no state.
+///
+/// `gallery` and `preview` only read, so the page may ask for them; `install`, `remove`, `on`, `off`
+/// and `order` change the person's setup, so they run only on a click or key in the page or a call
+/// they approved, as the library's verbs do.
+@MainActor
+public final class SettingsLooks: PageProvider {
+    /// The one op this part serves.
+    public static let op = "cmux.settings.looks"
+    /// The verbs that change the person's setup.
+    nonisolated static let changes: Set<String> = ["install", "remove", "on", "off", "order"]
+
+    private let cli: @MainActor () async -> URL?
+    private let settingsFile: @MainActor () -> URL?
+    private let runCLI: SettingsCustomizeLibrary.Runner
+
+    public init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?,
+                runCLI: @escaping SettingsCustomizeLibrary.Runner) {
+        self.cli = cli
+        self.settingsFile = settingsFile
+        self.runCLI = runCLI
+    }
+
+    /// The app's: the bundled CLI run as a child process.
+    public convenience init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?) {
+        self.init(cli: cli, settingsFile: settingsFile, runCLI: { try await SettingsCustomizeLibrary.run($0, $1, $2) })
+    }
+
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard op == Self.op else { throw PageError.unknownOp(op) }
+        let arguments = try Self.arguments(params)
+        if let verb = arguments.dropFirst(2).first, Self.changes.contains(verb) {
+            guard context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "\(verb) needs a click in the page")
+            }
+        }
+        guard let binary = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
+        let environment = SettingsCustomizeLibrary.environment(ProcessInfo.processInfo.environment, settingsFile: settingsFile())
+        let (status, stdout, stderr) = try await runCLI(binary, arguments, environment)
+        return (try? JSONValue.parse(status == 0 ? stdout : stderr)) ?? .object([:])
+    }
+
+    /// The CLI's words for one page call: `--json setup VERB …`. Every id and reference is an argument
+    /// of its own and never a flag.
+    nonisolated static func arguments(_ params: JSONValue) throws -> [String] {
+        let base = ["--json", "setup"]
+        let word = { (key: String) throws -> String in
+            guard let value = params[key]?.stringValue, isWord(value) else {
+                throw PageError.invalidParams("\(key) is a look id or repo")
+            }
+            return value
+        }
+        switch params["verb"]?.stringValue ?? "" {
+        case "gallery":
+            return base + ["gallery"]
+        case "preview":
+            let scheme = params["scheme"]?.stringValue == "light" ? "light" : "dark"
+            return base + ["preview", try word("id"), "--scheme", scheme]
+        case "install":
+            let yes = params["yes"]?.boolValue == true
+            return base + ["install", try word("reference")] + (yes ? ["--yes"] : [])
+        case let verb where verb == "remove" || verb == "on" || verb == "off":
+            return base + [verb, try word("id")]
+        case "order":
+            guard case .array(let values)? = params["ids"], !values.isEmpty else {
+                throw PageError.invalidParams("ids is the looks' order, top first")
+            }
+            let ids = try values.map { value -> String in
+                guard let id = value.stringValue, isWord(id) else { throw PageError.invalidParams("ids are look ids") }
+                return id
+            }
+            return base + ["order"] + ids
+        default:
+            throw PageError.invalidParams("verb is gallery, preview, install, remove, on, off or order")
+        }
+    }
+
+    nonisolated static func isWord(_ text: String) -> Bool {
+        !text.isEmpty && !text.hasPrefix("-") && text.count <= 512 && !text.contains(where: { $0.isNewline })
     }
 }

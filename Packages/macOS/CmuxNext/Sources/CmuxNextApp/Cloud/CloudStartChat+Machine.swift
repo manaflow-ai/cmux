@@ -14,8 +14,8 @@ import Foundation
 /// Each send is kept under the account it began in (``CloudStartCore/accountText(_:)``), and takes a machine only
 /// of the list the server answered for that account (``checkAccount(_:now:listCurrent:)``).
 extension CloudStartChat {
-    /// The plan's request: the send's key, account and Mac workspace, who is signed in, the machines the account's list named (as the pick
-    /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
+    /// The plan's request: the send's key, account and Mac workspace, who is signed in (`user`: the platform `user_…` id a machine's `created_by` names, not the Stack id,
+    /// or no machine is the person's to reuse), the account's listed machines, the store's others (`stored`), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             local: String? = nil, stored: [String], environment: String? = nil, access: Bool = false, reservationKey: String? = nil,
                             platform: String? = nil, ensureProject: Bool? = nil, size: CloudChatSize? = nil, bytes: Int64? = nil, planMax: CloudChatSize? = nil) -> String {
@@ -68,7 +68,7 @@ extension CloudStartChat {
         async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
         async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
         let access = try? await accessRead, install = try await installRead
-        let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
+        let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.platformUserID,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
                                        reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)
@@ -115,6 +115,7 @@ extension CloudStartChat {
             let pinMachine = plan.machine == nil ? id : nil, key = start.key
             async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
             async let routeAhead: String? = { @MainActor in if let pinMachine { await CloudMachineRoute(api: cloud.machineAPI, machineID: pinMachine).report() } else { nil } }()
+            let shown = machines.session(id ?? ""); shown?.waking = asker?.waking; defer { shown?.waking = nil } // the card's "Waking machine" while it settles
             let session: CloudMachineSession
             do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; _ = await routeAhead; throw error }
             try await pinned

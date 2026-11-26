@@ -25,6 +25,7 @@ import {
 import { COMMAND_STATE } from "../tasksSectionModel";
 import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
 import { TASK_ICONS } from "../taskIcons";
+import { orderedCountWords } from "../subagentsSectionModel";
 import { compactTokens } from "../../conversation/compactionNoteModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl } from "./links";
@@ -299,12 +300,10 @@ export function useNativeWorkflowPhases(workflows: readonly WorkflowSummary[]) {
 
 const workflowCounts = (t: Translate, agents: readonly WorkflowAgent[]) => {
   const counts = tally(agents);
-  return [
-    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
-    counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
-    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
-    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
-  ].filter((part): part is string => typeof part === "string");
+  return orderedCountWords(
+    { failed: counts.failed, running: counts.running, queued: counts.queued, done: counts.done },
+    t,
+  );
 };
 
 const workflowStateWord = (t: Translate, state: WorkflowAgent["state"]): string => {

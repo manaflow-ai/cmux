@@ -5,6 +5,7 @@
 // and pages out of a long transcript; this one stays on the chat, so the composer's hat can show it
 // between turns and after reopening the chat.
 import type { AcpmuxPlanEntry } from "./model";
+import { earlierPlanShown, type EarlierPlanHatArm } from "./subagents/earlierPlanHat.experiment";
 
 /// The summary's `taskList`, as the pane keeps it.
 export type ChatTaskList = {
@@ -63,10 +64,12 @@ export const hasStepsLeft = (list: ChatTaskList | undefined): list is ChatTaskLi
 /// What the composer's hat shows as its plan. `live`: the running turn's own list; `earlier`: an
 /// earlier turn's list with steps left that the transcript still holds; `list`: the chat's kept list.
 /// - A running turn's own list leads, as before.
-/// - A running turn without one shows the earlier list, marked as from before the person's last
-///   message (nothing spins in it); the chat's list stands in for it when that turn's row paged out
-///   of a long transcript. A list the Chief or the agent keeps is the chat's current one, not an
-///   earlier turn's: it shows as it is.
+/// - A running turn without one shows the earlier list only while a step in it is still in progress
+///   (`earlierArm`, earlierPlanHat.experiment.ts; Leo, 2026-11-25: "do we want to render it like that
+///   tho in teh composer hat"), as a collapsed chip with nothing spinning; the chat's list stands in
+///   for it when that turn's row paged out of a long transcript. A list of pending steps only (a
+///   deferred reminder) leaves the hat. A list the Chief or the agent keeps is the chat's current
+///   one, not an earlier turn's: it shows as it is.
 /// - Between turns the chat's list shows while steps are left (`kept`: nothing spins, the hat is not
 ///   lit as working), so the person sees what is done and what is next without scrolling back.
 export function hatPlanOf({
@@ -74,18 +77,20 @@ export function hatPlanOf({
   live,
   earlier,
   list,
+  earlierArm = "chip",
 }: {
   working: boolean;
   live?: readonly AcpmuxPlanEntry[];
   earlier?: readonly AcpmuxPlanEntry[];
   list?: ChatTaskList;
+  earlierArm?: EarlierPlanHatArm;
 }): { plan: readonly AcpmuxPlanEntry[]; earlier: boolean; kept: boolean } | undefined {
   if (working && live && live.length > 0) return { plan: live, earlier: false, kept: false };
   const kept = hasStepsLeft(list) ? list : undefined;
   if (working) {
     if (kept && kept.source !== "harness") return { plan: kept.items, earlier: false, kept: false };
-    if (earlier && earlier.length > 0) return { plan: earlier, earlier: true, kept: false };
-    if (kept) return { plan: kept.items, earlier: true, kept: false };
+    if (earlierPlanShown(earlierArm, earlier)) return { plan: earlier!, earlier: true, kept: false };
+    if (kept && earlierPlanShown(earlierArm, kept.items)) return { plan: kept.items, earlier: true, kept: false };
     return undefined;
   }
   return kept ? { plan: kept.items, earlier: false, kept: true } : undefined;

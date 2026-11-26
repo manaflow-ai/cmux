@@ -2193,7 +2193,12 @@ impl Brain {
         for (id, text, floor, requires_approval, quiet) in done {
             // A stopped run (the person's own stop) owes no outcome.
             if !quiet {
-                self.note_finished(&id);
+                let (report, policy) = self
+                    .state
+                    .sub(&id)
+                    .map(|(_, sub)| (sub.report.clone().unwrap_or_default(), sub.policy.clone()))
+                    .unwrap_or_default();
+                self.note_finished(&id, &report, policy.as_deref());
             }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),

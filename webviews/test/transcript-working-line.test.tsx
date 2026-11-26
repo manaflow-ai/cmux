@@ -42,7 +42,7 @@ test("Thinking is the word alone, with no mark before it; the word itself shimme
   expect(html).toContain('class="cv-thinking is-shimmer"');
 });
 
-test("a running label's shimmer includes its timer and uses the slow cadence", async () => {
+test("a running label's shimmer lights its words alone, not its timer, and uses the slow cadence", async () => {
   const html = renderToStaticMarkup(
     <Thinking
       since={at}
@@ -52,7 +52,10 @@ test("a running label's shimmer includes its timer and uses the slow cadence", a
     />,
   );
   expect(html).toContain('class="cv-shimmer__row"');
-  expect(html).toContain('class="cv-shimmer__lit-time" data-text="50s"');
+  // The band lights the words only: no lit copy of "50s" for the glimmer to run onto at the end of its
+  // pass (Leo, 2026-11-25: "and the overlap when the glimmer goes to the end").
+  expect(html).not.toContain("cv-shimmer__lit-time");
+  expect(html).toContain(">50s<");
   const css = await Bun.file(new URL("../src/pages/shared/desktop.css", import.meta.url)).text();
   expect(css).toContain("--cmux-shimmer-period: 2.8s");
   expect(css).toMatch(/@keyframes cmux-shimmer-band[\s\S]*?45%[\s\S]*?100%/);

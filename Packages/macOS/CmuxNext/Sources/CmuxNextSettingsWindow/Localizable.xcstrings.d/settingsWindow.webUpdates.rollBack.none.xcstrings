@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.webUpdates.rollBack.none" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The built-in web UI is served, so there is nothing to roll back."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "واجهة الويب المضمّنة هي المستخدمة، فلا يوجد ما يمكن التراجع عنه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristi se ugrađeno web sučelje, pa nema šta da se vrati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den indbyggede webbrugerflade er i brug, så der er intet at rulle tilbage."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die integrierte Web-Oberfläche wird verwendet, es gibt nichts zurückzusetzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se usa la interfaz web integrada, así que no hay nada que revertir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’interface web intégrée est utilisée : il n’y a rien à annuler."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "È in uso l’interfaccia web integrata, quindi non c’è nulla da ripristinare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内蔵の Web UI を使用中のため、ロールバックするものはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កំពុងប្រើចំណុចប្រទាក់វេបដែលភ្ជាប់មកជាមួយ ដូច្នេះគ្មានអ្វីត្រូវត្រឡប់ក្រោយទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "기본 제공 웹 UI를 사용 중이라 되돌릴 것이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det innebygde nettgrensesnittet er i bruk, så det er ingenting å rulle tilbake."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Używany jest wbudowany interfejs webowy, więc nie ma czego przywracać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A interface web integrada está em uso, então não há nada para reverter."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используется встроенный веб-интерфейс, откатывать нечего."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "กำลังใช้ UI เว็บในตัว จึงไม่มีอะไรให้ย้อนกลับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yerleşik web arayüzü kullanılıyor, geri alınacak bir şey yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використовується вбудований вебінтерфейс, тож відкочувати нічого."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đang dùng giao diện web tích hợp sẵn nên không có gì để quay lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在使用内置网页界面,没有可回退的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在使用內建網頁介面,沒有可回復的內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

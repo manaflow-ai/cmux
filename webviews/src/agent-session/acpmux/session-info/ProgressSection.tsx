@@ -13,6 +13,7 @@
 import { memo } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { Check, Spinner } from "../conversation/icons";
+import { PlanStep } from "../conversation/PlanList";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { type SessionInfoPlan } from "./progressSectionModel";
@@ -43,7 +44,9 @@ export const ProgressSection = memo(function ProgressSection({ plan }: { plan: S
                 </span>
               )}
             </span>
-            <span className="acpmux-session-info-progress__text">{entry.content}</span>
+            <span className="acpmux-session-info-progress__text">
+              <PlanStep content={entry.content} />
+            </span>
             {/* The marks are drawn only; a screen reader hears the state. */}
             <span className="acpmux-session-info-sr-only">{t(STATUS[entry.status])}</span>
           </li>

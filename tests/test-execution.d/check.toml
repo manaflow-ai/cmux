@@ -31,6 +31,10 @@ path = "tests/test_check_paths.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_removed_ui.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_swift_acpmux_protocol.py"
 lane = "linux-guard"
 

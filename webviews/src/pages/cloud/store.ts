@@ -4,6 +4,7 @@
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, pageError, type PageClient } from "../shared/pageClient";
+import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
@@ -37,7 +38,6 @@ import {
   type AuthStatus,
   type CloudMachine,
   type CloudPlan,
-  type CloudUsage,
   type CloudSnapshot,
   type CloudTeam,
   type CreateMachineArgs,
@@ -49,6 +49,7 @@ import {
   type RetentionOverrides,
   type SnapshotListResult,
   type CloudSurge,
+  type CloudUsage,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
@@ -182,6 +183,10 @@ export class CloudStore {
   private unwatch?: () => void;
   /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
   private unwatchAuth?: () => void;
+  /** The host's `cmux.page.connection` stream: lives from the first listener to the last. */
+  private unwatchLink?: () => void;
+  /** Bumped when the last listener leaves: a link subscribe that answers after that closes itself. */
+  private linkLifetime = 0;
   /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
   private lifetime = 0;
   /** The lifetime whose account subscribe is in flight, if any. */
@@ -286,10 +291,18 @@ export class CloudStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) void this.start();
+    if (this.listeners.size === 1) {
+      void this.followLink();
+      void this.start();
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stop();
+      if (this.listeners.size === 0) {
+        this.linkLifetime += 1;
+        this.unwatchLink?.();
+        this.unwatchLink = undefined;
+        this.stop();
+      }
     };
   };
 
@@ -1237,6 +1250,37 @@ export class CloudStore {
     // keeping what it shows (a first read that failed has its own `startLater`).
     if (!wasDown && this.state.connection === "disconnected" && this.started) this.reconnectLater();
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * Follows the host's word on the owner link (`cmux.page.connection`): the moment it says the link
+   * is up again, a page that is still disconnected reads again at once instead of at its next backoff
+   * step (up to CLOUD_RESTART_MAX_MS later). A host without the stream (an older one, the mock) leaves
+   * the backoff alone.
+   */
+  private async followLink(): Promise<void> {
+    if (!this.client) return;
+    const lifetime = this.linkLifetime;
+    try {
+      const stop = await subscribePageStreams(this.client, {
+        onConnection: (connected) => {
+          if (connected && lifetime === this.linkLifetime) this.relinkNow();
+        },
+      });
+      if (lifetime !== this.linkLifetime) return stop();
+      this.unwatchLink = stop;
+    } catch {
+      // The link is down now: the backoff reads again, and the next first listener subscribes again.
+    }
+  }
+
+  /** The link is back: a disconnected page reads again now, as Retry does, with nothing cleared from the screen. */
+  private relinkNow(): void {
+    if (this.listeners.size === 0 || this.state.connection !== "disconnected") return;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.started) this.stop();
+    void this.start();
   }
 
   /**

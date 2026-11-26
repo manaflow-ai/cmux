@@ -373,7 +373,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",

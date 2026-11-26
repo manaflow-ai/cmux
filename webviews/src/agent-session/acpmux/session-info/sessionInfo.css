@@ -1377,6 +1377,12 @@ button.acpmux-session-info-port:hover,
   text-align: start;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
+/* A command with nothing to open: the row is no button and says why in its tooltip, which sits on the
+   row (TasksSection.tsx). The disabled button lets the pointer through to it, so the tooltip shows; the
+   row keeps its ink, the command whole. */
+.acpmux-session-info-task__open:disabled {
+  pointer-events: none;
+}
 .acpmux-session-info-task__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;

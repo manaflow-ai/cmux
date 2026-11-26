@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.layout.messages.help" : {
+      "comment" : "Settings > Agent Chat > Chat Layout > Message Layout: help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كيف تظهر رسائلك في المحادثة: فقاعة على اليمين، أو صف مسطح على اليسار مع خط تمييز، أو بطاقة على اليسار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kako se vaše poruke prikazuju u razgovoru: oblačić desno, ravan red lijevo s naglašenom linijom ili kartica lijevo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan dine beskeder vises i chatten: en boble til højre, en flad række til venstre med en accentlinje eller et kort til venstre."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie deine Nachrichten im Chat stehen: als Blase rechts, als flache Zeile links mit einem Akzentstrich oder als Karte links."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cómo se muestran tus mensajes en el chat: una burbuja a la derecha, una fila plana a la izquierda con una línea de acento o una tarjeta a la izquierda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Comment vos messages s'affichent dans la discussion : une bulle à droite, une ligne simple à gauche avec un filet d'accent, ou une carte à gauche."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Come appaiono i tuoi messaggi nella chat: una bolla a destra, una riga semplice a sinistra con una linea d'accento o una scheda a sinistra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットでのメッセージの表示方法：右側の吹き出し、左側のアクセント線付きのフラットな行、または左側のカード。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបដែលសាររបស់អ្នកបង្ហាញក្នុងការជជែក៖ ពពុះនៅខាងស្ដាំ ជួរសំប៉ែតនៅខាងឆ្វេងមានបន្ទាត់សង្កត់ ឬកាតនៅខាងឆ្វេង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅에서 내 메시지가 놓이는 방식: 오른쪽 말풍선, 강조선이 있는 왼쪽의 평평한 행, 또는 왼쪽 카드."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvordan meldingene dine vises i chatten: en boble til høyre, en flat rad til venstre med en aksentlinje eller et kort til venstre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak Twoje wiadomości wyglądają w czacie: dymek po prawej, płaski wiersz po lewej z linią akcentu lub karta po lewej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Como suas mensagens aparecem no chat: um balão à direita, uma linha simples à esquerda com um traço de destaque ou um cartão à esquerda."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Как ваши сообщения выглядят в чате: пузырь справа, простая строка слева с акцентной линией или карточка слева."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้อความของคุณแสดงในแชตอย่างไร: ฟองข้อความทางขวา แถวเรียบทางซ้ายพร้อมเส้นเน้น หรือการ์ดทางซ้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mesajlarınızın sohbette nasıl durduğu: sağda bir balon, solda vurgu çizgili düz bir satır veya solda bir kart."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Як ваші повідомлення виглядають у чаті: бульбашка праворуч, простий рядок ліворуч з акцентною лінією або картка ліворуч."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cách tin nhắn của bạn hiển thị trong cuộc trò chuyện: bong bóng bên phải, hàng phẳng bên trái có vạch nhấn, hoặc thẻ bên trái."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的消息在聊天中的样式：右侧气泡、左侧带强调线的平铺行，或左侧卡片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的訊息在聊天中的樣式：右側氣泡、左側帶強調線的平鋪列，或左側卡片。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

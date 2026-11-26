@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentMcp.shadowed" : {
+      "comment" : "Settings > MCP Servers, Claude Code and Codex: another server with the same name, set closer to the folder, runs instead of this one",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A server with this name in a closer scope runs instead."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعمل بدلًا منه خادم بالاسم نفسه في نطاق أقرب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Umjesto njega radi server istog imena iz bližeg opsega."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En server med samme navn i et nærmere omfang kører i stedet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stattdessen läuft ein Server gleichen Namens aus einem näheren Bereich."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se ejecuta en su lugar un servidor con este nombre de un ámbito más cercano."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un serveur du même nom, dans une portée plus proche, s'exécute à sa place."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al suo posto viene eseguito un server con lo stesso nome in un ambito più vicino."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "より近いスコープにある同名のサーバーが代わりに動作します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ម៉ាស៊ីនមេដែលមានឈ្មោះដូចគ្នានៅក្នុងវិសាលភាពជិតជាង ដំណើរការជំនួសវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "더 가까운 범위의 같은 이름 서버가 대신 실행됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En server med samme navn i et nærmere omfang kjører i stedet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamiast niego działa serwer o tej nazwie z bliższego zakresu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um servidor com este nome em um escopo mais próximo é executado no lugar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вместо него работает сервер с тем же именем из более близкой области."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เซิร์ฟเวอร์ชื่อเดียวกันในขอบเขตที่ใกล้กว่าจะทำงานแทน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bunun yerine daha yakın kapsamdaki aynı adlı sunucu çalışır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Замість нього працює сервер із тією ж назвою з ближчої області."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một máy chủ cùng tên ở phạm vi gần hơn sẽ chạy thay thế."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更近作用域中的同名服务器会代替它运行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更近範圍中的同名伺服器會代替它執行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

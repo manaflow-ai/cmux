@@ -30,7 +30,8 @@ export function githubSource(state: GitHubPickerState): {
     return {
       status: state.status.pendingApproval ? "source.github.needsApproval" : "composer.githubConnect",
       action: "connect",
-      ...(state.status.pendingApproval ? { message: "source.github.approvalDetail" as const } : {}),
+      // What happens next, not only what is missing: the repositories come here once an owner approves (Leo 2026-11-25).
+      ...(state.status.pendingApproval ? { message: "source.github.approvalNext" as const } : {}),
     };
   if (state.error)
     return { status: state.rateLimited ? "source.github.busy" : "source.github.offline", action: "retry" };

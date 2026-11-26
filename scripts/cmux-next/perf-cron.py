@@ -1477,6 +1477,11 @@ def supersede_for_unread(state, t, newest, supported_parts):
     had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
     cur = state.get("current")
     gave = cur.get("superseded") if isinstance(cur, dict) and isinstance(cur.get("superseded"), dict) else None
+    if not gave and isinstance(cur, dict) and cur.get("parts_todo") and all(is_linux_part(p) for p in cur["parts_todo"]):
+        # Mac parts that ended 'no_tree' before wait_for_tree kept a record: that record has no `at`, so it ends now.
+        lost = [p for p in (cur.get("parts") or {}).values() if isinstance(p, dict) and p.get("state") == "no_tree"]
+        if lost:
+            gave = {"why": lost[0].get("reason") or "no published cmux-tui tree"}
     if gave and cur.get("parts_todo"):
         # Its Linux parts may still run, for SUPERSEDED_LINUX_HOURS: the newer tip measures them again anyway, and
         # a Linux request the build controller never answers otherwise held the measurement to ABANDON_WALL_HOURS
@@ -1666,6 +1671,40 @@ def note_host_offline(state, host, reason, t):
 def needs_mac(cur):
     """The measurement still has a Mac part to run (pure): only then does the fleet's script version matter."""
     return any(not is_linux_part(p) for p in cur.get("parts_todo") or [])
+
+
+def rerun_stale_linux(state, cur, t):
+    """Put back to do each Linux part the tip measurement in flight already ran whose newest stored rows
+    (state['part_stored']) are older than PART_STALE_HOURS, while the measurement still waits on a Mac part and has no
+    Linux part left (pure on state). A Linux part takes no Mac, so it need not wait for the Mac parts to end; each part
+    runs again at most once per PART_STALE_HOURS (cur['linux_reruns'], else the measurement's start). Returns the parts
+    put back.
+
+    2026-11-25: tip b76703549055 ran web-ui-god on 11-24, when its incomplete report stored no row (cmux#55126 fixed
+    that), and then waited on Mac parts until its 48 h bound, so NOW's idle_chat_rest_wakeups_per_s stayed 3 days
+    stale after the fix merged: a one-minute Linux bench waited behind a two-day measurement."""
+    if cur.get("kind") != "tip" or cur.get("closed_at") or not needs_mac(cur):
+        return []
+    if any(is_linux_part(p) for p in cur.get("parts_todo") or []):
+        return []
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    reruns = cur.get("linux_reruns") if isinstance(cur.get("linux_reruns"), dict) else {}
+    back = []
+    for name in list(cur.get("parts") or {}):
+        if name not in PART_BY_NAME or not is_linux_part(name):
+            continue
+        e = stored.get(name)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) and e.get("at") else None
+        if at and hours_between(at, t) <= PART_STALE_HOURS:
+            continue
+        last = parse_iso(reruns[name]) if reruns.get(name) else parse_iso(cur.get("started_at"))
+        if not last or hours_between(last, t) <= PART_STALE_HOURS:
+            continue  # its last run, or the measurement's start, is newer than PART_STALE_HOURS
+        back.append(name)
+    if back:
+        cur["parts_todo"].extend(back)
+        cur["linux_reruns"] = {**reruns, **{name: iso(t) for name in back}}
+    return back
 
 
 def drop_dead_measurement(state, t, measurable):
@@ -1878,6 +1917,12 @@ def wait_for_tree(cur, t, tree_ready):
         cur["parts"][name] = {"state": "no_tree", "reason": why}
         cur["parts_todo"].remove(name)
     cur.pop("tree_wait_since", None)
+    if cur["parts_todo"]:
+        # Its Linux parts get SUPERSEDED_LINUX_HOURS, as a superseded tip's do (supersede_for_unread): the next tip,
+        # whose tree is published, measures them again with its Mac parts. Without the bound they held the next tip
+        # back for hours (tip 2322b92a, 2026-11-23: Mac parts no_tree at 19:14Z, 16 Linux parts still to do at 22:30Z,
+        # so tabs, never read, waited behind them).
+        cur["superseded"] = {"by": None, "why": why, "at": iso(t)}
     return ""
 
 
@@ -1924,6 +1969,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
             cur["host"] = pin
     if cur and mac_disabled:
         disable_mac_parts(cur, mac_disabled)
+    if cur:
+        rerun_stale_linux(state, cur, t)
     tree_wait = wait_for_tree(cur, t, tree_ready) if cur else ""
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
@@ -4507,11 +4554,16 @@ def record_part(cur, part, result, run_url, t=None):
         # (linux_route), and no yield of the part, so the runner job is the last try before yielded_out (review of
         # cmux#48328: three such answers ended the part yielded_out and the runner never ran it).
         ask["answered_at"] = iso(t or now_utc())
+        if any(str(line).startswith("not queued") for line in result.get("tail") or []):
+            ask["not_queued"] = True  # the pool is full (LINUX_POOL_FULL_MINUTES): linux_route sends it to the runner
+            cur["linux_not_queued_at"] = ask["answered_at"]
         entry = dict(cur["parts"].get(part) or {"yields": 0})
         entry.update({"state": "yielded", "step_id": result.get("step_id"), "run_url": run_url,
                       "seconds": result.get("seconds")})
         cur["parts"][part] = entry
         return entry
+    if isinstance(ask, dict) and not ask.get("fell_back_at"):
+        cur.pop("linux_not_queued_at", None)  # the pool ran a part: it takes requests again
     if is_linux_part(part):
         asks.pop(part, None)  # answered (a run, or the runner's yield): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
@@ -4907,6 +4959,15 @@ LINUX_REQUESTS_MAX = 2
 # Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
 # reaches the state through a result run or replay-results.
 LINUX_ANSWER_SLACK_MINUTES = 60
+# A controller answer "not queued: ..." (no Linux pool worker can take the step now: "cmux-linux-pool-... is not online
+# and healthy; 145 more busy") says the pool is full, not that the part failed. Asking it again for the same part only
+# waited another round trip, and the controller route asks for one part a tick, so the parts behind it were never
+# asked: tip 6c8931ce22be (started 2026-11-25 09:55Z) had 23 Linux parts to do and 4 h later had stored none, while
+# web-ui-ladder and web-ui-fidelity (NOW's sim_ladder_marginal_ratio_max, sim_fidelity_divergence_max) sat 21st and
+# 22nd behind web-ui-orchestrator and web-ui-power-user re-asking a full pool (runs 45621925320, 45629673926). For this
+# long after such an answer (linux_pool_full) the part answered so runs on the runner at once, and every other part the
+# controller would be asked for joins the runner matrix beside it; one part is still asked, to see the pool come back.
+LINUX_POOL_FULL_MINUTES = 60
 # The Linux parts the controller never runs: cloud-claim reads the production Cloud journey's artifacts with the run's
 # own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
 # windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
@@ -4933,28 +4994,38 @@ def linux_route(cur, part, t, controller, has_script):
     if asked and (t - asked).total_seconds() < linux_answer_minutes(part) * 60 and not ask.get("answered_at"):
         return "wait"
     ask.pop("answered_at", None)  # a yielded answer (record_part): unanswered now
+    not_queued = ask.pop("not_queued", False)  # ...that said the pool is full: the runner now (LINUX_POOL_FULL_MINUTES)
     if ask.get("fell_back_at"):
         # The runner had its window too: back to the controller, a new count.
         asks[part] = {"asked_at": iso(t), "unanswered": 0}
         return "request"
     ask["unanswered"] = int(ask.get("unanswered") or 0) + 1
     ask["asked_at"] = iso(t)
-    if ask["unanswered"] >= LINUX_REQUESTS_MAX:
+    if ask["unanswered"] >= LINUX_REQUESTS_MAX or not_queued:
         ask["fell_back_at"] = iso(t)
         return "runner"
     return "request"
+
+
+def linux_pool_full(cur, t):
+    """The controller's newest answer for a Linux part, less than LINUX_POOL_FULL_MINUTES ago, was "not queued" (pure;
+    record_part keeps cur['linux_not_queued_at'], and clears it when the pool runs a part)."""
+    at = parse_started(cur.get("linux_not_queued_at")) if isinstance(cur, dict) else None
+    return bool(at) and (t - at).total_seconds() < LINUX_POOL_FULL_MINUTES * 60
 
 
 def linux_picks(cur, order, t, controller, has_script):
     """This tick's Linux parts (runner parts, controller request, parts waiting), taking ORDER's parts in turn: every
     part linux_route sends to the runner joins the linux matrix (one runner each, all at once), the first it sends to
     the controller is asked, and a part whose request is in its answer window (linux_route 'wait') holds back only
-    itself. The linux and linux-request jobs are separate, so one tick may run parts on the runners and ask the
-    controller for another. linux_route keeps state, so it runs on a copy to look and on CUR only for the parts
+    itself. While the pool is full (linux_pool_full) every other part it would ask for joins the matrix too, with no
+    request kept for it. The linux and linux-request jobs are separate, so one tick may run parts on the runners and
+    ask the controller for another. linux_route keeps state, so it runs on a copy to look and on CUR only for the parts
     picked. Before 2026-11-23 the first part in order alone was routed: while coord-sim's request waited (about 3 h a
     window), no Linux part ran, and a superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
     look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
-    runners, request, waiting = [], "", []
+    runners, request, waiting, unasked = [], "", [], []
+    full = linux_pool_full(cur, t)
     for part in order:
         how = linux_route(look, part, t, controller, has_script)
         if how == "wait":
@@ -4963,8 +5034,11 @@ def linux_picks(cur, order, t, controller, has_script):
             runners.append(part)
         elif how == "request" and not request:
             request = part
+        elif how == "request" and full:
+            runners.append(part)
+            unasked.append(part)  # never asked: record_part folds its runner result as any runner part's
     for part in (*runners, request):
-        if part:
+        if part and part not in unasked:
             linux_route(cur, part, t, controller, has_script)
     return runners, request, waiting
 

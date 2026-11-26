@@ -15,6 +15,7 @@ import {
   type HybridBlockedWhy,
   type HybridLook,
   type HybridPin,
+  type HybridStartState,
   type HybridView,
   type SlotHolder,
 } from "./hybridModel";
@@ -37,6 +38,10 @@ type Props = {
   holders?: SlotHolder[];
   /// Where the chat runs now, after the name (the app's place state in the real mount).
   where?: string;
+  /// A hybrid start's step (RFD 0078 "the start"), as Rust's `Show` sends it.
+  start?: HybridStartState;
+  /// Why the start failed, in Rust's word.
+  reason?: string;
 };
 
 const HOLDERS: SlotHolder[] = [
@@ -51,7 +56,7 @@ const VIEWS: Record<Props["state"], HybridView> = {
   waiting: { lit: false, waiting: true, pin: "auto", at: "local", used: 3, total: 3 },
 };
 
-function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, holders, where }: Props) {
+function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, holders, where, start, reason }: Props) {
   const [view, setView] = useState(VIEWS[state]);
   const [mode, setMode] = useState(pin);
   const [held, setHeld] = useState(holders);
@@ -64,6 +69,7 @@ function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, hold
       lit={view.lit}
       waiting={view.waiting}
       where={where}
+      start={start ? { cloud: start, ...(reason ? { reason } : {}) } : undefined}
       blocked={blocked ? { why: blocked } : undefined}
       onBlockedClick={() => undefined}
       holders={held}
@@ -234,6 +240,63 @@ firstRun["chat-above-three-state-full-holders"] = {
   height: 400,
 };
 
+// RFD 0078 "the start" (Leo, 11:17Z: "we don't have to wait for cloud machines to be up and running
+// before we start a model"): a chat with Cloud chosen answers here at once while its machine boots,
+// then moves at a tool boundary or turn end. The button alone shows each step; no dialog, no banner.
+const START_NOTES: Record<HybridStartState, string> = {
+  booting: "Starting here: the chat already answers on this Mac; the dull cloud breathes while its machine boots.",
+  ready: "Cloud ready: the cloud takes its color; the chat moves at its next tool call or when the turn ends.",
+  moving: "Moving: a sweep runs along the cloud; a message sent now waits and lands once the chat has moved.",
+  live: "In Cloud: lit and still, the machine's name after the name.",
+  failed: "Failed, still running here: the dull cloud with the warning dot; the tooltip gives Rust's reason.",
+};
+const theStart: Record<string, { note: string; props: Props }> = {};
+for (const step of Object.keys(START_NOTES) as HybridStartState[]) {
+  const extra = {
+    ...(step === "live" ? { where: "atlas-web-cloud" } : {}),
+    ...(step === "failed" ? { reason: "The machine did not answer within 3 minutes." } : {}),
+  };
+  theStart[`chat-above-three-state-start-${step}`] = {
+    note: `${SPOT_NOTES["chat-above"]} ${START_NOTES[step]}`,
+    props: {
+      page: "chat",
+      spot: "above",
+      look: "rainbow",
+      state: "off",
+      tri: "segments",
+      pin: "cloud",
+      start: step,
+      ...extra,
+    },
+  };
+  theStart[`chat-above-three-state-start-${step}-cycle`] = {
+    note: `${SPOT_NOTES["chat-above"]} One-button form. ${START_NOTES[step]}`,
+    props: {
+      page: "chat",
+      spot: "above",
+      look: "rainbow",
+      state: "off",
+      tri: "cycle",
+      pin: "cloud",
+      start: step,
+      ...extra,
+    },
+  };
+  theStart[`chat-above-three-state-start-${step}-sky`] = {
+    note: `${SPOT_NOTES["chat-above"]} Sky look. ${START_NOTES[step]}`,
+    props: {
+      page: "chat",
+      spot: "above",
+      look: "sky",
+      state: "off",
+      tri: "segments",
+      pin: "cloud",
+      start: step,
+      ...extra,
+    },
+  };
+}
+
 export default componentEntry<Props>({
   id: "agent-pane.hybrid-cloud-toggle",
   title: "Hybrid chats: the cloud button",
@@ -248,5 +311,5 @@ export default componentEntry<Props>({
     "agent-session/acpmux/hybrid/hybridModel.ts",
   ],
   load: async () => Stage,
-  variants: { ...lead, ...firstRun, ...variants },
+  variants: { ...lead, ...firstRun, ...theStart, ...variants },
 });

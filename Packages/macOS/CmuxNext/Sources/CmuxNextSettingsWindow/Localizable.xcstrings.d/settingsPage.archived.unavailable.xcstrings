@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.archived.unavailable" : {
+      "comment" : "Settings > Sidebar > Archived Workspaces: shown when no cmux window is open to read the list from.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archived workspaces show here once a cmux window is open."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تظهر مساحات العمل المؤرشفة هنا بعد فتح نافذة cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arhivirani radni prostori prikazuju se ovdje kada se otvori prozor cmux."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arkiverede arbejdsområder vises her, når et cmux-vindue er åbent."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivierte Workspaces erscheinen hier, sobald ein cmux-Fenster geöffnet ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los espacios de trabajo archivados aparecen aquí cuando hay una ventana de cmux abierta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les espaces de travail archivés s’affichent ici dès qu’une fenêtre cmux est ouverte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli spazi di lavoro archiviati compaiono qui quando è aperta una finestra di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux のウインドウを開くと、アーカイブ済みのワークスペースがここに表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងធ្វើការដែលបានទុកក្នុងបណ្ណសារបង្ហាញនៅទីនេះ នៅពេលបង្អួច cmux បើក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 창이 열리면 보관된 워크스페이스가 여기에 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arkiverte arbeidsområder vises her når et cmux-vindu er åpent."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zarchiwizowane obszary robocze pojawią się tutaj po otwarciu okna cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os espaços de trabalho arquivados aparecem aqui quando uma janela do cmux está aberta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Архивные рабочие пространства появятся здесь, когда будет открыто окно cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เวิร์กสเปซที่เก็บถาวรจะแสดงที่นี่เมื่อเปิดหน้าต่าง cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir cmux penceresi açıldığında arşivlenmiş çalışma alanları burada görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Архівовані робочі простори з’являться тут, коли відкрито вікно cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không gian làm việc đã lưu trữ sẽ hiện ở đây khi có cửa sổ cmux đang mở."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 cmux 窗口后，已归档的工作区会显示在这里。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟 cmux 視窗後，已封存的工作區會顯示在這裡。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

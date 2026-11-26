@@ -7,11 +7,13 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
-/* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
-   backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
-   borders-none and Reduce Transparency preserve the existing card contract. */
+/* The box uses the same glass material as the chat composer (ComposerBox.tsx) and the popups: the
+   shared tint, backdrop and rim are owned by .ui-glass (composerStates.css, ONE MATERIAL FAMILY), its
+   drop is the popups' (--ui-popup-drop), and in a see-through Chromium page it is the App's popover
+   glass (data-host-glass="popover"). Keep the composer's edge alias so focus, borders-none and Reduce
+   Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--nt-box-radius);position:relative}
-.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
+.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--ui-popup-drop,var(--elevation-2))}
 .nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:var(--nt-box-height);--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-composer-surface{--acpmux-composer-edge:transparent;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine

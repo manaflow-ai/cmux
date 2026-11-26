@@ -1929,11 +1929,11 @@ impl Hub {
         {
             hook.pause();
         }
-        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
+        // The rows fence, then the registry with no lock (`peer_table.rs`).
+        let _rows = self.remote_sessions.fence();
+        let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
             return;
         };
-        let _rows = self.remote_sessions.fence();
         if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }

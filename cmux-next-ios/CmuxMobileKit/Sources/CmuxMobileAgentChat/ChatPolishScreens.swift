@@ -36,7 +36,7 @@ struct SessionInfoScreen: View {
                 HStack(spacing: 12) {
                     AgentBrandMark(agent: store.summary.harness, size: 22, style: .brand)
                         .frame(width: 40, height: 40)
-                        .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+                        .cmuxMobileContentSurface(.inset, in: Circle())
                     VStack(alignment: .leading, spacing: 2) {
                         Text(store.displayTitle).font(.headline).lineLimit(2)
                         Text("\(store.summary.agentName) · \(store.summary.workspaceTitle)")
@@ -373,7 +373,7 @@ struct ReplayConversationScreen: View {
             case .ready:
                 if let replay = player.store {
                     AgentChatTranscript(store: replay, surface: player.surface)
-                        .background(Color.cmuxMobileBackground)
+                        .background { CmuxMobileChatBackdrop() }
                         .overlay(alignment: .bottom) {
                             ChatReplayControls(player: player)
                                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
@@ -667,7 +667,7 @@ struct ChatReplayControls: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 24))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }

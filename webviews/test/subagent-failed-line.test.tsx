@@ -164,10 +164,10 @@ test("a failed line that opens its subagent is one button with its task and reas
   expect(line.querySelector(".cv-subagent-failed__reason")?.textContent).toBe(
     "Agent terminated early due to an API error",
   );
-  // Its name says what it opens and why it failed; the cut failure is whole in its title.
+  // Its name says what it opens and the whole failure; no tooltip draws over the next row.
   expect(line.getAttribute("aria-label")).toContain("Auto mode laptop daemon");
-  expect(line.getAttribute("aria-label")).toContain("Agent terminated early due to an API error");
-  expect(line.querySelector(".cv-subagent-failed__text")?.getAttribute("title")).toContain(ERROR);
+  expect(line.getAttribute("aria-label")).toContain(ERROR);
+  expect(row.querySelector("[title]")).toBeNull();
   act(() => line.click());
   expect(opened).toEqual(["a"]);
   // The row's time opens it too (the pointer's wider target); Retry keeps its own click.
@@ -189,4 +189,6 @@ test("a failed line's button lifts its words under the pointer as a tool row doe
     /:has\(> button\.cv-subagent-done\):is\(:hover, :focus-within\)\s*> button\.cv-subagent-done\s*> \.cv-tool__text \{\s*color: var\(--cv-text\)/,
   );
   expect(css).not.toContain(".cv-subagent-failed__text > .cv-agent-tag.is-open");
+  // The button fills its grid track; the reason follows its title (cmux#54927), no even split.
+  expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done \{[^}]*justify-self: stretch;[^}]*width: 100%;/);
 });

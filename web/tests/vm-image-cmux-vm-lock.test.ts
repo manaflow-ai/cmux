@@ -506,6 +506,39 @@ describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-h
   });
 });
 
+describe("codex ships codex-code-mode-host beside codex (2026-11-25: every Cloud Codex tool call failed to spawn the host)", () => {
+  const lock = readInputsLock();
+  const codexIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "codex");
+  const HOST = "bin/codex-code-mode-host";
+
+  test("the lock lists the host beside the codex binary", () => {
+    const codex = lock.programs.find((p) => p.name === "codex")!;
+    expect(codex.companions).toEqual([HOST]);
+    expect(Object.values(codex.bin)[0]).toBe("bin/codex");
+  });
+
+  test("the install refuses an archive without the host before it moves into the store", () => {
+    const codex = lock.programs.find((p) => p.name === "codex")!;
+    const cmd = programInstallCommand(codex);
+    expect(cmd).toContain(`test -x /opt/cmux/store/${codex.sha256}.partial/${HOST}`);
+    expect(cmd.indexOf(`/${HOST}`)).toBeLessThan(cmd.indexOf("chmod -R a-w"));
+  });
+
+  test("a codex entry without the host is refused with the reason", () => {
+    const raw = fresh();
+    delete raw.programs[codexIndex()].companions;
+    expect(problemsOf(raw)).toContain(
+      `programs[${codexIndex()}].companions: codex spawns codex-code-mode-host from beside bin/codex; list ${HOST} (an archive without it breaks every tool call)`,
+    );
+  });
+
+  test("a companion must be a relative path inside the store entry", () => {
+    const raw = fresh();
+    raw.programs[codexIndex()].companions = ["../codex-code-mode-host"];
+    expect(problemsOf(raw)).toContain(`programs[${codexIndex()}].companions: must be a non-empty array of relative paths inside the store entry`);
+  });
+});
+
 describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> on manaflow-ai/cmux)", () => {
   const entry = (version = "0.1.0") => ({ ...cmuxRdReleaseShape(version), sha256: "cd".repeat(32), size: 4096 });
   const withRd = (patch: Record<string, unknown> = {}) => {

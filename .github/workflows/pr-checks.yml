@@ -66,6 +66,7 @@ on:
       - "docs/ci/node-product-cache-maintenance.md"
       - "plans/cmux-next/actions.md"
       - "docs/mdm/managed-preferences.md"
+      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
       - "docs/network-requirements.md"
@@ -80,6 +81,7 @@ on:
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
+      - "Native/OptChat/chief-kernel/src/turn_checks.md"
     # docs-only paths: END
   # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
   # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.

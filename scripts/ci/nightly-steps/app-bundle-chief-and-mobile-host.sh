@@ -30,9 +30,14 @@ if ! python3 scripts/ci/background_build.py join --state "$state" mobile-host; t
   if [ -n "$host_bin" ]; then
     bash scripts/ci/nightly-steps/stale-part.sh cmux-mobile-host \
       "the iPhone host failed to build; bundled the last good one ($(tr '\n' ' ' < "$host_bin.ref" 2>/dev/null || echo "$host_bin"))"
+  elif bash scripts/ci/nightly-steps/mobile-host-fallback.sh "$archs" "${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}"; then
+    # No earlier build on this Mac (a fresh runner): the published NIGHTLY's copy keeps iPhone connections.
+    host_bin="$CMUX_NEXT_MOBILE_HOST_PENDING_BIN"
+    bash scripts/ci/nightly-steps/stale-part.sh cmux-mobile-host \
+      "the iPhone host failed to build; bundled the published NIGHTLY's ($(tr '\n' ' ' < "$host_bin.ref"))"
   else
     bash scripts/ci/nightly-steps/stale-part.sh cmux-mobile-host \
-      "the iPhone host failed to build and this Mac has no earlier one; the nightly ships without iPhone connections"
+      "the iPhone host failed to build and neither this Mac nor the published NIGHTLY has one; the nightly ships without iPhone connections"
   fi
 fi
 if [ -n "$host_bin" ]; then

@@ -110,6 +110,18 @@ struct SidebarAgentRowPresentationTests {
             workspaceNameSource: .user, sessionName: "peer/demo-lane", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
     }
 
+    /// #56422: `agents chat new --name` names the workspace and the chat alike; the daemon pins the
+    /// workspace's (user, revision 1), so the chat's first-prompt title never replaces it.
+    @Test func anExplicitlyNamedChatWorkspaceKeepsItsName() {
+        let name = "56151: Plan bar icon alignment"
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: name, workspaceName: name, workspaceNameSource: .user, workspaceNameRevision: 1,
+                                             sessionName: name, chatTitle: "Fix GitHub issue https://github.com/manaflow-ai/cmux/issues/56151",
+                                             taskSummary: nil) == name)
+        // The same name as a starting name (auto) still follows the chat.
+        #expect(SidebarMapping.agentRowTitle(workspaceTitle: name, workspaceName: name, workspaceNameSource: .auto,
+                                             sessionName: name, chatTitle: "Fix the plan bar", taskSummary: nil) == "Fix the plan bar")
+    }
+
     @Test func peerNamesUseTheSameResolverAndKeepRenames() throws {
         for name in ["peer/demo-lane", "demo-lane", "workspace-7"] {
             let workspace = try fixture(name: name, nameSource: name == "workspace-7" ? .auto : .user,

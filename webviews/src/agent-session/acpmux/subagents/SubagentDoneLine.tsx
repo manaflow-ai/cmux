@@ -213,7 +213,6 @@ function DoneLine({
     ].join(" · ") || t("subagents.state.failed");
   // The quiet line opens the subagent's view from anywhere on it, as a tool row opens.
   const quietOpen = quiet ? open : undefined;
-  const cutFailure = error !== undefined && shortReason(error) !== error.trim();
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
@@ -252,7 +251,11 @@ function DoneLine({
           className="cv-tool cv-subagent-done-row"
           attributes={{ "data-state": "failed", "data-look": "quiet", "data-refused": "" }}
         >
-          <div className="cv-tool cv-bgtask cv-subagent-done" data-state="failed" aria-label={`${name} · ${reason}`}>
+          <div
+            className="cv-tool cv-bgtask cv-subagent-done"
+            data-state="failed"
+            aria-label={error ? `${name} · ${error}` : `${name} · ${reason}`}
+          >
             <span className="cv-tool__icon">
               <AgentIdentity
                 harness={foreignHarness(agent.harness, chatHarness, senderBadge)}
@@ -261,8 +264,8 @@ function DoneLine({
                 fallback={SUBAGENT_FALLBACK}
               />
             </span>
-            {/* tooltip-allow: the line cuts the harness's reason; its whole text */}
-            <span className="cv-tool__text cv-subagent-failed__text" title={error ? `${name} · ${error}` : name}>
+            {/* No tooltip: it drew over the next row (cmux#52916); the whole reason is in the name. */}
+            <span className="cv-tool__text cv-subagent-failed__text">
               <span className="cv-subagent-failed__title">{name}</span>
               <span className="cv-subagent-failed__reason">{reason}</span>
             </span>
@@ -368,12 +371,9 @@ function DoneLine({
           {quiet ? (
             // What it was asked to do and why it failed, in the line itself: no chip, no ring and
             // no hover card over the row above (cmux#52916, on "Subagent  Failed" with a ringed
-            // chip and a "Failed · 0s" card). The whole failure shows only where the line cuts it.
-            <span
-              className="cv-tool__text cv-subagent-failed__text ui-reveal-text"
-              // tooltip-allow: the line cuts the failure to its first sentence; its whole text
-              title={cutFailure ? whole : undefined}
-            >
+            // chip and a "Failed · 0s" card). No tooltip either, not even for a cut failure: it drew
+            // over the next row. The whole failure is in the button's name and in the view it opens.
+            <span className="cv-tool__text cv-subagent-failed__text ui-reveal-text">
               <span className="cv-subagent-failed__title">{name}</span>
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
