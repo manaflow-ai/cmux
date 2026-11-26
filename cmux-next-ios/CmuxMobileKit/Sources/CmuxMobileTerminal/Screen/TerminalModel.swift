@@ -106,10 +106,14 @@ public final class TerminalModel {
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
     public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)?
+    /// The live upload queue (the Rust engine): an attachment starts sending
+    /// when it is picked, each tile shows its progress, and every stage can
+    /// be cancelled. When set, it carries attachments instead of `uploader`.
+    public var attachmentSender: (any TerminalAttachmentSending)?
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
-        if uploader != nil { return true }
+        if uploader != nil || attachmentSender != nil { return true }
         #if DEBUG
         return session is MockTerminalSession
         #else
@@ -134,15 +138,31 @@ public final class TerminalModel {
     /// table or a long line stays one row and the page pans sideways to it.
     /// For this page's life.
     public internal(set) var wideOutput = false
-    /// Attachments are being sent; the composer waits.
-    public internal(set) var isUploading = false
+    /// A send is waiting for its attachments to reach the Mac. The composer
+    /// stays usable: Send turns into Stop (``cancelSend()``), tiles can be
+    /// removed, and the text can be edited meanwhile.
+    public var isUploading: Bool { pendingSend != nil }
     /// Why the last send with attachments failed (shown over the composer).
     public internal(set) var attachmentError: String?
     /// The composer's text was not sent (the Mac is unreachable), or keys
     /// typed meanwhile were dropped: shown over the composer until the
     /// person sends again or edits (termfix-r13 D5, T-INPUT-17).
     public internal(set) var composerNotice: String?
-    @ObservationIgnored private var uploadTask: Task<Void, Never>?
+    private struct PendingSend {
+        let attachmentIDs: Set<ComposerAttachment.ID>
+        let task: Task<Void, Never>
+    }
+    private var pendingSend: PendingSend?
+
+    @MainActor
+    private final class PendingPick {
+        weak var model: TerminalModel?
+        var task: Task<Void, Never>?
+
+        init(model: TerminalModel) { self.model = model }
+        deinit { task?.cancel() }
+    }
+    @ObservationIgnored private var pendingPicks: [ComposerAttachment.ID: PendingPick] = [:]
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
@@ -916,39 +936,105 @@ public final class TerminalModel {
 
     private func sendAttachments(pressReturn: Bool) {
         guard !isUploading else { return }
-        guard let uploader else {
+        if let loading = attachments.first(where: \.isLoading) {
+            attachmentError = "\(loading.name) is still loading from Photos."
+            return
+        }
+        if let attachmentSender {
+            sendQueued(pressReturn: pressReturn, via: attachmentSender)
+        } else if let uploader {
+            waitForAttachments(pressReturn: pressReturn) { attachment in
+                try await uploader(try attachment.payload(), attachment.name)
+            }
+        } else {
+            attachmentError = "Connect to the Mac to send attachments."
+        }
+    }
+
+    /// Pick-time uploads may already be done. An explicit Send starts any stopped or failed items again.
+    private func sendQueued(pressReturn: Bool, via sender: any TerminalAttachmentSending) {
+        for index in attachments.indices {
+            let owner = attachments[index].uploadSender ?? sender
+            let state = attachments[index].uploadID.flatMap { owner.progress($0)?.stage }
+            if attachments[index].uploadID == nil || state == .failed || state == .cancelled {
+                if let old = attachments[index].uploadID { owner.cancel(old) }
+                attachments[index].startUpload(via: sender)
+            }
+        }
+        guard attachments.allSatisfy({ $0.uploadID != nil }) else {
             attachmentError = "Connect to the Mac to send attachments."
             return
         }
-        let pending = attachments
-        isUploading = true
+        waitForAttachments(pressReturn: pressReturn) { attachment in
+            guard let id = attachment.uploadID else { throw ComposerAttachment.Unreadable() }
+            return try await (attachment.uploadSender ?? sender).wait(id)
+        }
+    }
+
+    private func waitForAttachments(
+        pressReturn: Bool,
+        path: @escaping @MainActor (ComposerAttachment) async throws -> String
+    ) {
+        let order = attachments.map(\.id)
+        let ids = Set(order)
         attachmentError = nil
-        uploadTask = Task { [weak self] in
+        let task = Task { [weak self] in
             var paths: [String] = []
-            for attachment in pending {
+            // New picks append. Removing an original tile cancels this task before the tray can shift.
+            for (index, id) in order.enumerated() {
+                guard !Task.isCancelled, self?.attachments.indices.contains(index) == true,
+                      let attachment = self?.attachments[index], attachment.id == id else { return }
                 do {
-                    paths.append(try await uploader(try attachment.payload(), attachment.name))
+                    paths.append(try await path(attachment))
                 } catch {
-                    guard let self else { return }
-                    self.isUploading = false
+                    guard let self, !Task.isCancelled else { return }
+                    self.pendingSend = nil
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
             }
-            guard let self else { return }
-            self.isUploading = false
-            let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
-            let draft = self.composerText
-            if pressReturn { self.controller?.noteSent(draft) }
-            let viaDaemon = self.sendThroughSession(
-                submit,
-                notSent: { [weak self] in self?.composerSendNotSent(draft) },
-                maybeSent: { [weak self] in self?.composerSendMaybeSent(draft) }
-            )
-            if !viaDaemon { self.controller?.surface.perform(submit) }
-            self.composerText = ""
-            self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
+            guard let self, !Task.isCancelled else { return }
+            self.finishAttachmentSend(paths: paths, ids: ids, pressReturn: pressReturn)
         }
+        pendingSend = PendingSend(attachmentIDs: ids, task: task)
+    }
+
+    private func finishAttachmentSend(paths: [String], ids: Set<ComposerAttachment.ID>, pressReturn: Bool) {
+        pendingSend = nil
+        let draft = composerText
+        let submit = ComposerSubmit(attachmentPaths: paths, text: draft, pressReturn: pressReturn)
+        if pressReturn { controller?.noteSent(draft) }
+        let viaDaemon = sendThroughSession(
+            submit,
+            notSent: { [weak self] in self?.composerSendNotSent(draft) },
+            maybeSent: { [weak self] in self?.composerSendMaybeSent(draft) }
+        )
+        if !viaDaemon { controller?.surface.perform(submit) }
+        composerText = ""
+        attachments.removeAll { ids.contains($0.id) }
+    }
+
+    /// Keep the draft, completed Mac paths and any picks made after Send.
+    /// Stop active transfers in this send until the person explicitly retries.
+    public func cancelSend() {
+        guard let pendingSend else { return }
+        pendingSend.task.cancel()
+        self.pendingSend = nil
+        for index in attachments.indices where pendingSend.attachmentIDs.contains(attachments[index].id) {
+            guard let id = attachments[index].uploadID,
+                  let sender = attachments[index].uploadSender ?? attachmentSender,
+                  sender.progress(id)?.stage != .done else { continue }
+            sender.cancel(id)
+            attachments[index].uploadID = nil
+            attachments[index].uploadSender = nil
+        }
+        attachmentError = nil
+    }
+
+    /// An attachment's upload, for its tile (nil: none yet, or no live queue).
+    func uploadProgress(_ attachment: ComposerAttachment) -> UploadProgress? {
+        guard let id = attachment.uploadID else { return nil }
+        return (attachment.uploadSender ?? attachmentSender)?.progress(id)
     }
 
     static func message(_ error: any Error) -> String {
@@ -957,6 +1043,10 @@ public final class TerminalModel {
 
 
     func addAttachment(_ attachment: ComposerAttachment) {
+        var attachment = attachment
+        if attachment.uploadID == nil, attachment.hasContents, let attachmentSender {
+            attachment.startUpload(via: attachmentSender)
+        }
         attachments.append(attachment)
     }
 
@@ -966,8 +1056,78 @@ public final class TerminalModel {
         controller?.presentFilePreview(request)
     }
 
+    enum PickedContents {
+        case image(Data, thumbnail: UIImage?)
+        case movie(PickedMovieCopy, thumbnail: UIImage?, byteCount: Int?)
+    }
+
+    /// Each Photos request belongs to one tile, even when a reconnect replaces the terminal.
+    func loadPickedAttachment(
+        _ tile: ComposerAttachment,
+        load: @escaping @MainActor () async throws -> PickedContents
+    ) {
+        addAttachment(tile)
+        let pick = PendingPick(model: self)
+        pendingPicks[tile.id] = pick
+        pick.task = Task { [weak pick] in
+            do {
+                let contents = try await load()
+                guard !Task.isCancelled, let pick, let model = pick.model else { return }
+                model.pendingPicks[tile.id] = nil
+                model.attachmentLoaded(tile.id, contents)
+            } catch {
+                guard !Task.isCancelled, let pick, let model = pick.model else { return }
+                model.removeAttachment(tile.id)
+                model.attachmentError = String(
+                    format: String(localized: "terminal.photos.loadFailed", defaultValue: "Couldn't load %1$@ from Photos: %2$@", bundle: .module),
+                    tile.name, Self.message(error)
+                )
+            }
+        }
+    }
+
+    func adoptAttachments(from previous: TerminalModel) {
+        guard attachments.isEmpty, self !== previous else { return }
+        previous.pendingSend?.task.cancel()
+        previous.pendingSend = nil
+        attachments = previous.attachments
+        previous.attachments.removeAll()
+        pendingPicks = previous.pendingPicks
+        previous.pendingPicks.removeAll()
+        for pick in pendingPicks.values { pick.model = self }
+    }
+
+    /// A Photos placeholder keeps its place as its image bytes or movie arrive.
+    func attachmentLoaded(_ id: ComposerAttachment.ID, _ contents: PickedContents) {
+        guard let index = attachments.firstIndex(where: { $0.id == id && $0.isLoading }) else { return }
+        switch contents {
+        case let .image(data, thumbnail):
+            attachments[index].data = data
+            attachments[index].byteCount = data.count
+            attachments[index].thumbnail = thumbnail
+        case let .movie(copy, thumbnail, byteCount):
+            attachments[index].pickedMovie = copy
+            attachments[index].fileURL = copy.url
+            attachments[index].byteCount = byteCount
+            attachments[index].thumbnail = thumbnail
+        }
+        attachments[index].isLoading = false
+        if let attachmentSender { attachments[index].startUpload(via: attachmentSender) }
+    }
+
     func removeAttachment(_ id: ComposerAttachment.ID) {
-        attachments.removeAll { $0.id == id }
+        guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+        pendingPicks.removeValue(forKey: id)?.task?.cancel()
+        let removed = attachments.remove(at: index)
+        let wasPending = pendingSend?.attachmentIDs.contains(id) == true
+        let sender = removed.uploadSender ?? attachmentSender
+        if let uploadID = removed.uploadID { sender?.cancel(uploadID) }
+        if wasPending {
+            // Invalidate the path list. Other tiles still in the tray keep their pick-time transfers.
+            pendingSend?.task.cancel()
+            pendingSend = nil
+            attachmentError = nil
+        }
         if attachments.isEmpty { attachmentError = nil }
     }
 
@@ -1012,6 +1172,30 @@ public final class TerminalModel {
         guard count > 0 else { return "" }
         let cut = String(text.prefix(count - 1))
         return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
+    }
+
+    /// Demo driver `live-attach` (the pair-e2e rig's attachment leg): a picked video, as the Photos
+    /// picker hands it over (a file on the phone), starts uploading at once like any pick.
+    public func demoAttachVideo(at url: URL) {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        addAttachment(ComposerAttachment(kind: .video, name: url.lastPathComponent, byteCount: size, fileURL: url))
+    }
+
+    /// Demo driver `live-attach`: the first tile's X, as a tap on it does.
+    public func demoRemoveFirstAttachment() {
+        if let id = attachments.first?.id { removeAttachment(id) }
+    }
+
+    /// Demo driver `live-attach`: the first tile's upload, for the rig's log ("none" without one).
+    public func demoUploadState() -> String {
+        guard let first = attachments.first, let p = uploadProgress(first) else { return "none" }
+        return "\(p.stage) \(p.ackedBytes)/\(p.totalBytes) attempt \(p.attempt)"
+    }
+
+    /// Demo driver `live-attach`: whether the first tile's upload moves bytes (past the Mac's first ack).
+    public var demoUploadAcked: Bool {
+        guard let first = attachments.first, let p = uploadProgress(first) else { return false }
+        return p.stage == .uploading && p.ackedBytes > 0 && p.ackedBytes < p.totalBytes
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
@@ -1175,8 +1359,21 @@ public struct ComposerAttachment: Identifiable, Sendable {
     /// A file on the phone (a picked video's local copy, a picked file),
     /// streamed to the Mac at send without reading it whole.
     public var fileURL: URL?
+    var pickedMovie: PickedMovieCopy?
+    /// Its upload in the live queue, started when it was picked.
+    public var uploadID: String?
+    /// A rebuilt terminal has a new sender. An export still belongs to the sender that started it.
+    var uploadSender: (any TerminalAttachmentSending)?
 
-    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil, data: Data? = nil, fileURL: URL? = nil) {
+    @MainActor mutating func startUpload(via sender: any TerminalAttachmentSending) {
+        uploadID = sender.start(self)
+        uploadSender = uploadID == nil ? nil : sender
+    }
+    /// Photos is still copying it out (a tile shows at once; removable meanwhile).
+    public var isLoading: Bool
+
+    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil, data: Data? = nil, fileURL: URL? = nil, isLoading: Bool = false) {
+        self.isLoading = isLoading
         self.kind = kind
         self.name = name
         self.thumbnail = thumbnail
@@ -1191,8 +1388,11 @@ public struct ComposerAttachment: Identifiable, Sendable {
 
     /// The attachment as the file preview reads it.
     public var localFile: LocalFile {
-        LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL)
+        LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL, pickedMovie: pickedMovie)
     }
+
+    /// Bytes or a file to send (a demo tile has neither).
+    var hasContents: Bool { data != nil || fileURL != nil }
 
     func payload() throws -> LinkUpload.Payload {
         if let data { return .data(data) }

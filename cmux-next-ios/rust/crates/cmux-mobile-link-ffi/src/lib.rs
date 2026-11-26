@@ -16,6 +16,7 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod attachment_upload;
 mod auto_chats;
 mod browser;
 #[doc(hidden)]
@@ -48,6 +49,10 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use attachment_upload::{
+    AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
+    VideoPlan, image_plan, video_plan,
+};
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
