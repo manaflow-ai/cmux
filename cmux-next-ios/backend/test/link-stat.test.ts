@@ -81,6 +81,13 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
   })
 
+  it("keeps how the link left the device (proxy, inspected) and drops any other word", () => {
+    expect(linkStatLine(stat({ egress: "inspected" }), "phone", ingress, null)!.egress).toBe("inspected")
+    expect(linkStatLine(stat({ egress: "proxy" }), "phone", ingress, null)!.egress).toBe("proxy")
+    expect(linkStatLine(stat({ egress: "proxy.corp:3128" }), "phone", ingress, null)!.egress).toBeUndefined()
+    expect(linkStatLine(stat(), "phone", ingress, null)!.egress).toBeUndefined()
+  })
+
   it("logs which protocol mapped the Mac's endpoint and whether the route uses it, fixed words only", () => {
     expect(linkStatLine(stat({ path: "direct", portmap: { by: "pcp", used: true } }), "phone", ingress, null)).toMatchObject({ path: "direct", portmapBy: "pcp", portmapUsed: true })
     expect(linkStatLine(stat({ portmap: { by: "upnp", used: false } }), "phone", ingress, null)).toMatchObject({ portmapBy: "upnp", portmapUsed: false })

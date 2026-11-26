@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.machines.colors.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By machine name: \"#RRGGBB\" or an accent name, such as red or blue."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حسب اسم الجهاز: \"#RRGGBB\" أو اسم لون مميز، مثل red أو blue."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Po imenu računara: \"#RRGGBB\" ili naziv akcentne boje, npr. red ili blue."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Efter maskinens navn: \"#RRGGBB\" eller navnet på en accentfarve, fx red eller blue."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nach Rechnername: \"#RRGGBB\" oder der Name einer Akzentfarbe, etwa red oder blue."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Por nombre de equipo: \"#RRGGBB\" o el nombre de un color de acento, como red o blue."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Par nom de machine : \"#RRGGBB\" ou le nom d’une couleur d’accent, comme red ou blue."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Per nome della macchina: \"#RRGGBB\" o il nome di un colore d’accento, come red o blue."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "マシン名ごとに指定: \"#RRGGBB\"、または red や blue などのアクセント名。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តាមឈ្មោះម៉ាស៊ីន៖ \"#RRGGBB\" ឬឈ្មោះពណ៌សង្កត់ ដូចជា red ឬ blue។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기기 이름별: \"#RRGGBB\" 또는 red, blue 같은 강조 색상 이름."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Etter maskinnavn: \"#RRGGBB\" eller navnet på en aksentfarge, som red eller blue."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Według nazwy maszyny: \"#RRGGBB\" lub nazwa koloru akcentu, np. red lub blue."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pelo nome da máquina: \"#RRGGBB\" ou o nome de uma cor de destaque, como red ou blue."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "По имени компьютера: \"#RRGGBB\" или название акцентного цвета, например red или blue."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตามชื่อเครื่อง: \"#RRGGBB\" หรือชื่อสีเน้น เช่น red หรือ blue"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Makine adına göre: \"#RRGGBB\" veya red ya da blue gibi bir vurgu rengi adı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "За назвою комп’ютера: \"#RRGGBB\" або назва акцентного кольору, як-от red чи blue."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Theo tên máy: \"#RRGGBB\" hoặc tên màu nhấn, như red hoặc blue."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按机器名称：\"#RRGGBB\" 或强调色名称，例如 red 或 blue。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "依機器名稱：\"#RRGGBB\" 或強調色名稱，例如 red 或 blue。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
