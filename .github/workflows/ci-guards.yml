@@ -883,6 +883,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_github_token_budget.py
 
+      - name: Validate scheduled workflows dispatch on the cmux bot App token
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cron_dispatch_token_lint.py
+
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
