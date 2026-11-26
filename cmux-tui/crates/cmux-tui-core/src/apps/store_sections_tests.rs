@@ -15,7 +15,7 @@ fn app(id: &str, name: &str, categories: &[&str], date_ms: Option<i64>) -> Shelv
 fn sections_come_in_their_order_with_l10n_keys() {
     let sections = all_sections(vec![
         app("acme/zeta", "Zeta", &["productivity"], Some(30)),
-        app("cmux/coderouter", "CodeRouter", &["developer-tools"], Some(10)),
+        app("cmux/dev", "Dev", &["developer-tools"], Some(10)),
         app("acme/alpha", "Alpha", &["productivity", "developer-tools"], None),
         app("cmux/cloud", "Cloud", &["cloud", "developer-tools"], Some(20)),
     ]);
@@ -24,14 +24,14 @@ fn sections_come_in_their_order_with_l10n_keys() {
         value,
         json!([
             { "id": "featured", "kind": "featured", "title_key": "apps.store.section.featured",
-              "apps": ["cmux/cloud", "cmux/coderouter", "acme/alpha", "acme/zeta"] },
+              "apps": ["cmux/cloud", "acme/alpha", "cmux/dev", "acme/zeta"] },
             { "id": "recent", "kind": "recent", "title_key": "apps.store.section.recent",
-              "apps": ["acme/zeta", "cmux/cloud", "cmux/coderouter"] },
+              "apps": ["acme/zeta", "cmux/cloud", "cmux/dev"] },
             { "id": "category:cloud", "kind": "category", "category": "cloud",
               "title_key": "apps.store.category.cloud", "apps": ["cmux/cloud"] },
             { "id": "category:developer-tools", "kind": "category",
               "category": "developer-tools", "title_key": "apps.store.category.developer-tools",
-              "apps": ["acme/alpha", "cmux/cloud", "cmux/coderouter"] },
+              "apps": ["acme/alpha", "cmux/cloud", "cmux/dev"] },
             { "id": "category:productivity", "kind": "category", "category": "productivity",
               "title_key": "apps.store.category.productivity",
               "apps": ["acme/alpha", "acme/zeta"] },

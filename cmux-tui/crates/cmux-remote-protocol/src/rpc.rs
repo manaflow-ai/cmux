@@ -194,6 +194,10 @@ pub enum RemoteCapability {
     /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
     /// key and writes them (`replace-machine-secrets`).
     SecretsV1,
+    /// `paused-reads-v1`: the session daemon answers `list-directory`, `read-file` and `search`
+    /// for a paused machine from its replica and write journal, with no wake (RFD 0144 piece 2).
+    /// A peer without it wakes the machine for those requests, as before.
+    PausedReadsV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to

@@ -390,6 +390,34 @@
           }
         },
         {
+          "key": "sidebar.folderlessUngrouped",
+          "note": "Group by Folder's rows with no folder sit at the end of the list with no No Folder header (SidebarLayout's folder loop; customize-app-profiles, the Claude Code app's look). Off by default: the No Folder header shows as before.",
+          "title": {
+            "key": "settings.sidebar.folderlessUngrouped",
+            "text": "Ungroup Rows With No Folder"
+          },
+          "help": {
+            "key": "settings.sidebar.folderlessUngrouped.help",
+            "text": "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "projects",
+            "chats",
+            "group",
+            "folder",
+            "no folder",
+            "ungrouped",
+            "header"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.nav",
           "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
           "title": {
@@ -495,7 +523,7 @@
         },
         {
           "key": "sidebar.showLiveToggle",
-          "note": "Off by default (Lawrence 2026-11-25: \"get rid of it by default... keep things as minimal as possible\"; Leo 2026-11-24 first asked for an icon \"somewhere omnipresent\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
+          "note": "Off by default (Lawrence 2026-11-25: \"get rid of it by default... keep things as minimal as possible\"; Leo 2026-11-25 didn't want it on by default either; Leo 2026-11-24 first asked for an icon \"somewhere omnipresent\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
           "title": {
             "key": "settings.sidebar.showLiveToggle",
             "text": "Show Live Button"
@@ -1137,37 +1165,6 @@
             "hidden",
             "hide",
             "sessions"
-          ],
-          "swift_owner": {
-            "type": "SidebarSectionsSetting",
-            "prefixed": true
-          }
-        },
-        {
-          "key": "sidebar.showAutomaticSessions",
-          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
-          "title": {
-            "key": "settings.sidebar.showAutomaticSessions",
-            "text": "Show Automatic Sessions"
-          },
-          "help": {
-            "key": "settings.sidebar.showAutomaticSessions.help",
-            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "sidebar",
-            "automatic",
-            "auto",
-            "script",
-            "automation",
-            "background",
-            "hidden",
-            "hide",
-            "fold",
-            "sessions",
-            "tidy"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",

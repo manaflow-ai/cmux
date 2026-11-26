@@ -23,9 +23,8 @@ use super::catalog::Package;
 use super::store::{APP_STORE, Shelf, bad_request, text};
 use super::supervisor::{ApiError, Supervisor};
 
-/// Featured first, in this order, when present (Leo's store: Cloud, then
-/// CodeRouter).
-const CURATED: [&str; 2] = ["cmux/cloud", "cmux/coderouter"];
+/// Featured first, in this order, when present (Leo's store: Cloud first).
+const CURATED: [&str; 1] = ["cmux/cloud"];
 const DEFAULT_SECTION_LIMIT: usize = 20;
 const MAX_SECTION_LIMIT: usize = 200;
 
