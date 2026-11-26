@@ -392,6 +392,12 @@ pub enum Input {
     PeerChiefNote {
         text: String,
     },
+    /// A background spawn's start lines (`Spawner::background_start`):
+    /// steered into the running main turn; after it, only logged (the view
+    /// shows each subagent), so it never starts a turn of its own.
+    SpawnStartNote {
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -884,6 +890,14 @@ pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_se
 /// Runs after every turn with its key (persist and back up, section 10).
 pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The machine's helper limit (machine_limits.rs).
+pub(crate) struct MachineLimit {
+    /// Most local helpers at work at once.
+    pub(crate) ceiling: usize,
+    /// Why the machine is over budget now, or None when it has room.
+    pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
+}
+
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1006,6 +1020,10 @@ pub struct Brain {
     sign_ins: crate::needs_you_feed::SignInRequests,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// Endpoint-wide Claude gateway health shared with the spawn path.
+    gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// Direct Messages API engine used while the Claude gateway is down.
+    fallback_engine: Option<Engine>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
     /// pauses, and since when each idles (the paused peers are saved in
     /// `state.cloud_paused`).
@@ -1043,6 +1061,11 @@ pub struct Brain {
     agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
+    /// The machine's helper limit (machine_limits.rs): its ceiling and how
+    /// it reads the machine's load; None (tests, `OPTCHAT_MACHINE_HELPERS=0`): none.
+    machine_limit: Option<MachineLimit>,
+    /// Why the machine is over budget at the last read (machine_limits::over_budget).
+    machine_over: Option<String>,
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
     /// set their own (`set_clock`).
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -1089,6 +1112,8 @@ pub struct Brain {
     turn_view: Option<String>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
+    /// Whether the current turn is executing on the direct gateway fallback.
+    turn_gateway_fallback: bool,
     turn_route: Option<crate::turn_route::RoutePick>,
     /// The configured engine before own-turn routing; subagents keep their defaults.
     turn_spawn_engine: Option<crate::engine::TurnEngine>,
@@ -1244,6 +1269,14 @@ impl Brain {
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        let pruned_spawns = state.prune_spawns();
+        if pruned_spawns > 0
+            && let Err(error) = file.save(&state)
+        {
+            log(&format!(
+                "pruning {pruned_spawns} completed spawn records: {error}"
+            ));
+        }
         // Only this home's turn sessions: a name without its prefix is a
         // host before audit round 3's or another home's, never removed.
         let own = format!("{}-", settings.turn_prefix);
@@ -1321,6 +1354,8 @@ impl Brain {
             workspaces: None,
             sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
             sub_starter: None,
+            gateway: None,
+            fallback_engine: None,
             cloud_vms: None,
             cloud_idle,
             reported_elsewhere: Default::default(),
@@ -1339,6 +1374,8 @@ impl Brain {
             cloud_ticked_at: None,
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
+            machine_limit: None,
+            machine_over: None,
             clock: Arc::new(now_ms),
             born_ms: now_ms(),
             watches: HashMap::new(),
@@ -1361,6 +1398,7 @@ impl Brain {
             first_words: turns::FirstWords::default(),
             turn_view: None,
             turn_engine: None,
+            turn_gateway_fallback: false,
             turn_route: None,
             turn_spawn_engine: None,
             describer: None,
@@ -1540,6 +1578,14 @@ impl Brain {
         self.sub_starter = starter;
     }
 
+    pub fn set_gateway(&mut self, gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>) {
+        self.gateway = gateway;
+    }
+
+    pub fn set_fallback_engine(&mut self, engine: Option<Engine>) {
+        self.fallback_engine = engine;
+    }
+
     /// The subagent sessions another acpmux link reports (placed_agents.rs):
     /// a home daemon list without one of them does not end it.
     pub fn set_reported_elsewhere(&mut self, sessions: std::collections::HashSet<String>) {
@@ -1613,6 +1659,18 @@ impl Brain {
     /// Caps the subagents at work at once (None: no cap, the default).
     pub fn set_max_live(&mut self, limit: Option<usize>) {
         self.max_live = limit;
+    }
+
+    /// Limits local helpers to `ceiling` at once, holding new starts while
+    /// `load` says the machine is over budget (machine_limits.rs). Read once
+    /// now and on every subagent tick.
+    pub fn set_machine_limit(
+        &mut self,
+        ceiling: usize,
+        load: Box<dyn Fn() -> Option<String> + Send + Sync>,
+    ) {
+        self.machine_over = load();
+        self.machine_limit = Some(MachineLimit { ceiling, load });
     }
 
     /// Renames subagents' workspaces when they finish (workspaces.rs).
@@ -1931,6 +1989,14 @@ impl Brain {
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.peer_chief_note(text),
+            Input::SpawnStartNote { text } => {
+                if self.phase == Phase::Running && self.turn_side().is_none() {
+                    self.queue(text, Source::Note);
+                    self.interrupt_for_newer();
+                } else {
+                    (self.log)(&format!("spawn start note after its turn: {text}"));
+                }
+            }
             Input::EscalateAuth {
                 agent,
                 request,
@@ -1975,6 +2041,7 @@ impl Brain {
             Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
             Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
             Input::SubTick => {
+                self.read_machine_load();
                 self.sub_tick();
             }
             Input::Setting { key, value, reply } => {

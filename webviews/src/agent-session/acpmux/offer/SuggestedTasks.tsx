@@ -15,6 +15,7 @@ import { useT, type Translate } from "../i18n";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import "../conversation/cardFit.css";
 import "./suggestedTasks.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { openSessionAttributes } from "../conversation/menuParts";
@@ -141,23 +142,27 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
 
   // A lone task once started is its row alone, with no card around it.
   const quiet = single && open.length === 0;
+  // Its own width decides the layout (cardFit.css): in a narrow pane Start all moves under the count,
+  // and a task's buttons wrap to the next line instead of running past the card.
   return (
-    <section className="acpmux-tasks" data-quiet={quiet || undefined} aria-label={heading(t, offers, single)}>
+    <section className="acpmux-tasks cv-fit" data-quiet={quiet || undefined} aria-label={heading(t, offers, single)}>
       {!quiet && (
-        <div className="acpmux-tasks-head">
-          <span className="acpmux-tasks-count">{heading(t, offers, single)}</span>
+        <div className="acpmux-tasks-head cv-fit-row">
+          <span className="acpmux-tasks-count cv-fit-text">{heading(t, offers, single)}</span>
           {!single && open.length === 0 && (
             <span className="acpmux-tasks-note">{t("offer.tasks.started", { n: started.length })}</span>
           )}
           {open.length >= 2 && (
-            <button
-              type="button"
-              className="acpmux-task-action acpmux-tasks-all"
-              disabled={open.every((offer) => busy[offer.offerId])}
-              onClick={() => void startAll()}
-            >
-              {t("offer.tasks.startAll")}
-            </button>
+            <span className="acpmux-tasks-head-actions cv-fit-actions">
+              <button
+                type="button"
+                className="acpmux-task-action acpmux-tasks-all"
+                disabled={open.every((offer) => busy[offer.offerId])}
+                onClick={() => void startAll()}
+              >
+                {t("offer.tasks.startAll")}
+              </button>
+            </span>
           )}
         </div>
       )}
@@ -232,7 +237,12 @@ function OpenTask({
     <ContextMenu items={items} targets="own">
       <div className="acpmux-task" data-busy={busy}>
         <div className="acpmux-task-head">
-          <span className="acpmux-task-title" id={titleId}>
+          <span
+            className="acpmux-task-title"
+            id={titleId}
+            // tooltip-allow: a long task title is cut to the line; its whole text is the tooltip
+            title={offer.title}
+          >
             {offer.title}
           </span>
           <button

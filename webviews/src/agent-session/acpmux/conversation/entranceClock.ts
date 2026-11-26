@@ -2,7 +2,7 @@
 // a turn: "the animation system is so borked and unintegrated"; a UI change is a state transition,
 // so every affected element moves together, with no pop-in).
 //
-// A row that enters fades in on a CSS animation (conversation.css `.acpmux-row--enter`, 80 ms).
+// A row that enters fades in on a CSS animation (conversation.css `.acpmux-row--enter`, 180 ms).
 // WebKit starts a CSS animation's clock when the row's style is first resolved, which is the commit
 // that mounts it (the transcript measures each new row there), not the frame that paints it. With a
 // busy main thread the first frame after that commit came 130 ms or more later, so the fade had
@@ -33,7 +33,7 @@ const ENTRANCES = new Set([
   "cv-recap-bead",
 ]);
 
-type Frames = {
+export type Frames = {
   request: (run: () => void) => number;
   cancel: (handle: number) => void;
   post: (run: () => void) => () => void;
@@ -55,7 +55,7 @@ function postAfterFrame(run: () => void): () => void {
   return cancel;
 }
 
-const windowFrames = (): Frames | undefined =>
+export const windowFrames = (): Frames | undefined =>
   typeof requestAnimationFrame === "function"
     ? {
         request: (run) => requestAnimationFrame(() => run()),
@@ -81,11 +81,24 @@ export function holdEntranceForFirstFrame(
   subtree = false,
 ): () => void {
   if (!frames || typeof row.getAnimations !== "function") return () => {};
-  const held = row
-    .getAnimations(subtree ? { subtree: true } : undefined)
-    .filter((animation) => animation.playState === "running" && isEntrance(animation));
-  if (held.length === 0) return () => {};
-  for (const animation of held) {
+  return holdForFirstFrame(
+    row
+      .getAnimations(subtree ? { subtree: true } : undefined)
+      .filter((animation) => animation.playState === "running" && isEntrance(animation)),
+    frames,
+  );
+}
+
+/// Holds `animations` at time zero through the next frame's rendering and plays them from a task that
+/// frame posts (the new chat's entrance, newChatEntrance.ts, holds its own Web Animations here). One
+/// still paused when the task runs plays; one a page hide finished stays finished. Returns the cancel,
+/// which drops the frame request and the posted task alike.
+export function holdForFirstFrame(
+  animations: readonly Animation[],
+  frames: Frames | undefined = windowFrames(),
+): () => void {
+  if (!frames || animations.length === 0) return () => {};
+  for (const animation of animations) {
     animation.pause();
     animation.currentTime = 0;
   }
@@ -94,7 +107,7 @@ export function holdEntranceForFirstFrame(
     handle = undefined;
     cancelPosted = frames.post(() => {
       cancelPosted = undefined;
-      for (const animation of held) if (animation.playState === "paused") animation.play();
+      for (const animation of animations) if (animation.playState === "paused") animation.play();
     });
   });
   return () => {

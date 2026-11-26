@@ -7,20 +7,22 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
-/* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
-   backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
-   borders-none and Reduce Transparency preserve the existing card contract. */
+/* The box uses the same glass material as the chat composer (ComposerBox.tsx) and the popups: the
+   shared tint, backdrop and rim are owned by .ui-glass (composerStates.css, ONE MATERIAL FAMILY), its
+   drop is the popups' (--ui-popup-drop), and in a see-through Chromium page it is the App's popover
+   glass (data-host-glass="popover"). Keep the composer's edge alias so focus, borders-none and Reduce
+   Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--nt-box-radius);position:relative}
-.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
+.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--ui-popup-drop,var(--elevation-2))}
 .nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:var(--nt-box-height);--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-composer-surface{--acpmux-composer-edge:transparent;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:calc(min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh) - var(--acpmux-attach-band, 0px));margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
-.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:calc(min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh) - var(--acpmux-attach-band, 0px));margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -77,6 +79,11 @@
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:var(--weight-emphasis)}
 .nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
+.nt-chats-evac{margin-left:auto;display:flex;align-items:center}
+.nt-chats-evac:empty{display:none}
+.nt-chats-evac + .nt-chats-all{margin-left:0}
+.nt-chats-evac-body{margin-bottom:var(--ds-space-2)}
+.nt-chats-evac-body:empty{display:none}
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
@@ -391,6 +398,13 @@
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:var(--ds-space-3);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
+/* Status Pills in All Chats (agentPane.display.chatListStatusPills, Taste Board #19): a live chat's state as a small tinted pill at the row's end, in the status palette. */
+.nt-all-pill{--nt-pill:var(--agent-muted);flex:none;margin-left:auto;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--nt-pill) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--nt-pill) 28%,transparent);color:var(--nt-pill);font-size:var(--text-detail);font-weight:500;line-height:18px;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
+.nt-all-state+.nt-all-pill{margin-left:var(--ds-space-2)}
+.nt-all-pill[data-tone=running]{--nt-pill:var(--agent-accent)}
+.nt-all-pill[data-tone=input]{--nt-pill:var(--agent-status-warning)}
+.nt-all-pill[data-tone=done]{--nt-pill:var(--agent-status-success)}
+.nt-all-pill[data-tone=failed]{--nt-pill:var(--agent-status-failure)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
@@ -561,17 +575,28 @@
 }
 /* The right column: the model's text ends where Send's ink ends. Send's glyph stands the composer's
    inset plus half the control's spare room in from the box, and the ↑ path's ink stops 3.225 of its
-   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The model's button
-   still ends on the box's edge (the row spans the box, test/composer-side-inset.test.ts) and takes
-   that distance as its end padding, in a row with room for it: at the composer's narrow steps the
-   row keeps every pixel for its labels (at 320 px a 12 px pad pushed the mode chip off the icon
-   column). */
+   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The row spans the box
+   (test/composer-side-inset.test.ts); the model chip takes that distance as its button's end padding
+   and its wrapper's, in a row with room for it: at the composer's narrow steps the row keeps every pixel for
+   its labels (at 320 px a 12 px pad pushed the mode chip off the icon column). */
+/* The model's pill is as wide after its text as before its mark's ink (Lucas 2026-11-23: the end padding
+   was 20.6 px against 8). The rest of that distance is padding on the chip's wrapper, outside the pill:
+   the hover wash stays the button's, and the row's fit (composerRowFit.ts) counts the wrapper's box. */
+.nt-foot .acpmux-composer-foot .acpmux-model {
+  --nt-model-pad: 8px;
+}
+.nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  padding-inline: var(--nt-model-pad);
+}
 @container composer (min-width: 421px) {
-  .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  .nt-foot .acpmux-composer-foot .acpmux-model {
     --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
-    padding-inline-end: calc(
-      var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
-        var(--nt-send-ink-bearing)
+    padding-inline-end: max(
+      0px,
+      calc(
+        var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
+          var(--nt-send-ink-bearing) - var(--nt-model-pad)
+      )
     );
   }
 }
@@ -623,6 +648,12 @@
    that gap beside the controls, never over them. */
 .nt-input[data-split] > .nt-field-slot {
   margin-inline-end: calc(-1 * min(var(--cmux-scroller-size, 8px), var(--acpmux-composer-lead-gap)));
+}
+/* + stands on the last line too, beside the mic and Send: the field's padding is symmetric, so a one-line
+   box keeps + exactly where its first line put it. */
+.nt-input[data-split] .nt-split-plus {
+  align-self: end;
+  margin: 0 0 var(--nt-input-pad-block);
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
@@ -692,12 +723,18 @@
   --acpmux-attach-inset: 18px;
   --acpmux-attach-gap: var(--ds-space-2);
   --acpmux-attach-height: 64px;
+  --acpmux-attach-top: var(--ds-space-2);
   --acpmux-attach-radius: var(--ds-radius-control);
 }
-/* The attachments sit under the field (NewTabScreen), so the text keeps its place as they come:
-   the field's own bottom inset is the gap above them, a short one below. */
+/* The attachments sit inside the top of the box (NewTabScreen; Leo 2026-11-23, ask-525a5e502a), a
+   short inset above them; the field's own top inset is the gap under them. The field takes the
+   strip's band (its inset and a tile) out of its max height, so at the cap the box keeps its height
+   and edges when attachments land. */
 .nt-box > .acpmux-attachments {
-  padding: 0 var(--acpmux-attach-inset) var(--ds-space-2);
+  padding: var(--acpmux-attach-top) var(--acpmux-attach-inset) 0;
+}
+.nt-box > .acpmux-attachments ~ .nt-input .nt-field {
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
@@ -822,7 +859,7 @@
 /* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
    Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
    changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
-   all look the same to me"). pad, the bare text above, has no rule here; tiles (below) ships.
+   all look the same to me"). pad, the bare text above, has no rule here and ships (Lucas 2026-11-23).
    - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
      --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
      steps back out by the inset, so its glyphs stay on the column. */
@@ -875,7 +912,7 @@
    the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
    the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
    project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
-   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a system settings
+   - tiles: line glyphs in the chip's own ink on soft square tiles, as a system settings
      sidebar; the names stay.
    - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
      the machine and the shield sit on neutral tiles, + on a round one; the project's name in the
@@ -1173,7 +1210,7 @@
   border-radius: 999px;
   --acpmux-attach-inset: 22px;
 }
-/* With attachments under the field the pill is taller than a line: its ends would cut into the
+/* With attachments in the box the pill is taller than a line: its ends would cut into the
    tiles, so it rounds as the composer template's card does. */
 .nt-screen[data-template="cards"] .nt-box:has(> .acpmux-attachments) {
   border-radius: 28px;

@@ -14,7 +14,7 @@ import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { readClockStyle, type NewTabClockStyle } from "./newtab/clockModel";
-import { isStartableProject } from "./newtab/startedProject";
+import { isCloudPick, isStartableProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { ageWithDate } from "./timeLabels";
 
@@ -97,6 +97,8 @@ export type NewTabHost = {
   lastAgent?: string;
   /// The project of the chat the person last picked and started (newtab/startedProject.ts).
   startedProject?: string;
+  /// The folder or GitHub repository the person last started a Cloud chat in (newtab/startedProject.ts).
+  cloudStartedProject?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
@@ -106,6 +108,10 @@ export type NewTabHost = {
   /// The page lists only its own connection's chats, not the store every page shares (another
   /// machine's page, newtab/chatStore.ts).
   privateChatLists?: boolean;
+  /// The page's chats start on another machine (an inherited SSH or Cloud context: AgentPaneNewTab
+  /// `warmedOnThisMac(false)`), known from the first render, before its client connects: a send naming
+  /// `@computer-use` holds as that machine's, never this Mac's setup (CMUX-682).
+  startsRemote?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
   /// only, never All chats. Unset lists All chats where the template does.
   allChats?: false;
@@ -187,11 +193,15 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }
       : {}),
+    ...(isCloudPick(typeof object.cloudStartedProject === "string" ? object.cloudStartedProject : undefined)
+      ? { cloudStartedProject: object.cloudStartedProject as string }
+      : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
+    ...(object.startsRemote === true ? { startsRemote: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
     ...(start ? { start } : {}),

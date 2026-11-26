@@ -340,6 +340,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let name = |verb: &str| format!("{family}.{verb}");
     let mut go = op(&name("go"), "go");
     go["palette"] = json!({ "title": "Go", "when": "paneFocused:editor" });
+    go["keyboard"] = json!([{ "key": "g", "when": "browserFocused" }, { "key": "cmd+g" }]);
     let ops = [go, op(&name("crash"), "crash"), op(&name("focus"), "focusTab")];
     let catalog = json!({ "family": family, "operations": ops });
     std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
@@ -1145,7 +1146,9 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
     let demo = app_entry(&f.supervisor.list(), "cmux/demo");
     assert_eq!(
         demo["commands"],
-        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor" }])
+        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor",
+                 "keys": [{ "key": "cmd+g" }], "page_keys": ["g"],
+                 "page_key_when": { "g": "browserFocused" } }])
     );
     let (tx, rx) = channel();
     f.supervisor.run(
@@ -1156,6 +1159,30 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
         rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(),
         json!({ "value": "go" })
     );
+}
+
+#[test]
+fn page_keys_follow_the_persons_bindings_in_storage() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let keys = |f: &Fixture| {
+        app_entry(&f.supervisor.list(), "cmux/demo")["commands"][0]["page_keys"].clone()
+    };
+    let set = json!({ "key": "cmux.keys", "value": { "demo.go": ["shift+g", "/"] } });
+    assert_eq!(f.call("m1", "app.storage.set", set, false)["ok"], true);
+    assert_eq!(keys(&f), json!(["shift+g", "/"]));
+    let chord = json!({ "key": "cmux.keys", "value": { "demo.go": ["cmd+g"] } });
+    assert_eq!(f.call("m1", "app.storage.set", chord, false)["ok"], true);
+    assert_eq!(keys(&f), json!(["g"]));
+    let off = json!({ "key": "cmux.keys", "value": { "demo.go": [] } });
+    assert_eq!(f.call("m1", "app.storage.set", off, false)["ok"], true);
+    assert_eq!(keys(&f), Value::Null);
+    assert_eq!(
+        f.call("m1", "app.storage.delete", json!({ "key": "cmux.keys" }), false)["ok"],
+        true
+    );
+    assert_eq!(keys(&f), json!(["g"]));
 }
 
 #[test]
@@ -1355,6 +1382,8 @@ mod local_reload;
 mod openers;
 #[path = "supervisor_overlay_tests.rs"]
 mod overlay;
+#[path = "supervisor_pane_flow_tests.rs"]
+mod pane_flow;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
@@ -1373,6 +1402,8 @@ mod status_items;
 mod subscriptions;
 #[path = "supervisor_toolbar_tests.rs"]
 mod toolbar;
+#[path = "supervisor_view_state_tests.rs"]
+mod view_state;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
@@ -1398,6 +1429,9 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_git_tests.rs"]
+mod git_installs;
 
 #[path = "supervisor_scale_tests.rs"]
 mod at_scale;

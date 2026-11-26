@@ -497,6 +497,12 @@ jobs:
           bash scripts/ci/init-submodule.sh ghostty-next
           echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        if: env.SIGN == 'developer-id'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - name: Set up Node
         if: env.SIGN == 'developer-id'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0

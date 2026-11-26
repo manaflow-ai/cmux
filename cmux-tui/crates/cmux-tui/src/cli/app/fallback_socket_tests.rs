@@ -9,6 +9,7 @@ fn candidates_are_the_nightly_paths_new_then_old() {
     assert_eq!(
         paths,
         vec![
+            PathBuf::from("/Users/a/.local/state/cmux-next/cmux-nightly.sock"),
             PathBuf::from("/Users/a/.local/state/cmux/cmux-nightly.sock"),
             PathBuf::from("/tmp/cmux-nightly.sock"),
         ]

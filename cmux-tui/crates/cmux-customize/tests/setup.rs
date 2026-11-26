@@ -545,6 +545,57 @@ fn removing_a_setup_never_deletes_a_library_entry_you_already_had() {
     );
 }
 
+/// A look keeps its thinking dots (a `cmux.particles/1` document) as a file beside its
+/// cmux-setup.json and names it with `{"$file": PATH}` (Leo, 2026-11-19: "i guess the particle
+/// systems could be an api as well... like the customizations thing?"). Reading the look, by a
+/// setup install or `cmux customize try PATH/cmux-setup.json`, puts the document in its place; a
+/// path out of the folder or a link is refused.
+#[test]
+fn a_setting_file_of_the_look_is_read_into_its_value() {
+    let home = Home::new();
+    let repo = home.dir.path().join("look");
+    fs::create_dir_all(repo.join("agent-pane")).unwrap();
+    let glyph = json!({
+        "$schema": "cmux.particles/1",
+        "particle": {"size": 3.3, "max": 1},
+        "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": [[0, 0, 0.7]]}]}}
+    });
+    fs::write(repo.join("agent-pane/thinking-glyph.json"), format!("// dots\n{glyph}")).unwrap();
+    let manifest = |path: &str| {
+        json!({
+            "cmuxSetup": 1, "cmuxProfile": 1, "id": "leo/dots", "name": "Dots",
+            "settings": {
+                "agentPane.display.thinking.glyph": {"$file": path},
+                "agentPane.display.thinking.glyphSize": 2.4
+            }
+        })
+        .to_string()
+    };
+    fs::write(repo.join(SETUP_FILE), manifest("agent-pane/thinking-glyph.json")).unwrap();
+    let read = setup::read_dir(&repo).unwrap();
+    assert_eq!(read.profile.settings["agentPane.display.thinking.glyph"], glyph);
+    assert_eq!(read.profile.settings["agentPane.display.thinking.glyphSize"], json!(2.4));
+    // The same file read as a profile (`cmux customize try PATH`).
+    let tried = home.customize().load_profile(repo.join(SETUP_FILE).to_str().unwrap()).unwrap();
+    assert_eq!(tried.settings["agentPane.display.thinking.glyph"], glyph);
+
+    fs::write(home.dir.path().join("outside.json"), glyph.to_string()).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(home.dir.path().join("outside.json"), repo.join("link.json"))
+        .unwrap();
+    for bad in [
+        "../outside.json",
+        "/etc/hosts",
+        "./agent-pane/thinking-glyph.json",
+        "missing.json",
+        "link.json",
+    ] {
+        fs::write(repo.join(SETUP_FILE), manifest(bad)).unwrap();
+        let Err(Error::Setup(why)) = setup::read_dir(&repo) else { panic!("{bad} is refused") };
+        assert!(why.starts_with("agentPane.display.thinking.glyph: "), "{why}");
+    }
+}
+
 /// A look: its own theme (selected), a stylesheet, and views
 /// (`customize/`, as a repo holds them: the app `local/customize`).
 fn look(root: &Path, id: &str, color: &str) -> PathBuf {
@@ -982,4 +1033,196 @@ fn a_setup_that_picks_the_corner_treatment_keeps_it() {
     let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
     customize.remove_setup(&found, "cli", 20).unwrap();
     assert_eq!(home.settings()["appearance"].get("cornerFlush"), None);
+}
+
+/// A New Tab look as its repo holds it (manaflow-ai/cmux-newtab-cards-look): views that draw the
+/// whole page (`cmux.newtab/1`) in `customize/`, the app `local/customize` there, and the setting
+/// that picks it, `tabs.newTabApp: local/customize`.
+fn new_tab_look(root: &Path, id: &str) -> PathBuf {
+    let name = id.split('/').next_back().unwrap();
+    let repo = root.join(name);
+    fs::create_dir_all(repo.join("customize")).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{name}", "cmuxProfile": 1,
+               "settings": {{"tabs.newTabApp": "local/customize"}}}}"#
+        ),
+    )
+    .unwrap();
+    fs::write(repo.join("customize/main.js"), format!("// {name}\nvar __cmuxAppExports = {{}};\n"))
+        .unwrap();
+    fs::write(
+        repo.join("customize/cmux-app.json"),
+        format!(
+            r#"{{"manifestVersion": 2, "id": "local/customize", "name": "{name}", "version": "1.0.0",
+                "description": "A New Tab page", "engines": {{"cmux": "^2.0"}},
+                "runtime": {{"main": "main.js"}}, "files": ["main.js"],
+                "implements": {{"cmux.newtab/1": {{"export": "renderNewTab", "title": "{name}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    repo
+}
+
+/// Leo, on the New Tab templates: "The templates should be like the customixastikms api you can
+/// build them i don't think they should ship as is"; on setups: "Like dotfiles". A New Tab look
+/// installs as a layer of its own and its `tabs.newTabApp` picks that layer's app,
+/// `local/setup-OWNER-NAME`, never the person's own `local/customize`. Two looks stack: the higher
+/// one's page shows, `order` and `off` change which, a pick of the person's own made after them
+/// stays above both, and removing them leaves the person's own views and settings as they were.
+#[test]
+fn a_new_tab_look_picks_its_own_layer_and_looks_stack_over_your_own_customize() {
+    let home = Home::new();
+    let customize = home.customize();
+    home.write("cmux-next.json", MINE);
+    home.write("customize/main.js", "// my sidebar\n");
+    home.write(
+        "customize/cmux-app.json",
+        r#"{"manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+            "description": "My views", "engines": {"cmux": "^2.0"}, "runtime": {"main": "main.js"},
+            "files": ["main.js"]}"#,
+    );
+    customize.apply(None, "cli", 1).unwrap();
+    let mine = snapshot(&home.config("customize"));
+    let install = |id: &str, at: u64| {
+        let read = setup::read_dir(&new_tab_look(home.dir.path(), id)).unwrap();
+        let plan = customize.plan_setup(&read, "leo", "0.0.0").unwrap();
+        let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+        let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+        let receipt =
+            Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+        customize.record_setup(receipt).unwrap();
+        plan
+    };
+    let picked = |home: &Home| home.settings()["tabs"]["newTabApp"].clone();
+
+    // The card says what it picks: the layer's app, as it installs.
+    let plan = install("leo/cards", 10);
+    let setting = plan.settings.iter().find(|row| row.key == "tabs.newTabApp").unwrap();
+    assert_eq!(setting.value, json!("local/setup-leo-cards"));
+    assert_eq!(plan.layer.as_deref(), Some("local/setup-leo-cards"));
+    assert_eq!(picked(&home), json!("local/setup-leo-cards"), "the look picks its own page");
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(home.config("setups/setup-leo-cards/cmux-app.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["id"], json!("local/setup-leo-cards"));
+    assert!(manifest["implements"]["cmux.newtab/1"].is_object(), "the page it draws came along");
+
+    install("leo/threads", 20);
+    assert_eq!(picked(&home), json!("local/setup-leo-threads"), "the newer look is on top");
+    assert_eq!(snapshot(&home.config("customize")), mine, "your own views are never written");
+
+    customize.set_setup_on("leo/threads", false, "cli", 30).unwrap();
+    assert_eq!(picked(&home), json!("local/setup-leo-cards"), "off: the one below shows");
+    customize.set_setup_on("leo/threads", true, "cli", 40).unwrap();
+    assert_eq!(picked(&home), json!("local/setup-leo-threads"));
+    customize.order_setups(&["leo/cards".to_owned()], "cli", 50).unwrap();
+    assert_eq!(picked(&home), json!("local/setup-leo-cards"), "the order decides");
+
+    // Your own pick after them stays above both.
+    let edited = home
+        .read("cmux-next.json")
+        .unwrap()
+        .replace("\"local/setup-leo-cards\"", "\"local/customize\"");
+    home.write("cmux-next.json", &edited);
+    customize.apply(Some("my new tab"), "cli", 60).unwrap();
+    assert_eq!(picked(&home), json!("local/customize"));
+    customize.order_setups(&["leo/threads".to_owned()], "cli", 70).unwrap();
+    assert_eq!(picked(&home), json!("local/customize"), "your pick is above every look");
+
+    for id in ["leo/cards", "leo/threads"] {
+        let found = customize.setup(id).unwrap().unwrap();
+        customize.remove_setup(&found, "cli", 80).unwrap();
+    }
+    assert!(!home.config("setups/setup-leo-cards").exists());
+    assert!(!home.config("setups/setup-leo-threads").exists());
+    assert_eq!(snapshot(&home.config("customize")), mine);
+    assert_eq!(picked(&home), json!("local/customize"), "your own pick stays yours");
+}
+
+/// A setup with no views of its own keeps a `tabs.newTabApp` it names as written: there is no
+/// layer to point it at.
+#[test]
+fn a_setup_without_views_keeps_the_app_it_names() {
+    let home = Home::new();
+    let customize = home.customize();
+    let repo = home.dir.path().join("pick");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        r#"{"cmuxSetup": 1, "id": "leo/pick", "name": "Pick", "cmuxProfile": 1,
+           "settings": {"tabs.newTabApp": "local/customize"}}"#,
+    )
+    .unwrap();
+    let read = setup::read_dir(&repo).unwrap();
+    let plan = customize.plan_setup(&read, "leo", "0.0.0").unwrap();
+    assert_eq!(plan.settings[0].value, json!("local/customize"));
+    assert_eq!(plan.layer, None);
+    customize.install_setup(&read, "leo/pick", "cli", 10).unwrap();
+    assert_eq!(home.settings()["tabs"]["newTabApp"], json!("local/customize"));
+}
+
+/// A look with a dark theme and a light variant, as Overdrive ships them.
+fn look_with_a_variant(root: &Path) -> PathBuf {
+    let repo = sample_repo(root);
+    fs::write(
+        repo.join("themes/sample-dawn.json"),
+        "{ \"name\": \"Sample Dawn\", \"colors\": { \"background\": \"#f6f1e7\" } }\n",
+    )
+    .unwrap();
+    repo
+}
+
+/// What `cmux settings set appearance.themeFile NAME` does: one key in the
+/// person's own settings file.
+fn settings_set(home: &Home, key: &[&str], value: Value) {
+    let text = home.read("cmux-next.json").unwrap_or_else(|| "{}\n".to_owned());
+    let path: Vec<String> = key.iter().map(|piece| (*piece).to_owned()).collect();
+    home.write("cmux-next.json", &cmux_config::jsonc::set(&text, &path, &value).unwrap());
+}
+
+/// Removes the look after its light variant was picked by hand, then
+/// `between` ran; the settings must not name a theme file that is gone.
+fn remove_after_picking_the_variant(between: impl Fn(&Home, &Customize)) {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = look_with_a_variant(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+    let installed = customize.install_setup(&read, "setup sample", "cli", 10).unwrap();
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    assert!(home.config("themes/sample-dawn.json").exists());
+
+    // The light variant, picked the way the look's README says.
+    settings_set(&home, &["appearance", "themeFile"], json!("sample-dawn"));
+    between(&home, &customize);
+
+    let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    assert!(!home.config("themes/sample-dawn.json").exists(), "the look's files go with it");
+    let settings = home.settings();
+    if let Some(theme) = settings["appearance"].get("themeFile").and_then(Value::as_str) {
+        assert!(
+            home.config(&format!("themes/{theme}.json")).exists(),
+            "the settings name the theme file {theme:?}, which the remove deleted: {settings}"
+        );
+    }
+    assert_eq!(settings["appearance"]["density"], json!("compact"), "your own keys stay");
+}
+
+#[test]
+fn removing_a_look_right_after_picking_its_variant_leaves_no_missing_theme() {
+    remove_after_picking_the_variant(|_, _| {});
+}
+
+#[test]
+fn removing_a_look_after_its_variant_was_applied_leaves_no_missing_theme() {
+    // Any apply since (a customize ask, a library toggle) keeps the hand edit.
+    remove_after_picking_the_variant(|home, customize| {
+        settings_set(home, &["appearance", "density"], json!("comfortable"));
+        settings_set(home, &["appearance", "density"], json!("compact"));
+        customize.apply(Some("by hand"), "cli", 15).unwrap();
+    });
 }

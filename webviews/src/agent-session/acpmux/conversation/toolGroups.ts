@@ -14,6 +14,7 @@ import { whoElseCall, type WhoElseCall } from "./whoElseCalls";
 import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
+import { forumCall, type ForumCall } from "./forumCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
@@ -51,6 +52,8 @@ export type ToolGroup =
       items: AcpmuxActivity[];
       calls: Extract<SubsessionCall, { tool: "start" }>[];
     }
+  /// A cmux-forum post, reply or search (forumCalls.ts): the thread or the hits as one card.
+  | { type: "forum"; item: AcpmuxActivity; call: ForumCall }
   /// A Claude Task or Agent call no subagent record claimed (agentCalls.ts): its subagent's card.
   | { type: "agentCall"; item: AcpmuxActivity; call: AgentCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
@@ -76,7 +79,8 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
   switch (toolKind(tool)) {
     case "execute":
       // A finished shell read of one file is a read (readPath.ts), as every harness's read is.
-      return tool.command ? (readPath(tool) ? "reads" : "commands") : undefined;
+      if (!tool.command) return undefined;
+      return !isRunning(tool) && tool.background?.state !== "running" && readPath(tool) ? "reads" : "commands";
     case "read":
       return "reads";
     case "edit":
@@ -182,8 +186,11 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const message = tool && !dispatch && !whoElse && !send ? agentMessage(tool) : undefined;
     const named = tool && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
-    const call = subsession ? undefined : named;
-    const agent = tool && !dispatch && !whoElse && !send && !message && !named ? agentCall(tool) : undefined;
+    // A forum post, reply or search draws as its card; the server's other tools keep their rows.
+    const forum =
+      tool && !dispatch && !whoElse && !send && !message && !subsession ? forumCall(tool, named) : undefined;
+    const call = subsession || forum ? undefined : named;
+    const agent = tool && !dispatch && !whoElse && !send && !message && !named && !forum ? agentCall(tool) : undefined;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
     // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
     const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
@@ -301,7 +308,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     // A dispatch keeps its own card even when it ran as a shell (`acpmux dispatch` in a Shell call).
     const kind =
-      tool && !whoElse && !dispatch && !send && !message && !subsession && !call && !agent
+      tool && !whoElse && !dispatch && !send && !message && !subsession && !forum && !call && !agent
         ? toolGroupKind(tool)
         : undefined;
     if (kind && run?.kind === kind) {
@@ -323,6 +330,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
+    else if (forum) groups.push({ type: "forum", item, call: forum });
     else if (agent) groups.push({ type: "agentCall", item, call: agent });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item], lead: 0 };
@@ -614,7 +622,8 @@ export function staysInSight(group: ToolGroup): boolean {
     group.type === "subsessionGroup" ||
     group.type === "agentCall" ||
     group.type === "dispatch" ||
-    group.type === "whoElse"
+    group.type === "whoElse" ||
+    group.type === "forum"
   )
     return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one

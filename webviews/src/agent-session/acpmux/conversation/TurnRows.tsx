@@ -9,6 +9,8 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { ForumCallCard } from "./ForumCallCard";
+import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
@@ -26,7 +28,6 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
@@ -38,12 +39,20 @@ import {
   workedLabel,
   workedMessagesText,
   turnTimeKey,
+  formatDuration,
+  FOLD_COUNTS_SWITCH,
+  workedCountsText,
 } from "./turns";
+import { FailedCount } from "./FailedCount";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
+import { workedLine } from "./workedLine.experiment";
+import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
+import { AlertCircle, Retry, Close } from "./icons";
+import { DisclosureChevron } from "./DisclosureChevron";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
@@ -51,10 +60,20 @@ import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { useT } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
+import { useT, type Translate } from "../i18n";
+import {
+  failureCopy,
+  failureKind,
+  failureRecovery,
+  isTeamMachineSignIn,
+  type FailureRoute,
+  isAccountLimit,
+} from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
+import { capacityWaitLook } from "./capacityWait.experiment";
+import { CapacityWaitContext, waitsFor } from "../capacityWait";
+import { CapacityWaitCard } from "./CapacityWaitCard";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction } from "./CodeRouterOffer";
 import { useCodeRouterChoice } from "./codeRouterOfferModel";
@@ -64,25 +83,104 @@ import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
 import { WithFacts } from "../chips/FactsHoverCard";
 
+/// Parts of a closed line after a " · ", failures in the failure red (workedOutcome.ts).
+function WorkedParts({ parts }: { parts: readonly WorkedPart[] }) {
+  return parts.map((part, index) => (
+    <span key={index}>
+      {" · "}
+      <span className={part.failed ? "cv-tool__failed" : undefined}>{part.text}</span>
+    </span>
+  ));
+}
+
+/// What a finished turn's line says besides its time, by workedLine.experiment.ts's arm (`time`, the
+/// default, says nothing more): undefined for a line that keeps today's words.
+function workedOutcomeLabel(t: Translate, row: AcpmuxRow, arm: string): ReactNode | undefined {
+  const runs = row.workedRuns;
+  if (arm === "time" || !runs?.length || row.previous !== undefined || row.durationMs === undefined) return undefined;
+  const duration = row.durationMs;
+  if (arm === "sentence") {
+    const sentence = workedSentence(t, runs);
+    if (!sentence) return undefined;
+    const [first, ...rest] = sentence.results;
+    const tone = (part: WorkedPart) => (part.failed ? "cv-tool__failed" : undefined);
+    // The outcome's place in the catalog's sentence ("{work}: {outcome}"), so its red is only its words.
+    const marker = "\u0000";
+    const [before, after = ""] = first
+      ? t("workedLine.sentence", { work: sentence.work, outcome: marker }).split(marker)
+      : [sentence.work];
+    return (
+      <>
+        {before}
+        {first && <span className={tone(first)}>{first.text}</span>}
+        {rest.map((part, index) => (
+          <span key={index} className={tone(part)}>
+            {t("toolRun.separator") + part.text}
+          </span>
+        ))}
+        {after}
+        <span className="cv-worked__work">
+          {" · "}
+          <span className="cv-worked__label-time">{formatDuration(duration)}</span>
+        </span>
+      </>
+    );
+  }
+  const outcome = workedOutcome(runs);
+  const parts = arm === "counts" ? workedCountParts(t, outcome) : workedOutcomeParts(t, runs);
+  if (!parts.length) return undefined;
+  const key = turnTimeKey(row);
+  return (
+    <>
+      <TimedLabel text={(time) => t(key, { time })} time={duration} />
+      <span className="cv-worked__work">
+        <WorkedParts parts={parts} />
+      </span>
+    </>
+  );
+}
+
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
   // The `header` arm of turnFoldSteered names the work the line holds after its time.
   const runs = row.workedRuns;
   const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
+  // Settings > Advanced > Experiments > Fold Summary Counts (off by default): the line names what
+  // it hides after its time, "· ran 4 commands, edited 2 files", with the runs' "(1 failed)".
+  const countsOn = useExperimentSwitch(FOLD_COUNTS_SWITCH);
+  const counts = useMemo(
+    () => (countsOn && !work && row.durationMs !== undefined ? workedCountsText(t, row) : undefined),
+    [countsOn, work, t, row],
+  );
+  // workedLine.experiment.ts: a line that says what the turn did and how it came out.
+  const outcome = workedOutcomeLabel(t, row, experimentArm(workedLine));
+  if (outcome !== undefined) return outcome;
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
     const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
-    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    const after = (work || counts ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
+  if (counts && row.previous === undefined)
+    return (
+      <>
+        {label}
+        <span className="cv-worked__work">
+          {` · ${counts.text}`}
+          <FailedCount n={counts.failed} />
+        </span>
+      </>
+    );
   if (!work) return label;
   return (
     <>
       {label}
-      <span className="cv-worked__work">{` · ${work}`}</span>
+      {/* A line with no time or count of its own (a fold whose time is unknown) opens on its work: never
+          a bare "·" before the first word (Leo, 2026-11-25: "dot on left weird"). */}
+      <span className="cv-worked__work">{label ? ` · ${work}` : work}</span>
     </>
   );
 }
@@ -112,7 +210,7 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      <DisclosureChevron open={expanded} look="worked" />
     </button>
   );
 }
@@ -131,6 +229,8 @@ function groupNode(
   folded = false,
   thoughts = 0,
   runLine?: readonly string[],
+  foldId?: number,
+  onLoadFold?: (fold: number) => Promise<void>,
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -145,6 +245,8 @@ function groupNode(
           // run's line around it was (it draws inside the opened run's line as its own line too).
           inherits={group.kind === "edits" ? undefined : runLine}
           closedBy={group.kind === "edits" ? undefined : runLine}
+          foldId={foldId}
+          onLoadFold={onLoadFold}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -214,6 +316,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "forum":
+      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "agentCall":
       return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
@@ -237,7 +341,15 @@ function groupNode(
   }
 }
 
-export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
+export function ToolRows({
+  row,
+  sessionId,
+  onLoadFold,
+}: {
+  row: AcpmuxRow;
+  sessionId?: string;
+  onLoadFold?: (fold: number) => Promise<void>;
+}) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
@@ -270,6 +382,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           start.groupsClosed,
           thoughts[at],
           [key],
+          row.foldId,
+          onLoadFold,
         );
       });
     if (!stretch.fold) return drawn;
@@ -350,6 +464,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
+  // A turn acpmux holds for capacity and goes on with by itself (its `capacityWait`, hub/
+  // capacity_wait.rs) draws one calm wait instead of the failed card, its mark or red footer (RFD
+  // model-overload-smoothing §3.8; Leo, 2026-11-24: "fix 529s properly with better designs").
+  const capacityWait = useContext(CapacityWaitContext);
+  const waitLook =
+    failed && !row.recovered && waitsFor(capacityWait, row.turnId) ? experimentArm(capacityWaitLook) : "off";
+  const waiting = waitLook !== "off" && capacityWait !== undefined;
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
@@ -372,7 +493,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // (failedTurnMark.experiment.ts), so a failed turn with nothing to copy still ends on a row that
   // reads as its end, never a bare line of hover controls. No tooltip: the row carries no time or
   // Worked for (Lawrence and Lucas, 2026-11-11 standup).
-  const failedLook = failed ? experimentArm(failedTurnMark) : undefined;
+  const failedLook = failed && !waiting ? experimentArm(failedTurnMark) : undefined;
   const endMark = failedLook && (
     <span
       className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
@@ -466,7 +587,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // stays for the turn that is still the chat's last.
   const chat = useContext(SteerChatContext);
   const dismissed = useFailureDismissed(chat, row.id);
-  const showsCard = failed && !row.recovered && !dismissed;
+  const showsCard = failed && !waiting && !row.recovered && !dismissed;
   const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
   if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
@@ -475,6 +596,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
+      {waiting && capacityWait && <CapacityWaitCard wait={capacityWait} look={waitLook} />}
       {showsCard && (
         <TurnFailure
           onDismiss={() => dismissFailure(chat, row.id)}
@@ -498,9 +620,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           retryNote={retryNote}
         />
       )}
+      {row.githubConnect && (
+        <GitHubConnectCard need={row.githubConnect} phaseKey={`${row.id}:${row.githubConnect.callId}`} />
+      )}
       <div
         className={
-          failed
+          failed && !waiting
             ? "cv-turn-actions cv-turn-actions--failed"
             : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
               ? "cv-turn-actions cv-turn-actions--empty"
@@ -549,7 +674,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
-            {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
           {stoppedLook === "word" && stoppedWord}
@@ -640,6 +764,8 @@ function TurnFailure({
     switchModel &&
     [
       "rate-limited",
+      "usage-limit",
+      "account-disabled",
       "unreachable",
       "invalid-key",
       "proxy-auth",
@@ -723,13 +849,20 @@ function TurnFailure({
       !signInFirst &&
       !cloudSignInLeads &&
       !compactFirst);
+  // The agent's account is out of usage or turned off (cmux#55066): Use another agent leads, and
+  // Sign in with another account follows it, outlined: the agent's own login here, its sign-in on
+  // the machine for a Cloud chat (only Use an API key on a team machine, which takes no personal login).
+  const accountLimit = isAccountLimit(kind);
+  const otherAccount = accountLimit ? cloudSignIn : undefined;
+  const otherAccountKeyOnly = route?.hostKind === "cloud" && route.teamMachine === true;
+  const otherAccountHere = accountLimit && otherAccount === undefined ? reauthenticate : undefined;
   const switchButton = offersSwitch && (
     <button
       type="button"
       className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
-      {t("turn.failure.switchModel")}
+      {accountLimit ? t("turn.failure.useAnotherAgent") : t("turn.failure.switchModel")}
     </button>
   );
   return (
@@ -760,6 +893,22 @@ function TurnFailure({
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
         {switchFirst && switchButton}
+        {otherAccountHere && (
+          <button type="button" className="cv-turn-auth-action" onClick={otherAccountHere}>
+            {t("turn.failure.signInAnotherAccount")}
+          </button>
+        )}
+        {otherAccount && (
+          <CloudSignIn
+            signIn={otherAccount}
+            rowId={retryRowId}
+            prompt={prompt}
+            keyOnly={otherAccountKeyOnly}
+            another
+            gateway={offersGateway(message)}
+            actionsRef={actionsRef}
+          />
+        )}
         {compactFirst && (
           <button
             type="button"

@@ -296,7 +296,7 @@ async fn caller(cloud: bool) -> Option<(String, zeroize::Zeroizing<String>)> {
 fn client() -> Option<reqwest::Client> {
     // The TLS provider reqwest's rustls needs, as `deps/remote.rs` installs it.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    crate::happy_dial::http_client()
         .timeout(CALL_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()

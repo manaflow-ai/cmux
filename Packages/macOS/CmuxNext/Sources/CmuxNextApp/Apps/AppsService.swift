@@ -48,10 +48,9 @@ final class AppsService {
         overlays = AppOverlayPresenter(client: client)
     }
 
-    /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
-    /// from this Mac: every mount ends on the supervisor, nothing mounts,
-    /// every change is refused, and open app sections and pages show
-    /// "Turned off by your organization".
+    /// Turning apps off (DisabledFeatures) makes the supervisor unreachable from this Mac: every mount ends on the
+    /// supervisor, nothing mounts, every change is refused, and open app sections and pages show "Turned off by
+    /// your organization".
     func applyPolicy(disabled: Bool) {
         // The mounts end on the supervisor first (in order on the client's chain); a reconnect remounts them.
         if disabled, transport.turnedOff == nil { client.suspendMounts() }
@@ -60,6 +59,7 @@ final class AppsService {
 
     func start() {
         client.start()
+        client.followKeyBindings(in: services.registry) // the apps' catalog shortcuts, the binding table's app layer
         // task-owner: one off-main load of the bundled package directories and the scope table at launch
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }

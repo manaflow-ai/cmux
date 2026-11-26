@@ -44,6 +44,9 @@ jobs:
   # vars.CMUX_NEXT_GENERATED_CATCH_UP_COALESCE = '0' catches up on every move again.
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-generated-catch-up
@@ -111,6 +114,7 @@ jobs:
             scripts/merge-baseline.py
             scripts/merge-daemon-capabilities.py
             scripts/merge-insertions.py
+            scripts/merge-cargo-lock.py
             scripts/ci/merge_main_resolver.py
             scripts/normalize-pbxproj.py
           sparse-checkout-cone-mode: false
@@ -200,6 +204,7 @@ jobs:
           printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
           printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
           printf -v insertions '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
+          printf -v cargo_lock '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-cargo-lock.py"
           # Generated files merge three-way when clean, else keep this branch's copy for the
           # rebuild below; the Mac-only exports merge three-way or stay a conflict (never one side).
           printf -v generated '%q -I %q --generated %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
@@ -208,6 +213,7 @@ jobs:
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
           git config merge.cmux-insertions-v1.driver "$insertions"
+          git config merge.cmux-cargo-lock-v1.driver "$cargo_lock"
           git config merge.cmux-export-v1.driver "$insertions"
           git config merge.cmux-generated-v1.driver "$generated"
           # Git reads merge attributes from the checked-out PR, so a head older than a
@@ -264,9 +270,10 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.merge.outputs.skip != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

@@ -97,6 +97,13 @@ run() { # label, extra args...
     if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
   fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+  # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the
+  # test team's run, send-trace-<phase-label>.json for the others. Tracing never fails the journey.
+  if [ -f "$dir/send-trace.json" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+    local name=send-trace.json
+    [ "${phase:+$phase-}$label" = test-team ] || name="send-trace-${phase:+$phase-}$label.json"
+    { mkdir -p "$RUNNER_TEMP/$TARGET" && cp "$dir/send-trace.json" "$RUNNER_TEMP/$TARGET/$name"; } || true
+  fi
   if [ "${JOURNEY_RUST:-}" = 1 ] && [ -n "${CMUX_PATH:-}" ]; then rust_run "$label" "$dir" "$@"; fi
   if [ "$phase" = after ]; then
     # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,

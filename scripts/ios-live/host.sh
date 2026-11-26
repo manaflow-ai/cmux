@@ -27,16 +27,29 @@
 # touch it (up, swap, swift, relaunch, tap, type) need the caller to hold the lease.
 set -euo pipefail
 
-root="${IOS_LIVE_ROOT:-$HOME/ios-live}"
+# Slots (IOS_LIVE_SLOT=N, set by the client in slot mode): many devices on one host, each its own
+# driver. Slot N lives in IOS_LIVE_ROOT/slots/N with the same layout as above (its own checkout,
+# DerivedData, device set, lease and state), and its iPhone is cmux-ios-live-N. The pinned tools
+# are shared. With no IOS_LIVE_SLOT nothing changes: one device, cmux-ios-live, in IOS_LIVE_ROOT.
+base_root="${IOS_LIVE_ROOT:-$HOME/ios-live}"
+slot="${IOS_LIVE_SLOT:-}"
+slot_count="${IOS_LIVE_SLOTS_PER_HOST:-3}"
+root="$base_root"
 repo_url="https://github.com/manaflow-ai/cmux.git"
 branch="feat-cmux-next"
 device_name="cmux-ios-live"
+if [[ -n "$slot" ]]; then
+  [[ "$slot" =~ ^[1-9][0-9]?$ ]] || { echo "ios-live: bad slot $slot" >&2; exit 1; }
+  root="$base_root/slots/$slot"
+  device_name="cmux-ios-live-$slot"
+fi
+[[ "$slot_count" =~ ^[1-9][0-9]?$ ]] || { echo "ios-live: bad IOS_LIVE_SLOTS_PER_HOST $slot_count" >&2; exit 1; }
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 jobs="${IOS_LIVE_JOBS:-4}"
 src="$root/src"
 sims="$root/sims"
-mkdir -p "$root/logs" "$root/tools" "$sims" "$root/lease"
+mkdir -p "$root/logs" "$base_root/tools" "$sims" "$root/lease"
 
 die() { echo "ios-live: $*" >&2; exit 1; }
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
@@ -89,6 +102,42 @@ else:
 ' "$root/lease" "$1" "${2:-}" "${3:-20}"
 }
 
+# --- slots: take any free one, list them -----------------------------------------------------
+slots_py() {  # take OWNER MIN | list: the per-slot leases, under each slot's own lock
+  python3 -I -c '
+import fcntl, json, os, sys, time
+base, n, sub, owner, minutes = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], min(int(sys.argv[5]), 120)
+def read(i):
+    d = os.path.join(base, "slots", str(i), "lease"); os.makedirs(d, exist_ok=True)
+    lock = open(os.path.join(d, "lock"), "w"); fcntl.flock(lock, fcntl.LOCK_EX)
+    path = os.path.join(d, "owner.json")
+    try: cur = json.load(open(path))
+    except Exception: cur = {}
+    return lock, path, cur if cur.get("until", 0) > time.time() else {}
+if sub == "list":
+    for i in range(1, n + 1):
+        lock, path, cur = read(i); lock.close()
+        st = os.path.join(base, "slots", str(i), "state.json")
+        try: base_sha = json.load(open(st)).get("base", "")[:12]
+        except Exception: base_sha = "not up"
+        held = "%s until %s" % (cur["owner"], time.strftime("%H:%MZ", time.gmtime(cur["until"]))) if cur else "free"
+        print("%d\t%s\t%s" % (i, base_sha or "not up", held))
+    sys.exit(0)
+if not owner: sys.exit("ios-live: slot take needs an owner")
+# Your own slot first, so a second take renews it rather than holding two.
+for want_own in (True, False):
+    for i in range(1, n + 1):
+        lock, path, cur = read(i)
+        if (cur.get("owner") == owner) if want_own else not cur:
+            now = int(time.time())
+            new = {"owner": owner, "since": cur.get("since", now), "until": now + 60 * minutes}
+            json.dump(new, open(path + ".tmp", "w")); os.replace(path + ".tmp", path)
+            print(i); sys.exit(0)
+        lock.close()
+sys.exit(3)
+' "$base_root" "$slot_count" "$@"
+}
+
 # --- checkout, toolchain, device ---------------------------------------------------------------
 pick_xcode() {
   [[ -n "${DEVELOPER_DIR:-}" ]] && return 0
@@ -96,7 +145,7 @@ pick_xcode() {
 }
 
 ensure_xcodegen() {
-  local d="$root/tools/xcodegen-$xcodegen_version"
+  local d="$base_root/tools/xcodegen-$xcodegen_version"
   xcodegen="$d/xcodegen/bin/xcodegen"
   [[ -x "$xcodegen" ]] && return 0
   rm -rf "$d"; mkdir -p "$d"
@@ -132,10 +181,10 @@ build_ffi() {
   local stamp xcf="$src/cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
   stamp="$(ffi_stamp | tr '\n' '-')"
   if [[ -f "$xcf/Info.plist" && "$(cat "$root/ffi.stamp" 2>/dev/null)" == "$stamp" ]]; then ffi_how=unchanged; return 0; fi
-  if [[ -f "$root/ffi/synced" ]]; then  # copied in by `ios-live ffi-sync` (a host with no Rust iOS targets)
+  if [[ -f "$base_root/ffi/synced" ]]; then  # copied in by `ios-live ffi-sync` (a host with no Rust iOS targets)
     mkdir -p "$src/cmux-next-ios/CmuxMobileKit"
-    rsync -a "$root/ffi/Frameworks" "$root/ffi/Sources" "$src/cmux-next-ios/CmuxMobileKit/"
-    ffi_how="synced from $(cat "$root/ffi/synced")"; echo "$stamp" >"$root/ffi.stamp"; return 0
+    rsync -a "$base_root/ffi/Frameworks" "$base_root/ffi/Sources" "$src/cmux-next-ios/CmuxMobileKit/"
+    ffi_how="synced from $(cat "$base_root/ffi/synced")"; echo "$stamp" >"$root/ffi.stamp"; return 0
   fi
   local key=""
   key="$(cd "$src" && python3 -I scripts/ci/ios_ffi_cache.py key "$src" "$root/logs/ffi-inputs.json" 2>/dev/null)" || key=""
@@ -201,12 +250,31 @@ import json, sys
 t = [x["identifier"] for x in json.load(sys.stdin)["devicetypes"] if x["name"].startswith("iPhone") and "Pro" in x["name"] and "Max" not in x["name"]]
 print(t[-1])')"
     udid="$(simctl create "$device_name" "$dtype" "$runtime")"
+    [[ -z "$slot" ]] || slim_device
   fi
   if ! simctl list devices | grep -F "$udid" | grep -q Booted; then
     simctl boot "$udid"
     simctl bootstatus "$udid" -b >/dev/null
     simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
+    [[ -z "$slot" ]] || animations_off
   fi
+}
+
+# A slot's device is slimmed once, shut down, before its first boot: the fleet's pinned simslim
+# (hq build-fleet sim_slim.go) when this host has it, keeping push and universal links.
+simslim_bin=/Users/Shared/cmux-build-fleet/tools/bin/simslim
+slim_device() {
+  [[ -x "$simslim_bin" ]] || { echo "ios-live: no simslim on this host; $device_name stays stock" >&2; return 0; }
+  local profile="$root/simslim-profile.json"
+  printf '{"name": "cmux-ios-live", "description": "ios-live slot (scripts/ios-live/host.sh)", "keep": ["com.apple.apsd", "com.apple.swcd"]}\n' >"$profile"
+  { "$simslim_bin" --set "$sims" on "$udid" --profile "$profile" && "$simslim_bin" --set "$sims" verify "$udid" --profile "$profile"; } \
+    >"$root/logs/simslim.log" 2>&1 || echo "ios-live: simslim failed (log $root/logs/simslim.log); $device_name stays stock" >&2
+}
+
+# Animations off on a slot's device: Reduce Motion, and UIKit's animation speed-up for agents' taps.
+animations_off() {
+  simctl spawn "$udid" defaults write com.apple.Accessibility ReduceMotionEnabled -bool true >/dev/null 2>&1 || true
+  simctl spawn "$udid" defaults write com.apple.UIKit UIAnimationDragCoefficient -float 0.01 >/dev/null 2>&1 || true
 }
 
 launch_env_args() {  # the app's launch environment, as KEY=VALUE words
@@ -250,6 +318,15 @@ abs() { case "$1" in /*) echo "$1" ;; *) echo "$HOME/$1" ;; esac; }
 cmd="${1:-status}"; shift || true
 case "$cmd" in
   lease) lease "$@" ;;
+
+  slot-take)  # slot-take OWNER [MIN]: hold any free slot on this host (or renew yours); prints N, exit 3 when all are held
+    slots_py take "${1:?slot-take OWNER [MIN]}" "${2:-20}" ;;
+  slots)  # one line per slot: N, base, holder
+    slots_py list "" 20 ;;
+  erase)  # erase OWNER: a slot's device back to new (slimmed again), then booted
+    owner="${1:?erase OWNER}"; [[ -n "$slot" ]] || die "erase is for a slot (IOS_LIVE_SLOT)"; lease holds "$owner"
+    ensure_device; simctl shutdown "$udid" >/dev/null 2>&1 || true; simctl erase "$udid"; slim_device; ensure_device
+    rm -f "$root/state.json"; echo "erased $device_name" ;;
 
   up)  # up OWNER [REF]: rebuild the app at REF (default origin/feat-cmux-next) with no patch
     owner="${1:?up OWNER [REF]}"; lease holds "$owner"; rebuild "$owner" up "${2:-origin/$branch}" ;;

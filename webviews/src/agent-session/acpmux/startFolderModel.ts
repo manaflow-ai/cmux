@@ -87,6 +87,19 @@ export async function pickFolder(
   return { cwd: answer.cwd, reason: answer.status === "confirm" && answer.reason === "home" ? "home" : "root" };
 }
 
+/// The New Tab's `/` menu lists the commands of a deferred chat of its agent (`chat.new` `deferred`),
+/// and the relay starts one only in a folder this pane may use. So the host grants the page's folder
+/// first, as before a start on Return: a project folder on the key press that typed the `/` (the grant
+/// spends that gesture). A folder the host asks about (home) starts the chat with no folder.
+export async function newTabCommandsChat(callNative: Native, harness: string, cwd: string | undefined): Promise<void> {
+  let folder: string | undefined;
+  if (cwd)
+    await pickFolder(callNative, cwd, (used) => {
+      folder = used;
+    });
+  await callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), deferred: true }).catch(() => undefined);
+}
+
 /// New Worktree (cx-lyqio.2, Codex/Conductor style): the host makes a worktree of the new chat's
 /// folder on a branch of its own (`git.worktree.create`, on this click; the user's checkout stays
 /// as it is), and the chat starts there as in a picked folder: when the host asks about that
@@ -131,6 +144,16 @@ export async function newWorktree(
     ...(ask ? { ask } : {}),
     ...(setup ? { setup } : {}),
   };
+}
+
+/// Clone a credential-free HTTPS remote via the local page host.
+export async function cloneRepository(callNative: Native, url: string): Promise<string> {
+  const reply = (await callNative("repo.clone", { url, idempotency_key: crypto.randomUUID() })) as
+    | { cwd?: unknown }
+    | undefined;
+  const cwd = reply?.cwd;
+  if (typeof cwd !== "string" || !cwd.startsWith("/")) throw new Error(translate("source.url.failed"));
+  return cwd;
 }
 
 /// A new chat in `folder`, a worktree New Worktree made, for a chat that started while it was being

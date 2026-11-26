@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -57,7 +57,7 @@ struct DemoDriver {
             shell.store.teamDataState = .failed
         // CMUX-49: the launch states (`retry-` names: public captures, no real names).
         // A first launch (nothing cached) loading, waiting offline, or failed; and a
-        // cached list whose refresh failed (the rows stay, marked last known).
+        // cached list whose refresh failed (the rows stay; no connection text).
         case "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed":
             shell.tab = .workspaces
             shell.store.workspaces = []
@@ -67,6 +67,35 @@ struct DemoDriver {
         case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
+        // Leo, 2026-11-24 ("they dont need to know that it's updating before they KNOW it's
+        // updating"): every place the app said "Updating…" over rows it already had, held there
+        // for QuietUpdatingUITests. The Workspaces list refreshing its team over cached rows
+        // (then a workspace's chat catching up with its Mac); Home showing the rows it kept.
+        case "retry-workspaces-updating", "retry-chat-updating":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return CatchingUpSource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true),
+                                        hold: .seconds(30))
+            }
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            shell.store.teamDataState = .loading
+            if name == "retry-chat-updating" {
+                await pause(0.6)
+                if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+            }
+        case "retry-home-updating":
+            MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            MacHomeFeed.shared.setKeptForDemo()
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .connected
+            shell.tab = .home
+        case "retry-offline":
+            // The phone offline over the cached list: the offline chip, on one line
+            // (iOS release bar read-back: "Workspaces offline pill fits one line").
+            shell.tab = .workspaces
+            shell.store.isOffline = true
         case "retry-feed":
             shell.tab = .feed
             // A failed real refresh is the fixture; no private connection is used.
@@ -80,7 +109,7 @@ struct DemoDriver {
             shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-home-failed":
-            // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
+            // The link is up, but the last read failed: kept rows, no connection text.
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
             MacHomeFeed.shared.setProblemForDemo("Can't reach the Mac right now.")
             shell.store.tracksMacData = true
@@ -199,6 +228,17 @@ struct DemoDriver {
                 model.demoFillComposer("Run the tests again please", attachments: false)
             case "long":
                 model.demoFillComposer((1...9).map { "Line \($0) of a longer message for the agent" }.joined(separator: "\n"), attachments: false)
+            case let mode? where mode.hasPrefix("chars:"):
+                // ComposerTypingLagUITests: a long draft (N characters of
+                // prose) with two photos attached, focused, caret at its end
+                // (Leo, 2026-11-23: typing lag after two pictures attached
+                // and removed in a long text).
+                // `chars:N:bare`: the same draft with no photos (the control);
+                // `:oneline` makes it one paragraph.
+                let parts = mode.split(separator: ":")
+                let count = parts.count > 1 ? Int(parts[1]) ?? 5_000 : 5_000
+                model.demoFillComposer(TerminalModel.demoProse(count, oneParagraph: parts.contains("oneline")), attachments: !parts.contains("bare"), file: false)
+                model.focusComposer()
             default:
                 model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
             }
@@ -248,6 +288,18 @@ struct DemoDriver {
                 summary.macName = "Mac"
                 summary.cwd = "~/project"
                 return DisconnectedAgentSource(summary: summary)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "offline-held":
+            // A prompt held for a Mac that never answers, back in the composer with the notice
+            // the app's own loading-chat source gives it (HeldPromptDemo; a 2 s hold).
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.name = "Offline draft"
+                summary.macName = "Mac"
+                summary.cwd = "~/project"
+                return HeldPromptDemo.source(summary: summary)
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -1325,32 +1377,33 @@ private final class FrameClock: NSObject {
         link = nil
     }
 }
-/// A demo chat whose history comes `delay` late, as from a slow Mac: it says it loads history
-/// (``AgentSessionSource/loadsHistory``) and says when it caught up.
+/// A demo chat that has its rows, then catches up with its Mac for `hold` (a reattach after time
+/// away): the kept transcript shows the whole time (``AgentSessionEvent/historyLoading(_:)``).
 @MainActor
-final class DelayedHistorySource: AgentSessionSource {
+final class CatchingUpSource: AgentSessionSource {
     let inner: MockAgentSession
-    let delay: Duration
+    let hold: Duration
 
-    init(inner: MockAgentSession, delay: Duration) {
+    init(inner: MockAgentSession, hold: Duration) {
         self.inner = inner
-        self.delay = delay
+        self.hold = hold
     }
 
     var summary: AgentSessionSummary { inner.summary }
-    var loadsHistory: Bool { true }
 
     func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner, delay = delay
+        let inner = inner, hold = hold
         Task { @MainActor in
-            // Demo only: stands in for a Mac that answers late.
-            try? await Task.sleep(for: delay)
             var first = true
             for await event in inner.events() {
                 continuation.yield(event)
-                if first {
-                    first = false
+                guard first else { continue }
+                first = false
+                continuation.yield(.historyLoading(true))
+                // Demo only: stands in for a Mac that takes `hold` to answer the catch-up.
+                Task { @MainActor in
+                    try? await Task.sleep(for: hold)
                     continuation.yield(.historyLoading(false))
                 }
             }

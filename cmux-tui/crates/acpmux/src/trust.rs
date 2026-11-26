@@ -107,10 +107,11 @@ impl Paths {
     }
 }
 
-/// `~/Library/Application Support/cmux/agent-home` on macOS (the app's `AgentHome.standard`):
-/// the app makes each workspace's agent-home folder there.
+/// `~/Library/Application Support/cmux-next/agent-home` on macOS (the app's
+/// `AgentHome.standard`; `<data dir>/cmux/agent-home` elsewhere): the app makes each workspace's
+/// agent-home folder there.
 pub fn agent_home_root() -> Option<PathBuf> {
-    dirs::data_dir().map(|data| data.join("cmux").join("agent-home"))
+    dirs::data_dir().map(|data| data.join(cmux_config::NEXT_DIR).join("agent-home"))
 }
 
 /// `~/.cmux/worktrees` (`cmux_git::worktree_root`), where cmux makes the worktrees for its chats

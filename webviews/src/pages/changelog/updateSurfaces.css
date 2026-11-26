@@ -115,8 +115,15 @@
 @media (prefers-reduced-motion: reduce) {
   .wn-card-close { transition: none; }
 }
-.wn-card-close svg { width: 8px; height: 8px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+.wn-card-close svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; }
 .wn-card-close:hover { background: var(--page-hover); color: var(--page-text); }
+/* On the plain card the x sits on the title line, as the sidebar's native x does (u51892): its middle
+   on the middle of the title's capitals (about 0.36em of the title's size below the trimmed top). */
+@supports (text-box: trim-both cap alphabetic) {
+  .wn-updated:not([data-placement="button"]) .wn-card-close {
+    top: calc(var(--wn-side) + var(--wn-title) * 0.36 - var(--wn-close-half));
+  }
+}
 /* The update's top change: the area semibold in the text color, the change after it in the
    secondary color. It wraps instead of being cut with an ellipsis, so it reads and selects whole
    (u4466); a long one stops at two lines. */
@@ -318,38 +325,36 @@
   .wn-card:not(.wn-updated) { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
 }
 
-/* The Updated card wears the composer's material (Leo 2026-11-07: "the border styles, the glass
-   intensity is different"): ui/glass/composerMaterial.css, its fill at the popover level's share
-   (the art share over a background picture or a see-through window, so the picture shows through
-   it as it does through the composer), its one-pixel edge and its top-lit rim. Its shape is its own
-   (Leo 2026-11-23, ask-33e37575cb: "the fuck is a pill with 2 lines supposed to be for anyways?"):
-   one line, "Updated to Nightly" then What's New at the trailing end (UpdatedCardShape `row`), in
-   the one-line composer's box (grid.md 5.1, 48: Leo 2026-11-07, "the exact same height as the
-   composer") as the composer holds its one line, at the card corner (--grid-card-radius, 16: a
-   third of the box, never a capsule). The composer's 22 is half its round controls plus the inset,
-   and this card has no round controls. Every change of the update is one hover away. Wider side
-   room than the button-row card (Leo: "a little more spacing regarding, like, the things in the
-   side"). */
+/* The Updated card as the composer's twin (Leo 2026-11-07: "the border styles, the glass intensity
+   is different. For two, it's like the heights never match up with anything"): the composer's
+   material (ui/glass/composerMaterial.css: its fill at the popover level's share, its one-pixel
+   edge and its top-lit rim), its one-line height (grid.md 5.1, 48) and its corner. The words sit on
+   two lines inside it: "Updated to Nightly · What's New ↗", then the update's top change, each cut
+   at the card's edge (the hover preview has every change in full). Wider side room than the
+   button-row card (Leo: "a little more spacing regarding, like, the things in the side"). */
 .wn-card.wn-updated {
   --wn-side: calc(var(--grid-base, 4px) * 3);
+  /* How far a line's descenders reach under its baseline, in its own font size (SF: about 0.22em). */
+  --wn-descender: 0.3em;
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  border-radius: var(--grid-card-radius, 16px); /* concentric-allow: the card's own corner, a third of its box; its x derives from it */
+  border-radius: var(--composer-material-radius); /* concentric-allow: the composer's own corner, the card is its twin (Lawrence 2026-11-23: back to the original look) */
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
 /* A page with content under the card (the gallery over a wallpaper) frosts it as the composer does;
    the sidebar's card sits on the sidebar's own glass and frosts nothing. */
 .wn-card.wn-updated[data-glass] {
+  /* one-material-allow: the Updated card is the composer's material twin (composerMaterial.css) and carries no .ui-glass on purpose, so the lens draws no wallpaper copy over the sidebar's native glass (updated-card-native-glass.test.ts); it frosts only where a page has content under it (data-glass) */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
 /* The card with the theme's doodle decoration wears the same material: the sidebar draws no glass
    under the card's page (review F3 of #37615). Its own box and padding stay the doodle's. */
 .wn-card[data-decoration="doodle"] {
-  border-radius: var(--grid-card-radius, 16px); /* concentric-allow: the card's own corner, a third of its box */
+  border-radius: var(--composer-material-radius); /* concentric-allow: the composer's own corner, as the plain card */
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
@@ -358,8 +363,11 @@
    #39934; Leo 2026-11-09: no blank stage and no jump when the notes load). */
 .wn-card[data-decoration="doodle"] .wn-card-note {
   min-height: 2.6em;
+  /* The change in full, as the plain card shows it (u51892): never cut after two lines. */
+  -webkit-line-clamp: none;
 }
 .wn-card[data-decoration="doodle"][data-glass] {
+  /* one-material-allow: the Updated card is the composer's material twin (composerMaterial.css) and carries no .ui-glass on purpose, so the lens draws no wallpaper copy over the sidebar's native glass (updated-card-native-glass.test.ts); it frosts only where a page has content under it (data-glass) */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
@@ -386,25 +394,42 @@
   flex-direction: column;
   justify-content: center;
   gap: var(--wn-gap);
-  height: var(--composer-material-height);
+  /* At least the composer's one-line box, and as tall as its lines (u51892, 2026-11-23: "the stuff
+     in this message box is now just cut off ... we need to elongate it according to how much content there
+     is. we need to show everything"): a fixed 48 cut the change line's descenders at every density whose
+     two lines need more than the box leaves, and a long change wraps instead of being cut at the edge. */
+  min-height: var(--composer-material-height);
   padding: 0 var(--wn-side);
 }
-/* One line: centred in the box, as the composer's one line. */
 /* The same room on all four sides of the words (Lawrence 2026-11-07, "feels like too much padding on
    top"): centred with their line boxes' leading, the title's capitals sat further from the top than
    the note's baseline from the bottom. Each line is trimmed to its capitals and its baseline, and the
    lines stand the side inset in from the top and the bottom, the space between them taking the rest
    of the composer's box. Lines clip only sideways, so a trimmed line's descenders still show. */
 @supports (text-box: trim-both cap alphabetic) {
-  .wn-updated[data-shape="two-line"]:not([data-placement="button"]) .wn-card-rest {
+  .wn-updated:not([data-placement="button"]) .wn-card-rest {
     justify-content: space-between;
     padding-block: var(--wn-side);
+    /* At least the room the one-line note gets in the composer's 48 (about 6px at Compact): with the
+       lines trimmed to cap and baseline, a change line that wraps and grows the card kept only the 2px
+       gap, so the title's descenders touched its first line. Half the title size (6px) still fits a short note
+       in the 48 at every density. */
+    gap: calc(var(--wn-title) * 0.5);
   }
   .wn-updated:not([data-placement="button"]) :is(.wn-card-head > *, .wn-card-rest > p) {
     text-box: trim-both cap alphabetic;
   }
-  .wn-updated:not([data-placement="button"]) :is(.wn-card-title, .wn-card-rest > p) {
+  /* The title clips only sideways, so its trimmed descenders still show. The change line wraps and
+     never clips: clipped, its descenders were cut at its trimmed baseline (u51892). */
+  .wn-updated:not([data-placement="button"]) .wn-card-title {
     overflow: clip visible;
+  }
+  /* WebKit clips a line it cuts with an ellipsis to its box on both axes, so the trimmed note lost
+     its descenders ("Agent" drew its g cut at the baseline). Its box reaches the descenders' depth
+     below the baseline, and the same negative margin keeps its place in the card. */
+  .wn-updated:not([data-placement="button"]) .wn-card-rest > p {
+    padding-bottom: var(--wn-descender);
+    margin-bottom: calc(-1 * var(--wn-descender));
   }
 }
 /* The look before (gallery): the button under the note, as tall as its rows. */
@@ -423,10 +448,9 @@
   white-space: nowrap;
 }
 .wn-updated .wn-card-title {
-  min-width: 0;
+  /* The title keeps its words (Leo 2026-11-23): never cut short to fit the line. */
+  flex: none;
   padding-right: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .wn-updated .wn-card-sep { flex: none; color: var(--page-text-3); }
 .wn-card-link {
@@ -444,17 +468,17 @@
   transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
 .wn-card-link:hover { color: var(--page-text); }
-.wn-updated:is([data-placement="top-right"], [data-shape="row"]) .wn-card-link { margin-left: auto; }
-/* The top change on the title's line (`row-change`): after the title, in the quiet ink, cut at the
-   edge; the title keeps its words. */
-.wn-updated[data-shape="row-change"] .wn-card-title { flex: none; }
-.wn-updated[data-shape="row-change"] .wn-card-head > .wn-card-note { flex: 1; min-width: 0; color: var(--page-text-2); }
+.wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
+/* The change line in full (u51892, "we need to show everything"): where the card has a change line
+   (`two-line`, the button look) it wraps under the title and the card grows to hold it (the page
+   reports its height, the host sizes the slot to it), never clipped or cut. */
 .wn-updated .wn-card-note {
   display: block;
   margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: none;
 }
 .wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
 
@@ -540,7 +564,7 @@
   --wn-preview-motion: 180ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
   --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
   /* The card's quiet inks, raised on the card alone so they hold 4.5:1 over a bright photograph behind
-     the glass (gallery card-shape-row-photo-*, measured in the PR body). The page tokens stay as they are. */
+     the glass (gallery card-photo-*, measured in the PR body). The page tokens stay as they are. */
   --page-text-2: color-mix(in srgb, var(--page-text) 88%, transparent);
   --page-text-3: color-mix(in srgb, var(--page-text) 78%, transparent);
   /* The glass behind the card a little more opaque, so a bright photo does not wash its ink out. */
@@ -972,6 +996,7 @@
   margin-top: var(--ds-space-1);
   padding: var(--ds-space-2);
   background: var(--composer-material-tint, var(--page-bg));
+  /* one-material-allow: a sticky chip row's veil, part of the scrolling notes list it holds over, not a floating surface */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }

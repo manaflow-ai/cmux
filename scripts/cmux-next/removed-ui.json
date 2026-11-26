@@ -1,0 +1,89 @@
+[
+  {
+    "id": "save-as-prompt-button",
+    "what": "Save as Prompt button in the message action bar",
+    "leo": "like the save as prompt is still here. i told you all to remove it.",
+    "ask": "ask-37b86a6281",
+    "date": "2026-11-25",
+    "removed_by": "cmux#55302",
+    "pattern": "SavePromptButton|savePrompt\\.css|cv-save-prompt|message\\.savePrompt",
+    "paths": [
+      "webviews/src",
+      "Packages"
+    ]
+  },
+  {
+    "id": "app-health-needs-repair-card",
+    "what": "Sidebar app-health card/popover that says 'needs a repair' (and its web twin)",
+    "leo": "what's actionable about \"needs a repair\"? if it's unactionable, get rid of it. plus the text is overlapping. (paraphrased)",
+    "ask": "ask-a78f915862",
+    "date": "2026-11-22",
+    "removed_by": "cmux#55468",
+    "pattern": "AppHealthPopover|AppHealthPlaces|AppHealthPlace\\b|AppHealthNativeCard",
+    "paths": [
+      "Packages",
+      "webviews/src"
+    ]
+  },
+  {
+    "id": "subagent-of-pill",
+    "what": "'Subagent of <chat>' provenance pill/metadata on a subagent's own pane",
+    "leo": "i notice there's differing layouts among it and normal chats. like the metadata about provenance or whatever like subagent of something. we shouldn't have those.",
+    "ask": "ask-836d66e229",
+    "date": "2026-11-22",
+    "removed_by": "cmux#49723",
+    "pattern": "subagents\\.of\\b|cv-subagent-of__",
+    "paths": [
+      "webviews/src"
+    ]
+  },
+  {
+    "id": "whats-new-up-arrow",
+    "what": "The up-right arrow after What's New on the Updated card",
+    "leo": "updated to ellipsis, what's new with unnecessary gap at end + useless up arrow.",
+    "ask": "ask-2abdc67fcf",
+    "date": "2026-11-23",
+    "removed_by": "cmux#53864",
+    "pattern": "<span aria-hidden=\"true\"> ↗</span>",
+    "paths": [
+      "webviews/src/pages/changelog"
+    ]
+  },
+  {
+    "id": "sidebar-rollup-running-indicator",
+    "what": "Running spinner/indicator in the sidebar subagent roll-up row",
+    "leo": "this is weird and bad and unncessary",
+    "ask": "ask-42aef58c9e",
+    "date": "2026-11-23",
+    "removed_by": "cmux#52904",
+    "pattern": "refreshRunningIndicator|runningIndicator",
+    "paths": [
+      "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar"
+    ]
+  },
+  {
+    "id": "queued-read-after-this-turn",
+    "what": "'Read after this turn' label over queued/approved guest messages",
+    "leo": "why are you even labeling that all the time? Why are you showing that all the time?",
+    "ask": "ask-d98e1527c4",
+    "date": "2026-10-26",
+    "removed_by": "cmux#31711",
+    "pattern": "message\\.readAfterTurn",
+    "paths": [
+      "webviews/src"
+    ]
+  },
+  {
+    "id": "context-card-compact",
+    "what": "Compact button in the context ring's popover card",
+    "leo": "JUST [...] REMOVE COMPACT FROM THE [...] POPOVER",
+    "ask": "ask-4ae266e8b8",
+    "date": "2026-10-31",
+    "removed_by": "cmux#29625",
+    "pattern": "context\\.compactConversation|<button[^>]*acpmux-context-card-compact",
+    "paths": [
+      "webviews/src"
+    ],
+    "restored": "Leo, 2026-11-25, a question: \"honestly do we want a compact button here or...\"; cmux#55992 built it back. Kept as is: his answer decides, not this list"
+  }
+]

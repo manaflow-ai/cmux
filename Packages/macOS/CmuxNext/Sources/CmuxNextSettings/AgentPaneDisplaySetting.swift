@@ -15,8 +15,15 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
         MarkdownViewerSettingsSchema.fontPresetPath, MarkdownViewerSettingsSchema.codeFamilyPath, MarkdownViewerSettingsSchema.codeScalePath,
     ]
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
-    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
-    public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
+    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx),
+    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), a Settings > Machines switch, off by default,
+    /// the key style and keyboard layout the page's lists answer to (``KeyboardStyleSettings``; webviews ui/keyStyle.ts),
+    /// and Settings > Cloud's Default Image (``CloudNewWorkspaceSetting/defaultImagePath``; webviews chatCloudEnvironment.ts),
+    /// the environment a new Cloud chat starts from.
+    public static let followedAppPaths: [[String]] = [
+        SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
+        KeyboardStyleSettings.keyStylePath, KeyboardStyleSettings.shortcutLayoutPath, CloudNewWorkspaceSetting.defaultImagePath,
+    ]
     /// The transcript look keys, which a theme file may set (``ThemeFileOverlay/lookKeys``): read from the
     /// effective root, not the user's own file (docs/cmux-next/transcript-customization.md).
     public static let themedPaths: Set<[String]> = [

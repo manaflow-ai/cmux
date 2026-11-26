@@ -136,7 +136,7 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
                   frames: [("workspaces-loading", 3.0), ("workspaces-failed", 5.0), ("workspaces-offline-banner", 8.0),
                            ("macs-asleep", 11.0), ("no-macs-connect", 13.0), ("toast-paired", 16.5)]),
         ]
-        for banner in ["connected", "reconnecting", "offline", "pairing", "pairing-reset"] {
+        for banner in ["connected", "reconnecting", "offline", "no-network", "pairing", "pairing-reset"] {
             scenes.append(Scene(group: g, id: "banner-\(banner)", args: ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", banner]))
         }
         scenes.append(Scene(group: g, id: "banner-signed-out", args: ["-cmux-mobile-recovery-gallery", "signedout"]))

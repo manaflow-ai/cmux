@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudRepository.lifetime" : {
+      "comment" : "Agent pane: Session Info Environment note on what a Cloud machine is and how long its files last",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "جهاز Linux في cmux Cloud. تبقى ملفاته بين المحادثات حتى تحذفه، وقد يتوقف مؤقتًا عند الخمول."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linux mašina u cmux Cloudu. Njeni fajlovi ostaju između chatova dok je ne izbrišete, a može se pauzirati kad miruje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Linux-maskine i cmux Cloud. Dens filer bliver mellem chats, til du sletter den, og den kan sættes på pause, når den er inaktiv."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Linux-Rechner in cmux Cloud. Seine Dateien bleiben zwischen Chats, bis du ihn löschst, und er kann im Leerlauf pausieren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A Linux machine in cmux Cloud. Its files stay between chats until you delete it, and it may pause when idle."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una máquina Linux en cmux Cloud. Sus archivos se conservan entre chats hasta que la borres, y puede pausarse si está inactiva."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une machine Linux dans cmux Cloud. Ses fichiers restent entre les discussions jusqu'à ce que vous la supprimiez, et elle peut se mettre en pause au repos."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una macchina Linux in cmux Cloud. I suoi file restano tra le chat finché non la elimini, e può andare in pausa quando è inattiva."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud の Linux マシンです。削除するまでファイルはチャット間で残り、アイドル時は一時停止することがあります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ម៉ាស៊ីន Linux ក្នុង cmux Cloud។ ឯកសាររបស់វានៅដដែលរវាងការជជែក រហូតដល់អ្នកលុបវា ហើយវាអាចផ្អាកពេលទំនេរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud의 Linux 머신입니다. 삭제할 때까지 파일이 채팅 사이에 유지되며, 유휴 시 일시 중지될 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Linux-maskin i cmux Cloud. Filene blir værende mellom chatter til du sletter den, og den kan settes på pause når den er inaktiv."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maszyna Linux w cmux Cloud. Jej pliki zostają między czatami, dopóki jej nie usuniesz, a w bezczynności może się wstrzymać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma máquina Linux no cmux Cloud. Os arquivos ficam entre chats até você excluí-la, e ela pode pausar quando ociosa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Машина Linux в cmux Cloud. Её файлы сохраняются между чатами, пока вы её не удалите, а в простое она может приостановиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เครื่อง Linux ใน cmux Cloud ไฟล์จะคงอยู่ระหว่างแชทจนกว่าคุณจะลบเครื่อง และอาจหยุดชั่วคราวเมื่อไม่ได้ใช้งาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud'da bir Linux makinesi. Siz silene kadar dosyaları sohbetler arasında kalır ve boştayken duraklayabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Машина Linux у cmux Cloud. Її файли зберігаються між чатами, доки ви її не видалите, а в простої вона може призупинитися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một máy Linux trong cmux Cloud. Tệp được giữ giữa các cuộc trò chuyện cho đến khi bạn xóa máy, và máy có thể tạm dừng khi rảnh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud 中的一台 Linux 机器。删除前其文件会在聊天之间保留，空闲时可能暂停。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud 中的一台 Linux 機器。刪除前其檔案會在聊天之間保留，閒置時可能暫停。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

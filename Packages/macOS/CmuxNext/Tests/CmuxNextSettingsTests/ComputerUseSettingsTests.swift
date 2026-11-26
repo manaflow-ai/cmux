@@ -196,7 +196,7 @@ import Testing
         settings.allowForeground = true
         let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
         #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor",
-                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview"])
+                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview", "whileLocked"])
         #expect(object["cursorTag"] as? String == "hover")
         #expect(object["settle"] as? String == "openai")
         #expect(object["mode"] as? String == "approvedApps")
@@ -205,6 +205,19 @@ import Testing
         #expect(object["cloudVm"] as? Bool == false)
         #expect(object["menus"] as? String == "open")
         #expect(object["livePreview"] as? Bool == true)
+        #expect(object["whileLocked"] as? Bool == false)
+    }
+
+    /// `computerUse.whileLocked` (off by default) reaches the engine (locked.rs) as `whileLocked`.
+    /// The app's push replaces the policy the daemon read from cmux.json, so before this key was in
+    /// the push, turning it on in the file changed nothing on a Mac.
+    @Test func whileLockedIsOffByDefaultAndReachesTheEngine() throws {
+        #expect(computerUse(.object([:])).whileLocked == false)
+        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.whileLockedPath)?.defaultValue == .bool(false))
+        let on = computerUse(.object(["computerUse": .object(["whileLocked": .bool(true)])]))
+        #expect(on.whileLocked)
+        let object = try #require(try JSONSerialization.jsonObject(with: on.policyConfigJSON()) as? [String: Any])
+        #expect(object["whileLocked"] as? Bool == true)
     }
 
     /// `computerUse.livePreview` reaches the engine (preview.rs): off, the worker streams no window

@@ -46,6 +46,7 @@
 
 pub mod carrier;
 pub mod channel;
+pub mod credential_wake;
 #[cfg(target_os = "linux")]
 pub mod first_ready;
 #[cfg(unix)]

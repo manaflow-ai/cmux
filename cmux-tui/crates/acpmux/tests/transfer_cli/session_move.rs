@@ -2,9 +2,19 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Stand in only for the SSH operations the CLI and a daemon's own peer link need. No host SSH, credentials or
-/// network are used; the socket symlink reaches the other test daemon's real RPC server.
-pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
+/// Stand in only for the SSH operations the CLI needs. No host SSH, credentials or network are
+/// used; the socket symlink reaches the other test daemon's real RPC server.
+///
+/// With `link` (the target's WebSocket port, a one-way delay in milliseconds) it also carries the
+/// daemon's own peer link: `ssh -W` is a TCP connection to that port, each chunk held for the
+/// delay in both directions as a link of that latency holds it, and the remote config read
+/// answers with the target's `config.json` and peer token.
+pub(super) fn fake_ssh(
+    home: &Path,
+    target_home: &Path,
+    target_socket: &Path,
+    link: Option<(u16, u64)>,
+) -> String {
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
     let script = format!(
@@ -12,7 +22,47 @@ pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) ->
 import json, os, pathlib, signal, sys
 home = {home}
 socket = {socket}
+link = {link}
 args = sys.argv[1:]
+if '-W' in args and link:
+    import queue, socket as net, threading, time
+    port, delay = link[0], link[1] / 1000
+    peer = net.create_connection(('127.0.0.1', port))
+    peer.setsockopt(net.IPPROTO_TCP, net.TCP_NODELAY, 1)
+    def write_out(data):
+        while data:
+            data = data[os.write(1, data):]
+    def pump(read, write, close):
+        held = queue.Queue()
+        def deliver():
+            while True:
+                item = held.get()
+                if item is None:
+                    close()
+                    return
+                wait = item[0] - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                write(item[1])
+        out = threading.Thread(target=deliver, daemon=True)
+        out.start()
+        while True:
+            try:
+                data = read()
+            except OSError:
+                data = b''
+            if not data:
+                held.put(None)
+                out.join()
+                return
+            held.put((time.monotonic() + delay, data))
+    up = threading.Thread(
+        target=pump,
+        args=(lambda: os.read(0, 65536), peer.sendall, lambda: peer.shutdown(net.SHUT_WR)),
+        daemon=True)
+    up.start()
+    pump(lambda: peer.recv(65536), write_out, lambda: None)
+    os._exit(0)
 if '-L' in args:
     local, remote = args[args.index('-L') + 1].split(':', 1)
     assert remote == socket
@@ -29,22 +79,52 @@ if '-W' in args:
         sys.exit(1)
     host, port = at.rsplit(':', 1)
     link = net.create_connection((host, int(port)))
-    def up():
+    link.setsockopt(net.IPPROTO_TCP, net.TCP_NODELAY, 1)
+    # FAKE_SSH_DELAY_MS (the daemon's env): each chunk is held that long in both directions, as
+    # a link of that one-way latency holds it (`view_latency.rs`).
+    delay = int(os.environ.get('FAKE_SSH_DELAY_MS') or 0) / 1000
+    def write_out(data):
+        while data:
+            data = data[os.write(1, data):]
+    def pump(read, write, close):
+        import queue, time
+        held = queue.Queue()
+        def deliver():
+            while True:
+                item = held.get()
+                if item is None:
+                    close()
+                    return
+                wait = item[0] - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                write(item[1])
+        out = threading.Thread(target=deliver, daemon=True)
+        out.start()
         while True:
-            data = os.read(0, 65536)
+            try:
+                data = read()
+            except OSError:
+                data = b''
             if not data:
-                break
-            link.sendall(data)
-        link.shutdown(net.SHUT_WR)
-    threading.Thread(target=up, daemon=True).start()
-    while True:
-        data = link.recv(65536)
-        if not data:
-            break
-        os.write(1, data)
+                held.put(None)
+                out.join()
+                return
+            held.put((time.monotonic() + delay, data))
+    threading.Thread(
+        target=pump,
+        args=(lambda: os.read(0, 65536), link.sendall, lambda: link.shutdown(net.SHUT_WR)),
+        daemon=True).start()
+    pump(lambda: link.recv(65536), write_out, lambda: None)
     sys.exit(0)
 command = args[-1]
-if 'acpmux daemon status --json' in command:
+if link and 'cat ~/.acpmux/config.json' in command:
+    sys.stdout.buffer.write(pathlib.Path(home, 'config.json').read_bytes() + b'\0')
+    token = pathlib.Path(home, 'run', 'peer.token')
+    if token.exists():
+        sys.stdout.buffer.write(token.read_bytes())
+    sys.stdout.buffer.flush()
+elif 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
@@ -68,6 +148,7 @@ else:
 "#,
         home = serde_json::to_string(&target_home.to_string_lossy()).unwrap(),
         socket = serde_json::to_string(&target_socket.to_string_lossy()).unwrap(),
+        link = link.map_or("None".to_owned(), |(port, delay)| format!("({port}, {delay})")),
     );
     let ssh = bin.join("ssh");
     std::fs::write(&ssh, script).unwrap();
@@ -170,6 +251,12 @@ async fn session_move_to_an_added_ssh_machine_preserves_history_queue_and_draft(
     let receipt: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(receipt["moves"][0]["moved"], true, "{receipt}");
     assert_eq!(receipt["moves"][0]["targetSessionId"], id, "{receipt}");
+    // The phases the offload probe reads (`transfer::MoveTimings`).
+    let timings = &receipt["moves"][0]["timings"];
+    for key in ["freezeMs", "transferMs", "thawMs", "blackoutMs"] {
+        assert!(timings[key].is_u64(), "{key}: {receipt}");
+    }
+    assert!(timings["carriedRunningTurn"].is_boolean(), "{receipt}");
 
     let mut dst = Rpc::connect(&target.socket).await;
     let ready = dst
@@ -190,7 +277,9 @@ async fn session_move_to_an_added_ssh_machine_preserves_history_queue_and_draft(
     assert_eq!(draft["draft"], "unsent words");
     let info = dst.call("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(info["cwd"], destination.to_string_lossy().as_ref());
-    let left = src.call("_acpmux/info", json!({"sessionId": id})).await;
+    // The row the source keeps: a plain `{sessionId}` info follows the chat to its copy.
+    let kept = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+    let left = &kept["rows"][0];
     assert_eq!(left["status"], "closed");
     assert_eq!(left["movedTo"]["host"], "target");
 }
