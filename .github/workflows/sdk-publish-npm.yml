@@ -121,6 +121,13 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      # Zig's own package download has no retry: one GitHub archive 504 failed a whole
+      # cmux-tui build (cmux-tui-sdks run 45887126017). Cached, deadlined, retried.
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+
       - name: Install Rust toolchain
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
