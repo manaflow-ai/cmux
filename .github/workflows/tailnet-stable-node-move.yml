@@ -21,6 +21,8 @@ on:
       - cmux-tui/crates/cmux-tailnet-front/testing/move_probe.py
       - scripts/cmux-next/tailnet-move-vms.ts
       - .github/workflows/tailnet-stable-node-move.yml
+      - cmux-tui/crates/cmux-tailnet-join/**
+      - cmux-tui/crates/cmux-tui/src/cli/vm_tailnet.rs
 
 permissions:
   contents: read
@@ -36,7 +38,9 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    timeout-minutes: 60
+    # Two cold debug builds (acpmux --features tailnet, then cmux-tui) took 52 min in run 45715050700
+    # and 68 min on a freestyle runner in run 45830130860, whose move then hit a 100-min cap mid-step.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -51,8 +55,37 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      # The cmux CLI (cmux-tui) links libghostty-vt, built with Zig from the ghostty-next submodule
+      # (cloud-journey-pr.yml's steps). Run 45715050700 failed without them: ghostty-next missing build.zig.
+      - name: Initialize the ghostty-next submodule
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
       - name: Give this runner instance its own CARGO_HOME
         uses: ./.github/actions/runner-cargo-home
       # cmux-tailnet's build script compiles libtailscale with `go build` (cmux-tui.yml's step).
@@ -62,7 +95,7 @@ jobs:
           go-version-file: cmux-tui/crates/cmux-tailnet/go-version
           cache: ${{ !contains(runner.name, '-glaeda') }}
           cache-dependency-path: cmux-tui/crates/cmux-tailnet/build.rs
-      - name: Build acpmux --features tailnet
+      - name: Build acpmux --features tailnet and the cmux CLI
         id: build
         env:
           CARGO_NET_RETRY: "10"
@@ -71,6 +104,8 @@ jobs:
           # most of a debug target dir, and this binary is only run, never debugged.
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_INCREMENTAL: "0"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
         run: |
           set -euo pipefail
           df -h "$GITHUB_WORKSPACE" "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE}" 2>/dev/null || true
@@ -78,6 +113,11 @@ jobs:
           bin="$(cd cmux-tui && echo "${CARGO_TARGET_DIR:-$PWD/target}")/debug/acpmux"
           test -x "$bin"
           echo "acpmux=$bin" >> "$GITHUB_OUTPUT"
+          # The cmux CLI (cmux-tui) mints VM B's key from a headscale API key (`cmux vm tailnet mint-key`).
+          (cd cmux-tui && cargo build -p cmux-tui --locked --bin cmux-tui)
+          cli="$(dirname "$bin")/cmux-tui"
+          test -x "$cli"
+          echo "cmux=$cli" >> "$GITHUB_OUTPUT"
       - name: Move the stable node's placement between two staging VMs
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -87,7 +127,7 @@ jobs:
           OUT: ${{ runner.temp }}/tailnet-move/rows.txt
         run: |
           mkdir -p "$RUNNER_TEMP/tailnet-move"
-          bash cmux-tui/crates/cmux-tailnet-front/testing/stable-node-vm-move.sh "${{ steps.build.outputs.acpmux }}"
+          bash cmux-tui/crates/cmux-tailnet-front/testing/stable-node-vm-move.sh "${{ steps.build.outputs.acpmux }}" "${{ steps.build.outputs.cmux }}"
       - name: Log out and delete this run's VMs (again, if the script died first)
         if: always()
         continue-on-error: true
