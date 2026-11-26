@@ -414,13 +414,7 @@ export type RequestCardProps = AnswerState & {
 
 /** An open request in the list: what it asks and how to answer, inline. It gets its own part of the
  * snapshot only, so a change to another item, a draft in another card or the selection renders it not. */
-export const RequestCard = memo(function RequestCard({
-  item,
-  store,
-  strings,
-  time,
-  ...answer
-}: RequestCardProps) {
+export const RequestCard = memo(function RequestCard({ item, store, strings, time, ...answer }: RequestCardProps) {
   return (
     <div className={cx("feed-card", answer.pending && "pending")} data-item={item.id}>
       <div className="feed-card-head">

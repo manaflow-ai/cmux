@@ -8,7 +8,15 @@ import { cx } from "../../ui/cx";
 import { answerState, plain, type AnswerState, type FeedProps } from "./context";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
-import { Answers, approveScopes, choiceIssues, closedStatus, isOneTap, SCOPE_LABEL, type ChoiceSelection } from "./model";
+import {
+  Answers,
+  approveScopes,
+  choiceIssues,
+  closedStatus,
+  isOneTap,
+  SCOPE_LABEL,
+  type ChoiceSelection,
+} from "./model";
 import type { ViewItem } from "./types";
 import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
