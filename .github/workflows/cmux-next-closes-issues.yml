@@ -1,0 +1,46 @@
+name: cmux-next merge closes issues
+
+# GitHub closes an issue from "Fixes #N" only when the pull request merges into the default branch, main.
+# Most work merges into feat-cmux-next, so its fixed issues stayed open for weeks (#48434 after #48464,
+# #46019 after #46081, #49392 after #49440). This closes them on the merge: each open issue the pull
+# request's title or body names with a closing keyword gets "Fixed on feat-cmux-next by #PR (SHA)." and is
+# closed as completed. scripts/ci/next_closes_issues.py holds the parsing; tests/test_next_closes_issues.py
+# holds it (ci-guards.yml, group ci).
+#
+# pull_request, not pull_request_target: pull_request_target runs only the default branch's copy, and its
+# write token comes with every fork's pull request. On pull_request a fork's run gets a read-only token, so
+# the job skips forks and runs only the merged, trusted code of this repository's own pull requests.
+on:
+  pull_request:
+    types: [closed]
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-closes-issues-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  close:
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    timeout-minutes: 5
+    steps:
+      - name: Check out the merged script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/next_closes_issues.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Close the issues the pull request fixes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/ci/next_closes_issues.py --event "$GITHUB_EVENT_PATH" --repo "$GITHUB_REPOSITORY"

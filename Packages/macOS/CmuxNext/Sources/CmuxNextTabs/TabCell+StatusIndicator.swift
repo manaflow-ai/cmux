@@ -159,6 +159,7 @@ extension TabCell: StatusIndicatorConfigClient {
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         if item.status != .none { updateStatusGlyph() }
+        updateNeedsYouGlowMotion() // loops on or off (the system's Reduce Motion reaches here on the app's return)
         guard item.isBusy else { return }
         updateSpinner()
         updateColors(animated: false)

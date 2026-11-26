@@ -30,6 +30,16 @@ extension GlassParityPlayground {
         return parts.joined(separator: "-")
     }
 
+    /// The most captures of one renderer while its glass still eases to the backdrop (about 2.4 s).
+    static let maximumCaptures = 6
+
+    /// The stage's pixels in the capture at `url`, to tell whether two captures are the same.
+    nonisolated static func stagePixels(_ url: URL, _ stage: CGRect) -> [UInt8]? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return GlassParityDiff.pixels(of: image, in: stage)?.bytes
+    }
+
     /// Captures every renderer alone into `directory` through `capture` (`debug.window_snapshot`
     /// params: the window and a PNG path) and answers each web surface's diff against the native one at
     /// the same box, with its text (`full`) and without (`material`). Writes per surface each renderer's
@@ -40,19 +50,53 @@ extension GlassParityPlayground {
         await Task.detached(priority: .utility) { try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) }.value
         var shots: [String: URL] = [:]
         var snapshots: [String: JSONValue] = [:]
-        for column in Column.allCases where column == .native || pages[column] != nil {
-            solo(column)
-            await settle()
-            let png = directory.appending(path: "window-\(stem)-\(column.rawValue).png", directoryHint: .notDirectory)
-            snapshots[column.rawValue] = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path)])
-            shots[column.rawValue] = png
-        }
-        solo(nil)
         // The capture is the window's frame at its backing scale, title bar on top, no shadow.
         let scale = window.backingScaleFactor
         let contentInWindow = content.convert(content.bounds, to: nil)
         let contentTop = (window.frame.height - contentInWindow.maxY) * scale
         let stage = CGRect(x: 0, y: contentTop, width: Self.contentSize.width * scale, height: Self.contentSize.height * scale)
+        for column in Column.allCases where column == .native || pages[column] != nil {
+            solo(column)
+            await settle()
+            let png = directory.appending(path: "window-\(stem)-\(column.rawValue).png", directoryHint: .notDirectory)
+            // Captured until two captures in a row are the same: Liquid Glass eases its adaptive look to a new backdrop
+            // over more than a second, and a hidden glass view does not ease at all, so the renderer shown first
+            // (native) still carried the last scenario's look over a dark picture (fleet run b44f5987: the tooltip's
+            // glass 46 levels darker than the same glass under the page, every web column alike).
+            var previous: [UInt8]?
+            var reply: JSONValue = .null
+            var captures = 0
+            var keyAtCapture = true
+            while captures < Self.maximumCaptures {
+                captures += 1
+                // An active cell is the key window's glass: in an active app whose key window is another one, the
+                // glass's key look (ActiveLookScope) holds only through its own updates, so two glass views drifted
+                // apart by when each last updated (fleet step 8bf3dbb6: every failing tooltip cell, none other).
+                // The app's main window may take key at any time after activation; take it back before each capture.
+                if scenario.active, !window.isKeyWindow {
+                    window.makeKeyAndOrderFront(nil)
+                    await settle()
+                }
+                keyAtCapture = keyAtCapture && (!scenario.active || window.isKeyWindow)
+                // `chromium_pages: false`: the window server's composite already holds the Chromium page (its child
+                // window); painting Chromium's own image over it again drew its text and row fills twice.
+                reply = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path),
+                                       "chromium_pages": .bool(false)])
+                let now = await Task.detached(priority: .utility) { Self.stagePixels(png, stage) }.value
+                if let now, now == previous { break }
+                previous = now
+                await wait(until: { false }, limit: .milliseconds(400))
+            }
+            if case .object(var members) = reply {
+                members["captures"] = .number(Double(captures))
+                members["key"] = .bool(window.isKeyWindow)
+                members["key_at_capture"] = .bool(keyAtCapture)
+                reply = .object(members)
+            }
+            snapshots[column.rawValue] = reply
+            shots[column.rawValue] = png
+        }
+        solo(nil)
         let cells = Kind.allCases.map { kind -> CellBox in
             let surface = Self.surfaceRect(kind)
             let box = surface.insetBy(dx: -8, dy: -8)
@@ -73,6 +117,12 @@ extension GlassParityPlayground {
         var probes: [String: JSONValue] = [:]
         for (column, page) in pages { probes[column.rawValue] = await Self.probe(page) }
         members["probe"] = .object(probes)
+        // The tooltip's native glass beside each column's host glass under the web tooltip (their pixels differ by
+        // backdrop: fleet steps 368e35ec, 339c069f).
+        var trees: [String: JSONValue] = [:]
+        if let native = nativeLayer?.subviews.first(where: { $0.frame == Self.surfaceRect(.tooltip) }) { trees["native"] = glassParityTree(native) }
+        for (column, host) in hosts { if let view = host.tooltipSurface { trees[column.rawValue] = glassParityTree(view) } }
+        members["tooltip_tree"] = .object(trees)
         return .object(members)
     }
 
@@ -83,10 +133,20 @@ extension GlassParityPlayground {
         const pick = (s) => ({ bg: s.backgroundColor, image: s.backgroundImage.slice(0, 160),
           backdrop: s.backdropFilter || s.webkitBackdropFilter || '', filter: s.filter, shadow: s.boxShadow.slice(0, 160),
           border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor, opacity: s.opacity, radius: s.borderTopLeftRadius });
-        return JSON.stringify({ root: Object.assign({}, document.documentElement.dataset),
+        const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 100) / 100); };
+        const text = (e) => e && (({ color, fontFamily, fontSize, fontWeight, lineHeight, webkitFontSmoothing }) =>
+          ({ color, fontFamily: fontFamily.slice(0, 80), fontSize, fontWeight, lineHeight, smoothing: webkitFontSmoothing, box: box(e) }))(getComputedStyle(e));
+        const vars = getComputedStyle(document.documentElement);
+        return JSON.stringify({ root: Object.assign({}, document.documentElement.dataset), dpr: devicePixelRatio,
+          viewport: [innerWidth, innerHeight, visualViewport ? visualViewport.offsetTop : -1, visualViewport ? visualViewport.height : -1, document.documentElement.clientHeight],
+          vars: Object.fromEntries(['--cmux-text', '--cmux-text-secondary', '--cmux-hover', '--cmux-pressed', '--cmux-row-focus']
+            .map((name) => [name, vars.getPropertyValue(name).trim()])),
           cells: [...document.querySelectorAll('.glass-parity-surface')].map((e) => ({ kind: e.dataset.parityKind,
-            drawn: e.getAttribute('data-host-glass-drawn'), self: pick(getComputedStyle(e)),
-            before: pick(getComputedStyle(e, '::before')), after: pick(getComputedStyle(e, '::after')) })) });
+            drawn: e.getAttribute('data-host-glass-drawn'), self: pick(getComputedStyle(e)), box: box(e),
+            before: pick(getComputedStyle(e, '::before')), after: pick(getComputedStyle(e, '::after')),
+            title: text(e.querySelector('.glass-parity-title')), detail: text(e.querySelector('.glass-parity-detail')),
+            row: e.querySelector('.glass-parity-row') && { ...pick(getComputedStyle(e.querySelector('.glass-parity-row'))),
+              box: box(e.querySelector('.glass-parity-row')), uiRow: getComputedStyle(e.querySelector('.glass-parity-row')).getPropertyValue('--ui-row').trim() } })) });
         """
         guard let text = await page.callPageFunction(script) as? String, let value = try? JSONValue.parse(Data(text.utf8)) else {
             return .null

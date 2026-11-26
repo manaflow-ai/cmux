@@ -28,6 +28,8 @@ const MINT_TIMEOUT: Duration = Duration::from_secs(20);
 const KEYRING_TIMEOUT: Duration = Duration::from_secs(10);
 /// The label the Cloud ledger shows for these tokens.
 const LABEL: &str = "acpmux-github-broker";
+/// The label of a token the Mac mints for git, `gh` or MCP on a machine it lends GitHub to.
+const PEER_TOKEN_LABEL: &str = "acpmux-remote-token";
 /// How far past now a lease's `seq` may be.
 const SEQ_AHEAD_MAX_MS: u64 = 24 * 60 * 60 * 1000;
 /// The cmux Cloud APIs the sign-in may be sent to (the app's `ownerAPIBaseURL`); a loopback
@@ -234,6 +236,18 @@ pub async fn choose(
     (Some("app"), mint(&lent, r).await.map(|token| Source::App(token, seq)))
 }
 
+/// A `token` for a peer (`github_broker::serve_token`): App only, with the lent sign-in; with no
+/// sign-in lent, the not-connected error (the keyring login is never handed to a machine).
+pub async fn mint_for_peer(
+    r: &GithubActionParams,
+    app: Option<&AppLease>,
+) -> Result<Source, RpcError> {
+    let Some((seq, lent)) = app.and_then(|a| a.current(crate::store::now_ms)) else {
+        return Err(not_connected());
+    };
+    mint(&lent, r).await.map(|token| Source::App(token, seq))
+}
+
 /// Whether `gh` on this Mac is signed in to github.com (it prints nothing of the token here).
 async fn keyring_works() -> bool {
     let mut gh = tokio::process::Command::new("gh");
@@ -249,6 +263,20 @@ async fn keyring_works() -> bool {
     matches!(tokio::time::timeout(KEYRING_TIMEOUT, status).await, Ok(Ok(s)) if s.success())
 }
 
+/// What request `r` asks of the App: its action's set, or a `token`'s own (checked against
+/// `github_broker::TOKEN_PERMISSIONS`), with `metadata: read`, which GitHub grants every
+/// installation token.
+pub fn asked_permissions(r: &GithubActionParams) -> Value {
+    match (r.action, &r.permissions) {
+        (GithubAction::Token, Some(asked)) => {
+            let mut asked = asked.clone();
+            asked.entry("metadata").or_insert_with(|| json!("read"));
+            Value::Object(asked)
+        }
+        (action, _) => permissions(action),
+    }
+}
+
 /// What each action needs of the App, and no more.
 pub fn permissions(action: GithubAction) -> Value {
     match action {
@@ -262,6 +290,8 @@ pub fn permissions(action: GithubAction) -> Value {
         GithubAction::DraftPr => {
             json!({"metadata": "read", "contents": "read", "pull_requests": "write"})
         }
+        // A token's set is its own (`asked_permissions`); none asked is only metadata.
+        GithubAction::Token => json!({"metadata": "read"}),
     }
 }
 
@@ -304,6 +334,12 @@ fn app_error(code: &str) -> RpcError {
             -32045,
             "github.app_token",
             "cmux could not get a GitHub token: the token cmux Cloud sent is not for this repository",
+        ),
+        "build_space" => (
+            "build_space",
+            -32045,
+            "github.app_token",
+            "cmux could not get a GitHub token: this dev build was started without its build space (CMUX_BUILD_SPACE), so it asks cmux Cloud nothing",
         ),
         _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
     };
@@ -355,15 +391,55 @@ async fn bounded_json(mut res: reqwest::Response) -> Value {
 /// A token for `r.repo` alone, with `permissions(r.action)`; checked to be an App installation
 /// token for that repository before anything uses it.
 async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
+    let space = cmux_build_space::process().map(|space| space.cloned());
+    let label = if r.action == GithubAction::Token { PEER_TOKEN_LABEL } else { LABEL };
+    mint_in(lent, &r.repo, &asked_permissions(r), label, space).await
+}
+
+/// The label the Cloud ledger shows for the Mac app's own GitHub calls (`github_rest_op.rs`).
+const REST_LABEL: &str = "acpmux-github-rest";
+
+/// A token for `repo` with `permissions` and no more, minted with the sign-in lent now, for the
+/// Mac app's own GitHub calls (`github_rest_op.rs`); None when no sign-in is lent. Use it only
+/// inside [`while_lent`]'s check, as an action does.
+pub async fn mint_for(
+    app: &AppLease,
+    repo: &str,
+    permissions: &Value,
+) -> Option<Result<Source, RpcError>> {
+    let (seq, lent) = app.current(crate::store::now_ms)?;
+    let space = cmux_build_space::process().map(|space| space.cloned());
+    Some(mint_in(&lent, repo, permissions, REST_LABEL, space).await.map(|t| Source::App(t, seq)))
+}
+
+/// Whether the sign-in a token was minted with (`source`) is still the one lent: checked again
+/// right before each HTTP call it makes (a call cannot hold the lease's lock across its wait).
+pub fn still_lent(source: &Source, app: &AppLease) -> Result<(), RpcError> {
+    while_lent(source, Some(app), || Ok(()))
+}
+
+/// [`mint`] in `space`: the lent sign-in is an install token of the app's build space, which
+/// Cloud refuses (401) without that space's `x-cmux-build-space`.
+async fn mint_in(
+    lent: &Lent,
+    repo: &str,
+    asked: &Value,
+    label: &str,
+    space: cmux_build_space::Resolved,
+) -> Result<String, RpcError> {
+    let space = space.map_err(|e| {
+        tracing::warn!("github app token: {e}");
+        app_error("build_space")
+    })?;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
+        .default_headers(cmux_build_space::headers_for(space.as_ref()))
         .redirect(reqwest::redirect::Policy::none())
         .timeout(MINT_TIMEOUT)
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| RpcError::internal(format!("no HTTP client: {e}")))?;
-    let body = json!({"team": lent.team, "repo": r.repo, "permissions": permissions(r.action),
-        "label": LABEL});
+    let body = json!({"team": lent.team, "repo": repo, "permissions": asked, "label": label});
     let res = client
         .post(format!("{}/v1/integrations/github/token", lent.origin))
         .bearer_auth(&lent.bearer)
@@ -381,13 +457,10 @@ async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
         return Err(app_error(code.unwrap_or("unknown")));
     }
     let token = answer.get("token").and_then(Value::as_str).unwrap_or("");
-    let repo = answer.get("repo").and_then(Value::as_str).unwrap_or("");
-    let installation = token.starts_with("ghs_")
-        && token.len() <= 255
-        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-    if !installation
-        || !repo.eq_ignore_ascii_case(&r.repo)
-        || !within(answer.get("permissions"), &permissions(r.action))
+    let answered = answer.get("repo").and_then(Value::as_str).unwrap_or("");
+    if !crate::github_broker::installation_token(token)
+        || !answered.eq_ignore_ascii_case(repo)
+        || !within(answer.get("permissions"), asked)
     {
         return Err(app_error("invalid_reply"));
     }
@@ -397,6 +470,43 @@ async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The heads of one mint against a loopback Cloud, in `space`.
+    async fn mint_heads(
+        space: cmux_build_space::Resolved,
+    ) -> (Vec<Option<String>>, Result<String, RpcError>) {
+        let heads = cmux_build_space::testing::Heads::start().await.unwrap();
+        let lent = Lent {
+            origin: heads.base_url.clone(),
+            bearer: "install".into(),
+            team: "team_0123".into(),
+            expires_at_ms: u64::MAX,
+        };
+        let r: GithubActionParams = serde_json::from_value(
+            json!({"action": "comment", "repo": "o/r", "issue": 1, "body": "b"}),
+        )
+        .unwrap();
+        let minted = mint_in(&lent, &r.repo, &permissions(r.action), LABEL, space).await;
+        heads.wait_for(1).await;
+        (heads.spaces(), minted)
+    }
+
+    /// The Mac's lent sign-in is a dev build's install token (`bsp` claim): its mint carries the
+    /// build space, or Cloud answers 401 and the app re-mints the install identity in a loop.
+    #[tokio::test]
+    async fn a_dev_builds_lent_sign_in_mints_in_its_build_space() {
+        let (spaces, _) = mint_heads(Ok(Some(cmux_build_space::testing::space("my-tag-2")))).await;
+        assert_eq!(spaces, vec![Some("dev:my-tag-2".to_owned())]);
+        let (spaces, _) = mint_heads(Ok(None)).await;
+        assert_eq!(spaces, vec![None], "nightly sends no build space");
+    }
+
+    #[tokio::test]
+    async fn an_unusable_build_space_mints_nothing() {
+        let (spaces, minted) = mint_heads(cmux_build_space::testing::refused()).await;
+        assert!(spaces.is_empty(), "nothing reached Cloud: {spaces:?}");
+        assert!(minted.is_err());
+    }
 
     #[test]
     fn a_lease_takes_only_a_cmux_origin_and_sign_in_and_never_answers_it() {
@@ -617,14 +727,41 @@ mod tests {
         assert!(!within(None, &asked));
     }
 
+    /// Slice 2: a peer's `token` asks the App for exactly what it named, plus metadata, and a
+    /// reply broader than that is refused.
+    #[test]
+    fn a_peer_token_asks_for_its_own_permissions_and_metadata_only() {
+        let r: GithubActionParams = serde_json::from_value(json!({"action": "token",
+            "repo": "o/r", "permissions": {"contents": "write"}}))
+        .unwrap();
+        let asked = asked_permissions(&r);
+        assert_eq!(asked, json!({"contents": "write", "metadata": "read"}));
+        assert!(within(Some(&json!({"contents": "write", "metadata": "read"})), &asked));
+        assert!(!within(Some(&json!({"contents": "write", "pull_requests": "write"})), &asked));
+    }
+
+    #[tokio::test]
+    async fn a_peer_token_with_no_lent_sign_in_is_not_connected_and_never_the_keyring() {
+        let r: GithubActionParams = serde_json::from_value(json!({"action": "token",
+            "repo": "o/r", "permissions": {"contents": "read"}}))
+        .unwrap();
+        let e = mint_for_peer(&r, Some(&AppLease::default())).await.err().unwrap();
+        assert_eq!(e.data.unwrap()["reason"], "github.not_connected");
+        assert!(mint_for_peer(&r, None).await.is_err());
+    }
+
     #[test]
     fn each_action_asks_the_app_for_its_own_permissions_only() {
         assert_eq!(permissions(GithubAction::Read)["issues"], Value::Null);
         assert_eq!(permissions(GithubAction::Issue)["issues"], "write");
         assert_eq!(permissions(GithubAction::DraftPr)["contents"], "read");
-        for a in
-            [GithubAction::Read, GithubAction::Issue, GithubAction::Comment, GithubAction::DraftPr]
-        {
+        for a in [
+            GithubAction::Read,
+            GithubAction::Issue,
+            GithubAction::Comment,
+            GithubAction::DraftPr,
+            GithubAction::Token,
+        ] {
             let p = permissions(a);
             assert!(p.get("workflows").is_none() && p.get("actions").is_none(), "{p}");
             assert_ne!(p.get("contents").and_then(Value::as_str), Some("write"), "{p}");

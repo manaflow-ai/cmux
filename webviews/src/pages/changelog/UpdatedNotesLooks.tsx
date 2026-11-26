@@ -203,7 +203,6 @@ export function HeadlineNotes({
         <button type="button" className="wn-notes-seeall" onClick={() => actions.openChangelog()}>
           <span>{strings.t("updates.popover.seeAll")}</span>
           <span className="wn-notes-area-count">{strings.format("updates.card.more", String(rest))}</span>
-          <span aria-hidden="true">↗</span>
         </button>
       )}
     </div>

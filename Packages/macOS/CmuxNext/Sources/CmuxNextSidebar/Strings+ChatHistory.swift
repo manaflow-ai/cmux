@@ -5,10 +5,10 @@ import Foundation
 extension Strings {
     /// A history row's right-click menu: keep the chat at the top.
     static var chatHistoryPin: String {
-        String(localized: "sidebar.chatHistory.pin", defaultValue: "Pin", bundle: .module)
+        String(localized: "sidebar.chatHistory.pin", defaultValue: "Pin", bundle: .localizedModule)
     }
 
     static var chatHistoryUnpin: String {
-        String(localized: "sidebar.chatHistory.unpin", defaultValue: "Unpin", bundle: .module)
+        String(localized: "sidebar.chatHistory.unpin", defaultValue: "Unpin", bundle: .localizedModule)
     }
 }

@@ -15,6 +15,7 @@
 #               (wifi-away-schedule.jsonl here is `schedule wifi-away 900`, made with macOS /usr/bin/python3).
 #   wifi-short, wifi-long, wifi-loss   ablations of wifi-away on the same schedule: only its short holds
 #               (no loss), only its long holds (no loss), only its 2% loss (no holds)
+#   wifi-loss-1 wifi-loss at 1% random loss (no holds): the loss the Reassembly row is read under
 # How a hold queues and then bursts: dummynet queues are capped (100 slots / 1 MB, ~170 ms at 48 Mbps), so
 # a zero-bandwidth hold would drop. Its delay line has no cap, and each packet's exit time is fixed when it
 # enters (FIFO). So during a hold of H ms the delay steps down from 4+H ms (every 10 ms for holds under
@@ -27,7 +28,7 @@ PIPE=7730
 ST=/var/tmp/rd-synth-stall
 PY=${MAC_HOLDS_PY:-/usr/bin/python3}
 DNCTL=${MAC_HOLDS_DNCTL:-dnctl}   # tests put a stub here
-PROFILES="stall wifi-away wifi-short wifi-long wifi-loss"
+PROFILES="stall wifi-away wifi-short wifi-long wifi-loss wifi-loss-1"
 BASE_DELAY_MS=4
 # Never configure a dummynet pipe with a delay under 1 ms. A zero-delay pipe reinjects packets inside
 # the network stack; five such pipes behind pf probability rules, with rd traffic, overflowed the kernel
@@ -77,7 +78,7 @@ time.sleep(max(0.0, t_base + max_s - time.monotonic()))
 PYEOF
 }
 
-plr_of() { case "$1" in wifi-away|wifi-loss) echo 0.02 ;; *) echo 0 ;; esac; }
+plr_of() { case "$1" in wifi-away|wifi-loss) echo 0.02 ;; wifi-loss-1) echo 0.01 ;; *) echo 0 ;; esac; }
 # A recorded pid may be stale (a killed watchdog, a reboot): act on it only while it still runs this
 # script's watchdog, its hold loop or a dnctl the loop started.
 ours() {
@@ -111,7 +112,7 @@ elif prof.startswith("wifi-"):
             holds.append((s, rng.uniform(50.0, 100.0), "short"))
         k += 1
     holds += [(ls, lh, "long") for ls, lh in longs]
-    keep = {"wifi-short": ("short",), "wifi-long": ("long",), "wifi-loss": ()}.get(prof, ("short", "long"))
+    keep = {"wifi-short": ("short",), "wifi-long": ("long",), "wifi-loss": (), "wifi-loss-1": ()}.get(prof, ("short", "long"))
     holds = sorted(h for h in holds if h[2] in keep)
 for start, hold, kind in holds:
     if start <= max_s:
@@ -131,6 +132,9 @@ case "${1:-}" in
     known "${2:-}" || exit 2
     schedule "$2" "${3:?MAX_S}"
     exit
+    ;;
+  _plr_of)       # PROFILE: its random loss (tests)
+    known "${2:-}" || exit 2; plr_of "$2"; exit
     ;;
   _pipe_config)  # DELAY_MS PLR (tests: with MAC_HOLDS_DNCTL set to a stub)
     pipe_config "$2" "$3"; exit
@@ -190,7 +194,8 @@ case "${1:-}" in
     [ -n "$wp" ] && stop_pid "$wp"
     rm -f "$ST/py.pid" "$ST/watchdog.pid"
     clear_all
-    sleep 0.5
+    # Until no dnctl is running (one still running could create the pipe again), 5 s; then check the pipe.
+    for _ in $(seq 50); do pgrep -x dnctl >/dev/null 2>&1 || break; sleep 0.1; done
     dnctl list 2>/dev/null | grep -q "^0$PIPE:" && { echo "pipe came back; clearing again" >&2; clear_all; }
     for p in $pp $wp; do ours "$p" && echo "still running: $p" || echo "exited: $p"; done
     echo "holds: $(wc -l < "$ST/holds.jsonl" 2>/dev/null || echo 0)"

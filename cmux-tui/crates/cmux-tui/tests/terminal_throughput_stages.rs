@@ -19,21 +19,34 @@
 //!   host process reads the PTY and parses, the daemon mirrors its stream and
 //!   parses again; no viewer;
 //! - `daemon-hosted+viewer`: the same with one byte attach reading every
-//!   `output` event (JSON, base64 decoded), as the Mac app's terminal does;
+//!   `output` event (JSON, base64 decoded);
+//! - `daemon-hosted+viewer-snapshot`: the viewer attaches as the Mac app's
+//!   terminal does (`set-client-info`, then a snapshot attach: READY, then
+//!   `output` lines with offsets, base64 decoded);
+//! - `daemon-hosted+viewer-frames`: the same snapshot attach from a connection
+//!   that declared `attach-frames-v1`: `output` arrives as binary OUTPUT frames
+//!   (16-byte header, raw bytes), no JSON scan and no base64;
 //! - `daemon-ephemeral`: the daemon running the PTY in-process (`--ephemeral`,
 //!   no host process): one parser, no host hop.
 //!
 //! For the daemon stages it also prints the busiest threads (CPU % of the
 //! burst) of the daemon and the terminal host, and the viewer's events, so the
-//! stage that caps the rate shows as a thread near 100 %. Linux cuts thread
+//! stage that caps the rate shows as a thread near 100 %. The viewer runs in
+//! this test's process, which that sample does not read, so it reports its own
+//! thread's CPU and the share of the burst it spent scanning lines and
+//! decoding base64: a viewer near 100 % caps itself, not the daemon. Linux cuts thread
 //! names to 15 bytes, so each carries its id: in a host, `terminal-host-p` with
 //! the lower id is the parser (`terminal-host-parser`, started first), the
 //! higher one the PTY reader (`terminal-host-pty`).
 //!
 //! Run (ignored in the normal test run):
-//! `cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture`.
+//! `cargo test --release -p cmux-tui --test it -- terminal_throughput_stages:: --ignored --nocapture`.
 //! `CMUX_THROUGHPUT_MB` sets the payload (default 200), `CMUX_THROUGHPUT_STAGES`
-//! picks stages (comma list of the names above, without the parse chunk).
+//! picks stages (comma list of the names above, without the parse chunk),
+//! `CMUX_THROUGHPUT_RUNS` the measured bursts of each daemon stage (default 1).
+//! Each thread row carries its wakes (voluntary context switches in the
+//! burst) and the viewer its socket reads, so a hand-off cap shows as many
+//! wakes per MB with no thread near a core.
 //! With `FAST_CHECKS_OUT` set it also writes `terminal-throughput-stages.json`.
 #![cfg(target_os = "linux")]
 
@@ -260,8 +273,10 @@ impl Daemon {
     }
 }
 
-/// CPU ticks (user + system) of every thread of `pid`, by thread id: (name, ticks).
-fn thread_ticks(pid: u32) -> HashMap<u32, (String, u64)> {
+/// CPU ticks (user + system) and wakes (voluntary context switches: each
+/// time the thread blocked and was woken again) of every thread of `pid`, by
+/// thread id: (name, ticks, wakes).
+fn thread_ticks(pid: u32) -> HashMap<u32, (String, u64, u64)> {
     let mut out = HashMap::new();
     let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else { return out };
     for task in tasks.filter_map(Result::ok) {
@@ -275,12 +290,66 @@ fn thread_ticks(pid: u32) -> HashMap<u32, (String, u64)> {
         // Fields after the name start at field 3 (state); utime is field 14, stime 15.
         let ticks = fields.get(11).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0)
             + fields.get(12).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        out.insert(tid, (name, ticks));
+        let wakes = fs::read_to_string(task.path().join("status"))
+            .ok()
+            .and_then(|status| {
+                status.lines().find_map(|line| {
+                    line.strip_prefix("voluntary_ctxt_switches:")
+                        .and_then(|v| v.trim().parse::<u64>().ok())
+                })
+            })
+            .unwrap_or(0);
+        out.insert(tid, (name, ticks, wakes));
     }
     out
 }
 
-fn sample(pids: &[(String, u32)]) -> HashMap<(String, u32), (String, u64)> {
+/// Snapshot files the output store replaced under `state` (each is a screen
+/// replay under the terminal's parser lock, a gzip and two fsyncs): a thread
+/// polls every 2 ms for a new inode of any `*.snap` file until it is stopped.
+fn count_snapshots(state: Option<PathBuf>) -> (Arc<AtomicBool>, std::thread::JoinHandle<u64>) {
+    use std::os::unix::fs::MetadataExt;
+    fn snaps(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|extension| extension == "snap") {
+                out.push(path);
+            } else if depth > 0 && path.is_dir() {
+                snaps(&path, depth - 1, out);
+            }
+        }
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    let handle = std::thread::spawn(move || {
+        let Some(state) = state else { return 0 };
+        let mut seen: HashMap<PathBuf, u64> = HashMap::new();
+        let mut count = 0_u64;
+        let mut files = Vec::new();
+        let mut next_scan = Instant::now();
+        while !flag.load(Ordering::Acquire) {
+            if Instant::now() >= next_scan {
+                files.clear();
+                snaps(&state, 6, &mut files);
+                next_scan = Instant::now() + Duration::from_millis(250);
+            }
+            for file in &files {
+                if let Ok(metadata) = fs::metadata(file) {
+                    let previous = seen.insert(file.clone(), metadata.ino());
+                    if previous.is_some_and(|previous| previous != metadata.ino()) {
+                        count += 1;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        count
+    });
+    (stop, handle)
+}
+
+fn sample(pids: &[(String, u32)]) -> HashMap<(String, u32), (String, u64, u64)> {
     let mut out = HashMap::new();
     for (role, pid) in pids {
         for (tid, value) in thread_ticks(*pid) {
@@ -290,31 +359,62 @@ fn sample(pids: &[(String, u32)]) -> HashMap<(String, u32), (String, u64)> {
     out
 }
 
-/// The busiest threads between two samples, as CPU % of `seconds`.
+/// The busiest threads between two samples, as CPU % of `seconds`, with
+/// their wakes in the window.
 fn busiest(
-    before: &HashMap<(String, u32), (String, u64)>,
-    after: &HashMap<(String, u32), (String, u64)>,
+    before: &HashMap<(String, u32), (String, u64, u64)>,
+    after: &HashMap<(String, u32), (String, u64, u64)>,
     seconds: f64,
 ) -> Vec<Value> {
     let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
-    let mut rows: Vec<(f64, String, String)> = after
+    let mut rows: Vec<(f64, u64, String, String)> = after
         .iter()
-        .map(|((role, tid), (name, ticks))| {
-            let start = before.get(&(role.clone(), *tid)).map_or(0, |(_, t)| *t);
+        .map(|((role, tid), (name, ticks, wakes))| {
+            let (start, start_wakes) =
+                before.get(&(role.clone(), *tid)).map_or((0, 0), |(_, t, w)| (*t, *w));
             let pct = (ticks.saturating_sub(start)) as f64 / hz / seconds * 100.0;
-            (pct, role.clone(), format!("{name}#{tid}"))
+            (pct, wakes.saturating_sub(start_wakes), role.clone(), format!("{name}#{tid}"))
         })
-        .filter(|(pct, _, _)| *pct >= 1.0)
+        .filter(|(pct, wakes, _, _)| *pct >= 1.0 || *wakes >= 1000)
         .collect();
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
     rows.into_iter()
-        .take(8)
-        .map(|(pct, role, name)| json!({"process": role, "thread": name, "cpu_pct": (pct * 10.0).round() / 10.0}))
+        .take(10)
+        .map(|(pct, wakes, role, name)| {
+            json!({"process": role, "thread": name, "cpu_pct": (pct * 10.0).round() / 10.0, "wakes": wakes})
+        })
         .collect()
 }
 
-/// One byte attach, as the Mac app's terminal reads it: every `output` event's
-/// base64 decoded.
+/// Each process's CPU % of `seconds`, summed over its threads (100 = one core).
+fn process_cpu(
+    before: &HashMap<(String, u32), (String, u64, u64)>,
+    after: &HashMap<(String, u32), (String, u64, u64)>,
+    seconds: f64,
+) -> Value {
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
+    let mut totals: HashMap<String, f64> = HashMap::new();
+    for ((role, tid), (_, ticks, _)) in after {
+        let start = before.get(&(role.clone(), *tid)).map_or(0, |(_, t, _)| *t);
+        *totals.entry(role.clone()).or_default() +=
+            ticks.saturating_sub(start) as f64 / hz / seconds * 100.0;
+    }
+    totals.into_iter().map(|(role, pct)| (role, json!((pct * 10.0).round() / 10.0))).collect()
+}
+
+/// How the viewer attaches and reads its output.
+#[derive(Clone, Copy, PartialEq)]
+enum ViewerMode {
+    /// A plain byte attach: `vt-state`, then `output` lines, base64 decoded.
+    Bytes,
+    /// The Mac app's attach: `set-client-info`, a snapshot attach (READY), `output` lines.
+    Snapshot,
+    /// The snapshot attach of a connection that declared `attach-frames-v1`: OUTPUT frames.
+    Frames,
+}
+
+/// One attach, read as a terminal view reads it: every `output` event's
+/// base64 decoded, or every OUTPUT frame's payload taken as is.
 struct Viewer {
     stop: Arc<AtomicBool>,
     stats: Arc<Mutex<ViewerStats>>,
@@ -328,17 +428,56 @@ struct ViewerStats {
     outputs: u64,
     output_bytes: u64,
     replays: u64,
+    /// OUTPUT frames whose offset was not the end of the one before.
+    frame_gaps: u64,
     other: HashMap<String, u64>,
     last_output: Option<Instant>,
+    first_output: Option<Instant>,
+    /// The viewer thread's CPU seconds at its first and its last output.
+    cpu_first_output: Option<f64>,
+    cpu_last_output: f64,
+    /// Seconds spent scanning lines and decoding `output` data.
+    decode_seconds: f64,
+    /// Socket reads that returned bytes (each one wake of the viewer).
+    reads: u64,
+    /// Each resync the viewer saw (a READY, a `vt-state`, a `resized`): when, what, and for a frames
+    /// viewer the stream bytes it skipped (the READY's offset past the end of the last frame).
+    marks: Vec<(Instant, &'static str, Option<u64>)>,
+    /// A frames viewer's stream position after its last frame or READY.
+    end_offset: Option<u64>,
 }
 
 impl Viewer {
-    fn attach(socket: &Path, surface: u64) -> Self {
+    fn attach(socket: &Path, surface: u64, mode: ViewerMode) -> Self {
         let stream = transport::connect(socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
         let mut writer = stream.try_clone_box().unwrap();
-        writeln!(writer, "{}", json!({"id": 1, "cmd": "attach-surface", "surface": surface}))
+        // The replies the viewer waits for before it counts as attached.
+        let mut replies_needed = 1;
+        if mode == ViewerMode::Bytes {
+            writeln!(writer, "{}", json!({"id": 1, "cmd": "attach-surface", "surface": surface}))
+                .unwrap();
+        } else {
+            let capabilities: &[&str] =
+                if mode == ViewerMode::Frames { &["attach-frames-v1"] } else { &[] };
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": 0, "cmd": "set-client-info", "name": "throughput viewer",
+                       "kind": "frontend", "capabilities": capabilities})
+            )
             .unwrap();
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": 1, "cmd": "attach-surface", "surface": surface, "mode": "bytes",
+                       "cols": 120, "rows": 40, "snapshot": "ghostsnp",
+                       "snapshot_version": ghostty_vt::snapshot_version(),
+                       "snapshot_local_history": true})
+            )
+            .unwrap();
+            replies_needed = 2;
+        }
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::new(Mutex::new(ViewerStats::default()));
         let handle = {
@@ -349,10 +488,15 @@ impl Viewer {
                 let mut buf = vec![0u8; 1 << 16];
                 let engine = base64::engine::general_purpose::STANDARD;
                 let mut decoded = Vec::new();
+                let mut replies = 0;
+                let mut next_offset: Option<u64> = None;
                 while !stop.load(Ordering::Relaxed) {
                     let n = match stream.read(&mut buf) {
                         Ok(0) => return,
-                        Ok(n) => n,
+                        Ok(n) => {
+                            stats.lock().unwrap().reads += 1;
+                            n
+                        }
                         Err(e)
                             if matches!(
                                 e.kind(),
@@ -365,8 +509,32 @@ impl Viewer {
                     };
                     pending.extend_from_slice(&buf[..n]);
                     let mut start = 0;
+                    let decode_started = Instant::now();
                     let mut got = stats.lock().unwrap();
-                    while let Some(offset) = pending[start..].iter().position(|b| *b == b'\n') {
+                    let outputs_before = got.outputs;
+                    loop {
+                        if pending.get(start) == Some(&0xFF) {
+                            // An OUTPUT frame: u8 0xFF, u8 kind, u16 stream, u32 len, u64 offset.
+                            let Some(header) = pending.get(start..start + 16) else { break };
+                            let len = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+                            let offset = u64::from_le_bytes(header[8..16].try_into().unwrap());
+                            if pending.len() < start + 16 + len {
+                                break;
+                            }
+                            if next_offset.is_some_and(|expected| expected != offset) {
+                                got.frame_gaps += 1;
+                            }
+                            next_offset = Some(offset + len as u64);
+                            got.end_offset = next_offset;
+                            start += 16 + len;
+                            got.outputs += 1;
+                            got.output_bytes += len as u64;
+                            got.last_output = Some(Instant::now());
+                            continue;
+                        }
+                        let Some(offset) = pending[start..].iter().position(|b| *b == b'\n') else {
+                            break;
+                        };
                         let line = &pending[start..start + offset];
                         start += offset + 1;
                         let text = std::str::from_utf8(line).unwrap_or("");
@@ -381,10 +549,40 @@ impl Viewer {
                                 got.output_bytes += decoded.len() as u64;
                                 got.last_output = Some(Instant::now());
                             }
-                            "vt-state" => got.replays += 1,
-                            "" if text.contains("\"ok\":true") => got.attached = true,
+                            "vt-state" => {
+                                got.replays += 1;
+                                got.marks.push((Instant::now(), "vt-state", None));
+                            }
+                            "snapshot" if text.contains("\"phase\":\"ready\"") => {
+                                got.replays += 1;
+                                let ready_at = number_field(text, "offset");
+                                let skipped = next_offset
+                                    .zip(ready_at)
+                                    .map(|(end, ready)| ready.saturating_sub(end));
+                                got.marks.push((Instant::now(), "ready", skipped));
+                                if ready_at.is_some() {
+                                    got.end_offset = ready_at;
+                                }
+                                // The next frame starts at the READY's offset.
+                                next_offset = None;
+                            }
+                            "resized" => {
+                                *got.other.entry("resized".to_string()).or_default() += 1;
+                                got.marks.push((Instant::now(), "resized", None));
+                            }
+                            "" if text.contains("\"ok\":true") => {
+                                replies += 1;
+                                got.attached = replies >= replies_needed;
+                            }
                             other => *got.other.entry(other.to_string()).or_default() += 1,
                         }
+                    }
+                    got.decode_seconds += decode_started.elapsed().as_secs_f64();
+                    if got.outputs > outputs_before {
+                        let cpu = thread_cpu_seconds();
+                        got.cpu_first_output.get_or_insert(cpu);
+                        got.first_output.get_or_insert_with(Instant::now);
+                        got.cpu_last_output = cpu;
                     }
                     drop(got);
                     pending.drain(..start);
@@ -405,6 +603,23 @@ impl Viewer {
         }
         self.stats()
     }
+}
+
+/// CPU seconds the calling thread has used.
+fn thread_cpu_seconds() -> f64 {
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `now` is a valid timespec for clock_gettime to fill.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+    assert_eq!(status, 0, "clock_gettime: {}", std::io::Error::last_os_error());
+    now.tv_sec as f64 + now.tv_nsec as f64 / 1e9
+}
+
+/// The number value of `"key":N` in a JSON line (the first such key).
+fn number_field(line: &str, key: &str) -> Option<u64> {
+    let pattern = format!("\"{key}\":");
+    let at = line.find(&pattern)? + pattern.len();
+    let digits: String = line[at..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 /// The string value of `"key":"..."` in a JSON line with no escapes in it.
@@ -428,7 +643,13 @@ fn wait_file(path: &Path, timeout: Duration) -> Option<Value> {
 
 /// One burst of `payload_path` through a terminal of `daemon`: (writer MB/s,
 /// busiest threads, viewer stats).
-fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, viewer: bool) -> Value {
+fn burst(
+    daemon: &Daemon,
+    scripts: &Path,
+    payload_path: &Path,
+    label: &str,
+    viewer: Option<ViewerMode>,
+) -> Value {
     let result = scripts.join(format!("{label}.json"));
     let go = scripts.join(format!("{label}.go"));
     let created = daemon.request(json!({
@@ -439,7 +660,7 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
         .as_u64()
         .or_else(|| created["surface_id"].as_u64())
         .unwrap_or_else(|| panic!("run reply names no surface: {created}"));
-    let attached = viewer.then(|| Viewer::attach(&daemon.socket, surface));
+    let attached = viewer.map(|mode| Viewer::attach(&daemon.socket, surface, mode));
     if let Some(attached) = &attached {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !attached.stats().attached {
@@ -452,37 +673,71 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
     let mut pids = vec![("daemon".to_string(), daemon.child.id())];
     pids.extend(daemon.host_pids().into_iter().map(|pid| ("host".to_string(), pid)));
     let before = sample(&pids);
+    let (snapshots_stop, snapshots) = count_snapshots(daemon.state.clone());
     let started = Instant::now();
     fs::write(&go, b"go").unwrap();
     let res = wait_file(&result, Duration::from_secs(600))
         .unwrap_or_else(|| panic!("{label}: the writer gave no result"));
     let wall = started.elapsed().as_secs_f64();
+    snapshots_stop.store(true, Ordering::Release);
+    let snapshots_written = snapshots.join().unwrap_or(0);
     let after = sample(&pids);
     let bytes = res["bytes"].as_u64().unwrap_or(0) as usize;
     let seconds = res["seconds"].as_f64().unwrap_or(0.0);
     let mut row = json!({
         "stage": label, "bytes": bytes, "seconds": seconds, "mb_s": mb_s(bytes, seconds),
         "threads": busiest(&before, &after, wall),
+        "snapshots_written": snapshots_written,
+        "snapshots_per_s": (snapshots_written as f64 / wall * 10.0).round() / 10.0,
+        "cpus": std::thread::available_parallelism().map_or(0, |n| n.get()),
+        "process_cpu_pct": process_cpu(&before, &after, wall),
     });
     if let Some(attached) = attached {
-        // The viewer's tail: wait until it has had no output for 300 ms.
+        // The viewer's tail: wait until it has every payload byte, or no output
+        // for 5 s. A shorter quiet wait ended the row inside a daemon pause (a
+        // resize's reflow), so bytes still on their way read as never sent.
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             let stats = attached.stats();
-            let quiet =
-                stats.last_output.is_none_or(|at| at.elapsed() > Duration::from_millis(300));
-            if quiet || Instant::now() > deadline {
+            let whole = stats.output_bytes >= bytes as u64;
+            let quiet = stats.last_output.is_none_or(|at| at.elapsed() > Duration::from_secs(5));
+            if whole || quiet || Instant::now() > deadline {
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
         let viewed = started.elapsed().as_secs_f64();
         let stats = attached.finish();
+        // Timed to the last output: the quiet wait above is not the viewer's.
+        let to_last =
+            stats.last_output.map_or(viewed, |at| at.duration_since(started).as_secs_f64());
+        // The viewer's CPU and decode time over its own window, first output to last.
+        let busy = (stats.cpu_last_output - stats.cpu_first_output.unwrap_or(0.0)).max(0.0);
+        let window = match (stats.first_output, stats.last_output) {
+            (Some(first), Some(last)) => last.duration_since(first).as_secs_f64().max(1e-6),
+            _ => to_last,
+        };
         row["viewer"] = json!({
             "outputs": stats.outputs, "output_bytes": stats.output_bytes,
             "bytes_per_output": stats.output_bytes.checked_div(stats.outputs).unwrap_or(0),
             "replays": stats.replays, "other_events": stats.other,
-            "seconds_to_last_output": viewed, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, viewed),
+            "frame_gaps": stats.frame_gaps,
+            "reads": stats.reads,
+            "bytes_per_read": stats.output_bytes.checked_div(stats.reads).unwrap_or(0),
+            "overflows": stats.other.get("overflow").copied().unwrap_or(0),
+            "seconds_to_last_output": to_last, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, to_last),
+            "viewer_cpu_pct": (busy / window * 1000.0).round() / 10.0,
+            "decode_pct": (stats.decode_seconds / window * 1000.0).round() / 10.0,
+            // Resyncs in time order, ms after the writer's go (negative: while attaching).
+            "marks": stats.marks.iter().map(|(at, kind, skipped)| {
+                let ms = if *at >= started {
+                    at.duration_since(started).as_secs_f64() * 1e3
+                } else {
+                    -(started.duration_since(*at).as_secs_f64() * 1e3)
+                };
+                json!({"ms": ms.round(), "kind": kind, "skipped_bytes": skipped})
+            }).collect::<Vec<_>>(),
+            "end_offset": stats.end_offset,
         });
     }
     // Best effort: the next burst runs in its own terminal either way.
@@ -553,6 +808,12 @@ fn terminal_throughput_by_stage() {
         .and_then(|v| v.parse().ok())
         .filter(|v| *v > 0)
         .unwrap_or(200);
+    // `CMUX_THROUGHPUT_RUNS`: measured bursts per daemon stage (default 1), one daemon.
+    let runs: usize = std::env::var("CMUX_THROUGHPUT_RUNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(1);
     let pick: Option<Vec<String>> = std::env::var("CMUX_THROUGHPUT_STAGES")
         .ok()
         .map(|v| v.split(',').map(|s| s.trim().to_string()).collect());
@@ -594,10 +855,12 @@ fn terminal_throughput_by_stage() {
         rows.push(row);
     }
     for (stage, hosted, viewer) in [
-        ("daemon-hosted", true, false),
-        ("daemon-hosted+viewer", true, true),
-        ("daemon-ephemeral", false, false),
-        ("daemon-ephemeral+viewer", false, true),
+        ("daemon-hosted", true, None),
+        ("daemon-hosted+viewer", true, Some(ViewerMode::Bytes)),
+        ("daemon-hosted+viewer-snapshot", true, Some(ViewerMode::Snapshot)),
+        ("daemon-hosted+viewer-frames", true, Some(ViewerMode::Frames)),
+        ("daemon-ephemeral", false, None),
+        ("daemon-ephemeral+viewer", false, Some(ViewerMode::Bytes)),
     ] {
         if !wants(stage) {
             continue;
@@ -610,10 +873,14 @@ fn terminal_throughput_by_stage() {
             &format!("{}-warmup", stage.replace('+', "-")),
             viewer,
         );
-        let mut row = burst(&daemon, &scripts, &payload_path, &stage.replace('+', "-"), viewer);
-        row["stage"] = json!(stage);
-        eprintln!("TERMINAL-THROUGHPUT-STAGE {row}");
-        rows.push(row);
+        for run in 0..runs {
+            let label = format!("{}-{run}", stage.replace('+', "-"));
+            let mut row = burst(&daemon, &scripts, &payload_path, &label, viewer);
+            row["stage"] = json!(stage);
+            row["run"] = json!(run);
+            eprintln!("TERMINAL-THROUGHPUT-STAGE {row}");
+            rows.push(row);
+        }
     }
     let _ = fs::remove_dir_all(&scripts);
 
@@ -628,20 +895,29 @@ fn terminal_throughput_by_stage() {
             .flatten()
             .map(|t| {
                 format!(
-                    "{}:{} {}",
+                    "{}:{} {} ({} wakes)",
                     t["process"].as_str().unwrap_or(""),
                     t["thread"].as_str().unwrap_or(""),
-                    t["cpu_pct"]
+                    t["cpu_pct"],
+                    t["wakes"]
                 )
             })
             .collect();
         let viewer = row.get("viewer").map_or(String::new(), |v| {
             format!(
-                "{} outputs, {} B each, {} replays, {:.1} MB/s to last output",
+                "{:.1} MB in {} outputs, {} B each, {} reads ({} B each), {} replays, {:.1} MB/s to last output, viewer {} % CPU ({} % decoding), {} overflows, {} frame gaps, events {}",
+                v["output_bytes"].as_f64().unwrap_or(0.0) / 1e6,
                 v["outputs"],
                 v["bytes_per_output"],
+                v["reads"],
+                v["bytes_per_read"],
                 v["replays"],
-                v["mb_s_to_last_output"].as_f64().unwrap_or(0.0)
+                v["mb_s_to_last_output"].as_f64().unwrap_or(0.0),
+                v["viewer_cpu_pct"],
+                v["decode_pct"],
+                v["overflows"],
+                v["frame_gaps"],
+                v["other_events"]
             )
         });
         table.push_str(&format!(

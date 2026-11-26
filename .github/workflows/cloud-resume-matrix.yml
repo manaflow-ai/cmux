@@ -1,0 +1,232 @@
+name: Cloud resume matrix (staging)
+
+# RFD 0017 follow-up 4: how long a paused Cloud machine with a live agent chat takes to answer again, per pause
+# length, woken three ways on the same machine in the same run (the provider's own resume, called directly with the
+# machine's client session; cmux's resume through cmux-platform; and a message sent to the paused machine), each timed
+# from its event to the resume's answer, the guest running, the relay registered and the agent reply's first byte
+# (scripts/cmux-next/cloud-resume-matrix.ts, run as cloud-journey.ts --resume-matrix).
+#
+# Runs on a feat-cmux-next pull request whose body carries a marker line, alone on its line (lanes may edit a body
+# but not add labels); the label of the same name works too. Each push or body edit while the marker is there runs it
+# again: a new head runs beside the one running (never cancelled), the same head queues behind it:
+#   resume-matrix: run    5 s, 30 s and 300 s pauses, n = 20 per arm (about 1 h; 6 machines side by side)
+#   resume-matrix: full   also 900 s (4 machines, n = 5 each) and 3600 s (20 machines, n = 1 each), about 3 h 10 min
+# The last job merges every machine's samples into one p50 / p95 table (job summary and the resume-matrix artifact).
+#
+# GitHub serves no log until a job ends, so every machine ends itself in time: each shard has a wall budget (about
+# 1.5 x its expected time, under the step timeout) passed as --resume-deadline, the matrix takes no sample it cannot
+# finish by then, an arm failing 3 samples in a row leaves its cell (3 in a row of any arm end the cell), and
+# resume-matrix.json is rewritten after every sample, so the upload (always) has what a cut-short machine had
+# (run 45147962604: its 5 s cell ran past 2 h with nothing readable).
+#
+# Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev, as
+# cloud-journey-pr.yml. Same-repo pull requests only. The chat runs on the model stub.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [labeled, edited, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  # The head is in the group: a new push runs beside a long run of an older head instead of waiting hours behind it.
+  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  plan:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository && (
+        github.event.action == 'labeled' && (github.event.label.name == 'resume-matrix' || github.event.label.name == 'resume-matrix-full') ||
+        github.event.action != 'labeled' && (contains(github.event.pull_request.body, 'resume-matrix: run') || contains(github.event.pull_request.body, 'resume-matrix: full')) &&
+        (github.event.action != 'edited' || github.event.changes.body != null))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - id: plan
+        env:
+          LABEL: ${{ github.event.action == 'labeled' && github.event.label.name || '' }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          # The marker counts alone on its line: a body that quotes `resume-matrix: full` in its prose is not one
+          # (run 45147962604 planned full off such a quote).
+          lines = {l.strip() for l in os.environ.get("BODY", "").splitlines()}
+          full = os.environ["LABEL"] == "resume-matrix-full" or (not os.environ["LABEL"] and "resume-matrix: full" in lines)
+          # (pause seconds, machines, samples per arm on each): n = machines * samples per pause length.
+          plan = [(5, 2, 10), (30, 2, 10), (300, 2, 10)]
+          if full:
+              plan += [(900, 4, 5), (3600, 20, 1)]
+          # Each shard's wall budget, minutes: 1.5 x (3 arms x n x (pause + 60 s)), within 20..290 (step timeout 300).
+          budget = lambda p, n: max(20, min(290, round(1.5 * 4 * n * (p + 60) / 60)))
+          shards = [{"pause": p, "shard": k, "n": n, "budget": budget(p, n)} for p, m, n in plan for k in range(m)]
+          print("shards=" + json.dumps(shards))
+          PY
+
+  build:
+    needs: plan
+    # The owned cmux-linux pool, as cmux-tui-sdks.yml's cmux-tui builds: on the cold fleet pool the build never
+    # reached cargo (run 45226321646: the Ghostty submodules took 20 min, then the Rust setup hung for 30).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      # The cached, retried fetch the cmux-tui builds use: a plain clone from github.com outran 8 min on a
+      # Freestyle runner (run 45264489332) and took 20 min on another (run 45226321646).
+      - name: Initialize Ghostty protocol submodules
+        timeout-minutes: 12
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        timeout-minutes: 10
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        timeout-minutes: 8
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+      - name: Build this pull request's Linux cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+          # The binary runs on other runners, whose CPUs differ from this one: libghostty-vt for any x86-64 CPU
+          # (zig's default is the build CPU's own features). Without it the first run's cmux-tui died of SIGILL
+          # on every runner pool but the build's (run 45133130690: the n4* and hs1c cells ran, all others failed
+          # their first exec), as cmux-tui-spec.yml's carried binary does.
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+        run: |
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          mkdir -p "$RUNNER_TEMP/cmux-tui-bin"
+          cp "$target_dir/debug/cmux-tui" "$RUNNER_TEMP/cmux-tui-bin/cmux-tui"
+          file "$RUNNER_TEMP/cmux-tui-bin/cmux-tui" | grep -q 'ELF 64-bit'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: resume-matrix-cmux-tui-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-tui-bin/cmux-tui
+          retention-days: 1
+
+  machine:
+    needs: [plan, build]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # 3 arms x n x (pause + about 40 s of pause, wake and readback) plus the journey's create and chat.
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: resume-matrix-cmux-tui-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-tui-bin
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Resume matrix (staging, ${{ matrix.pause }} s, machine ${{ matrix.shard }})
+        # Under the job's 330: the upload below still runs when this one is cut.
+        timeout-minutes: 310
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          PAUSE: ${{ matrix.pause }}
+          N: ${{ matrix.n }}
+          BUDGET_MIN: ${{ matrix.budget }}
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP/cmux-tui-bin/cmux-tui"
+          out="$RUNNER_TEMP/resume-matrix/$PAUSE-${{ matrix.shard }}"
+          mkdir -p "$out"
+          # The journey's create and chat come first; the matrix ends by the budget from this step's start.
+          deadline=$(( $(date +%s) + BUDGET_MIN * 60 ))
+          # hq#21300 lane C, page-in against resident memory: shard 1 holds 25% of the guest's memory resident
+          # through each pause and walks it after the wake; shard 0 holds none, so the two compare.
+          fill=0
+          if [ "${{ matrix.shard }}" = "1" ]; then fill=25; fi
+          bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/cmux-tui-bin/cmux-tui" \
+            --model stub --resume-matrix "$PAUSE" --resume-n "$N" --resume-deadline "$deadline" --resume-fill "$fill"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: resume-matrix-${{ matrix.pause }}-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/resume-matrix/**/resume-matrix.json
+            ${{ runner.temp }}/resume-matrix/**/resume-matrix.md
+            ${{ runner.temp }}/resume-matrix/**/journey.json
+            ${{ runner.temp }}/resume-matrix/**/summary.md
+          if-no-files-found: warn
+          retention-days: 14
+
+  table:
+    needs: machine
+    if: ${{ !cancelled() && needs.machine.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: resume-matrix-[0-9]*
+          path: ${{ runner.temp }}/samples
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.4.4"
+      - name: One p50 / p95 table from every machine
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find "$RUNNER_TEMP/samples" -name resume-matrix.json | sort)
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::no machine wrote resume-matrix.json"; exit 1; }
+          bun scripts/cmux-next/cloud-resume-matrix.ts aggregate "${files[@]}" --md "$RUNNER_TEMP/resume-matrix.md"
+          { echo "## Resume matrix: ${#files[@]} machines"; echo; cat "$RUNNER_TEMP/resume-matrix.md"; } >> "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP/resume-matrix.md" "$RUNNER_TEMP/samples/resume-matrix.md"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: resume-matrix
+          path: ${{ runner.temp }}/samples
+          retention-days: 30

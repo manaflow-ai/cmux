@@ -1,6 +1,6 @@
 // Leo, 2026-11-08, of the Import Cookies card: "i dont like this. 1. looks bad. 2. not glass. 3. talks
-// about too much irrelevant shit". The card is a toast: the browser's icon, one line, Don't Show Again
-// (quiet) and Import (bold) as clear text, the close button as Not Now; no detail, no Keep in sync
+// about too much irrelevant shit". The card is a toast: the browser's icon, one line, Never for Chrome
+// (quiet) and Import (bold) as clear text, one Not now button; no detail, no Keep in sync
 // (Settings > Browser > Import). Every answer reaches the host; the page draws only the host's words.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -73,29 +73,29 @@ afterEach(() => {
 });
 
 const model: CookieImportCardModel = {
-  title: "Import cookies from Google Chrome",
+  title: "Import sign-ins from Google Chrome",
   importTitle: "Import…",
-  notNowTitle: "Not Now",
-  neverTitle: "Don't Show Again",
+  notNowTitle: "Not now",
+  neverTitle: "Never for Chrome",
   icon: "data:image/png;base64,AAAA",
 };
 
 // Lawrence 2026-11-09 (msg 26162): the flat gray toast with washed-out text was ugly. The app's look is the
-// dialog card's grammar now: the icon, the line in the title's weight, Don't Show Again quiet, Not Now a
+// dialog card's grammar now: the icon, the line in the title's weight, Never for Chrome quiet, Not now a
 // button and Import the filled primary, every answer a labelled button (no bare close glyph).
-test("the app's look is the dialog card: icon, the line, Don't Show Again quiet, Not Now, Import primary", () => {
+test("the app's look is the dialog card: icon, the line, Never for Chrome quiet, Not now, Import primary", () => {
   const doc = render(
     <CookieImportCard model={model} look={APP_COOKIE_IMPORT_LOOK} onChoice={() => undefined} glass={false} />,
   );
   const card = doc.querySelector(".ci-card")!;
   expect(APP_COOKIE_IMPORT_LOOK).toBe("toast");
-  expect(card.textContent).toBe("Import cookies from Google ChromeDon't Show AgainNot NowImport…");
+  expect(card.textContent).toBe("Import sign-ins from Google ChromeNever for ChromeNot nowImport…");
   expect(card.querySelectorAll("input, [role=checkbox]").length).toBe(0);
   expect(card.querySelector(".ci-close")).toBeNull();
   const buttons = [...card.querySelectorAll("button")];
   expect(buttons.map((b) => [b.textContent, b.getAttribute("data-role")])).toEqual([
-    ["Don't Show Again", "quiet"],
-    ["Not Now", "cancel"],
+    ["Never for Chrome", "quiet"],
+    ["Not now", "cancel"],
     ["Import…", "default"],
   ]);
   // On the app's glass the card paints none of its own.
@@ -105,7 +105,7 @@ test("the app's look is the dialog card: icon, the line, Don't Show Again quiet,
 
 test("the toast card consumes the shared transient material and radius", () => {
   expect(cookieImportCss).toContain("--glass-tint: var(--transient-surface-veil);");
-  expect(cookieImportCss).toContain("border-radius: var(--transient-surface-radius);");
+  expect(cookieImportCss).toContain("border-radius: var(--role-toast-radius);");
 });
 
 test("every answer reaches the host as its type only", () => {
@@ -115,11 +115,11 @@ test("every answer reaches the host as its type only", () => {
   expect(answers).toEqual([{ type: "never" }, { type: "notNow" }, { type: "import" }]);
 });
 
-test("no Don't Show Again: Import and the close button", () => {
+test("no Never for Chrome: Import and the Not now button", () => {
   const doc = render(<CookieImportCard model={{ ...model, neverTitle: null }} onChoice={() => undefined} />);
   expect(
     [...doc.querySelectorAll(".ci-card button")].map((b) => b.getAttribute("aria-label") ?? b.textContent),
-  ).toEqual(["Not Now", "Import…"]);
+  ).toEqual(["Not now", "Import…"]);
 });
 
 test("the gallery's other looks keep the three answers", () => {

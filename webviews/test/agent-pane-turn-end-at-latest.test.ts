@@ -95,9 +95,12 @@ await requireBrowserLane("agent-pane-turn-end-at-latest.test.ts", async () => {
     );
     record("mux", "turn_result", { status: "completed" });
   }
-  // The running turn: notes and tool calls, taller than the view.
+  // The running turn: notes and tool calls, taller than the view. They stream in while the pane
+  // shows the chat (`open`): a turn's work read when the chat opened draws folded from the first
+  // frame (direct.ts `noteReadWork`), and this test is about work the reader watched.
   record("mux", "user_message", { text: "Find every retry loop and fix the cap", promptId: "p-live" });
   record("mux", "turn_started", {});
+  const watched = events.length;
   for (let step = 0; step < 14; step++) {
     record(
       "in",
@@ -113,6 +116,7 @@ await requireBrowserLane("agent-pane-turn-end-at-latest.test.ts", async () => {
   /// The running turn's live line, the last row while it runs.
   const LIVE = "[data-row-id='thinking-live']";
   const opened = events.length;
+  const work = events.slice(watched, opened);
   const REPLY =
     "Every retry loop now shares one capped backoff. The fetch client, the socket reconnect and the upload " +
     "queue each called their own sleep; they now call `backoff(attempt)`, which stops at eight seconds.\n\n" +
@@ -125,7 +129,7 @@ await requireBrowserLane("agent-pane-turn-end-at-latest.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [summary()] };
       case "_acpmux/attach":
-        return { session: summary(), lastSeq: opened, events: events.slice(0, opened) };
+        return { session: summary(), lastSeq: watched, events: events.slice(0, watched) };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
       default:
@@ -228,16 +232,27 @@ await requireBrowserLane("agent-pane-turn-end-at-latest.test.ts", async () => {
       event.kind === "tool_call" && (event.msg.params as { update: { toolCallId: string } }).update.toolCallId === MID,
   );
   async function open(name: string, midRunning = false) {
-    events.length = opened;
+    events.length = watched;
     status = "running";
-    // A command in an earlier run that still runs (a parallel `cp` while later calls go on): the
-    // live line names it, and its run draws no row for it (turns.ts `codexRuns`, `lineCall`).
-    events[midCall] = { ...events[midCall]!, msg: ran(MID, midRunning ? "in_progress" : "completed") };
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+    // These pin the open live-turn arm: they read a running turn's work drawn in full, which the
+    // shipped folded arm keeps under its Working for line (liveTurnWork.experiment.ts).
+    await page.addInitScript(() => Object.assign(window, { cmuxExperiments: { "live-turn-work": "open" } }));
     await installPaintedFrames(page);
     await page.goto(url());
     await page.locator(LIVE).waitFor();
     await page.mouse.move(0, 0);
+    await rest(page);
+    // The turn's work streams in while the reader watches at the end.
+    for (const [at, event] of work.entries())
+      emit(
+        event.dir,
+        event.kind,
+        // A command in an earlier run that still runs (a parallel `cp` while later calls go on): the
+        // live line names it, and its run draws no row for it (turns.ts `codexRuns`, `lineCall`).
+        watched + at === midCall ? ran(MID, midRunning ? "in_progress" : "completed") : event.msg,
+      );
+    await page.getByText("Checking call site 14").waitFor();
     await rest(page);
     // The reply streams in while the reader is at the end, before they scroll up.
     emit("in", "agent_message_chunk", chunk(REPLY));

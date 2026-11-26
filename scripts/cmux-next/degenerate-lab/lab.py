@@ -112,8 +112,17 @@ class Load:
             p.stdout.readline()
             self.procs.append(p)
             self.detail.update({"heldBytes": hold, "availableBefore": avail, "swapTotal": swap})
-        if self.procs:
-            time.sleep(5)  # let the load reach its level
+        if self.procs and self.kind == "cpu":
+            # The load reaches its level: the machine's CPUs are as busy as the load asks (the mem hog said
+            # "held" above once it held its pages).
+            want = 0.8 * min(self.cpu_load, os.cpu_count() or 1) / (os.cpu_count() or 1)
+            deadline = time.monotonic() + 30
+            busy = cpu_busy(0.25)
+            while busy < want and time.monotonic() < deadline:
+                busy = cpu_busy(0.25)
+            if busy < want:
+                log(f"cpu load: CPUs {busy:.0%} busy after 30 s, under the {want:.0%} the load asks")
+            self.detail["cpuBusyAtStart"] = round(busy, 3)
         self.detail["loadavg1"] = os.getloadavg()[0]
 
     def stop(self) -> None:
@@ -124,6 +133,18 @@ class Load:
                 pass
             p.wait()
         self.procs.clear()
+
+
+def cpu_busy(window: float) -> float:
+    """The fraction of all CPUs' time that was busy over `window` seconds (/proc/stat)."""
+    def sample() -> tuple[int, int]:
+        fields = [int(x) for x in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
+        idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
+        return sum(fields), idle
+    total0, idle0 = sample()
+    time.sleep(window)  # sleep-ok: the sampling window of the CPU busy fraction
+    total1, idle1 = sample()
+    return 1 - (idle1 - idle0) / max(1, total1 - total0)
 
 
 def meminfo(field: str) -> int:
@@ -330,8 +351,36 @@ def run_part(args, part: str, scale: float, load: str, out_root: Path) -> list[d
         if held and phase == load:
             r["loadDetail"] = r_load
         (out / "result.json").write_text(json.dumps(r, indent=1))
+        print_result(r)
         results.append(r)
     return results
+
+
+# A CI log cuts a line at 400 characters; the rows go out under that.
+LOG_LINE = 380
+
+
+def result_lines(r: dict) -> list[str]:
+    """`r` as `LAB-RESULT` lines a log keeps whole: a run cut before its artifacts upload (a runner
+    shut down mid-matrix, as every nightly to 2026-11-25 was) still leaves each finished phase's rows."""
+    head = {k: r.get(k) for k in ("part", "scale", "load", "exit", "skipped") if r.get(k) is not None}
+    rows = [*(r.get("runs") or []), *([r["ratio"]] if r.get("ratio") else []), *(r.get("churnSamples") or []),
+            *(r.get("stress") or [])]
+    if r.get("part") == "webview" and r.get("report"):
+        rows.extend(r["report"].get("rows") or [])
+    lines = []
+    for row in rows or [{}]:
+        text = json.dumps({**head, "row": row}, separators=(",", ":"))
+        while len(text) > LOG_LINE:
+            lines.append("LAB-RESULT+ " + text[:LOG_LINE])
+            text = text[LOG_LINE:]
+        lines.append("LAB-RESULT " + text)
+    return lines
+
+
+def print_result(r: dict) -> None:
+    for line in result_lines(r):
+        print(line, flush=True)
 
 
 def main() -> int:

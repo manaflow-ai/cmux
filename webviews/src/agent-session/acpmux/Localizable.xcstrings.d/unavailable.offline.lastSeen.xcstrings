@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "unavailable.offline.lastSeen" : {
+      "comment" : "Agent pane: under an offline chat's title; {time} is a relative time such as 5 minutes ago",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "آخر ظهور {time}. تفتح الدردشة هنا بمجرد اتصاله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Posljednji put viđen {time}. Chat se otvara ovdje čim se poveže."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sidst set {time}. Chatten åbner her, når den har forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zuletzt gesehen {time}. Der Chat öffnet sich hier, sobald er verbunden ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last seen {time}. The chat opens here once it connects."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Visto por última vez {time}. El chat se abrirá aquí cuando se conecte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vu pour la dernière fois {time}. La discussion s'ouvrira ici dès sa connexion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Visto l'ultima volta {time}. La chat si apre qui appena si connette."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最終確認: {time}。接続されると、ここでチャットが開きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឃើញចុងក្រោយ {time}។ ការជជែកនឹងបើកនៅទីនេះ នៅពេលវាភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "마지막 확인: {time}. 연결되면 여기에서 채팅이 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sist sett {time}. Chatten åpnes her når den kobler til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ostatnio widziany {time}. Czat otworzy się tutaj po połączeniu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Visto por último {time}. O chat abre aqui assim que ela se conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Был в сети {time}. Чат откроется здесь, как только он подключится."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เห็นล่าสุด {time} แชทจะเปิดที่นี่เมื่อเชื่อมต่อแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Son görülme {time}. Bağlandığında sohbet burada açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Востаннє в мережі {time}. Чат відкриється тут, щойно він під'єднається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thấy lần cuối {time}. Cuộc trò chuyện sẽ mở ở đây khi máy kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上次在线：{time}。连接后聊天会在这里打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上次上線：{time}。連線後聊天會在這裡開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

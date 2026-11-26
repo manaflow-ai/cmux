@@ -119,6 +119,26 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
     await long.close();
   });
 
+  // The person, 2026-11-24: the Now Playing disc's glyph centred. Play's triangle and Pause's bars
+  // each centre their ink in the filled control (Play a hair right, where its weight reads centred).
+  test("Play's and Pause's glyphs centre in the filled control", async () => {
+    for (const variant of ["now-playing-paused", "now-playing"]) {
+      const page = await open(variant);
+      const m = await page.evaluate(() => {
+        const button = document.querySelector(".nt-player-play")!.getBoundingClientRect();
+        const ink = document.querySelector(".nt-player-play path")!.getBoundingClientRect();
+        return {
+          dx: ink.left + ink.width / 2 - (button.left + button.width / 2),
+          dy: ink.top + ink.height / 2 - (button.top + button.height / 2),
+        };
+      });
+      expect(m.dx, `${variant}: glyph off centre across`).toBeGreaterThanOrEqual(-0.1);
+      expect(m.dx, `${variant}: glyph off centre across`).toBeLessThanOrEqual(0.6);
+      expect(Math.abs(m.dy), `${variant}: glyph off centre down`).toBeLessThanOrEqual(0.25);
+      await page.close();
+    }
+  });
+
   test("one soft card with concentric artwork; Play or Pause is the one filled control; hover fills Previous", async () => {
     const page = await open("now-playing-paused");
     const card = await page.locator(".nt-player").evaluate((element) => {
@@ -174,13 +194,19 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
   });
 
   test("once the host clears the track the page lays out as if it never had the card", async () => {
-    // Where each of the screen's blocks sits, and how tall the screen is.
+    // Where each of the screen's blocks sits, and how tall the screen is. A `display: contents` host
+    // (the card's right-click host) draws no box: its children are the blocks. The card is the
+    // screen's last block (New Tab lists no starter rows under it), so it moves no other block.
     const layout = (page: Page) =>
       page.evaluate(() => {
         const screen = document.querySelector<HTMLElement>(".nt-screen")!;
+        const blocks = (parent: Element): HTMLElement[] =>
+          [...parent.children].flatMap((element) =>
+            getComputedStyle(element).display === "contents" ? blocks(element) : [element as HTMLElement],
+          );
         return {
           height: Math.round(screen.scrollHeight),
-          blocks: [...screen.querySelectorAll<HTMLElement>(":scope > *")]
+          blocks: blocks(screen)
             .filter((element) => element.getBoundingClientRect().height > 0)
             .map((element) => `${element.className.split(" ")[0]}@${Math.round(element.getBoundingClientRect().top)}`),
         };

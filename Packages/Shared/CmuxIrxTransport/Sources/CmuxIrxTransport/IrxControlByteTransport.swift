@@ -557,16 +557,16 @@ extension IrxControlByteTransport: CmxByteTransportContinuityIdentifying {
     /// tell a surviving transport from a replacement.
     public func transportContinuityID() async -> UInt64? {
         guard let (connection, _) = pair else { return nil }
-        return connection.underlying.stableId()
+        return connection.continuityID()
     }
 }
 
 extension IrxControlByteTransport: CmxByteTransportConnectionInspecting {
     public func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
         guard !isClosed, let (connection, _) = pair else { return nil }
-        let selected = connection.underlying.paths().first(where: { $0.isSelected })
+        let selected = connection.selectedPath()
         return CmxTransportConnectionObservation(
-            continuityID: connection.underlying.stableId(),
+            continuityID: connection.continuityID(),
             pathKind: selected.map { $0.isRelay ? .relay : .direct } ?? .unknown
         )
     }

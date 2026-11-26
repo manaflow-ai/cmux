@@ -16,6 +16,42 @@ export interface ListSpec<T> {
   spacing?: number
 }
 
+/** A motion scale step (`smooth`, `snappy`, `none`), a motion token, a spring, or a timed curve. Times in
+ * seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+export type Motion =
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+export type Offset = { x?: number; y?: number }
+export type Glow = { color: string; radius: number; opacity?: number }
+/** The `gradient` modifier (angle 0 = left to right, 90 = top to bottom); a gradient `fill` or `background` is `SceneGradient`. */
+export type LinearGradient = { colors: string[]; angle?: number }
+export type Trim = { from?: number; to: number }
+export type LoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** `period` in seconds; `amount` scales the effect's default amplitude. */
+export type Loop = { effect: LoopEffect; period?: number; amount?: number }
+export type Transition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: `motion` times the move and the fade, in and out. Without one the
+ * renderer's own springs time it, as the bare kind does. */
+export type TimedTransition = { kind: Transition; motion?: Motion | null }
+export type ParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** A `cmux.particles/1` document (ABI.md "Particles choreography"); the host validates it. */
+export type ParticleChoreography = { $schema: "cmux.particles/1" } & Record<string, unknown>
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst.
+ * With `choreography` the node plays that glyph instead: `trigger` (an acpmux kind) picks its phases,
+ * `phase` loops one phase, `size` and `colors[0]` override the document's particle. */
+export type ParticlesProps = {
+  preset?: Bindable<ParticlePreset>
+  colors?: Bindable<string[] | null>
+  rate?: Bindable<number>
+  burst?: Bindable<number>
+  choreography?: Bindable<ParticleChoreography | null>
+  trigger?: Bindable<string | null>
+  phase?: Bindable<string | null>
+  size?: Bindable<number>
+}
+
 export class ViewNode {
   readonly props: Record<string, unknown> = {}
   readonly handlers: Record<string, Handler> = {}
@@ -43,6 +79,9 @@ export class ViewNode {
   bold() { return this.set("weight", "bold") }
   italic() { return this.set("italic", true) }
   monospaced() { return this.set("monospaced", true) }
+  /** The system font's design at the same type-scale size: `rounded` (heavy and rounded is the
+   * Lock Screen's time), `serif`, `monospaced` or `default`. */
+  fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">) { return this.set("fontDesign", v) }
   color(v: Bindable<string | null>) { return this.set("color", v) }
   foregroundColor(v: Bindable<string | null>) { return this.set("color", v) }
   secondary() { return this.set("color", "secondary") }
@@ -63,6 +102,8 @@ export class ViewNode {
   /** A color token, `#RRGGBB[AA]`, or a gradient (`linearGradient(...)`, `radialGradient(...)`). */
   background(v: Bindable<SceneFill | null>) { return this.set("background", v) }
   hoverBackground(v: Bindable<string | null>) { return this.set("hoverBackground", v) }
+  /** The App's own glass at `level` under the node (paint only; null drops it). Levels: chrome, popover, menu, chip. */
+  glass(level: Bindable<"chrome" | "popover" | "menu" | "chip" | null> = "popover") { return this.set("glass", level) }
   cornerRadius(v: Bindable<number>) { return this.set("cornerRadius", v) }
   borderColor(v: Bindable<string | null>) { return this.set("borderColor", v) }
   borderWidth(v: Bindable<number>) { return this.set("borderWidth", v) }
@@ -73,20 +114,51 @@ export class ViewNode {
   strokeWidth(v: Bindable<number>) { return this.set("strokeWidth", v) }
   size(v: Bindable<number>) { return this.set("size", v) }
   rotation(degrees: Bindable<number>) { return this.set("rotation", degrees) }
+  // Motion (ABI.md "Motion"): declared here, run by the host renderer at display rate, never ticked from JS.
+  /** Animates this node's own prop changes from the value on screen: `smooth` (the motion scale's
+   * standard step, the default), `snappy` (its micro step) and `none` animate opacity, colors,
+   * rotation and strikethrough; a motion token, a spring or a timed curve animates every animatable
+   * prop (ABI.md "Motion"), retargeting mid-flight. `null` stops. */
+  animation(v: Bindable<Motion | null> = "smooth") { return this.set("animation", v) }
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>) { return this.set("scale", v) }
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<Offset>) { return this.set("offset", v) }
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>) { return this.set("blur", v) }
+  /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
+  glow(v: Bindable<Glow | null>) { return this.set("glow", v) }
+  /** A linear gradient fill (shapes) or background (stacks, panels); angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<LinearGradient | null>) { return this.set("gradient", v) }
+  /** Draw only this fraction of a stroked shape's outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<Trim | null>) { return this.set("trim", v) }
+  /** A host-run effect that repeats forever; `null` stops it. */
+  loop(v: Bindable<Loop | null>) { return this.set("loop", v) }
+  /** How the node comes in and goes out when a render adds or removes it (kept on screen until its
+   * exit ends): `opacity` fades, `slide` comes up from below and leaves upward, `scale` grows from
+   * 90 %, `move` slides in from the leading edge and out to the trailing one, `pop` grows from 60 %
+   * past full size and back. A node the first scene draws does not animate in. `{kind, motion}`
+   * times it with a motion token, spring or timed curve (a panel matching another app's timing). */
+  transition(v: Bindable<Transition | TimedTransition | null>) { return this.set("transition", v) }
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v: Bindable<boolean> = true) { return this.set("clipped", v) }
+  /** SwiftUI's name for `rotation`: turns the node clockwise by `degrees` about its center. A change
+   * animates only under `.animation(...)`, behind the motion gate. */
+  rotationEffect(degrees: Bindable<number>) { return this.set("rotation", degrees) }
+  /** Moves the node's drawing by `{x, y}` points without moving its layout; a rotation turns the
+   * moved drawing about the node's center (a clock hand: offset by half its length, then rotated). */
+  offset(v: Bindable<{ x?: number; y?: number }>) { return this.set("offset", v) }
+  /** In a ZStack: places the node's center at `{x, y}`, in points or, with `unit: "fraction"`, as 0...1
+   * of the stack (SwiftUI's `.position`); an axis left out stays centered. A placed child does not size
+   * the stack: an hour grid sizes it and the events and now line sit on it. */
+  position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>) { return this.set("position", v) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
   // Motion: the host animates these (the app never runs a timer for them). Reduce Motion and
   // cmux's calm motion turn each movement into a crossfade; motion off draws the end state.
-  /** How the node comes in and goes out when a render adds or removes it: `opacity` fades,
-   * `slide` comes up from below and leaves upward, `scale` grows from 90 %, `move` slides in
-   * from the leading edge and out to the trailing one. A node the first scene draws does not animate in. */
-  transition(v: "opacity" | "slide" | "scale" | "move") { return this.set("transition", v) }
   /** How a Text's new content replaces the old: `numericText` rolls the changed digits (up when
    * the number grows, down when it shrinks), `opacity` crossfades. */
   contentTransition(v: "numericText" | "opacity") { return this.set("contentTransition", v) }
-  /** Animates this node's own prop changes (opacity, colors, rotation, strikethrough) with a
-   * curve: `smooth` (the motion scale's standard step), `snappy` (its micro step), `none`. */
-  animation(v: "smooth" | "snappy" | "none" = "smooth") { return this.set("animation", v) }
   // Behavior
   fixed() { return this.set("fixed", true) }
   destructive() { return this.set("destructive", true) }
@@ -166,7 +238,28 @@ export const ZStack = container("ZStack")
 export const LazyVStack = container("LazyVStack")
 export const Group = container("Group")
 
-export function Text(text: Bindable<string | number | null | undefined>): ViewNode {
+export type DateTextStyle = "time" | "timer" | "relative" | "date" | "offset"
+
+/** A Text the host formats and ticks itself, like SwiftUI's `Text(date, style:)`: no render, no
+ * timer and no scene batch per second. `date` is Unix ms. `time` "9:41 AM", `date` "November 16,
+ * 2026", `timer` "4:05" (counts down to a future date, up from a past one), `relative` "2 hr, 23
+ * min", `offset` "+2 hours". The page's locale and time zone; `timeZone` (an IANA name) overrides
+ * the zone (a world clock). */
+export interface DateText {
+  date: Bindable<number>
+  style?: Bindable<DateTextStyle>
+  timeZone?: Bindable<string>
+}
+
+export function Text(text: Bindable<string | number | null | undefined> | DateText): ViewNode {
+  if (text !== null && typeof text === "object") {
+    const node = new ViewNode("Text")
+    node.props.text = ""
+    node.props.date = text.date
+    node.props.dateStyle = text.style ?? "time"
+    if (text.timeZone !== undefined) node.props.timeZone = text.timeZone
+    return node
+  }
   const node = new ViewNode("Text")
   node.props.text = typeof text === "function" ? () => String((text as () => unknown)() ?? "") : String(text ?? "")
   return node
@@ -207,7 +300,14 @@ export const Divider = () => new ViewNode("Divider")
 export const Circle = (props: Record<string, unknown> = {}) => new ViewNode("Circle").withProps(props)
 export const Capsule = (props: Record<string, unknown> = {}) => new ViewNode("Capsule").withProps(props)
 export const Rectangle = (props: Record<string, unknown> = {}) => new ViewNode("Rectangle").withProps(props)
+/** A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink by default). */
+export const Line = (props: Record<string, unknown> = {}) => new ViewNode("Line").withProps(props)
 export const RoundedRectangle = (props: Record<string, unknown> = {}) => new ViewNode("RoundedRectangle").withProps(props)
+
+/** A particle field that fills its frame and takes no input; first in a ZStack, it draws behind its siblings. */
+export function Particles(props: ParticlesProps): ViewNode {
+  return new ViewNode("Particles").withProps(props)
+}
 
 export function ProgressView(value?: Bindable<number | null>): ViewNode {
   const node = new ViewNode("ProgressView")

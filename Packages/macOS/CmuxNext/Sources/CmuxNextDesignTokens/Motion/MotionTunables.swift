@@ -106,7 +106,7 @@ public nonisolated enum MotionTunables {
         .hibernateIcon: (MotionScale.large, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
         .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
         .settle: (MotionScale.standard, "A finished mark settles in once: a sidebar row's spinner turning into its done mark grows from 60% and an accent tint."),
-        .omniboxPopup: (MotionScale.quick, "The omnibox suggestion card fading in and out with its bar's card top (Helium: 82 ms)."),
+        .omniboxPopup: (MotionScale.quick, "The omnibox suggestion card fading in with its bar's card top (Helium: 82 ms); it closes at once."),
     ]
 
     package static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in
@@ -159,7 +159,7 @@ public nonisolated enum MotionTunables {
     /// `NSInitialToolTipDelay` is about 1 s).
     public static let tooltipDelay = Tunable<Double>.number(
         "motion.tooltip.delay", .hover, "Tooltip delay", help: "Pointer rest before the first tooltip shows.",
-        default: 0.45, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipDelay")
+        default: 0.25, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipDelay")
     public static let tooltipWarm = Tunable<Double>.number(
         "motion.tooltip.warm", .hover, "Tooltip warm time", help: "After a tooltip hides, how long the next one shows at once.",
         default: 0.5, range: 0...3, step: 0.05, unit: .seconds, code: "MotionTunables.tooltipWarm")

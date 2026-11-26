@@ -426,6 +426,7 @@ impl Brain {
             *thread_root = Some(root);
         }
         let entry = self.reply_with_previews(entry);
+        self.wake_run_posted(&text);
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();

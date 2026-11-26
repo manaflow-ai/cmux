@@ -1,0 +1,23 @@
+/* A violet desktop coding app's chat, dark: lavender-white prose on #13111a, muted violet activity lines, your prompt in a
+   #241f2e bubble, a #1c1925 composer with a pink-tinted #3a2f45 edge. Paint only: no size or spacing
+   changes, so nothing moves when this applies or comes off. */
+:root {
+  --cv-text: #ece8f4;
+  --cv-text-muted: #9a93aa;
+  --cv-activity-text: #9a93aa;
+  --cv-bubble: #241f2e;
+  --cv-link: #f08ac0;
+  --cv-code-bg: #221e2b;
+}
+:root .acpmux-shell,
+:root[data-borders] .acpmux-shell {
+  --acpmux-composer-bg: #1c1925;
+  --acpmux-composer-edge: #3a2f45;
+  --acpmux-composer-hover: #221e2c;
+  --acpmux-composer-placeholder: #9a93aa;
+  --acpmux-composer-dim: #9a93aa;
+}
+:root .acpmux-composer-box {
+  --acpmux-composer-radius: 14px;
+  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+}

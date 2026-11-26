@@ -225,7 +225,7 @@ try {
     });
     const failed = host.querySelector(".acpmux-attachment-failed")!;
     expect(failed.classList.contains("acpmux-attachment-image")).toBe(true);
-    expect(failed.querySelector(".acpmux-attachment-failed-name")).toBeNull();
+    expect(failed.textContent).not.toContain(chip.name);
     expect(failed.querySelector(".acpmux-attachment-retry")).not.toBeNull();
   });
 
