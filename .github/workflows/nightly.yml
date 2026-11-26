@@ -284,6 +284,8 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+      app_input_digest: ${{ steps.app-input-digest.outputs.app_input_digest }}
+      would_reuse: ${{ steps.app-input-digest.outputs.would_reuse }}
     steps:
       - name: Check out the revision under consideration
         if: github.ref != 'refs/heads/nightly-next'
@@ -304,6 +306,9 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             /scripts/ci/nightly-publication-marker.py
+            /scripts/ci/app_input_digest.py
+            /scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh
+            /scripts/ci/timeout.sh
             /.gitmodules
           sparse-checkout-cone-mode: false
 
@@ -907,6 +912,18 @@ jobs:
                 ...nightlyNextSafetyRows,
               ])
               .write();
+
+      # Shadow only (clean-sheet CI RFD hq#26225): would a build add nothing because no app input changed since the last
+      # published commit? Reports app_input_digest and would_reuse; decides nothing, cannot fail the job.
+      - name: Shadow the app-input digest
+        id: app-input-digest
+        if: ${{ !cancelled() && steps.decide.outputs.head_sha != '' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          HEAD_SHA: ${{ steps.decide.outputs.head_sha }}
+          PUBLISHED_SHA: ${{ steps.decide.outputs.published_sha }}
+        run: bash scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh || true
 
   # Moves the protected branch `nightly-next` to a feat-cmux-next commit whose cmux-next.yml
   # push run passed its Release compile. Runs only on main, in `release`, with the release App
