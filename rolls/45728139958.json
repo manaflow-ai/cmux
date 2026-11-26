@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45728139958",
+  "recorded_at": "2026-11-26T00:46:07Z",
+  "reason": "image inputs changed in 8f52e807b510b222dcc3972b456ff9865872b408..7824f48fcfd33d25ea62c094caeab518c2da9df4",
+  "dry_run": false,
+  "cmux_tui": "368c5b2390bc9735dbac9e55f7c7ab4caeb80511",
+  "fixes": [
+    {
+      "sha": "7824f48fcfd33d25ea62c094caeab518c2da9df4",
+      "mergedAt": "2026-11-26T00:21:13Z",
+      "subject": "cloud image: wait for acpmux's model probes to exit before clean (#57024)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-26T00:46:07Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
