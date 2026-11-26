@@ -178,9 +178,6 @@ mod lane_report_text;
 mod lane_reports;
 mod launch_backoff;
 mod launch_roots;
-mod prompt_schedule;
-#[cfg(test)]
-mod prompt_schedule_tests;
 mod launchers;
 pub mod ledger;
 #[cfg(test)]
@@ -271,6 +268,9 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+mod prompt_schedule;
+#[cfg(test)]
+mod prompt_schedule_tests;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;

@@ -177,10 +177,10 @@ mod place;
 mod place_set;
 mod plan_build;
 mod processes;
-mod prompt_schedule;
 mod project_new;
 mod prompt_cancel;
 mod prompt_coach;
+mod prompt_schedule;
 pub(crate) mod queue_gauge;
 mod races;
 #[cfg(all(test, target_os = "linux"))]
