@@ -275,7 +275,7 @@ rendered. The `design` findings flag raw hex colors and spacing or type sizes ou
 folder’s design scale. These warnings let the view render while you compare it with the gallery.
 
 For a local view, `cmux customize status` reports literal hex colors passed directly to scene
-modifiers such as `.foregroundColor("#666")`. Use a theme color such as `"secondary"` to
+modifiers such as `.foregroundColor("#666666")`. Use a theme color such as `"secondary"` to
 follow the active appearance. A draft with a literal color can still be applied.
 
 Start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).

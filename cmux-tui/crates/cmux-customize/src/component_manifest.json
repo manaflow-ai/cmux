@@ -502,6 +502,79 @@
       ],
       "galleryEntries": [
         {
+          "id": "kit.primitives",
+          "title": "Kit: UI base for customizations",
+          "file": "kit/kit.gallery.tsx",
+          "experimental": false,
+          "variants": [
+            {
+              "name": "card-open",
+              "props": "{ show: \"pieces\" }",
+              "note": "Card (the app's hover card) in both panels."
+            },
+            {
+              "name": "default-sessions",
+              "props": "{ show: \"sessions\", look: \"default\" }",
+              "note": "The default row from the same pieces: icon, folder and branch, status at the end."
+            },
+            {
+              "name": "menu-open",
+              "props": "{ show: \"primitives\" }",
+              "note": "GlassMenu open in the dark panel."
+            },
+            {
+              "name": "minimal-comfortable",
+              "props": "{ show: \"sessions\", look: \"minimal-comfortable\" }",
+              "note": "The minimal look with one theme-file key changed: sidebar.density comfortable."
+            },
+            {
+              "name": "minimal-sessions",
+              "props": "{ show: \"sessions\", look: \"minimal\" }",
+              "note": "cmux#45143's minimal sidebar on the kit: status first, then the name; idle draws nothing."
+            },
+            {
+              "name": "pick-row",
+              "props": "{ show: \"primitives\" }",
+              "note": "A row is the one open target."
+            },
+            {
+              "name": "pick-session",
+              "props": "{ show: \"sessions\", look: \"minimal\" }",
+              "note": null
+            },
+            {
+              "name": "pieces",
+              "props": "{ show: \"pieces\" }",
+              "note": "Tooltip, Menu, Card, Panel and motion, light and dark."
+            },
+            {
+              "name": "pieces-menu-open",
+              "props": "{ show: \"pieces\" }",
+              "note": "Menu open in the dark panel."
+            },
+            {
+              "name": "popover-open",
+              "props": "{ show: \"primitives\" }",
+              "note": "PopoverButton with a Field inside."
+            },
+            {
+              "name": "primitives",
+              "props": "{ show: \"primitives\" }",
+              "note": "Every piece, light and dark."
+            },
+            {
+              "name": "scene-parity",
+              "props": "{ show: \"variants\" }",
+              "note": "Variants for scene parity: bare Button, Row detail subtitle and host fill, xs Pill, grid lengths, full radius."
+            },
+            {
+              "name": "tooltip-open",
+              "props": "{ show: \"pieces\" }",
+              "note": "Tooltip on hover in the light panel."
+            }
+          ]
+        },
+        {
           "id": "ui.button",
           "title": "Button",
           "file": "ui/Button.gallery.tsx",
@@ -2834,14 +2907,88 @@
       "dataAttributes": [
         "data-glass-level"
       ],
-      "galleryEntries": [],
+      "galleryEntries": [
+        {
+          "id": "kit.primitives",
+          "title": "Kit: UI base for customizations",
+          "file": "kit/kit.gallery.tsx",
+          "experimental": false,
+          "variants": [
+            {
+              "name": "card-open",
+              "props": "{ show: \"pieces\" }",
+              "note": "Card (the app's hover card) in both panels."
+            },
+            {
+              "name": "default-sessions",
+              "props": "{ show: \"sessions\", look: \"default\" }",
+              "note": "The default row from the same pieces: icon, folder and branch, status at the end."
+            },
+            {
+              "name": "menu-open",
+              "props": "{ show: \"primitives\" }",
+              "note": "GlassMenu open in the dark panel."
+            },
+            {
+              "name": "minimal-comfortable",
+              "props": "{ show: \"sessions\", look: \"minimal-comfortable\" }",
+              "note": "The minimal look with one theme-file key changed: sidebar.density comfortable."
+            },
+            {
+              "name": "minimal-sessions",
+              "props": "{ show: \"sessions\", look: \"minimal\" }",
+              "note": "cmux#45143's minimal sidebar on the kit: status first, then the name; idle draws nothing."
+            },
+            {
+              "name": "pick-row",
+              "props": "{ show: \"primitives\" }",
+              "note": "A row is the one open target."
+            },
+            {
+              "name": "pick-session",
+              "props": "{ show: \"sessions\", look: \"minimal\" }",
+              "note": null
+            },
+            {
+              "name": "pieces",
+              "props": "{ show: \"pieces\" }",
+              "note": "Tooltip, Menu, Card, Panel and motion, light and dark."
+            },
+            {
+              "name": "pieces-menu-open",
+              "props": "{ show: \"pieces\" }",
+              "note": "Menu open in the dark panel."
+            },
+            {
+              "name": "popover-open",
+              "props": "{ show: \"primitives\" }",
+              "note": "PopoverButton with a Field inside."
+            },
+            {
+              "name": "primitives",
+              "props": "{ show: \"primitives\" }",
+              "note": "Every piece, light and dark."
+            },
+            {
+              "name": "scene-parity",
+              "props": "{ show: \"variants\" }",
+              "note": "Variants for scene parity: bare Button, Row detail subtitle and host fill, xs Pill, grid lengths, full radius."
+            },
+            {
+              "name": "tooltip-open",
+              "props": "{ show: \"pieces\" }",
+              "note": "Tooltip on hover in the light panel."
+            }
+          ]
+        }
+      ],
       "doc": "docs/Glass.kit-Glass.md"
     },
     {
       "name": "Glass",
       "file": "ui/glass/Glass.tsx",
       "tier": "ui",
-      "kitExport": true,
+      "kitExport": false,
       "status": "ready",
       "summary": "A liquid glass surface (glass.css, lens.ts): a `<div>` with `.ui-glass`.",
       "extends": [

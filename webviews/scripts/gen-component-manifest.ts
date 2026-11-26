@@ -217,7 +217,7 @@ function build(): Component[] {
       name,
       file,
       tier: file.startsWith("kit/") ? "kit" : "ui",
-      kitExport: kitNames.has(name),
+      kitExport: false,
       status: explicit || (covering.length > 0 && covering.every((e) => e.experimental) ? "experimental" : "ready"),
       summary: firstSentence(jsdoc || lead),
       extends: [...ext].sort(),
@@ -238,23 +238,17 @@ function build(): Component[] {
       if (d && d.getSourceFile() === sf) add(d, ex, ex.name);
     }
   }
-  // Barrel re-exports that live outside src/ui and src/kit (Icon, Spinner) are listed from where they are defined.
-  for (const name of kitNames) {
-    if (![...found.values()].some((c) => c.name === name) && /^[A-Z]/.test(name)) {
-      const mod = checker.getSymbolAtLocation(kitBarrel)!;
-      const ex = checker.getExportsOfModule(mod).find((s) => s.name === name);
-      let real = ex;
-      if (real && real.flags & ts.SymbolFlags.Alias) real = checker.getAliasedSymbol(real);
-      const d = real?.declarations?.[0];
-      if (
-        d &&
-        real &&
-        /^[A-Z][A-Za-z0-9]*[a-z]/.test(name) &&
-        checker.getTypeOfSymbolAtLocation(real, d).getCallSignatures().length > 0
-      ) {
-        addOutside(d, real, name);
-      }
-    }
+  // Identify each barrel export by its declaration. Several UI components can share a name.
+  const barrelModule = checker.getSymbolAtLocation(kitBarrel)!;
+  for (const ex of checker.getExportsOfModule(barrelModule)) {
+    const name = ex.name;
+    if (!kitNames.has(name) || !/^[A-Z][A-Za-z0-9]*[a-z]/.test(name)) continue;
+    const real = ex.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(ex) : ex;
+    const decl = real.valueDeclaration ?? real.declarations?.[0];
+    if (!decl) continue;
+    const component = found.get(`${rel(decl.getSourceFile().fileName)}#${name}`);
+    if (component) component.kitExport = true;
+    else if (checker.getTypeOfSymbolAtLocation(real, decl).getCallSignatures().length > 0) addOutside(decl, real, name);
   }
   function addOutside(d: ts.Node, sym: ts.Symbol, name: string) {
     const sf = d.getSourceFile();

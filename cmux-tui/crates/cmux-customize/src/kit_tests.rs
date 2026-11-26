@@ -92,6 +92,28 @@ fn no_checkout_manifest_uses_the_shipped_registry() {
 }
 
 #[test]
+fn glass_resolves_to_the_exported_kit_component_in_either_manifest_order() {
+    let mut manifest: Value = serde_json::from_str(BUILTIN_MANIFEST).unwrap();
+    let entries = manifest["components"].as_array_mut().unwrap();
+    entries.retain(|component| component["name"] == "Glass");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries.iter().filter(|c| c["kitExport"] == true).count(), 1);
+    for sort_descending in [false, true] {
+        if sort_descending {
+            manifest["components"].as_array_mut().unwrap().reverse();
+        }
+        let answer =
+            components_in(&Request::Show("Glass".into()), &manifest, Path::new("registry"))
+                .unwrap();
+        let glass = &answer.json["component"];
+        assert_eq!(glass["file"], "kit/Glass.tsx");
+        assert!(
+            glass["galleryEntries"].as_array().unwrap().iter().any(|e| e["id"] == "kit.primitives")
+        );
+    }
+}
+
+#[test]
 fn kit_aliases_keep_their_source_props_and_gallery_entries() {
     let show = |name: &str| {
         components(&Request::Show(name.into()), None).unwrap().json["component"].clone()
