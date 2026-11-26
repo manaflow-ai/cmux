@@ -171,14 +171,23 @@ ln -sf "$zig_bin" "$CI_TOOLS/bin/zig"
 
 # Valgrind for the instruction-count step (Callgrind). A host valgrind is used as is; otherwise the distribution's
 # package is fetched with `apt-get download` (no root: apt checks it against the signed index) and unpacked into
-# $CI_TOOLS, with a wrapper that points it at its own tool directory.
+# $CI_TOOLS, with a wrapper that points it at its own tool directory. A runner whose apt index lacks the package (a
+# hosted image ships its lists pruned: "Can't select candidate version from package valgrind") gets a job-local index
+# fetched into $CI_TOOLS/apt, still signature-checked, still without root.
 valgrind = '''
 if command -v valgrind >/dev/null 2>&1; then
   valgrind --version
   exit 0
 fi
 mkdir -p "$CI_TOOLS/valgrind-deb" "$CI_TOOLS/bin"
-(cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind)
+if ! (cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind); then
+  apt_dir="$CI_TOOLS/apt"
+  mkdir -p "$apt_dir/lists/partial" "$apt_dir/cache/archives/partial"
+  apt_opts=(-o "Dir::State::Lists=$apt_dir/lists" -o "Dir::Cache=$apt_dir/cache" -o Debug::NoLocking=1)
+  echo "the host apt index has no valgrind; fetching a job-local index into $apt_dir"
+  apt-get "${apt_opts[@]}" -o Acquire::Retries=3 update -qq
+  (cd "$CI_TOOLS/valgrind-deb" && apt-get "${apt_opts[@]}" download valgrind)
+fi
 dpkg -x "$CI_TOOLS"/valgrind-deb/valgrind_*.deb "$CI_TOOLS/valgrind-root"
 lib="$(dirname "$(find "$CI_TOOLS/valgrind-root" -name 'callgrind-*-linux' | head -n 1)")"
 [ -d "$lib" ] || { echo "the valgrind package holds no callgrind"; exit 1; }
@@ -1060,6 +1069,216 @@ python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_si
 exit "$status"
 '''
 
+# cmux-next-guards.yml's tooling-tests job: the tests of feat-cmux-next's own CI tooling. A pull request into
+# feat-cmux-next runs these five steps (the job's tt- steps in its order, split so each stays well under the cap
+# on a slow runner: tt-objc-selectors-step and tt-display-suites took 83 s and 139 s there, so they sit in different steps); the job
+# keeps its push and docs-only fallback runs, and on such a pull request runs only the tt- steps the linux job cannot:
+# tt-webviews-tests-per-file and tt-web-lint-prepush (pytest -n 4), tt-remote-p10k (zsh from apt) and tt-tailnet
+# (cmux-tui's pinned Rust). Each step asks tooling_steps.py which tt- steps the change reaches, as the job's
+# setup-tooling-route step does, and runs those. `inputs` is the job's: no path filter (a docs-only change starts no
+# pipeline; scripts/ci/pr_router.py).
+
+[step.tooling-tests-1]
+job = "linux"
+timeout = 300
+title = "Tooling tests 1 (release, publication and PR comment scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-asc-developer-id-app to tt-backdrop-art, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
+if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py || status=1; fi
+if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
+if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
+if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
+if want tt-ios-placeholder-bounds; then python3 -I tests/test_ios_placeholder_bounds.py || status=1; fi
+if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
+if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
+if want tt-crash-ratchet; then python3 tests/test_crash_ratchet_compare.py || status=1; fi
+if want tt-spawn-owner-ratchet; then python3 tests/test_spawn_owner_ratchet.py || status=1; fi
+if want tt-pr-red-checks-comment; then python3 tests/test_pr_red_checks_comment.py || status=1; fi
+if want tt-backdrop-art; then python3 tests/test_backdrop_art_generator.py || status=1; fi
+exit "$status"
+'''
+
+[step.tooling-tests-2]
+job = "linux"
+timeout = 300
+title = "Tooling tests 2 (fast gates, ratchets and test registries)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-fast-gates to tt-swift-test-coverage-tests, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
+if want tt-fast-gates; then python3 tests/test_cmux_next_fast_gates.py && python3 tests/test_ci_entry_logs.py || status=1; fi
+if want tt-tip-swift-suite; then python3 tests/test_cmux_next_tip_swift_suite.py || status=1; fi
+if want tt-deferred-terminate; then python3 tests/test_cmux_next_deferred_terminate.py || status=1; fi
+if want tt-check-paths; then python3 tests/test_check_paths.py || status=1; fi
+if want tt-toast-targets; then python3 tests/test_check_toast_targets.py || status=1; fi
+if want tt-crash-class-fast-gate; then python3 tests/test_crash_class_fast_gate.py || status=1; fi
+if want tt-localization-catalog; then python3 tests/test_localization_catalog.py || status=1; fi
+if want tt-next-line; then python3 tests/test_next_line.py || status=1; fi
+if want tt-tap-test-health; then python3 tests/test_tap_test_health.py || status=1; fi
+if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || status=1; fi
+if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
+if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
+if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
+exit "$status"
+'''
+
+[step.tooling-tests-3]
+job = "linux"
+timeout = 300
+title = "Tooling tests 3 (iOS simulator, App Store and selector scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-app-crate-licenses to tt-asc-review-package, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
+if want tt-app-crate-licenses; then python3 tests/test_app_crate_licenses.py || status=1; fi
+if want tt-objc-selectors-step; then python3 tests/test_check_objc_selectors_step.py || status=1; fi
+if want tt-package-lane-prebuild; then python3 tests/test_ci_package_lane_prebuild.py || status=1; fi
+if want tt-ios-sim-runtime; then python3 -I tests/test_ios_sim_runtime.py || status=1; fi
+if want tt-ios-sim-create; then python3 -I tests/test_ios_sim_create.py || status=1; fi
+if want tt-fast-gates-lanes; then python3 -I tests/test_fast_gates_lanes.py || status=1; fi
+if want tt-ios-ffi-cache; then python3 -I tests/test_ios_ffi_cache.py || status=1; fi
+if want tt-ios-chief-benchmark; then python3 -I tests/test_ios_chief_benchmark_route.py || status=1; fi
+if want tt-ios-appstore-listing; then python3 -I tests/test_ios_appstore_listing_text.py || status=1; fi
+if want tt-asc-review-package; then python3 -I tests/test_asc_review_package.py || status=1; fi
+exit "$status"
+'''
+
+[step.tooling-tests-4]
+job = "linux"
+timeout = 300
+title = "Tooling tests 4 (display suites, Swift package and media scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-display-suites to tt-media-publish-windows, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
+if want tt-display-suites; then python3 scripts/ci/display_suites.py && python3 tests/test_ci_display_suites.py || status=1; fi
+if want tt-swiftpm-test-product; then python3 tests/test_swiftpm_test_product.py || status=1; fi
+if want tt-compile-string-catalogs; then python3 tests/test_compile_string_catalogs.py || status=1; fi
+if want tt-dev-daily-notify; then python3 tests/test_cmux_next_dev_daily_notify_cli.py || status=1; fi
+if want tt-publish-cmux-tui-tree; then python3 tests/test_publish_cmux_tui_tree.py || status=1; fi
+if want tt-media-publish-windows; then python3 tests/test_cmux_next_media_publish_windows.py || status=1; fi
+exit "$status"
+'''
+
+[step.tooling-tests-5]
+job = "linux"
+timeout = 300
+title = "Tooling tests 5 (measure, checkup, packaging and web routing scripts)"
+about = "cmux-next-guards.yml tooling-tests' steps tt-macho-candidates to tt-tip-test-compile, those the change reaches"
+inputs = ["**"]
+run = '''
+# Only the tt- steps tooling_steps.py routes this change to (the old job's selection); every one with no list.
+sel=all
+if [ -n "${CI_PATHS_FILE:-}" ]; then
+  out="$(mktemp)"
+  added=()
+  git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
+  if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
+      && grep -qx 'tooling_all=false' "$out"; then
+    sel="$(sed -n 's/^tooling_steps=//p' "$out")"
+  fi
+fi
+want() { [ "$sel" = all ] || [[ "$sel" == *" $1 "* ]]; }
+status=0
+if want tt-macho-candidates; then python3 tests/test_list_macho_candidates.py || status=1; fi
+if want tt-macos-stubs-parity; then python3 tests/test_ci_macos_stubs.py && python3 tests/test_ci_macho_parity.py || status=1; fi
+if want tt-browser-host-release; then python3 tests/test_browser_host_release_package.py || status=1; fi
+if want tt-origin-net; then bash scripts/cmux-next/tests/origin-net.test.sh || status=1; fi
+if want tt-measure-tests; then bash scripts/measure/tests/run-all.sh || status=1; fi
+if want tt-checkup-session-timing; then python3 -I scripts/checkup/tests/session-timing.test.py || status=1; fi
+if want tt-checkup-configuration; then python3 -I scripts/checkup/tests/configuration.test.py || status=1; fi
+if want tt-console-session-hop; then bash scripts/ci/tests/console-session-hop.test.sh || status=1; fi
+if want tt-media-build-app-local-tui; then bash scripts/ci/tests/media-build-app-local-tui.test.sh || status=1; fi
+if want tt-media-merge-base; then bash scripts/ci/tests/media-merge-base.test.sh || status=1; fi
+if want tt-launch-ready-cases; then python3 scripts/measure/tests/launch-ready-summary.test.py && bash scripts/measure/tests/launch-ready-cases.test.sh || status=1; fi
+if want tt-next-pkg; then bash scripts/cmux-next/tests/next-pkg.test.sh || status=1; fi
+if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.py || status=1; fi
+if want tt-normalize-pbxproj; then python3 tests/test_normalize_pbxproj.py || status=1; fi
+if want tt-web-validation; then python3 tests/test_web_validation.py || status=1; fi
+if want tt-tip-test-compile; then python3 tests/test_ci_tip_test_compile.py || status=1; fi
+exit "$status"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
@@ -1899,7 +2118,11 @@ job = "linux"
 timeout = 120
 title = "Phone connection notices"
 about = "a phone connection state waits QuietStatusGate's 10 s or carries an action (check-connection-notices.py)"
-inputs = ["cmux-next-ios/**", "scripts/cmux-next/check-connection-notices.py"]
+# Every surface the detector judges (its SURFACES, the bound's schema, its allowlist): a web or Mac change that adds an
+# offender fails on its own PR, not on the next phone PR (GitHubConnectCard.tsx from #56129 reddened every iOS PR).
+inputs = ["cmux-next-ios/**", "webviews/src/**", "Packages/macOS/CmuxNext/Sources/**", "Packages/iOS/**",
+          "schemas/notice-timing/**", "scripts/cmux-next/check-connection-notices.py",
+          "scripts/cmux-next/connection-notices-allowlist.tsv"]
 ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
           "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
 run = '''
@@ -1990,11 +2213,18 @@ mode="${CMUX_IOS_SIM_LINUX:-off}"
 pool_dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:-$CI_TOOLS}/sim-pool}"
 pool=""
 sim=0
-if [[ "$mode" == on && -f "$pool_dir/submitted" ]]; then
+if [[ "$mode" == on && -f "$pool_dir/submitted" ]] && (( ! status )); then
   pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=1200 bash scripts/ci/ios-sim-pool.sh collect)"
   echo "fleet pool: $pool"
 fi
+# A red macOS kit run already fails the step: the simulator leg (the kit's tests again, 40-45 min on a Mac, up to 20
+# of them waiting on the pool) would only spend the machine. The re-run that fixes the red runs it.
+if (( status )); then
+  echo "::notice title=ios-kit::the macOS kit tests failed above; the iOS simulator tests are skipped this run"
+  pool="skipped"
+fi
 case "${pool%% *}" in
+skipped) ;;
 pass) echo "iOS simulator tests passed on the fleet pool; this Mac skips them" ;;
 fail) echo "::error title=fleet pool::iOS simulator tests failed on the fleet pool (${pool#* })"; sim=1 ;;
 *)
