@@ -1102,11 +1102,16 @@ request --sha "$head"
 # making three anonymous ls-remotes of github.com that GitHub held 50-107 s before answering.
 real_git="$(command -v git)"
 mkdir -p "$TMP/gitlog"
+# A wrapper that is itself named git (a lane VM's ~/.local/bin/git guard) takes the first other git
+# on PATH as the real one, which is this stub again: log a call once, on its first pass only.
 cat > "$TMP/gitlog/git" <<STUB
 #!/usr/bin/env bash
-for a in "\$@"; do
-  case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
-done
+if [[ -z "\${GITLOG_SEEN:-}" ]]; then
+  for a in "\$@"; do
+    case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
+  done
+fi
+export GITLOG_SEEN=1
 exec "$real_git" "\$@"
 STUB
 chmod +x "$TMP/gitlog/git"
