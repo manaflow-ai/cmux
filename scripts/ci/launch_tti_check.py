@@ -128,9 +128,12 @@ KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reve
 # first_chat_paint was late, never which step (a warm-vs-update gap on 2026-11-23 could not be split from the logs).
 # `terminal.first_key.<reading>`: what the app's terminal key hold read of the process's first key-down (hq#22681):
 # `terminal_awaited` held it for the restored terminal; any other names why it did not.
+# The daemon's own steps (daemon.prepare_start, daemon.spawned or daemon.reused, daemon.socket_connected): whether the
+# launch kept the daemon that held the session or started a new one. hq run 45746889291's round 2 typed its key 1.2 s
+# before daemon_connected and the key never reached the pty; these say which of the two that launch was.
 FIRST_KEY_PREFIX = "terminal.first_key."
 KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
-                      FIRST_KEY_PREFIX)
+                      "daemon.", FIRST_KEY_PREFIX)
 KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
