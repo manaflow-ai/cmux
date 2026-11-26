@@ -118,9 +118,18 @@ jobs:
           # The browser suites (pr-pipeline.yml's web-browser job) run on a PR only with `full-ci`; base pushes run
           # them (pr_router.py FULL_CI_ONLY_JOBS); 0 turns that off.
           CI_PR_BROWSER_FULL_CI_ONLY: ${{ vars.CI_PR_BROWSER_FULL_CI_ONLY || '1' }}
+          # The machine channel PR head build skips a ready-to-land/full-ci label handoff and builds the merge train's
+          # tip and land's update-branch head only (pr_router.py handoff_label_skip); 0 builds the label handoff too.
+          CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # A ready-to-land head's base merge onto a green head runs nothing too (head_tier.py's labelled base merge
+          # rule; the land pulses the label and runs the land tier at the head it merges); 0 turns that off.
+          CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
+          # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
+          # rule); 0 turns that off.
+          CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -169,6 +178,11 @@ jobs:
         continue-on-error: true
         env:
           APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
+          # The CI pool Apps' tokens (quota-goblin, each its own installation hour; the key home sets them every 15
+          # minutes), between the App and the job token. 2026-11-26 15:00-19:00Z the post spent 61 s of a 72 s
+          # median router job asleep with cmux-bot and the job token both refused for their spent hour (job
+          # 140020669492), about 800 of the router's 1,188 runner-minutes in 4 h.
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           JOB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
@@ -183,11 +197,12 @@ jobs:
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
-          # Each token in turn, LAND_STATUS_ROUNDS rounds: a spent budget or a 5xx on one is retried on the other.
+          # Each token in turn, LAND_STATUS_ROUNDS rounds: a spent budget or a 5xx on one is retried on the next, then again.
           rounds="${LAND_STATUS_ROUNDS:-3}"
           err="$(mktemp)"
           for round in $(seq 1 "$rounds"); do
-            for token in "$APP_TOKEN" "$JOB_TOKEN"; do
+            # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
+            for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
               [ -n "$token" ] || continue
               if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
                   -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null 2>"$err"; then
@@ -231,6 +246,7 @@ jobs:
         timeout-minutes: 18
         env:
           APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           JOB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
