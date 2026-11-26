@@ -81,8 +81,10 @@ export class ArtifactsStore {
     if (!this.client) return this.set({ ...INITIAL, status: "unavailable" });
     await this.watchAuth();
     const request = ++this.treeRequest;
-    // A refresh keeps the tree on screen until the new one arrives.
-    if (this.snapshot.status !== "ready") this.set({ status: "loading", failure: undefined });
+    // A refresh keeps the tree on screen until the new one arrives; a read again after a failure keeps
+    // the failure (the page shows nothing, then one quiet line) instead of flashing "Loading…".
+    if (this.snapshot.status !== "ready" && this.snapshot.status !== "failed")
+      this.set({ status: "loading", failure: undefined });
     try {
       const { paths, sha, truncated } = await this.readTree(this.client);
       if (request !== this.treeRequest) return;
