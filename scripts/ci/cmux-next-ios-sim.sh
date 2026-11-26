@@ -761,7 +761,7 @@ sim_boot_reduce_motion() {
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
-curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$xcodegen_dir/xcodegen.zip" \
   "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
   { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
 got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
