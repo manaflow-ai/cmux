@@ -26,6 +26,7 @@ const SECRET: &str = "ghs_fake_installation_token_0000000000";
 struct State {
     seen: Vec<(String, Option<String>, Value)>,
     tokens_minted: usize,
+    integration_headers: Vec<Vec<(String, String)>>,
     answers: VecDeque<(u16, Value)>,
 }
 
@@ -54,6 +55,22 @@ impl Http for Fake {
             }
             _ => Ok((404, json!({}))),
         }
+    }
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        assert_eq!(method, "POST");
+        assert_eq!(url, format!("{}/v1/integrations/slack/token", Env::Dev.platform_origin()));
+        let mut st = self.0.lock().unwrap();
+        st.integration_headers
+            .push(headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        st.seen.push((url.to_owned(), bearer.map(str::to_owned), body.cloned().unwrap()));
+        Ok(st.answers.pop_front().unwrap_or((500, json!({}))))
     }
 }
 
@@ -292,15 +309,15 @@ fn integration_tokens_use_the_bound_install_and_shared_minter() {
     fake.0.lock().unwrap().answers.extend([
         (
             200,
-            json!({"token": "xoxb-test-token", "provider": "slack",
-            "expires_at": "2026-11-26T21:00:00Z", "token_id": "0123456789abcdef"}),
+            json!({"token": "xoxb-test-token", "vendor": "slack", "scopes":["chat:write"],
+            "expiresAt": T0 + 60_000, "grant": "igr_0123456789abcdef0123456789abcdef"}),
         ),
         (403, json!({"error": {"code": "integration.disabled", "message": "disabled"}})),
     ]);
     let minter: Minter<Fake> = Minter::spawn(fixed_now, no_log, Arc::default()).unwrap();
     minter.bound(client(&fake));
     let ask = super::integration::from_json(&json!({
-        "provider": "slack", "scopes": ["chat:write"], "label": "setup",
+        "provider": "slack", "session": "session-1", "scopes": ["chat:write"], "label": "setup",
         "team": "untrusted-team"
     }))
     .unwrap();
@@ -328,10 +345,14 @@ fn integration_tokens_use_the_bound_install_and_shared_minter() {
         .filter(|(url, _, _)| url.ends_with("/v1/integrations/slack/token"))
         .collect();
     assert_eq!(requests.len(), 2);
+    assert_eq!(
+        st.integration_headers,
+        vec![vec![("x-cmux-session".into(), "session-1".into())]; 2]
+    );
     assert_eq!(st.tokens_minted, 1, "policy refusal must not retry authentication");
     for (_, bearer, body) in requests {
         assert_eq!(bearer.as_deref(), Some("bearer-1"));
-        assert_eq!(*body, json!({"scopes": ["chat:write"], "label": "setup"}));
+        assert_eq!(*body, json!({"scopes": ["chat:write"]}));
     }
 }
 

@@ -253,7 +253,11 @@ pub fn answer_integration<H: Http>(
     let Some(client) = client else {
         return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
     };
-    let reply = super::integration::reply_for(&ask, &client.integration_token(&ask, now_wall_ms));
+    let reply = super::integration::reply_for(
+        &ask,
+        &client.integration_token(&ask, now_wall_ms),
+        now_wall_ms,
+    );
     log(&super::integration::note_for(&ask, &reply));
     reply
 }

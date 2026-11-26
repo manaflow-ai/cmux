@@ -20,6 +20,8 @@ pub struct TokenAsk {
     pub provider: String,
     pub scopes: Vec<String>,
     pub label: Option<String>,
+    pub session: String,
+    pub grant: Option<String>,
 }
 
 fn valid_atom(value: &str, max: usize) -> bool {
@@ -38,6 +40,12 @@ fn valid_label(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
+fn valid_grant(value: &str) -> bool {
+    value
+        .strip_prefix("igr_")
+        .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 pub fn path(provider: &str) -> String {
@@ -66,15 +74,30 @@ pub fn from_json(value: &Value) -> Result<TokenAsk, String> {
         Value::String(label) if valid_label(label) => Some(label.clone()),
         _ => return Err("label must be 1-64 of [A-Za-z0-9._-]".to_owned()),
     };
-    Ok(TokenAsk { provider: provider.to_owned(), scopes: checked, label })
+    let session = value.field("session").as_str().unwrap_or("");
+    if !valid_atom(session, 256) {
+        return Err("session must be a non-empty session identity (up to 256 bytes)".to_owned());
+    }
+    let grant = match value.field("grant") {
+        Value::Null => None,
+        Value::String(grant) if valid_grant(grant) => Some(grant.clone()),
+        _ => return Err("grant must be an integration grant ID".to_owned()),
+    };
+    Ok(TokenAsk {
+        provider: provider.to_owned(),
+        scopes: checked,
+        label,
+        session: session.to_owned(),
+        grant,
+    })
 }
 
 impl TokenAsk {
     pub fn api_body(&self) -> Value {
         let mut body = Map::new();
         body.insert("scopes".to_owned(), json!(self.scopes));
-        if let Some(label) = &self.label {
-            body.insert("label".to_owned(), json!(label));
+        if let Some(grant) = &self.grant {
+            body.insert("grant".to_owned(), json!(grant));
         }
         Value::Object(body)
     }
@@ -85,26 +108,33 @@ impl TokenAsk {
 }
 
 pub fn token(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 4096 && value.bytes().all(|b| b.is_ascii_graphic())
+    !value.is_empty() && value.len() <= 16_384 && value.bytes().all(|b| b.is_ascii_graphic())
 }
 
-pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
+pub fn reply_for(ask: &TokenAsk, answer: &Answer, now_wall_ms: u64) -> Value {
     match answer {
         Answer::Http { status: 200, body } => {
             let token = body.field("token").as_str().filter(|t| token(t));
-            let expires = body.field("expires_at").as_str().filter(|e| !e.is_empty());
-            let provider = body.field("provider").as_str().filter(|p| *p == ask.provider);
-            let token_id = body
-                .field("token_id")
+            let expires = body.field("expiresAt").as_u64().filter(|e| *e > now_wall_ms);
+            let provider = body.field("vendor").as_str().filter(|p| *p == ask.provider);
+            let grant = body
+                .field("grant")
                 .as_str()
-                .filter(|id| id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()));
-            match (token, expires, provider, token_id) {
-                (Some(token), Some(expires), Some(provider), Some(token_id)) => {
-                    json!({"ok":true,"token":token,"expires_at":expires,"provider":provider,"scopes":ask.scopes,"token_id":token_id})
+                .filter(|id| valid_grant(id) && ask.grant.as_deref().is_none_or(|g| g == *id));
+            let scopes = body.field("scopes").as_array().filter(|scopes| {
+                scopes.len() <= MAX_SCOPES
+                    && scopes
+                        .iter()
+                        .all(|s| s.as_str().is_some_and(|s| ask.scopes.iter().any(|a| a == s)))
+                    && ask.scopes.iter().all(|s| scopes.iter().any(|a| a.as_str() == Some(s)))
+            });
+            match (token, expires, provider, grant, scopes) {
+                (Some(token), Some(expires), Some(provider), Some(grant), Some(scopes)) => {
+                    json!({"ok":true,"token":token,"expires_at":expires,"provider":provider,"scopes":scopes,"grant":grant})
                 }
                 _ => super::github::refusal(
                     "integration.bad_answer",
-                    "the API's answer lacks a token, expiry, provider or token_id",
+                    "the API's answer lacks a valid token, future expiry, matching vendor, grant or scopes",
                 ),
             }
         }

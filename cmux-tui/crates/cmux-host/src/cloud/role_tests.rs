@@ -125,8 +125,9 @@ fn github_token_asks_get_one_reply_line() {
     );
     assert_eq!(invalid["error"]["code"], "request.invalid");
     // Integration requests must reach the minter rather than being treated as session traffic.
-    let integration =
-        ask("{\"integration_token\":{\"provider\":\"slack\",\"scopes\":[\"chat:write\"]}}\n");
+    let integration = ask(
+        "{\"integration_token\":{\"provider\":\"slack\",\"session\":\"session-1\",\"scopes\":[\"chat:write\"]}}\n",
+    );
     assert_eq!(integration["error"]["code"], "vm.unbound");
     let invalid_integration =
         ask("{\"integration_token\":{\"provider\":\"../github\",\"scopes\":[\"read\"]}}\n");
