@@ -34,7 +34,7 @@ import { automationHookPath, automationHookSecret } from "./ingress/automation-h
 import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
-import { isProvider, providers, scopesToRequest, ProviderError } from "./integrations/providers.ts";
+import { isProvider, ProviderError, providers, scopesToRequest } from "./integrations/providers.ts"
 import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
@@ -121,7 +121,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("appkv.") ? `appkv:${p.user}` : op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /**
  * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
@@ -462,6 +462,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, mux.frames)
         }
+        // Synced app storage (storage:synced) runs on UserDO's `appkv:` stream (user-appkv.ts).
+        if (payload.op.startsWith("appkv.")) {
+          const p = yield* principalFor(def.owner, principal)
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(userStub(p.user!).submitAppKv(p.user!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -562,6 +568,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const r = yield* Effect.tryPromise({
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(requestEnv(), reader, payload.op, payload.params) as Promise<ReadResult>
+            if (payload.op.startsWith("appkv.")) return rpc<ReadResult>(userStub(reader.user!).readAppKv(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op === "user.teams.list") return listUserTeams(requestEnv(), shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)
