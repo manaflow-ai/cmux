@@ -72,7 +72,8 @@
     "gallery:build": "node scripts/pages/gen-strings.mjs && vp build --config vite.config.gallery.ts",
     "gallery:dev": "bun run protocol:codegen && vp dev --config vite.config.gallery-dev.ts",
     "gallery:perturb": "bun scripts/gallery/perturb.ts",
-    "check:transcript-icons": "bun scripts/check-transcript-icons.ts"
+    "check:transcript-icons": "bun scripts/check-transcript-icons.ts",
+    "check:key-hints": "bun scripts/check-key-hints.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
