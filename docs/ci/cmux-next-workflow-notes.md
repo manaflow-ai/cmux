@@ -2119,6 +2119,14 @@ Above `fast-tier-cargo: runs-on` in `.github/workflows/cmux-next.yml`.
 
 As cmux-tui.yml's Linux test job: a fork keeps the public or 4-vCPU lane.
 
+A same-repository run reads the linux_16 pool (GCP first, then Blacksmith), not linux_8: linux_8 is led
+by the Freestyle rung (#56349), and on Freestyle VMs this job mostly never got to its tests. Controller
+timing records, 2026-11-25 18:44Z to 2026-11-26 08:49Z: of 653 runs on `fsr-*` runners 98 passed, 243 hit
+the 30 min job timeout (GitHub reports a timed-out job as cancelled: 7,854 min, the "cancelled" half of the
+job's minutes) and 277 failed in setup (Set up job, checkout averaging 578 s against 69 s, apt, zig: 4,817
+min). On the GCP pool the same job passed 478 of 583 runs, median 15.5 min. 16 was already the overflow arm's size, so that
+arm is gone (linux_sizes: size 16, no failover).
+
 ## note-207
 
 Above `fast-tier-cargo: env` in `.github/workflows/cmux-next.yml`.
@@ -5328,3 +5336,31 @@ Three changes, the check unchanged:
 
 Not changed here: backend.yml's journey-staging, cloud-resume-matrix.yml and migrate-journey-pr.yml run the same
 uncached build.
+
+## note-cheap-gate
+
+Above the gated callers in `.github/workflows/pr-router.yml` (`machine-channel-pr-head`, `screen-share-drop-gate`,
+`swift-linux-packages`, `ios-link-ffi-linux`, `pipeline`) and above `release-compile` and `compile-status` in
+`.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The heavy jobs now start only after a
+cheap job has said the head is not red.
+
+- pr-router.yml: since 11-26 the router calls cmux-next-fast-gates.yml as a callee, so fast gates run in the same run
+  as the heavy callees. Fast-gates-fail-fast never cancels its own run (note-head-fail-fast), so a red fast gates
+  head still paid for the whole pipeline, the machine channel build, Swift packages on Linux and the screen share
+  gate. Over 2026-11-25T14Z..11-26T14Z (controller timing feed) those callees spent 43,244 runner-min on runs whose
+  fast gates failed: pipeline 19.1k, machine channel 12.7k, Swift on Linux 9.8k, screen share 1.1k. Each of these
+  callers now `needs: [route, fast-gates]` and starts only when fast gates did not fail (success, skipped or not
+  routed). They skip the gate in the same cases fail-fast does: on a fork, with `full-ci`, outside pull_request, or
+  with `vars.CI_HEAD_FAIL_FAST` set to `0`. The size budget and the classic API guard are left ungated: an edit
+  re-judges them with no new push. The cost is one fast gates wall time (about 4 min) before the heavy callees
+  start on a head.
+- cmux-next.yml: #54731 started macos-placement and app-compile-placement only after `fast-tier-cargo` is not red.
+  release-compile still started then: app-compile-fleet is skipped, its verdict is empty, and the Release compile
+  takes the head. compile-status (the fleet Release compile) never waited at all. Both now take the same
+  condition. On runs where cargo failed they spent about 6 to 9k runner-min a day. Cargo skips itself when it is
+  red on the base (path_route base_red_jobs), so a red base does not hold them.
+
+Rerunning the failed fast gates or cargo job (`gh run rerun ID --failed`) reruns the jobs it skipped.
+Tests: tests/test_ci_head_fail_fast.py CheapGateTests.

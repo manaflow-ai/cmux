@@ -621,7 +621,8 @@ export interface MenuItemProps {
   "data-value"?: string;
   disabled?: boolean;
   /** Why a disabled row is disabled, one amber line under its label ("Needs sign-in"); drawn under
-   *  the menu-row-states experiment. */
+   *  the menu-row-states experiment.
+   * @status experimental */
   reason?: string;
   /** The row's keyboard shortcut ("⌘C", "↩"), drawn with the one key hint (ui/KeyHint). */
   shortcut?: string | undefined;

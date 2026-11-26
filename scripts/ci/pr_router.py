@@ -254,8 +254,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
 def land_update_head(event: dict, callees: dict) -> bool:
     """Whether EVENT is a synchronize of a ready-to-land PR to a head GitHub made by merging the base
     (land's update-branch), read only when some callee is `land_handoff_only`. Unreadable is no."""
-    pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = head_tier.labels_of(event)
     if (event.get("action") != "synchronize" or head_tier.LAND_LABEL not in labels
             or not any(c.get("land_handoff_only") for c in callees.values())):
         return False

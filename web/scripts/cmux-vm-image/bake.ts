@@ -67,6 +67,7 @@ import {
   vmGuestModelPlaneEnv,
 } from "../../services/coderouter/vmGuestEnv";
 import {
+  ACPMUX_UNIT_PATH,
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
   cmuxTuiLayoutSelector,
@@ -562,6 +563,19 @@ export function storeProfileScript(): string {
   return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
+/**
+ * acpmux.service's PATH on the image: the store first, as a login shell has it (00-cmux-store.sh,
+ * storeUserProfilePathCommand), then the unit's own. Without it the daemon finds claude, codex and
+ * the other store CLIs only through its 3 s login shell read; image roll 45862819601 (same cmux-tui
+ * 99de33e5 as the live image) lost that read on its probe clone and every picker harness was
+ * refused "unknown harness ... the login shell did not answer in time" (hq#12175's class).
+ */
+export const ACPMUX_STORE_PATH_DROPIN = "/etc/systemd/user/acpmux.service.d/10-cmux-store-path.conf";
+
+export function acpmuxStorePathDropIn(): string {
+  return `# cmux store on acpmux's own PATH (images/cmux-vm). Managed, do not edit.\n[Service]\nEnvironment=PATH=${GITHUB_SHIM_DIR}:${CURRENT_BIN}:${ACPMUX_UNIT_PATH}\n`;
+}
+
 /** Where the Antigravity CLI's updater is turned off: login shells, and the systemd user manager (acpmux.service). */
 export const AGY_PROFILE_PATH = "/etc/profile.d/cmux-agy.sh";
 export const AGY_USER_ENV_PATH = "/etc/environment.d/60-cmux-agy.conf";
@@ -835,6 +849,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, AGY_PROFILE_PATH, agyProfileScript(), 0o644);
   await L.step(vm, "agy-user-env-dir", "mkdir -p /etc/environment.d");
   await writeGuestFile(vm, AGY_USER_ENV_PATH, agyUserEnvironment(), 0o644);
+  // Before wireCmuxTui's acpmux-service step, whose daemon-reload and start read it.
+  await L.step(vm, "acpmux-store-path-dir", `mkdir -p ${path.posix.dirname(ACPMUX_STORE_PATH_DROPIN)}`);
+  await writeGuestFile(vm, ACPMUX_STORE_PATH_DROPIN, acpmuxStorePathDropIn(), 0o644);
   await L.step(vm, "store-user-profile", storeUserProfilePathCommand());
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).

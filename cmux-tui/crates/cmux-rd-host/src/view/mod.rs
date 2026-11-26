@@ -403,7 +403,7 @@ fn view_session(
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
     let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
-    let turn: Vec<crate::carrier::TurnSetup> = turn
+    let turn: Vec<crate::carrier::TurnSetup> = rd_doc::udp_only(&turn)
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
             addr: t.addr,
