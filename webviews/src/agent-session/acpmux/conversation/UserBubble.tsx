@@ -50,7 +50,8 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { RowSlots } from "./RowSlots";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
@@ -306,29 +307,40 @@ export function UserBubble({
                 }))
             }
           >
-            <MessageFooterRow>
-              {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
-              {pendingShown && row.delivery ? (
-                <PendingDelivery delivery={row.delivery} />
-              ) : (
-                <MessageTime at={row.at} className="cv-user__time" />
-              )}
-              <MessageCopy text={row.text ?? text} />
-              {through !== undefined && (
-                <button
-                  type="button"
-                  className="cv-iconbtn cv-iconbtn--compact"
-                  aria-label={t("message.edit")}
-                  title={t("message.edit")}
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil size={ROW_ICON} />
-                </button>
-              )}
-              {forkButton}
-              <RewindButton rowId={row.id} />
-              <PinButton rowId={row.id} bookmark />
-            </MessageFooterRow>
+            {/* The footer fills RowFrame's slots (RowSlots.tsx): the switcher leads, the age or the
+                delivery note is its meta, and the buttons sit in the end slot, so on a prompt still on
+                its way (its note under the bubble's text) Copy keeps the row's right edge at every
+                text length, as on a landed one (doc rule 10). */}
+            <RowSlots
+              className="cv-message-footer-row"
+              lead={branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
+              meta={
+                pendingShown && row.delivery ? (
+                  <PendingDelivery delivery={row.delivery} />
+                ) : (
+                  <MessageTime at={row.at} className="cv-user__time" />
+                )
+              }
+              actions={
+                <>
+                  <MessageCopy text={row.text ?? text} />
+                  {through !== undefined && (
+                    <button
+                      type="button"
+                      className="cv-iconbtn cv-iconbtn--compact"
+                      aria-label={t("message.edit")}
+                      title={t("message.edit")}
+                      onClick={() => setEditing(true)}
+                    >
+                      <Pencil size={ROW_ICON} />
+                    </button>
+                  )}
+                  {forkButton}
+                  <RewindButton rowId={row.id} />
+                  <PinButton rowId={row.id} bookmark />
+                </>
+              }
+            />
           </UserFooter>
         )}
       </div>
