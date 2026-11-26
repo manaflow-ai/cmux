@@ -136,6 +136,19 @@ def workflow_files(workflows: Path = WORKFLOWS) -> list[Path]:
     return sorted(workflows.glob("*.y*ml"))
 
 
+# nightly.yml and cmux-next.yml steps run `bash -e scripts/ci/nightly-steps/<step>.sh` (or cmux-next-steps/) to
+# stay under GitHub's workflow size limit: a test such a script runs is run by the workflow.
+MOVED_STEP = re.compile(r"scripts/ci/(?:nightly|cmux-next)-steps/[A-Za-z0-9_.-]+\.sh")
+
+
+def workflow_text(workflow: Path) -> str:
+    """A workflow's text followed by each moved step script it runs (MOVED_STEP): what its steps run."""
+    text = workflow.read_text(encoding="utf-8")
+    root = workflow.parents[2]
+    scripts = [root / path for path in dict.fromkeys(MOVED_STEP.findall(text))]
+    return "\n".join([text, *(script.read_text(encoding="utf-8") for script in scripts if script.is_file())])
+
+
 def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     """Every workflow's text, for asking whether a path is executed anywhere.
 
@@ -145,7 +158,7 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
     """
-    texts = [workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)]
+    texts = [workflow_text(workflow) for workflow in workflow_files(workflows)]
     # The step table's steps run in pr-pipeline.yml through `ci/run` (ci/steps.toml): its text is workflow text.
     table = workflows.parents[1] / STEP_TABLE
     if table.is_file():
@@ -238,14 +251,14 @@ def recipe_checks(source: str) -> list[tuple[str, list[str]]]:
 def runner_lanes(workflows: Path = WORKFLOWS) -> set[str]:
     lanes: set[str] = set()
     for workflow in workflow_files(workflows):
-        lanes.update(runner_lanes_from_workflow_text(workflow.read_text(encoding="utf-8")))
+        lanes.update(runner_lanes_from_workflow_text(workflow_text(workflow)))
     return lanes
 
 
 def workflow_running(path: str, workflows: Path = WORKFLOWS) -> str | None:
     """The first workflow whose text already runs `path`, if any."""
     for workflow in workflow_files(workflows):
-        if path in workflow.read_text(encoding="utf-8"):
+        if path in workflow_text(workflow):
             return workflow.name
     table = workflows.parents[1] / STEP_TABLE
     if table.is_file() and path in table.read_text(encoding="utf-8"):

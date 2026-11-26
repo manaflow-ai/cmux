@@ -471,6 +471,17 @@ def action_texts(root: Path, name: str) -> list[str]:
     return []
 
 
+# nightly.yml and cmux-next.yml steps that run `bash -e scripts/ci/nightly-steps/<step>.sh` (or cmux-next-steps/)
+# to stay under GitHub's workflow size limit run that script's commands.
+MOVED_STEP = re.compile(r"scripts/ci/(?:nightly|cmux-next)-steps/[A-Za-z0-9_.-]+\.sh")
+
+
+def moved_step_texts(root: Path, run: str) -> list[str]:
+    """The moved step scripts RUN calls, read as the commands they were inline."""
+    scripts = [root / path for path in dict.fromkeys(MOVED_STEP.findall(run))]
+    return [script.read_text(encoding="utf-8") for script in scripts if script.is_file()]
+
+
 def workflow_texts(root: Path, name: str, context: dict[str, object], seen: tuple[str, ...] = ()) -> list[str]:
     """`run:` text a workflow file executes under `context`, following local calls."""
     if name in seen:
@@ -499,6 +510,7 @@ def workflow_texts(root: Path, name: str, context: dict[str, object], seen: tupl
                 texts.append(run)
                 texts += guards_local_texts(root, run)
                 texts += step_table_texts(root, run)
+                texts += moved_step_texts(root, run)
             action = LOCAL_ACTION.match(str(step.get("uses", "")))
             if action:
                 texts += action_texts(root, action.group(1))

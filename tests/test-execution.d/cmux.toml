@@ -106,9 +106,12 @@ path = "tests/test_cmux_next_dev_daily_notify_cli.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dev_daily_sign_ephemeral.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_dev_daily_tree_wait.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_kick.py"
@@ -247,8 +250,7 @@ reason = "Run the portable summary regression locally (kept manual under the 202
 
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_perf_gate_unlit.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
@@ -269,8 +271,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_changed_paths.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_changed_paths.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
@@ -282,13 +283,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_main_twin.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_prepush_main_twin.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_workflow_yaml.py"
@@ -318,8 +317,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_route_replay.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_route_replay.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_same_tree_failed.py"
