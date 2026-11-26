@@ -499,6 +499,7 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
   const decoder = new TextDecoder();
   let text = "";
   let bytes = 0;
+  // ends: the decoder consumes one finite blob and returns at EOF or throws above MAX_INFLATED_BYTES
   for (;;) {
     const { done, value } = await reader.read();
     if (done) return text + decoder.decode();
@@ -645,6 +646,7 @@ function wholeTurnsAboveHole(page: readonly EventRecord[], target: number, tailS
 const holdsSeq = (events: readonly EventRecord[], seq: number) => {
   let low = 0;
   let high = events.length;
+  // ends: the binary search halves the remaining range until low meets high
   while (low < high) {
     const mid = (low + high) >>> 1;
     if (events[mid]!.seq < seq) low = mid + 1;
@@ -731,9 +733,11 @@ export function withPlaceholders(
   let next = 0;
   for (const row of rows) {
     const at = order(row);
+    // ends: each insertion advances next until the next placeholder belongs after this row or pending runs out
     while (next < pending.length && (pending[next]!.seq ?? Infinity) < at) out.push(pending[next++]!);
     out.push(row);
   }
+  // ends: each insertion consumes one of the remaining placeholders
   while (next < pending.length) out.push(pending[next++]!);
   return out;
 }
@@ -1277,6 +1281,13 @@ function seedRoots(
   let named = false;
   if (Array.isArray(retired)) for (const id of retired) named = fold.setRoot(text(id)) || named;
   return fold.setRoot(text(summary?.agentSessionId)) || named;
+}
+
+/// A paged read whose page said more but held nothing past its cursor: the machine answered and
+/// filled nothing. It fails as a read that did not come back does, so the hole is kept and read again
+/// later (a chat shown from the Mac's copy stays its offline copy, as when the machine is down).
+class StalledReadError extends Error {
+  readonly reason = "read_stalled";
 }
 
 /// A task can describe a call before its input arrives. If the input reveals that the task
@@ -2411,6 +2422,7 @@ export class AcpmuxDirectClient {
       const events = this.events;
       let at = 0;
       let high = events.length;
+      // ends: a binary search; `high - at` halves each pass
       while (at < high) {
         const middle = (at + high) >> 1;
         if (events[middle]!.seq <= from) at = middle + 1;
@@ -2511,6 +2523,7 @@ export class AcpmuxDirectClient {
   /// Every recorded transcript event of a session, oldest first, for session replay.
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
     const events: EventRecord[] = [];
+    // ends: `after` moves to the page's newest seq each pass; it returns on no more, an empty page or no move
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,
@@ -3570,7 +3583,8 @@ export class AcpmuxDirectClient {
 
   private async keepPeerCopy(sessionId: string, generation: number, error: unknown): Promise<boolean> {
     const selected = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
-    if (!selected() || !(peerDown(error) || this.socket?.readyState !== WebSocket.OPEN)) return false;
+    const kept = peerDown(error) || error instanceof StalledReadError || this.socket?.readyState !== WebSocket.OPEN;
+    if (!selected() || !kept) return false;
     // Only a copy of the session listed now: one the machine recreated (or another machine took)
     // while the attach was out is not this chat, so it goes and the copy of the session listed now
     // is read, if the Mac has one.
@@ -4629,6 +4643,7 @@ export class AcpmuxDirectClient {
     // newest turn were swapped for each read's stretch in turn, and the live state was replayed onto
     // each read's last record (a Thinking clock from hours before, the subsessions of then).
     const missed: EventRecord[] = [];
+    // ends: each continued page advances cursor; a final, empty or window-cut page stops the read, and a stall throws
     for (let cursor = afterSeq; ;) {
       const result = await this.typed("_acpmux/events", {
         sessionId,
@@ -4643,7 +4658,16 @@ export class AcpmuxDirectClient {
       const taken = window === undefined ? read : read.filter((event) => event.seq <= window);
       for (const event of taken) missed.push(event);
       if (result?.hasMore !== true || taken.length === 0 || taken.length < read.length) break;
-      cursor = Math.max(cursor, ...taken.map((event) => event.seq));
+      const next = Math.max(...taken.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor would read the same page again, and
+      // it filled nothing: it fails like a read that did not come back, so the hole stays in
+      // `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry reads it again.
+      if (next <= cursor) {
+        this.wire.lifecycle("gap read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
+        // l10n-allow: a daemon's bug for the gap read's callers, which keep the hole; never shown.
+        throw new StalledReadError(`gap read: a page after ${cursor} said more but held nothing past it`);
+      }
+      cursor = next;
     }
     mergeIntoHeld(this.events, missed);
     if (missed.length) acpmuxPerf.recordsTaken("read", missed.length, missed.at(-1)!.seq);
@@ -5555,6 +5579,8 @@ export class AcpmuxDirectClient {
     let listed = false;
     const read = new Set<string>();
     let cursor: string | undefined;
+    // ends: `pages` grows by one each pass and throws at PROCESS_LIST_MAX_PAGES; it returns on a page with no
+    // next cursor
     for (let pages = 1; ; pages += 1) {
       const page = (await this.request("_acpmux/process/list", {
         sessionId,
@@ -8704,7 +8730,15 @@ export class AcpmuxDirectClient {
       const page = records(result?.events);
       stored.push(...page.filter((event) => event.seq <= endSeq));
       if (result?.hasMore !== true || page.length === 0) break;
-      cursor = Math.max(cursor, ...page.map((event) => event.seq));
+      const next = Math.max(...page.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor would read the same page again. It
+      // fails, as a read that did not come back does, so `repairTurns` retries it on its bounded delays.
+      if (next <= cursor) {
+        this.wire.lifecycle("turn repair read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
+        // l10n-allow: a daemon's bug for the repair read, which retries; never shown.
+        throw new StalledReadError(`turn repair read: a page after ${cursor} said more but held nothing past it`);
+      }
+      cursor = next;
     }
     return stored;
   }
@@ -11995,6 +12029,7 @@ export class AcpmuxDirectClient {
     // The running turn starts after the last ended one.
     const rows = this.rows.sorted();
     let start = rows.length;
+    // ends: start moves back to the last turn summary or the first row
     while (start > 0 && rows[start - 1]!.kind !== "turnSummary") start -= 1;
     const items = current?.items ?? new Map<string, number>();
     const changed: string[] = [];
