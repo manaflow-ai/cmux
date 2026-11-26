@@ -706,6 +706,8 @@ pub enum ResourceOperation {
     CloudMachineChiefStart,
     #[serde(rename = "cloud.machine.chief_resize")]
     CloudMachineChiefResize,
+    #[serde(rename = "cloud.machine.setup_desktop")]
+    CloudMachineSetupDesktop,
     #[serde(rename = "cloud.machine.fork")]
     CloudMachineFork,
     #[serde(rename = "room.create")]
