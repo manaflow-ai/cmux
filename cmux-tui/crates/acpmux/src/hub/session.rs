@@ -773,6 +773,16 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Sets the chat's saved capacity switch, as a past failover would have left it
+    /// (hub_integration's auto_resume_capacity_failover, cmux#57784).
+    #[doc(hidden)]
+    pub fn set_capacity_fallback_for_tests(
+        &self,
+        fallback: Option<crate::store::CapacityFallback>,
+    ) {
+        self.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).capacity_fallback =
+            fallback;
+    }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
     pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
