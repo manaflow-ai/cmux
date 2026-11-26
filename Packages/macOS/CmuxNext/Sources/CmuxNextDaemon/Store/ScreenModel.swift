@@ -17,14 +17,20 @@ public final class ScreenModel: Identifiable {
             return layoutValue
         }
         set {
-            guard treeBeforeHold == nil else {
-                layoutValue = newValue
-                return
-            }
-            withMutation(keyPath: \.layout) { layoutValue = newValue }
+            writeLayout(newValue)
+            treeIndex = nil
+            noteTreeWrite()
         }
     }
     @ObservationIgnored private var layoutValue: LayoutNode
+
+    private func writeLayout(_ newValue: LayoutNode) {
+        guard treeBeforeHold == nil else {
+            layoutValue = newValue
+            return
+        }
+        withMutation(keyPath: \.layout) { layoutValue = newValue }
+    }
     /// Horizontal scrolling columns; empty for an ordinary split screen. Held with ``layout``.
     public internal(set) var columns: [ColumnSnapshot] {
         get {
@@ -73,6 +79,8 @@ public final class ScreenModel: Identifiable {
             } else {
                 paneList = newValue
             }
+            paneSlots = nil
+            noteTreeWrite()
             adoptUnread()
         }
     }
@@ -166,6 +174,7 @@ public final class ScreenModel: Identifiable {
         if let reordered = reconcile(panes, with: s.panes, id: PaneModel.identity, make: PaneModel.init, update: { $0.update($1) }) {
             panes = reordered
         }
+        warmIndex()
     }
 
     /// Lays a `layout-changed` layout (`layout-delta-v1`) over the record:
@@ -178,6 +187,7 @@ public final class ScreenModel: Identifiable {
         if defaultPane != d.activePane { defaultPane = d.activePane }
         if hiddenDividers != d.hiddenDividers { hiddenDividers = d.hiddenDividers }
         if floating != d.floating { floating = d.floating }
+        warmIndex()
     }
 
     /// Lays the daemon's screen state over the record.
@@ -191,6 +201,140 @@ public final class ScreenModel: Identifiable {
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
+
+    /// Puts `pane` into the panes at `index` (clamped) in place: one mutation, and only `pane` joins the unread
+    /// tally, where the ``panes`` setter copies the list and adopts and recounts every pane (O(panes) per create).
+    func insertPane(_ pane: PaneModel, at index: Int) {
+        placePane(pane, at: index)
+        noteTreeWrite()
+    }
+
+    /// Takes `pane` out of the panes in place; recounts the unread tally only when `pane` counted in it.
+    func removePane(_ pane: PaneModel) {
+        unplacePane(pane)
+        noteTreeWrite()
+    }
+
+    private func placePane(_ pane: PaneModel, at index: Int) {
+        let at = min(max(index, 0), paneList.count)
+        editPanes { $0.insert(pane, at: at) }
+        // Slots after `at` move up one: kept only for an append, the common place, else counted again when read.
+        if at == paneList.count - 1, paneSlots?[ObjectIdentifier(pane)] == nil {
+            paneSlots?[ObjectIdentifier(pane)] = at
+        } else {
+            paneSlots = nil
+        }
+        if pane.unreadScreen !== self { pane.unreadScreen = self }
+        guard pane.unread != UnreadTally() else { return }
+        unread.add(pane.unread)
+        unreadWorkspace?.recountUnread()
+    }
+
+    private func unplacePane(_ pane: PaneModel) {
+        guard let at = paneList.lastIndex(where: { $0 === pane }) else { return }
+        editPanes { $0.remove(at: at) }
+        // The last pane leaving moves no other slot.
+        if at == paneList.count {
+            if paneSlots?[ObjectIdentifier(pane)] == at { paneSlots?[ObjectIdentifier(pane)] = nil }
+        } else {
+            paneSlots = nil
+        }
+        if pane.unread != UnreadTally() { recountUnread() }
+    }
+
+    /// The panes edited in place, published as the ``panes`` setter publishes (held while the tree is held).
+    private func editPanes(_ edit: (inout [PaneModel]) -> Void) {
+        if treeBeforeHold == nil {
+            withMutation(keyPath: \.panes) { edit(&paneList) }
+        } else {
+            edit(&paneList)
+        }
+    }
+
+    // MARK: The tree's index (generic plumbing for the overlay's lookups)
+
+    /// ``layout``'s index; nil until read after a write that did not keep it.
+    @ObservationIgnored private var treeIndex: LayoutIndex?
+    /// Each pane's first index in ``panes``, by identity; nil until read after a write that did not keep it.
+    @ObservationIgnored private var paneSlots: [ObjectIdentifier: Int]?
+    /// Counts the tree writes (``layout``, ``panes``), so an overlay's undo knows its write was the last one.
+    @ObservationIgnored private var treeWrites: UInt64 = 0
+    /// What each overlay split still shown here replaced, newest last: the write count after it, and the count and
+    /// indexes before it, put back by its undo when nothing else wrote the tree in between.
+    @ObservationIgnored private var shownSplits: [(after: UInt64, writes: UInt64, index: LayoutIndex?, slots: [ObjectIdentifier: Int]?)] = []
+
+    private func noteTreeWrite() {
+        treeWrites &+= 1
+        shownSplits.removeAll()
+    }
+
+    /// The index of ``layout`` (built when a write did not keep it); nil when the tree shows a pane twice.
+    func layoutIndex() -> LayoutIndex? {
+        if treeIndex == nil { treeIndex = LayoutIndex(layoutValue) }
+        return treeIndex?.exact == true ? treeIndex : nil
+    }
+
+    /// `pane`'s first index in ``panes`` (by identity); nil when it is not there.
+    func slot(of pane: PaneModel) -> Int? {
+        countSlots()
+        return paneSlots?[ObjectIdentifier(pane)]
+    }
+
+    private func countSlots() {
+        guard paneSlots == nil else { return }
+        var slots: [ObjectIdentifier: Int] = [:]
+        slots.reserveCapacity(paneList.count)
+        for (index, listed) in paneList.enumerated() where slots[ObjectIdentifier(listed)] == nil {
+            slots[ObjectIdentifier(listed)] = index
+        }
+        paneSlots = slots
+    }
+
+    /// A daemon write is already O(tree) (it compares the trees): the indexes are built there, not on the next intent.
+    private func warmIndex() {
+        _ = layoutIndex()
+        countSlots()
+    }
+
+    /// An overlay split shows: `layout` (`change` from the tree, which the index takes in place when it is one splice),
+    /// `columns` when edited, and `pane` at `index` when the records lack the daemon's pane.
+    /// ``undoSplit(layout:columns:pane:)`` puts it back.
+    func showSplit(layout: LayoutNode, change: LayoutIndex.Change, columns: [ColumnSnapshot]?, pane: PaneModel?, at index: Int) {
+        let before = (writes: treeWrites, index: treeIndex, slots: paneSlots)
+        writeLayout(layout)
+        switch change {
+        case .unchanged: break
+        case .splice(let path, let old, let new):
+            if var kept = treeIndex {
+                kept.replace(at: path, old: old, new: new)
+                treeIndex = kept
+            }
+        case .other: treeIndex = nil
+        }
+        if let columns, columns != columnList { self.columns = columns }
+        if let pane { placePane(pane, at: index) }
+        treeWrites &+= 1
+        shownSplits.append((after: treeWrites, writes: before.writes, index: before.index, slots: before.slots))
+    }
+
+    /// Undoes ``showSplit(layout:change:columns:pane:at:)``: `pane` leaves, `layout` and `columns` are what it replaced.
+    /// When that split was the last tree write, the indexes it replaced come back with them.
+    func undoSplit(layout: LayoutNode, columns: [ColumnSnapshot], pane: PaneModel?) {
+        let restore = shownSplits.last.flatMap { $0.after == treeWrites ? $0 : nil }
+        if let pane { unplacePane(pane) }
+        writeLayout(layout)
+        if columns != columnList { self.columns = columns }
+        if let restore {
+            shownSplits.removeLast()
+            treeIndex = restore.index
+            paneSlots = restore.slots
+            treeWrites = restore.writes
+        } else {
+            treeIndex = nil
+            paneSlots = nil
+            noteTreeWrite()
+        }
+    }
 
     /// Holds the publication of ``layout``, ``columns``, ``panes`` and ``zoomedPane`` until ``publishHeldTree()``
     /// (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``): the writes still change the record at once.

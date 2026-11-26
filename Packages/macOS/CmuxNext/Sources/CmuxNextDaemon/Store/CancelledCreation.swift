@@ -135,29 +135,13 @@ import Foundation
         guard let screen = store.screen(containing: pane.handle),
               let index = screen.panes.firstIndex(where: { $0 === pane }) else { return nil }
         let layout = screen.layout, columns = screen.columns
-        // A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
-        guard let unsplit = removing(pane.handle, from: layout) else { return nil }
-        var reached = true
-        // A column that is only this pane (New Column's) goes with it.
-        let unsplitColumns = columns.filter { $0.layout != .leaf(pane.handle) }.map { column -> ColumnSnapshot in
-            guard column.layout.paneIDs.contains(pane.handle) else { return column }
-            var column = column
-            guard let tree = removing(pane.handle, from: column.layout) else { reached = false; return column }
-            column.layout = tree
-            // A row that is only this pane (New Row's) goes with it.
-            column.rows = column.rows.filter { $0.layout != .leaf(pane.handle) }.map { row in
-                guard row.layout.paneIDs.contains(pane.handle) else { return row }
-                var row = row
-                if let tree = removing(pane.handle, from: row.layout) { row.layout = tree } else { reached = false }
-                return row
-            }
-            return column
-        }
-        guard reached else { return nil }
+        // The screen without the pane (cmux-layout-reducer `optimistic`): a column or row that is only this pane goes
+        // with it. A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
+        guard let shown = OptimisticRules.removePane(screen, pane: pane.handle) else { return nil }
         store.index.remove(pane)
-        screen.panes.remove(at: index)
-        screen.layout = unsplit
-        if unsplitColumns != columns { screen.columns = unsplitColumns }
+        screen.removePane(pane)
+        screen.layout = shown.layout
+        if shown.columnsEdited, shown.columns != columns { screen.columns = shown.columns }
         return HiddenPane(pane: pane, screen: screen.handle, index: index, layout: layout, columns: columns)
     }
 
@@ -183,7 +167,7 @@ import Foundation
             guard let screen = store.screensByHandle[hidden.screen] else {
                 return store.reportMirrorViolation("cancelled creation undo found screen \(hidden.screen) missing")
             }
-            screen.panes.insert(hidden.pane, at: min(hidden.index, screen.panes.count))
+            screen.insertPane(hidden.pane, at: hidden.index)
             store.index.insert(hidden.pane, in: screen)
             screen.layout = hidden.layout
             if screen.columns != hidden.columns { screen.columns = hidden.columns }
@@ -203,24 +187,6 @@ import Foundation
         case .guessedTab?: 1
         case .closedStandIn(let overlay, let hidden)?: hiddenTabs(overlay) + (hidden == nil ? 0 : 1)
         default: 0
-        }
-    }
-
-    /// `node` without leaf `pane` (its split collapses to the other side); nil when `node` is that leaf.
-    static func removing(_ pane: PaneID, from node: LayoutNode) -> LayoutNode? {
-        switch node {
-        case .leaf(let leaf):
-            return leaf == pane ? nil : node
-        case .split(let id, let resourceID, let direction, let ratio, let a, let b):
-            guard let a2 = removing(pane, from: a) else { return b }
-            guard let b2 = removing(pane, from: b) else { return a2 }
-            return .split(id: id, resourceID: resourceID, direction: direction, ratio: ratio, a: a2, b: b2)
-        case .stack(let panes, let expanded):
-            let rest = panes.filter { $0 != pane }
-            guard let first = rest.first else { return nil }
-            return .stack(panes: rest, expanded: expanded == pane ? first : expanded)
-        case .unknown:
-            return node
         }
     }
 }
