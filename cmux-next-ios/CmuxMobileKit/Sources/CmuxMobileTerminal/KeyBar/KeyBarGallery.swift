@@ -11,8 +11,8 @@ public struct TerminalKeyBarGallery: View {
     @State private var model = TerminalModel(session: MockTerminalSession(playsIntro: false),
                                              artifactSource: MockArtifactSource())
 
-    /// The whole row's width: every key of the longest layout at 44 pt.
-    private static let fullWidth: CGFloat = 1900
+    /// The whole row's width: every key of the longest layout.
+    private static let fullWidth: CGFloat = 1240
 
     public init() {}
 
