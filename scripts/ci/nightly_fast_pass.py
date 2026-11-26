@@ -14,7 +14,7 @@ notarization and the canary.
 The risk rule. Everything between nightly-next's head and the tip (every landing the next start would take)
 is a safe fix when all of these hold:
 - at most MAX_COMMITS commits, MAX_FILES files and MAX_LINES added plus deleted lines;
-- no binary file, no submodule move, no file mode change (an executable bit);
+- no binary file, no submodule move, no symlink, no file mode change (an executable bit);
 - no path on the release surface (.github/release-surface.txt: what a signing or publishing job runs or
   reads), none under .github/, and no build or dependency manifest (RISKY_NAMES, RISKY_SUFFIXES).
 Anything unreadable (head not in the checkout, a git error) is not a safe fix: the cadence stays.
@@ -62,13 +62,15 @@ class Verdict:
                 "lines": self.lines}
 
 
-def surface_patterns(path: Path = RELEASE_SURFACE) -> list[re.Pattern]:
-    """The release surface's globs (`**` across directories, `*` within one) as regexes."""
+def surface_patterns(path: Path = RELEASE_SURFACE) -> list[re.Pattern] | None:
+    """The release surface's globs (`**` across directories, `*` within one) as regexes, read as
+    promote-nightly-next.mjs's globToRegExp reads them (`**/` also matches no directory). None when the
+    file cannot be read: then nothing is a fast pass."""
     patterns = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return patterns
+        return None
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#") or line.startswith("@"):
@@ -76,7 +78,10 @@ def surface_patterns(path: Path = RELEASE_SURFACE) -> list[re.Pattern]:
         regex = ""
         index = 0
         while index < len(line):
-            if line.startswith("**", index):
+            if line.startswith("**/", index):
+                regex += "(?:.*/)?"
+                index += 3
+            elif line.startswith("**", index):
                 regex += ".*"
                 index += 2
             elif line[index] == "*":
@@ -124,9 +129,13 @@ def classify(commits: int, numstat: list[tuple[str, str, str]], raw_modes: list[
     for added, deleted, path in numstat:
         if added == "-" or deleted == "-":
             return verdict(False, f"{path} is binary")
+    if surface is None:
+        return verdict(False, f"{RELEASE_SURFACE} could not be read; no fast pass")
     for old, new, path in raw_modes:
         if "160000" in (old, new):
             return verdict(False, f"{path} moves a submodule")
+        if "120000" in (old, new):
+            return verdict(False, f"{path} is a symlink")
         if old != new and "000000" not in (old, new):
             return verdict(False, f"{path} changes its file mode ({old} -> {new})")
     for _, _, path in numstat:
@@ -147,17 +156,18 @@ def evaluate(base: str, tip: str, git=_git, surface: list[re.Pattern] | None = N
     try:
         git("merge-base", "--is-ancestor", base, tip)
         commits = len(git("rev-list", f"{base}..{tip}").split())
+        # -z: paths come unquoted (no core.quotePath escaping), so every check sees the real path.
         numstat = []
-        for line in git("diff", "--no-renames", "--numstat", base, tip).splitlines():
-            parts = line.split("\t", 2)
+        for record in git("diff", "--no-renames", "--numstat", "-z", base, tip).split("\0"):
+            parts = record.split("\t", 2)
             if len(parts) == 3:
                 numstat.append((parts[0], parts[1], parts[2]))
         raw_modes = []
-        for line in git("diff", "--no-renames", "--raw", base, tip).splitlines():
-            meta, _, path = line.partition("\t")
-            fields = meta.lstrip(":").split()
-            if len(fields) >= 2 and path:
-                raw_modes.append((fields[0], fields[1], path))
+        fields = git("diff", "--no-renames", "--raw", "-z", base, tip).split("\0")
+        for meta, path in zip(fields[0::2], fields[1::2]):
+            modes = meta.lstrip(":").split()
+            if len(modes) >= 2 and path:
+                raw_modes.append((modes[0], modes[1], path))
     except (OSError, subprocess.SubprocessError) as error:
         return Verdict(False, f"could not read {base[:12]}..{tip[:12]} here ({type(error).__name__}); no fast pass")
     return classify(commits, numstat, raw_modes, surface)

@@ -91,7 +91,8 @@ move nightly-next forward.
 
 The fast pass (nightly_fast_pass.py; Leo, 2026-11-25: "when can we get the next nightly. like just the fast
 pass way to go"): when everything between nightly-next's head and the tip is a safe fix (a few small commits,
-none on the release surface, CI, build or dependency files; read from this checkout), the even cadence is
+none on the release surface, CI, build or dependency files; the diff read from this checkout, the
+surface from main's .github/release-surface.txt), the even cadence is
 FAST_PASS_CADENCE_MINUTES (5) instead of 20. Nothing else changes: a running build still holds the next start.
 
 usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10] [--cadence-minutes 20] [--slots N]
