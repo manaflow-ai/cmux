@@ -436,7 +436,8 @@ fn what_the_plan_reads_together_comes_out_as_read_apart() {
     assert_eq!(planned.lfs_attributes, ["z/.gitattributes", "a/.gitattributes"]);
     let machine = f.machine(&planned, &f.path("seed.bundle"), "machine");
     assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/stash"]), stash);
-    assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/head"]), head);
+    // HEAD is the base, so git leaves its ref out; WORK still sits on it.
+    assert_eq!(git(&machine, &["rev-parse", "refs/cmux-seed/work^^"]), head);
 }
 
 #[test]
