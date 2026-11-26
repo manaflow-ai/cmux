@@ -144,6 +144,17 @@ GALLERY_CONFIG = ("webviews/vite.config*.ts", "webviews/package.json", "webviews
 # A gallery entry one side of the push does not have (the push adds it): that side's picture is a card that says so,
 # not a 60 s wait for a frame that never marks ready (the frame settles the whole registry first, then fails).
 ABSENT_PREFIX = "absent."
+# Every gallery vite keeps its React Compiler (Babel) output on disk (webviews/reactCompiler.mjs
+# CMUX_VITE_TRANSFORM_CACHE), one folder for all galleries: a vite restarted on a new config, or started on a spare
+# tree, reads what any gallery already compiled instead of recompiling agent-pane (App.tsx alone ~33 s), which was
+# the 41-63 s of a config push's cold side. Keyed by each module's exact code and the lockfile; pruned past
+# TRANSFORM_CACHE_MB, oldest first, at warm.
+TRANSFORM_CACHE_MB = 2048
+PRESHOOT_FAMILIES = ("agent-pane.", "pages.")
+# vite's optimized deps, one folder per gallery config in each tree (node_modules/.vite-<key>, CMUX_VITE_CACHE_DIR;
+# inside webviews/, where the gallery's fs.allow lets vite serve it), the newest DEPS_KEYS kept: a gallery back on a
+# config it served keeps its deps instead of a scan and bundle, and two galleries never share one folder.
+DEPS_KEYS = 6
 ENTRY_ID = re.compile(r'\bid:\s*"([a-z0-9][a-z0-9.-]*)"')
 NO_LAZY = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
@@ -335,18 +346,36 @@ class Gallery:
         self.lock_hash = digest
         return True
 
+    def deps_dir(self, key: str | None = None) -> Path:
+        return self.tree / "webviews" / "node_modules" / f".vite-{key or self.key or 'none'}"
+
+    def vite_env(self) -> dict:
+        """The gallery vite's port, the shared transform cache and this config's deps folder."""
+        return {"CMUX_GALLERY_DEV_PORT": str(self.port),
+                "CMUX_VITE_TRANSFORM_CACHE": str(self.worker.state / "vite-transforms"),
+                "CMUX_VITE_CACHE_DIR": str(self.deps_dir())}
+
     def seed_deps(self) -> None:
-        """A new tree's vite deps cache, copied from a sibling's: vite keeps it when its hash still matches (most
-        config pushes leave the deps alone) instead of a 50 s scan and bundle."""
-        mine = self.tree / "webviews" / "node_modules" / ".vite"
-        if mine.exists() or not mine.parent.is_dir():
+        """This config's deps folder: kept when the tree served the config before; else a copy of a sibling's on the
+        same config, else of this tree's newest. vite keeps a copy whose hash still matches (most config pushes leave
+        the deps alone) instead of a 50 s scan and bundle. The newest DEPS_KEYS folders stay."""
+        mine = self.deps_dir()
+        modules = mine.parent
+        if not modules.is_dir():
             return
-        for g in self.worker.galleries:
-            theirs = g.tree / "webviews" / "node_modules" / ".vite"
-            if g is not self and theirs.is_dir():
+        if not mine.exists():
+            same = [g.deps_dir(self.key) for g in self.worker.galleries if g is not self]
+            own = sorted(modules.glob(".vite-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+            source = next((d for d in [*same, *own] if d.is_dir() and (d / "deps").is_dir()), None)
+            if source is not None:
                 with _suppress():
-                    shutil.copytree(theirs, mine, symlinks=True)
-                return
+                    shutil.copytree(source, mine, symlinks=True, ignore=shutil.ignore_patterns("deps_temp_*"))
+        with _suppress():
+            mine.mkdir(exist_ok=True)
+            os.utime(mine)
+        kept = sorted(modules.glob(".vite-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in kept[DEPS_KEYS:]:
+            shutil.rmtree(old, ignore_errors=True)
 
     def up(self) -> bool:
         try:
@@ -363,7 +392,7 @@ class Gallery:
         logf = open(self.log_path, "ab")
         self.proc = subprocess.Popen([self.worker.bun(), "run", "gallery:dev"], cwd=self.tree / "webviews",
                                      stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
-                                     env={**os.environ, "CMUX_GALLERY_DEV_PORT": str(self.port)})
+                                     env={**os.environ, **self.vite_env()})
         deadline = time.monotonic() + GALLERY_UP_SECONDS
         while time.monotonic() < deadline:
             if self.proc.poll() is not None:
@@ -811,6 +840,7 @@ class Worker:
                     f"+refs/heads/{BASE_BRANCH}:{ref}", timeout=FETCH_SECONDS)
             tip = git(self.clone, "rev-parse", ref)
         errors = []
+        prune_transforms(self.state / "vite-transforms")
         if swift:
             try:
                 with stages("swift"):
@@ -826,8 +856,15 @@ class Worker:
                     g.install()
                     g.start()
                 with stages("web_preshoot"):
-                    # A change to the gallery itself touches every entry: the first one ranked is a real entry.
+                    # A change to the gallery itself touches every entry: the first one ranked is a real entry. Plus
+                    # one entry of each big family (PRESHOOT_FAMILIES): vite and the transform cache hold its modules
+                    # (agent-pane's App.tsx is ~33 s of React Compiler cold), so a push's first agent-pane look is warm.
                     entries = g.scenes(["webviews/src/gallery/warm"])[:1]
+                    held = sorted(g.entry_ids())
+                    for family in PRESHOOT_FAMILIES:
+                        pick = next((e for e in held if e.startswith(family)), None)
+                        if pick and not any(e.startswith(family) for e in entries):
+                            entries.append(pick)
                     if entries:
                         self.web_side(tip, entries, g)
                 with stages("web_spare"):
@@ -1090,6 +1127,31 @@ class Publisher:
                     return False
                 self.cv.wait(left)
         return True
+
+
+def prune_transforms(folder: Path, cap_mb: int = TRANSFORM_CACHE_MB) -> int:
+    """The shared transform cache under CAP_MB: the oldest entries go first, down to three quarters of it (each push
+    adds the modules it changed). The number removed."""
+    if not folder.is_dir():
+        return 0
+    rows = []
+    for dirpath, _, filenames in os.walk(folder):
+        for name in filenames:
+            with _suppress():
+                st = (Path(dirpath) / name).stat()
+                rows.append((st.st_mtime, st.st_size, Path(dirpath) / name))
+    total = sum(r[1] for r in rows)
+    if total <= cap_mb << 20:
+        return 0
+    removed = 0
+    for _, size, path in sorted(rows):
+        if total <= (cap_mb << 20) * 3 // 4:
+            break
+        with _suppress():
+            path.unlink()
+            total -= size
+            removed += 1
+    return removed
 
 
 def needs_build_reason(planned: dict) -> str:

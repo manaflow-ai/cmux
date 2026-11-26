@@ -577,5 +577,56 @@ class ConfigPushTests(unittest.TestCase):
             self.assertNotEqual(worker.galleries[0].port, worker.galleries[1].port)
 
 
+class ColdSideTests(unittest.TestCase):
+    """A config push's side on a restarted vite recompiled agent-pane's React Compiler pass cold (41-63 s; App.tsx
+    alone ~33 s) and re-optimized deps a sibling had already bundled. Every gallery vite now reads one transform
+    cache on disk, and each config keeps its own deps folder."""
+
+    def test_every_gallery_vite_shares_the_transform_cache_and_each_config_its_deps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            g2 = w.Gallery(worker, worker.state / "web-2", w.GALLERY_PORT + 1, "web-2")
+            worker.galleries.append(g2)
+            for g in worker.galleries:
+                (g.tree / "webviews" / "node_modules").mkdir(parents=True)
+            worker.web.key, g2.key = "k1", "k1"
+            e1, e2 = worker.web.vite_env(), g2.vite_env()
+            self.assertEqual(e1["CMUX_VITE_TRANSFORM_CACHE"], e2["CMUX_VITE_TRANSFORM_CACHE"])
+            self.assertEqual(e1["CMUX_VITE_TRANSFORM_CACHE"], str(worker.state / "vite-transforms"))
+            self.assertNotEqual(e1["CMUX_VITE_CACHE_DIR"], e2["CMUX_VITE_CACHE_DIR"])  # never one folder for two vites
+            # Inside webviews/ (the gallery's fs.allow), so vite serves it.
+            self.assertTrue(e1["CMUX_VITE_CACHE_DIR"].startswith(str(worker.web.tree / "webviews") + os.sep))
+            # A spare on the same config starts from the sibling's bundled deps, not a scan and bundle.
+            deps = worker.web.deps_dir() / "deps"
+            deps.mkdir(parents=True)
+            (deps / "_metadata.json").write_text('{"configHash": "x"}')
+            (worker.web.deps_dir() / "deps_temp_1").mkdir()
+            g2.seed_deps()
+            self.assertEqual((g2.deps_dir() / "deps" / "_metadata.json").read_text(), '{"configHash": "x"}')
+            self.assertFalse((g2.deps_dir() / "deps_temp_1").exists())
+            # A gallery back on a config it served keeps that config's folder; the newest DEPS_KEYS stay.
+            for i in range(w.DEPS_KEYS + 2):
+                worker.web.key = f"n{i}"
+                worker.web.seed_deps()
+                os.utime(worker.web.deps_dir(), (1000 + i, 1000 + i))
+            left = sorted(p.name for p in (worker.web.tree / "webviews" / "node_modules").glob(".vite-*"))
+            self.assertEqual(len(left), w.DEPS_KEYS)
+            self.assertIn(f".vite-n{w.DEPS_KEYS + 1}", left)
+            self.assertNotIn(".vite-n0", left)
+
+    def test_the_transform_cache_is_pruned_oldest_first_under_its_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "vite-transforms"
+            for i in range(8):
+                f = folder / f"{i:02x}" / f"{i}.json"
+                f.parent.mkdir(parents=True)
+                f.write_bytes(b"x" * (256 << 10))
+                os.utime(f, (1000 + i, 1000 + i))
+            self.assertEqual(w.prune_transforms(folder, cap_mb=4), 0)  # 2 MB under a 4 MB cap: nothing
+            self.assertEqual(w.prune_transforms(folder, cap_mb=1), 5)  # down to 3/4 MB: the 5 oldest go
+            self.assertEqual(sorted(p.name for p in folder.rglob("*.json")), ["5.json", "6.json", "7.json"])
+            self.assertEqual(w.prune_transforms(Path(tmp) / "absent"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
