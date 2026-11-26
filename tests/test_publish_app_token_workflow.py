@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 import workflow_jobs
+from nightly_workflow_text import nightly_text
 from job_lists_routing import release_environment_jobs, unresolved_environment_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,8 @@ APP_JOBS = {
     "generate-nightly-deltas": "read",
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
     "publish-nightly-next-github": "write", "nightly-next-one": "write",
+    # Mints the read token before its download of the published variant (#54859).
+    "nightly-next-pkg": "read",
 }
 # The permission each job mints is a choice, so APP_JOBS stays hand-kept, but every nightly.yml
 # job that can run under a release environment or reads the release App's credentials must be
@@ -33,8 +36,8 @@ APP_JOBS = {
 # test_every_release_app_job_is_classified fails on a new one.
 APP_TOKEN_EXEMPT = {
     "build-sign-notarize-nightly": (
-        "signs and notarizes; its only github.token use is nightly_sign_yield.py reading newer runs, "
-        "which writes nothing to a release"
+        "signs and notarizes; its only github.token use is download-run-artifact.py reading the prepared "
+        "app artifact, which writes nothing to a release"
     ),
     "promote-nightly-next": (
         "mints its own release App token (step app-token) in nightly-next-promote and hands it to "
@@ -43,11 +46,17 @@ APP_TOKEN_EXEMPT = {
     "promote-nightly-next-acked": (
         "the acked twin of promote-nightly-next: same own App token, same APP_TOKEN hand-off"
     ),
+    "sign-live-code-variant": (
+        "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
+        "it writes nothing to a release and sends no github.token"
+    ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
 # (the budget wrapper goes on PATH before the build), and it mints the App token only for publication.
 BUDGET_FIRST = {"nightly-next-one"}
+# A gh command in a step's run: `gh`, then a space, at a word start.
+GH_CALL = re.compile(r"(?:^|[\s;|&(`])gh\s", re.M)
 
 
 def release_app_jobs(jobs: dict) -> set[str]:
@@ -145,9 +154,16 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual({k for k in step["with"] if k.startswith("permission-")}, {"permission-contents"}, name)
             self.assertEqual(steps[app[0]]["env"], {"GH_APP_TOKEN": "${{ steps.gh-app-token.outputs.token }}",
                                                     "GH_FALLBACK_TOKEN": "${{ github.token }}"}, name)
-            # Every step that sends github.token runs after the wrapper is on PATH.
+            # Every step that sends github.token to gh runs after the wrapper is on PATH. A step that
+            # hands it only to git as FETCH_TOKEN (an http extraheader: the Mac git credential step,
+            # anchor github-token-for-git, #58418, and the warm checkout, #58081) runs before the
+            # checkout the wrapper comes from, and must call no gh.
             for i, s in enumerate(steps):
-                if i != app[0] and "github.token" in str(s.get("env", {})):
+                env = s.get("env", {}) or {}
+                if [k for k, v in env.items() if "github.token" in str(v)] == ["FETCH_TOKEN"]:
+                    self.assertIsNone(GH_CALL.search(str(s.get("run", ""))), (name, s.get("name")))
+                    continue
+                if i != app[0] and "github.token" in str(env):
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:
@@ -184,16 +200,26 @@ class WorkflowTests(unittest.TestCase):
     def test_uploaders_run_from_the_workflow_commit(self) -> None:
         # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploader from
         # .publish-tooling (github.sha) so the App token is read.
+        # republish-nightly-deltas runs its uploader from scripts/ci/nightly-steps/; read that script inline.
+        expanded = workflow_jobs.jobs(nightly_text())
         for name in ("republish-nightly-deltas",):
-            steps = self.jobs[name]["steps"]
+            steps = expanded[name]["steps"]
             tooling = next(s for s in steps if (s.get("with") or {}).get("path") == ".publish-tooling")
             self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}", name)
             for script in ("scripts/ci/publish-release-assets.py", "scripts/ci/gh_app_token.sh"):
                 self.assertIn(script, tooling["with"]["sparse-checkout"], name)
-            uploads = [s for s in steps if "publish-release-assets.py" in str(s.get("run", ""))]
+            # The republish run block lives in scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh, run from
+            # .publish-tooling (it is in the sparse list) so it is the workflow commit's copy too.
+            def text(step):
+                run = str(step.get("run", ""))
+                if ".publish-tooling/scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh" in run:
+                    self.assertIn("scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh", tooling["with"]["sparse-checkout"], name)
+                    return (ROOT / "scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh").read_text(encoding="utf-8")
+                return run
+            uploads = [s for s in steps if "publish-release-assets.py" in text(s)]
             self.assertTrue(uploads, name)
             for step in uploads:
-                run = str(step["run"])
+                run = text(step)
                 self.assertIn(".publish-tooling/scripts/ci/publish-release-assets.py", run, (name, step.get("name")))
                 self.assertNotIn("python3 scripts/ci/publish-release-assets.py", run, (name, step.get("name")))
 

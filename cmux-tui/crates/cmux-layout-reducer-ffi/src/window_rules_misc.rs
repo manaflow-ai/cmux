@@ -1,10 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
-//! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`): their tables
-//! and refusals.
+//! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`,
+//! `window_update_*`, `window_editors_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, files, history, launch, notifications, remote, restore, screen_share,
+    appearance, browser, editors, files, history, launch, notifications, remote, restore,
+    screen_share, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -139,6 +140,14 @@ struct Keymap {
     changed: Vec<String>,
 }
 
+/// `window_launch_current_registry`: the home's `Library/Application Support` and the daemon session name.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentRegistry {
+    app_support: String,
+    session: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RestoreOrder {
@@ -148,7 +157,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 8] = [
+const DOMAINS: [&[u8]; 10] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
@@ -157,6 +166,8 @@ const DOMAINS: [&[u8]; 8] = [
     b"window_files_",
     b"window_appearance_",
     b"window_launch_",
+    b"window_editors_",
+    b"window_update_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -277,15 +288,54 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             let facts: launch::SnapshotFacts = read(request)?;
             json!({ "verdict": launch::verdict(&facts) })
         }
+        // The registry id this home last saw live (`launch::current_registry_id`): one file read of at most
+        // 257 bytes, so the app asks off the main thread (the launch read's files lane).
+        b"window_launch_current_registry" => {
+            let request: CurrentRegistry = read(request)?;
+            let id = launch::current_registry_id(
+                std::path::Path::new(&request.app_support),
+                &request.session,
+            );
+            json!({ "registryId": id })
+        }
         // Where the launch's front window lands: the last workspace and tab, or Home (Leo ask-b7aac8d3f9).
         b"window_launch_landing" => {
             let facts: launch::LandingFacts = read(request)?;
             value(launch::landing(&facts))?
         }
+        // A Home landing that waits for Home's workspace: wait, land in the saved front window, or stop.
+        // Where the relaunch's front saved window lands, read off its record; null: its own top page.
+        b"window_launch_front_landing" => {
+            let facts: launch::FrontFacts = read(request)?;
+            json!({ "landing": launch::front_landing(&facts) })
+        }
+        b"window_launch_pending_home" => {
+            let facts: launch::PendingHome = read(request)?;
+            value(launch::pending_home(&facts))?
+        }
+        // The editors Open in Editor knows, and which installed one opens a folder.
+        b"window_editors_table" => json!({ "editors": editors::EDITORS }),
+        b"window_editors_pick" => value(editors::pick(&read(request)?))?,
         // What a launch opens fresh: Home, a New Tab workspace, nothing until Home is ensured, or the saved windows.
         b"window_launch_fresh_landing" => {
             let facts: launch::FreshFacts = read(request)?;
             value(launch::fresh_landing(&facts))?
+        }
+        // Update when idle (`updates.installWhenIdle`): whether a staged app update installs now, or why it waits.
+        b"window_update_idle_install" => {
+            let facts: update_idle::IdleFacts = read(request)?;
+            value(update_idle::decide(&facts))?
+        }
+        // Settings > Updates' Next Check: seconds from now until the updater's next scheduled check.
+        b"window_update_next_check" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Facts {
+                seconds_since_last_check: Option<f64>,
+                interval_seconds: f64,
+            }
+            let facts: Facts = read(request)?;
+            json!({ "inSeconds": update_idle::next_check_in(facts.seconds_since_last_check, facts.interval_seconds) })
         }
         _ => return Err(ERR_INVALID),
     };

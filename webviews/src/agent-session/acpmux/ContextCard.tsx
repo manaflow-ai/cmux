@@ -6,6 +6,7 @@ import "./contextCard.css";
 import { useT } from "./i18n";
 import { contextBreakdown, type Breakdown } from "./session-info/contextSectionModel";
 import { compactBreakdownRows, CACHE_SOON_MS, cacheTimeLeft, useCacheTimeLeft } from "./contextCardModel";
+import { intl } from "../../ui/intl";
 /// The prompt cache's line: a countdown while warm, then "Cache expired". acpmux sends the expiry
 /// (claude_stdio/prompt_cache.rs) only for a harness that reports its cache and a known TTL.
 function CacheLine({ expiresAt, now }: { expiresAt: number; now?: () => number }) {
@@ -19,10 +20,16 @@ function CacheLine({ expiresAt, now }: { expiresAt: number; now?: () => number }
   );
 }
 
+/// From this share of the window used, Compact conversation reads emphasised (the coordinator's pick
+/// for Leo's 2026-11-25 ask): about where Claude Code starts warning of auto-compaction.
+export const COMPACT_EMPHASIS_PERCENT = 80;
+
 export function ContextCardBody({
   used,
   size,
   onOpenDetails,
+  onCompact,
+  compactDisabled = false,
   breakdown: reported,
   cacheExpiresAt,
   now,
@@ -31,6 +38,12 @@ export function ContextCardBody({
   size: number;
   setup?: number;
   onOpenDetails?(): void;
+  /// Sends the agent's /compact, as typing it does (Leo 2026-11-25: "honestly do we want a compact
+  /// button here or..."). The row shows always where the agent offers /compact, and reads emphasised
+  /// from COMPACT_EMPHASIS_PERCENT of the window used.
+  onCompact?(): void;
+  /// A turn or a compaction is running: the row keeps its place, disabled, so the card never resizes.
+  compactDisabled?: boolean;
   breakdown?: unknown;
   /// When the chat's prompt cache lapses (unix ms, from acpmux); no line without it.
   cacheExpiresAt?: number;
@@ -38,7 +51,7 @@ export function ContextCardBody({
   now?: () => number;
 }) {
   const t = useT();
-  const tokens = new Intl.NumberFormat(undefined, {
+  const tokens = intl.NumberFormat(undefined, {
     notation: "compact",
     maximumFractionDigits: 1,
   });
@@ -83,6 +96,19 @@ export function ContextCardBody({
           </ul>
         )}
       </div>
+      {onCompact && (
+        <div className="acpmux-context-card-foot">
+          <button
+            type="button"
+            className="acpmux-context-card-details acpmux-context-card-compact"
+            data-emphasis={percent >= COMPACT_EMPHASIS_PERCENT ? "" : undefined}
+            disabled={compactDisabled}
+            onClick={onCompact}
+          >
+            {t("context.compactConversation")}
+          </button>
+        </div>
+      )}
       {onOpenDetails && (
         <div className="acpmux-context-card-foot">
           <button type="button" className="acpmux-context-card-details" onClick={onOpenDetails}>

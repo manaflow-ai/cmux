@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextHostPressureTunables
 import CmuxNextKeepAwake
 import CmuxNextNotifications
 import CmuxNextPalette
@@ -18,8 +19,8 @@ enum WindowHandlers {
         context.services.pages.register(context.services.settingsWindow)
         context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
-            let link = SettingsDeepLink(invocation)
-            try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange)
+            let link = SettingsDeepLink(invocation), cardRoute = link.route ?? (link.anchor == nil ? SettingsPageLayout.cardRoute(link.setting) : nil)
+            try context.services.settingsWindow.show(section: link.section, setting: cardRoute == nil ? link.setting : nil, focus: invocation.allowsViewChange, route: cardRoute)
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
@@ -55,8 +56,7 @@ enum WindowHandlers {
         })
         registry.bind("about", run: { _ in
             context.activateApp()
-            let credits = AboutPanelCredits(bundle: .main).credits
-            NSApp.orderFrontStandardAboutPanel(options: credits.map { [.credits: $0] } ?? [:])
+            context.services.updater.showAboutPanel()
         })
         registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
         registry.bind("showHideAllWindows", run: { _ in

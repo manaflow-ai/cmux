@@ -100,8 +100,11 @@ cmux.json:
   frozen` (timers, tasks, rendering stop; memory and state stay). It thaws
   when shown, when an agent drives it (before the call goes out) and before
   the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
-  hosts, open DevTools, capture, playing media and Web Audio stay awake; a
-  page kept for media is asked again after `freezeHiddenTabs`.
+  hosts, open DevTools, capture, playing media, a paused media session (Now
+  Playing, the media keys and the media menu run their Play in the page;
+  https://github.com/manaflow-ai/cmux/issues/51079)
+  and Web Audio stay awake; a page kept for media is asked again after
+  `freezeHiddenTabs`.
 
 - Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
   pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or

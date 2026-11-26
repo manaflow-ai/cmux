@@ -1,6 +1,8 @@
 // Portable value checks per row kind. The daemon is the authority; the mock provider uses
 // these to behave like it, and the page uses them to refuse a bad field value before sending.
+import { isPlacementMap } from "./backgroundPlacement";
 import { parseThemeSpec } from "./themeSpec";
+import { UI_FONT_VALIDATION } from "./fontPickerModel";
 import type { Domains } from "./ops";
 import type { SchemaRow } from "./schema";
 
@@ -64,6 +66,12 @@ function inRange(row: SchemaRow, value: unknown): boolean {
     Number.isFinite(value) &&
     (range === undefined || (value >= range.min && value <= range.max))
   );
+}
+
+/** The installed families a font row takes: every family for the App Font (`domain:ui_font_family`),
+ * the fixed-pitch ones for the rest. */
+export function fontNames(validation: string | undefined, domains: Partial<Domains> | undefined): string[] | undefined {
+  return validation === UI_FONT_VALIDATION ? domains?.ui_font_families : domains?.font_families;
 }
 
 function inDomain(list: string[] | undefined, value: unknown): boolean {
@@ -132,6 +140,75 @@ export function isCommandLabel(value: unknown): boolean {
   return rule.program !== undefined || rule.match !== undefined;
 }
 
+/** `sidebar.sections.hidden` / `order`: at most 256 distinct ids of 1 to 128 characters (`SidebarSectionIDsSetting`). */
+export function isSidebarSectionIds(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 256) return false;
+  const seen = new Set<string>();
+  return value.every((id) => {
+    if (typeof id !== "string" || id === "" || Array.from(id).length > 128 || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/** An ssh endpoint of a host: `ssh://[user@]host[:port]`, or what ssh takes (`[user@]host`, an alias). */
+export function isHostEndpoint(text: unknown): boolean {
+  if (typeof text !== "string" || text === "" || text.startsWith("-") || /[\s\p{Cc}]/u.test(text)) return false;
+  const scheme = text.indexOf("://");
+  if (scheme < 0) return true;
+  if (text.slice(0, scheme).toLowerCase() !== "ssh") return false;
+  let authority = text.slice(scheme + 3);
+  if (authority.endsWith("/")) authority = authority.slice(0, -1);
+  if (authority.includes("/")) return false;
+  const at = authority.lastIndexOf("@");
+  if (at === 0) return false;
+  const hostPort = at > 0 ? authority.slice(at + 1) : authority;
+  let host = hostPort;
+  let port: string | undefined;
+  if (hostPort.startsWith("[")) {
+    const close = hostPort.indexOf("]");
+    if (close < 0) return false;
+    host = hostPort.slice(1, close);
+    const after = hostPort.slice(close + 1);
+    if (after.startsWith(":")) port = after.slice(1);
+    else if (after !== "") return false;
+  } else {
+    const colon = hostPort.lastIndexOf(":");
+    if (colon >= 0) {
+      host = hostPort.slice(0, colon);
+      if (host.includes(":")) return false;
+      port = hostPort.slice(colon + 1);
+    }
+  }
+  if (port !== undefined && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) return false;
+  return host !== "" && !host.startsWith("-");
+}
+
+/**
+ * One host of `machines.hosts`: a label and its ssh endpoints tried in order. The Rust rule is
+ * cmux-config `hosts::host`, the Swift one `HostsSetting`; a list also needs unique labels.
+ */
+export function isMachineHost(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const host = value as Record<string, unknown>;
+  if (typeof host.label !== "string" || host.label.trim() === "" || Array.from(host.label).length > 64) return false;
+  let endpoints: unknown[];
+  if (host.endpoints !== undefined && host.endpoint === undefined) {
+    if (!Array.isArray(host.endpoints) || host.endpoints.length < 1 || host.endpoints.length > 16) return false;
+    endpoints = host.endpoints;
+  } else if (host.endpoints === undefined && host.endpoint !== undefined) {
+    endpoints = [host.endpoint];
+  } else return false;
+  if (!endpoints.every(isHostEndpoint)) return false;
+  return ["icon", "id"].every((key) => host[key] === undefined || typeof host[key] === "string");
+}
+
+function isMachineHostList(value: unknown): boolean {
+  if (!Array.isArray(value) || !value.every(isMachineHost)) return false;
+  const labels = value.map((host) => (host as { label: string }).label.trim().toLowerCase());
+  return new Set(labels).size === labels.length;
+}
+
 /**
  * A fixed picture (`appearance.backgroundLight` / `backgroundDark`, a Time of Day entry): a listed
  * painting or `desktop`, or a macOS wallpaper or image by absolute path; never a shuffle or none.
@@ -185,6 +262,23 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       Object.entries(value).every(([time, picture]) => isBackdropTime(time) && isBackdropPicture(picture));
     return ok ? null : 'expected {"07:00" | "sunset-30m": picture, ...}';
   }
+  if (row.validation === "domain:backdrop_placement") {
+    return isPlacementMap(value) ? null : 'expected {"<picture>": "fill | fit | center | stretch[ X Y[ ZOOM]]", ...}';
+  }
+  if (row.validation === "domain:backdrop_memory") {
+    const folder = (text: unknown) => typeof text === "string" && /^folder:\/./.test(text);
+    const member: Record<string, (text: unknown) => boolean> = {
+      rotate: (text) => text === "daily" || folder(text),
+      folder,
+      off: (text) => text === "none" || isBackdropPicture(text),
+    };
+    const ok =
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([name, text]) => Object.hasOwn(member, name) && member[name]!(text));
+    return ok ? null : 'expected {"rotate": daily | folder:<path>, "folder": folder:<path>, "off": none | picture}';
+  }
   if (row.validation === "domain:backdrop_location") {
     return isBackdropLocation(value) ? null : "expected LAT,LON such as 37.77,-122.42";
   }
@@ -198,11 +292,17 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       ? null
       : "expected a list of preset names and rules, each with a label and a program or match";
   }
+  if (row.validation === "domain:hosts") {
+    return isMachineHostList(value) ? null : "expected a list of hosts, each with a unique label and ssh endpoints";
+  }
   if (row.validation === "domain:app_id") {
     // The manifest's own id pattern, which the export carries on the row.
     return typeof value === "string" && row.pattern !== undefined && new RegExp(row.pattern).test(value)
       ? null
       : "expected an app id, publisher/name in lowercase letters, digits and -";
+  }
+  if (row.validation === "domain:sidebar_section_ids") {
+    return isSidebarSectionIds(value) ? null : "expected a list of at most 256 distinct section ids";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
@@ -262,7 +362,7 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       if (row.default !== null && value === row.default) return null;
       return themeInDomain(domains?.themes, value) ? null : "unknown theme";
     case "font_family":
-      return inDomain(domains?.font_families, value) ? null : "unknown font family";
+      return inDomain(fontNames(row.validation, domains), value) ? null : "unknown font family";
     case "text":
       return typeof value === "string" ? null : "expected text";
     case "sound":
@@ -297,5 +397,12 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
         ? null
         : "expected a list of non-empty strings";
+    case "json":
+      // The top-level type only, as the app: the daemon checks the shape and the row's domain
+      // (the sidebar row reducer's bounds) and its refusal says where (`accepted.problems`).
+      if (row.shape?.type === "object") {
+        return typeof value === "object" && value !== null && !Array.isArray(value) ? null : "expected an object";
+      }
+      return Array.isArray(value) ? null : "expected a list";
   }
 }

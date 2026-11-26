@@ -192,7 +192,9 @@ export function ChiefBackendPicker({
           {/* The command stays as typed in every language: the catalog holds its place, %@. */}
           {t("chief.backend.uniiNote")
             .split("%@")
-            .flatMap((part, index) => (index === 0 ? [part] : [<code key={index}>unii login</code>, part]))}
+            .flatMap((part, index) =>
+              index === 0 ? [part] : [<code key={index}>cmux harness login unii</code>, part],
+            )}
         </span>
       )}
       <CheckLine strings={strings} check={check} onRecheck={onRecheck} />
@@ -227,6 +229,7 @@ function CheckLine({ strings, check, onRecheck }: { strings: Strings; check: Bac
         {t("chief.backend.passed")}
       </output>
     );
+  // retry-prompt-ok: Check Again runs a real hello turn (a paid model request) after the person's fix.
   return <Failure strings={strings} step={check.step} onRetry={onRecheck} />;
 }
 
@@ -245,6 +248,8 @@ function Failure({
       <span>{format("chief.backend.failed", step?.name || "doctor")}</span>
       {step?.detail && <span className="ce-check-detail">{step.detail}</span>}
       {step?.fix && <span className="ce-check-fix">{format("chief.backend.fix", step.fix)}</span>}
+      {/* retry-prompt-ok: a check runs a real hello turn on the backend (a paid model request), usually
+          after the person did the step's fix */}
       {onRetry && (
         <button type="button" className="ce-button" onClick={onRetry}>
           {t("chief.backend.recheck")}
@@ -432,6 +437,7 @@ function BringYourOwn({
         <Failure
           strings={strings}
           step={status.step}
+          // retry-prompt-ok: Check Again runs a real hello turn (a paid model request).
           onRetry={status.harness ? () => void recheck(status.harness!) : undefined}
         />
       )}

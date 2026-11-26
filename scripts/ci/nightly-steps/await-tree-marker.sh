@@ -6,7 +6,14 @@
 # name the build's tree key, and name the commit whose client build-nightly-app
 # installed as the tree's publisher. Then the published app carries exactly the
 # tree's client. Read-only: files.cmux.com only.
-# Env: BUILD_SHA, KEY, INSTALLED; CMUX_TREE_MARKER_WAIT_SECONDS (default 3000),
+# A build that bundled the newest published tree because its own was not published
+# yet (app-bundle-cmux-tui-client.sh, INSTALLED_KEY differs from KEY) cannot wait for
+# its commit's marker: that names a tree it did not install. It passes once tree
+# INSTALLED_KEY is published and verified (tree-commit-marker.sh tree-ready) with
+# INSTALLED as its publisher, so the app still carries exactly a published tree's
+# client (RFD 0021 row 2).
+# Env: BUILD_SHA, KEY, INSTALLED, INSTALLED_KEY (optional; the tree the build
+# installed); CMUX_TREE_MARKER_WAIT_SECONDS (default 3000),
 # CMUX_TREE_MARKER_POLL_SECONDS (default 20), CMUX_TUI_PIN_BASE.
 set -euo pipefail
 [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ && "$KEY" =~ ^[0-9a-f]{40}$ && "$INSTALLED" =~ ^[0-9a-f]{40}$ ]] \
@@ -15,6 +22,25 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 marker="$base/tree-commits/$BUILD_SHA.json"
 deadline=$(( $(date +%s) + ${CMUX_TREE_MARKER_WAIT_SECONDS:-3000} ))
+installed_key="${INSTALLED_KEY:-}"
+if [[ -n "$installed_key" && "$installed_key" != "$KEY" ]]; then
+  [[ "$installed_key" =~ ^[0-9a-f]{40}$ ]] || { echo "error: INSTALLED_KEY '$installed_key' is not a 40-hex tree key" >&2; exit 1; }
+  # One read, no wait: a tree the bundle step installed is already published. tree-ready
+  # verifies its sha256 against its publisher's manifest; any read failure refuses.
+  rc=0
+  out="$(bash "$here/scripts/cmux-next/tree-commit-marker.sh" tree-ready "$installed_key" 2>/dev/null)" || rc=$?
+  if (( rc != 0 )); then
+    echo "::error title=tree marker::fallback tree $installed_key is not published or could not be verified (tree-ready exit $rc); nothing is published"
+    exit 1
+  fi
+  published_by="$(sed -n 's/^publishedBy=//p' <<<"$out" | head -1)"
+  if [[ "$published_by" != "$INSTALLED" ]]; then
+    echo "::error title=tree marker::fallback tree $installed_key was published by ${published_by:-nobody}, but this build installed the client of $INSTALLED; nothing is published"
+    exit 1
+  fi
+  echo "::warning title=cmux-tui fallback tree::this build ships the client of published tree $installed_key (by $INSTALLED), not its own tree $KEY, which was not published when it bundled"
+  exit 0
+fi
 while :; do
   rc=0
   bash "$here/scripts/cmux-next/tree-commit-marker.sh" check "$BUILD_SHA" >/dev/null || rc=$?

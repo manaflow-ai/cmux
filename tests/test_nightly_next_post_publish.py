@@ -106,9 +106,11 @@ def post_publish_runnable() -> list[str]:
         return term
 
     def requires_a_skipped_job(term: str, skipped: set[str]) -> bool:
-        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value."""
+        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value,
+        or an output is not empty (a skipped job's outputs are all '': report-nightly-fix-forward, #47756)."""
         alternatives = [alt.strip() for alt in unwrap(term).split("||")]
         found = [re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.(?:result|outputs\.[A-Za-z0-9_]+) == '[^']+'", alt)
+                 or re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_]+ != ''", alt)
                  for alt in alternatives]
         return all(found) and all(match.group(1) in skipped for match in found)
 
@@ -149,9 +151,10 @@ def post_publish_runnable() -> list[str]:
     return runnable
 
 
+# nightly-next-pkg (#54859) packages the published build, as keep-published-dsyms does.
 POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
                      "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
-                     "publish-nightly-reel", "sentry-dsyms-nightly", "report-nightly-failure", "close-nightly-failure-issue"]
+                     "publish-nightly-reel", "sentry-dsyms-nightly", "nightly-next-pkg", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
 if sorted(runnable) != sorted(POST_PUBLISH_JOBS):
     failures.append(f"a nightly_next_post_publish run must start only {POST_PUBLISH_JOBS}, not {runnable}")

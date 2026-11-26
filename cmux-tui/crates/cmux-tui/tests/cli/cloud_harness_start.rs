@@ -19,10 +19,11 @@ use super::*;
 
 /// The harnesses a Cloud chat's picker offers a sign-in for: the app's
 /// `LOGIN_AGENTS` (webviews/src/agent-session/acpmux/cloudAgentLogin.ts), mirrored in
-/// cmux-tui-core's `login_request` (server/agent_session_attach.rs). opencode is in the
-/// picker too (no sign-in of its own there): it must start or say the same. A harness added
-/// to the picker gets a row here.
-const PICKER_HARNESSES: &[&str] = &["claude", "codex", "gemini", "grok", "cursor", "opencode"];
+/// cmux-tui-core's `login_request` (server/agent_session_attach.rs). opencode and
+/// antigravity are in the picker too (antigravity signs in with Gemini's key): each must
+/// start or say the same. A harness added to the picker gets a row here.
+const PICKER_HARNESSES: &[&str] =
+    &["claude", "codex", "gemini", "grok", "cursor", "opencode", "antigravity"];
 
 /// acpmux's config with every picker harness as the test agent under its own id (a
 /// config.json entry takes the id over from PATH discovery), each with `env`.
@@ -100,4 +101,58 @@ fn a_picker_harness_that_dies_at_start_signed_out_says_sign_in_required_naming_i
     let vm = Daemon::start_in("pickdie", None, Some(config), Some("owner"));
     let reply = start_on_own_vm(&vm, "grok");
     assert_sign_in_required(&reply, "grok");
+}
+
+/// The test Claude Code (acpmux's stand-in for `claude -p`, no model sign-in).
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_claude.py");
+
+/// A Cloud VM of the caller's own whose acpmux runs Claude Code (the stand-in) at the
+/// full-access start level. `IS_SANDBOX=1` lets it take Bypass permissions also when the test
+/// runs as root, as on a Cloud VM, so a start that settles nothing stays in Bypass permissions.
+fn cloud_claude_vm(name: &str) -> Daemon {
+    let config = json!({
+        "harnesses": {"claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                                 "family": "claude", "env": {"IS_SANDBOX": "1"}}},
+        "defaultHarness": "claude",
+        "defaultPermissionMode": "fullAccess",
+    });
+    Daemon::start_in(name, None, Some(config), Some("owner"))
+}
+
+/// The app's start of a new Cloud Claude chat with the person's start level
+/// (`permission_mode`) and, if they picked one, a mode; the mode the chat runs in after it.
+fn cloud_claude_start_mode(vm: &Daemon, permission_mode: &str, picked: Option<&str>) -> String {
+    let surface = vm.own_agent_tab();
+    let home = vm.dir.join("home");
+    let mut start = json!({"id": 61, "cmd": "agent-session-start", "surface": surface,
+                           "harness": "claude", "cwd": home.to_str().unwrap(), "vm_kind": "owner",
+                           "permission_mode": permission_mode});
+    if let Some(mode) = picked {
+        start["mode"] = json!(mode);
+    }
+    let reply = vm.rpc(start);
+    assert_eq!(reply["ok"], true, "{permission_mode} {picked:?}: {reply}");
+    let session = reply["data"]["session"].as_str().unwrap_or_else(|| panic!("{reply}"));
+    let info = vm.acpmux_call("_acpmux/info", json!({"sessionId": session}));
+    let mode = info["result"]["modes"]["currentModeId"].as_str();
+    mode.unwrap_or_else(|| panic!("no mode: {info}")).to_owned()
+}
+
+/// A new Claude chat on the caller's own Cloud VM with no mode picked starts in Claude Code's
+/// Auto when the person's start level is full access (Lawrence 2026-11-20: "we need to support
+/// auto mode for cloud mode for claude harness"), through the app's real start path
+/// (`agent-session-start`, `server/agent_session_start.rs` `cloud_default_mode`) and the VM's
+/// acpmux, with no model sign-in. A picked mode holds, and the other start levels never move the
+/// chat to Auto.
+#[test]
+fn a_cloud_claude_chat_with_no_mode_picked_starts_in_auto() {
+    let vm = cloud_claude_vm("cloudauto");
+    assert_eq!(cloud_claude_start_mode(&vm, "fullAccess", None), "auto");
+    assert_eq!(
+        cloud_claude_start_mode(&vm, "fullAccess", Some("bypassPermissions")),
+        "bypassPermissions"
+    );
+    assert_eq!(cloud_claude_start_mode(&vm, "fullAccess", Some("default")), "default");
+    assert_eq!(cloud_claude_start_mode(&vm, "standard", None), "default");
+    assert_eq!(cloud_claude_start_mode(&vm, "ask", None), "default");
 }

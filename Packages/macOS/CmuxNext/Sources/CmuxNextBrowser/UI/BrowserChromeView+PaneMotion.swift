@@ -16,3 +16,14 @@ extension BrowserChromeView: PaneMotionHoldFollowing {
         needsLayout = true
     }
 }
+
+/// A layout change that shows in one commit (a split, a close, a zoom, an unzoom) asks the shown page whether it takes
+/// part in that commit: a Chromium page does (``CEFTabContentView`` as ``PaneCommitSurface``), so the frame that shows
+/// the change shows the page's own frame at its new size, not its old frame beside its backdrop. A WebKit page and a
+/// page that shows no Chromium content take no part.
+extension BrowserChromeView: PaneCommitSurfaceHosting {
+    public var commitSurfaces: [any PaneCommitSurface] {
+        guard let page = tab.contentView as? any PaneCommitSurface, page.superview != nil, !page.isHidden else { return [] }
+        return [page]
+    }
+}

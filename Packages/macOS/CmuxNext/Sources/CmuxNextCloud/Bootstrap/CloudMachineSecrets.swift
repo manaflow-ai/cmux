@@ -18,7 +18,9 @@ public import Foundation
 /// global name, which is what global means.
 public struct CloudMachineSecrets: Equatable, Sendable {
     public init() {}
-    public static let service = "cmux-cloud-secret"
+    /// This build's Keychain service (``BuildStatePaths/cloudSecretsService``): `cmux-cloud-secret`, a DEV
+    /// build's own as its launch sets it.
+    public static var service: String { BuildStatePaths.cloudSecretsService(environment: ProcessInfo.processInfo.environment) }
 
     /// One declared name and the Keychain account that holds its value (`owner/name/NAME`, else `*/NAME`).
     public struct Item: Equatable, Sendable {
@@ -29,7 +31,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
     }
 
     /// The names a machine declares, the repo scope the person named (`owner/name`, lowercased),
-    /// and what the Mac's index (`~/.config/cmux/cloud-secrets.json`) lists. Names with no value here
+    /// and what the Mac's index (`~/.config/cmux-next/cloud-secrets.json`) lists. Names with no value here
     /// are `missing`; a name the machine repeats or that is not a plain name is dropped.
     public static func plan(declared: [String], repo: String?, index: [String: Int64]) -> (items: [Item], missing: [String]) {
         var items: [Item] = [], missing: [String] = [], seen = Set<String>()

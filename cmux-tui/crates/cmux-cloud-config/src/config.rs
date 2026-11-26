@@ -111,7 +111,9 @@ pub struct Configuration {
     pub is_debug_build: bool,
     pub storage: StorageNames,
     pub namespaced_legacy_store: Option<LegacyStore>,
-    /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
+    /// Always `false`: no build takes a running NIGHTLY's session (signed NEXT DEV signs in on its own).
+    /// Still serialized because the pinned app's decoder requires the key; remove it once the app no
+    /// longer reads it (docs/ci/app-ffi-release.md, step A of cmux#43648).
     pub adopts_nightly_session: bool,
 }
 
@@ -149,9 +151,7 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         callback_scheme,
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
-        adopts_nightly_session: !inputs.is_debug_build
-            && bundle_id == NEXT_DEV_BUNDLE_ID
-            && production,
+        adopts_nightly_session: false,
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }
@@ -253,6 +253,53 @@ pub fn vm_api_base_url(backend: &Backend) -> &'static str {
         Backend::Production => PRODUCTION_VM_API,
         Backend::Development(_) | Backend::LocalOnly(_) => STAGING_VM_API,
     }
+}
+
+/// The production backend's name on a sign-in screen.
+pub const PRODUCTION_BACKEND_TITLE: &str = "cmux.com";
+
+/// What a sign-in screen says it signs in to: the backend's name and, off production, where it is.
+/// The app localizes `title` by `kind` (`cmux.com` is a name and stays as it is).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendLabel {
+    /// `production`, `development` or `local`.
+    pub kind: String,
+    /// "cmux.com", "Development backend" or "Local backend".
+    pub title: String,
+    /// A development backend's host, or a local backend's `host:port`; none on production.
+    pub detail: Option<String>,
+}
+
+/// The label of `backend` on the sign-in screens (Leo: "why is the stuff so weird to log in to dev
+/// builds?"): production is cmux.com; a development backend names its host; a loopback one, selected
+/// (`Development` at a loopback origin) or the placeholder's `LocalOnly`, is local and names `host:port`.
+pub fn backend_label(backend: &Backend) -> BackendLabel {
+    let label = |kind: &str, title: &str, detail: Option<String>| BackendLabel {
+        kind: kind.to_owned(),
+        title: title.to_owned(),
+        detail,
+    };
+    match backend {
+        Backend::Production => label("production", PRODUCTION_BACKEND_TITLE, None),
+        Backend::Development(url) if !origin::is_loopback(url) => {
+            label("development", "Development backend", origin::host(url))
+        }
+        Backend::Development(url) | Backend::LocalOnly(url) => {
+            label("local", "Local backend", local_host_port(url))
+        }
+    }
+}
+
+/// `host:port` of a loopback origin (an IPv6 host in brackets); the host alone without a port.
+fn local_host_port(url: &str) -> Option<String> {
+    let parts = origin::parse(url).filter(|parts| !parts.host.is_empty())?;
+    let host =
+        if parts.host.contains(':') { format!("[{}]", parts.host) } else { parts.host.clone() };
+    Some(match parts.port.filter(|port| !port.is_empty()) {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
 }
 
 /// The release channel's sign-in callback scheme.

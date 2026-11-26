@@ -108,6 +108,20 @@ import Testing
         }
     }
 
+    @Test func retainedAccessibilityButtonFollowsItsSpaceAcrossReorderAndRemoval() throws {
+        let bar = Bar(style: .plain)
+        defer { bar.window.closeAfterTest() }
+        let element = try #require(bar.view.accessibilityChildren()?[1] as? ProfileDotElement)
+        bar.model.profiles.swapAt(1, 2)
+        bar.view.refresh()
+        #expect(element.accessibilityPerformPress())
+        #expect(bar.intents == [.switchProfile(Self.keys[1])])
+        bar.model.profiles.removeLast()
+        bar.view.refresh()
+        #expect(!element.accessibilityPerformPress())
+        #expect(bar.intents == [.switchProfile(Self.keys[1])])
+    }
+
     @Test func clickingAnotherWindowsSpaceOffersGoToWindowAndMoveHere() throws {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
@@ -185,5 +199,18 @@ import Testing
         let labels = (bar.view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
         #expect(labels.contains(Strings.spaceInAnotherWindow("Space 1")), "\(labels)")
         #expect(labels.contains("Space 2"))
+    }
+
+    /// The space shown here is here, also when a second window shows it: its mark never says "in another window"
+    /// (Leo 2026-11-11: "why does it say default in another window?").
+    @Test func theCurrentSpacesMarkNeverSaysAnotherWindow() {
+        let bar = Bar(style: .ring)
+        defer { bar.window.closeAfterTest() }
+        bar.view.windowMarks.elsewhere = [Self.keys[0]: SpaceElsewhere(windowID: "other", incognito: false)]
+        bar.view.refresh()
+        let labels = (bar.view.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
+        #expect(labels.contains(Strings.profileCurrent("Space 0")), "\(labels)")
+        #expect(!labels.contains(Strings.spaceInAnotherWindow(Strings.profileCurrent("Space 0"))), "\(labels)")
+        #expect(bar.view.windowMarkLabel("Space 0", for: bar.model.profiles[0]) == "Space 0")
     }
 }

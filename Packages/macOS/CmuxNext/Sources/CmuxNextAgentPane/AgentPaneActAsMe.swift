@@ -32,6 +32,15 @@ import Security
         "_acpmux/queue_approve",
     ]
 
+    /// The methods a posted gesture may grant only while an administrator's profile holds the grant
+    /// (policy.json `act_as_me_managed_covers`): saving a Cloud environment. A machine an admin profile owns
+    /// is already that admin's; the person's own grant (the consent card) never reaches these, because an
+    /// environment's save changes the setup script later machines run and the hosts a secret is sent to.
+    public nonisolated static let managedCovers: Set<String> = [
+        "cloud.environment.update",
+        "cloud.environment.create",
+    ]
+
     /// The managed policy key (docs/mdm).
     public nonisolated static let managedKey = "ComputerUseActsAsPerson"
 
@@ -91,7 +100,7 @@ import Security
 
         /// A generic password in this app's data-protection Keychain under `service`: only this app's
         /// access group reads or writes it, so `security`, `defaults write` or a file an agent writes
-        /// cannot turn it on.
+        /// cannot turn it on. Its calls never show UI; a Keychain that cannot answer reads as off.
         public static func keychain(service: String) -> Store {
             @Sendable func query() -> [String: Any] {
                 [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
@@ -103,14 +112,15 @@ import Security
                 read[kSecReturnData as String] = true
                 read[kSecMatchLimit as String] = kSecMatchLimitOne
                 var out: CFTypeRef?
-                return SecItemCopyMatching(read as CFDictionary, &out) == errSecSuccess && (out as? Data) == Data("on".utf8)
+                let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: read) as CFDictionary, &out)
+                return status == errSecSuccess && (out as? Data) == Data("on".utf8)
             }, write: { on in
-                SecItemDelete(query() as CFDictionary)
+                SecItemDelete(KeychainNoPromptContext.applied(to: query()) as CFDictionary)
                 guard on else { return }
                 var add = query()
                 add[kSecValueData as String] = Data("on".utf8)
                 add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-                SecItemAdd(add as CFDictionary, nil)
+                SecItemAdd(KeychainNoPromptContext.applied(to: add) as CFDictionary, nil)
             })
         }
     }
@@ -192,7 +202,9 @@ import Security
 
     /// Whether a posted gesture may grant a frame of `method` now.
     public func lets(_ method: String) -> Holder? {
-        Self.covers.contains(method) ? holder : nil
+        guard let holder else { return nil }
+        if Self.covers.contains(method) { return holder }
+        return holder == .managed && Self.managedCovers.contains(method) ? holder : nil
     }
 
     /// Logs a frame the grant let through, with the driver's identity. The bundle id is read off main.

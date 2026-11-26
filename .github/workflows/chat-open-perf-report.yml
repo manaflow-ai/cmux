@@ -1,0 +1,359 @@
+name: chat-open perf report
+
+# Report only: a pull request that touches the chat pane gets the chat open's attach_to_latest p50 and p95,
+# merge base against head, measured on one runner in one job (webviews/bench/chat-open-ab.sh interleaves the two sides
+# round by round), written to the job summary. It never fails the pull request: not on a regression, and not when
+# the bench itself crashes (the summary says so). A gate needs Leo's say-so.
+# Every number carries the runner class it came from, as the perf cron's rows do (cmuxterm-hq#18799): numbers
+# from different classes are different series and are never compared.
+
+on:
+  pull_request:
+    # ready_for_review: a draft head waits (the draft cheap tier, scripts/ci/head_tier.py), so readying it measures.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    paths:
+      - "webviews/src/agent-session/**"
+      # The bench's own files only (chat-open-ab.sh, chat-open.bench.ts and what it imports): the other ~150 benches
+      # under webviews/bench/ never run here, so a change to one of them cannot move this report.
+      - "webviews/bench/chat-open*"
+      - "webviews/bench/browsers.ts"
+      - "webviews/bench/daemonPage.ts"
+      - "webviews/bench/godFixture.ts"
+      - "webviews/bench/perfRow.ts"
+      - "webviews/bench/replayLogs.ts"
+      - "webviews/bench/runnerCalibration.ts"
+      - "webviews/bench/sourceMapper.ts"
+      - "webviews/test/support/papercutChat.ts"
+      - "webviews/test/support/paintedFrames.ts"
+      - "webviews/test/support/systemChrome.ts"
+      - "webviews/test/support/warmDevServer.ts"
+      - ".github/workflows/chat-open-perf-report.yml"
+  # Every nightly's code (each push to nightly-next, whatever it touched) is measured against the nightly before it,
+  # so NOW's chat_attach rows read a fresh number every nightly: the series.json artifact, keyed per runner class.
+  push:
+    branches:
+      - nightly-next
+
+permissions:
+  contents: read
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  # The base branch's tip (or the push's previous tip). The bench measures against its merge base with the head
+  # (the Fetch base step), so commits the base gained after the head branched never read as the head's change.
+  BASE_TIP: ${{ github.event.pull_request.base.sha || github.event.before }}
+  # Rounds of the A/B (each round opens every side and fixture) and timed opens per side, fixture and round.
+  # nightly-next: 10 x 2 gives 20 opens per side and fixture, so p95 is the 19th of 20 (nearest rank).
+  # Pull request: 4 x 3 gives 12 opens, so p95 is the 12th of 12, the max (goal ci-min-per-pr-1500). The k-th of n
+  # sits at quantile k/(n+1) on average: 19 of 20 reads the 90.5th percentile (sd 6.3 points), 12 of 12 the 92.3rd
+  # (sd 7.1), so the PR's p95 reads the same tail with a little more spread. Fewer than 12 opens per side stops being
+  # a tail (10 of 10 already spreads 8.3 points), and an even round count keeps the side order balanced. The
+  # rounds run 4 processes of ~7.3 s each; a PR runs 16 of the 40 bench processes, about 150 s off a ~560 s job.
+  ROUNDS: ${{ github.event_name == 'pull_request' && '4' || '10' }}
+  OPENS: ${{ github.event_name == 'pull_request' && '3' || '2' }}
+
+jobs:
+  # CI cut (goal ci-runner-min-per-day-10k; Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time,
+  # period."): 18.0k runner-min on 11-23T18..11-24T18, 1,349 of 1,380 runs on pull requests, 2.3 runs a PR. The
+  # `paths` filter reads the whole pull request's diff, so every later push of a PR that once touched the chat pane
+  # measured again, though most of those pushes changed nothing measured. This job reads the push's own files and
+  # measures only when the push changed a measured path; otherwise the previous head's report stands for this one. A
+  # draft head waits for ready_for_review. Every other event measures.
+  # The files come from git (the two heads' trees, no blobs), not the REST compare: on 11-25 the compare call hit the
+  # repository's exhausted GITHUB_TOKEN budget ("API rate limit exceeded for installation") or its 300-file page on
+  # 15 of 20 sampled pushes, and each of those measured, so the gate skipped almost nothing.
+  changed:
+    name: chat-open perf report (does this push change the chat pane?)
+    if: ${{ (github.event_name == 'pull_request' && format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off' && !github.event.pull_request.draft) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 3
+    outputs:
+      measure: ${{ steps.push.outputs.measure }}
+    steps:
+      - name: The push's own files
+        id: push
+        env:
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          # Only a push (synchronize) has a previous head to reuse; opened, reopened and ready_for_review measure.
+          if [[ "$ACTION" != synchronize || ! "$BEFORE" =~ ^[0-9a-f]{40}$ || ! "$AFTER" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "$ACTION: measure"; exit 0
+          fi
+          # The paths whose content differs between the two heads' trees: the previous report stands for this head only
+          # when every measured file is byte for byte the same. A base merged in counts its own files. Both commits come
+          # with their trees and no blobs (about 3 MB, a second or two); any failure measures.
+          git init -q "$RUNNER_TEMP/push-files" && cd "$RUNNER_TEMP/push-files" || {
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "git init failed: measure"; exit 0; }
+          if ! timeout 120 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=blob:none \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$BEFORE" "$AFTER" ||
+            ! files="$(git diff --no-renames --name-only "$BEFORE" "$AFTER")"; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "could not read the push's files: measure"; exit 0
+          fi
+          n="$(printf '%s\n' "$files" | grep -c . || true)"
+          if printf '%s\n' "$files" | grep -Eq '^(webviews/src/agent-session/|webviews/bench/(chat-open|browsers\.ts$|daemonPage\.ts$|godFixture\.ts$|perfRow\.ts$|replayLogs\.ts$|runnerCalibration\.ts$|sourceMapper\.ts$)|webviews/test/support/(papercutChat|paintedFrames|systemChrome|warmDevServer)\.ts$|\.github/workflows/chat-open-perf-report\.yml$)'; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "the push changes a measured path ($n files): measure"
+          else
+            echo "measure=false" >> "$GITHUB_OUTPUT"
+            echo "the push changes no measured path ($n files): the previous head's report stands"
+            echo "No chat-pane change since ${BEFORE:0:12}: that head's chat-open report stands for ${AFTER:0:12}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  report:
+    name: chat-open p50/p95 (report only)
+    needs: changed
+    # vars.CMUX_CHAT_OPEN_PR_REPORT = 'off' skips the pull request run (the nightly-next push still measures it); unset keeps it.
+    if: ${{ (!cancelled() && (github.event_name != 'pull_request' || needs.changed.outputs.measure == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # On the measuring job, not the workflow: a push that measures nothing never cancels the head still being measured.
+    concurrency:
+      group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+      # A pull request measures only its newest head. A branch keeps the running push and the newest one waiting.
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    # The Linux pool ci-web.yml uses; base and head run in this one job, so on one runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 75
+    # A step that errors still leaves the job green; the summary step below says what broke.
+    continue-on-error: true
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch base
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$BASE_TIP" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test "$BASE_TIP" != 0000000000000000000000000000000000000000 || exit 2
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          # Deepen both sides until they meet: the merge base is the base the head's own change sits on.
+          base=""
+          for depth in 50 200 1000 5000; do
+            git fetch --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
+            if base="$(git merge-base "$BASE_TIP" "$HEAD_SHA")"; then break; fi
+            base=""
+          done
+          test -n "$base"
+          echo "base tip ${BASE_TIP:0:12}, head ${HEAD_SHA:0:12}, merge base ${base:0:12}"
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Playwright's bundled Chromium
+        id: browser
+        working-directory: webviews
+        run: |
+          # The bench runs on Playwright's own Chromium, as it does locally (CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1): one
+          # pinned build for both sides. A runner where that install fails measures on the installed Chrome instead.
+          if ./node_modules/.bin/playwright install --with-deps chromium; then
+            echo "CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1" >> "$GITHUB_ENV"
+            echo "browser=playwright-chromium-$(./node_modules/.bin/playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no bundled Chromium; measuring on the installed Chrome"
+            "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+            echo "browser=system-chrome" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Runner class
+        id: class
+        env:
+          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+        run: |
+          # The series key, as the perf cron's rows carry it (`chat_open.compact.attach_to_latest@<runner class>`,
+          # cmuxterm-hq#18799): a trend is read only within one class, so a move to another machine starts a new series
+          # instead of reading as a regression. The class is the runs-on label, the arch and the cpu count.
+          echo "class=${RUNNER_LABEL}-${RUNNER_ARCH,,}-$(nproc)c" >> "$GITHUB_OUTPUT"
+          echo "cpu=$(awk -F: '/model name/ {gsub(/^ +/, "", $2); print $2; exit}' /proc/cpuinfo)" >> "$GITHUB_OUTPUT"
+
+      - name: chat-open A/B, base against head
+        id: bench
+        working-directory: webviews
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/chat-open"
+          if [ ! -f bench/chat-open-ab.sh ]; then
+            echo "status=missing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OUT="$RUNNER_TEMP/chat-open/logs" bash bench/chat-open-ab.sh "$BASE_SHA" "$ROUNDS" "$OPENS" 2>&1 | tee "$RUNNER_TEMP/chat-open/ab.txt"
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        env:
+          BENCH_STATUS: ${{ steps.bench.outputs.status }}
+          RUNNER_CLASS: ${{ steps.class.outputs.class }}
+          RUNNER_CPU: ${{ steps.class.outputs.cpu }}
+          BROWSER: ${{ steps.browser.outputs.browser }}
+        run: |
+          set +e
+          python3 - <<'PY'
+          import json, os, re
+          tmp = os.environ["RUNNER_TEMP"]
+          status = os.environ.get("BENCH_STATUS") or "did not run"
+          klass = os.environ.get("RUNNER_CLASS") or "unknown"
+          base, head = os.environ.get("BASE_SHA") or os.environ["BASE_TIP"], os.environ["HEAD_SHA"]
+          os.makedirs(f"{tmp}/chat-open", exist_ok=True)
+          rows = {}
+          try:
+              for line in open(f"{tmp}/chat-open/ab.txt"):
+                  m = re.match(r"^(before|after)\s+(small|god)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s", line)
+                  if m:
+                      rows[(m[1], m[2])] = {"n": int(m[3]), "p50": float(m[4]), "p95": float(m[5])}
+          except OSError:
+              pass
+          out = ["## chat-open attach_to_latest, base vs head (report only)", ""]
+          out.append(f"Runner class `{klass}` ({os.environ.get('RUNNER_CPU') or 'cpu unknown'}), browser `{os.environ.get('BROWSER') or 'unknown'}`; "
+                     f"base `{base[:12]}`, head `{head[:12]}`; webviews/bench/chat-open-ab.sh, "
+                     f"{os.environ['ROUNDS']} rounds x {os.environ['OPENS']} opens, interleaved on this runner."
+                     + (" A pull request runs 4 x 3 (p95 is the max of 12 opens, about the 92nd percentile; "
+                        "nightly-next runs 10 x 2, the 19th of 20)." if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" else ""))
+          out.append("")
+          if status == "missing":
+              out.append("**Bench not run:** this head has no `webviews/bench/chat-open-ab.sh`. The check passes anyway.")
+          elif status != "0":
+              out.append(f"**The bench crashed or did not finish (status {status}).** The check passes anyway; "
+                         "the log is in the step above and the `chat-open-perf` artifact.")
+          series = []
+          # A side with no rows: name its first error from the per-open logs (a head that does not build, a page
+          # that never attaches), so the summary and NOW say why instead of "crashed or did not run".
+          ansi = re.compile(r"\x1b\[[0-9;]*m")
+          for side, label in (("before", "base"), ("after", "head")):
+              if any((side, f) in rows for f in ("small", "god")):
+                  continue
+              first = ""
+              for name in sorted(os.listdir(f"{tmp}/chat-open/logs")) if os.path.isdir(f"{tmp}/chat-open/logs") else []:
+                  if not name.startswith(side + "-"):
+                      continue
+                  try:
+                      lines = [ansi.sub("", l).strip() for l in open(f"{tmp}/chat-open/logs/{name}", errors="replace")]
+                  except OSError:
+                      continue
+                  hits = [l for l in lines if re.search(r"\b\w*Error\b:|\berror:|\bTimeout\b", l)]
+                  # The most specific line: one naming a source file, else the first error line.
+                  first = next((l for l in hits if re.search(r"\.(tsx?|jsx?|mjs):", l)), hits[0] if hits else "")
+                  if first:
+                      first = re.sub(r"/home/runner/work/[^/]+/[^/]+/", "", first)[:300]
+                      break
+              if first:
+                  out.append(f"**No {label} rows:** `{first}`")
+                  series.append({"series": f"chat_open.error.{label}@{klass}", "runner_class": klass,
+                                 "side": label, "error": first, "base_sha": base, "head_sha": head,
+                                 "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
+          if rows:
+              out += ["", "| fixture | n | base p50 | head p50 | p50 delta | base p95 | head p95 | p95 delta | reads as |",
+                      "|---|---|---|---|---|---|---|---|---|"]
+              for fixture in ("small", "god"):
+                  b, a = rows.get(("before", fixture)), rows.get(("after", fixture))
+                  if not b or not a:
+                      out.append(f"| {fixture} | - | - | - | missing | - | - | missing | - |")
+                      continue
+                  def delta(k):
+                      d = a[k] - b[k]
+                      pct = 100 * d / b[k] if b[k] else 0.0
+                      return d, f"{d:+.1f} ms ({pct:+.0f}%)"
+                  d50, s50 = delta("p50")
+                  d95, s95 = delta("p95")
+                  # Past both bounds the p95 move reads as a regression (or an improvement); inside them, as noise.
+                  bound = max(10.0, 0.10 * b["p95"])
+                  verdict = "**regression**" if d95 > bound else "improvement" if d95 < -bound else "noise"
+                  out.append(f"| {fixture} | {a['n']} | {b['p50']:.1f} | {a['p50']:.1f} | {s50} | "
+                             f"{b['p95']:.1f} | {a['p95']:.1f} | {s95} | {verdict} |")
+                  for k, d in (("p50", d50), ("p95", d95)):
+                      row = "chat_open.compact" if fixture == "small" else "chat_open.god.compact"
+                      series.append({"series": f"{row}.attach_to_latest.{k}@{klass}",
+                                     "runner_class": klass, "fixture": fixture, "stat": k,
+                                     "base": b[k], "head": a[k], "delta_ms": round(d, 1),
+                                     "base_sha": base, "head_sha": head,
+                                     "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
+              # The head's own numbers (on nightly-next, that nightly's code) and god over small, from this one job on
+              # this one runner: goal chat-attach-p95's second condition (god within 1.2x of small).
+              hs, hg = rows.get(("after", "small")), rows.get(("after", "god"))
+              if hs and hg:
+                  n = min(hs["n"], hg["n"])
+                  out += ["", "| head | n | p50 | p95 |", "|---|---|---|---|",
+                          f"| small | {hs['n']} | {hs['p50']:.1f} ms | {hs['p95']:.1f} ms |",
+                          f"| god | {hg['n']} | {hg['p50']:.1f} ms | {hg['p95']:.1f} ms |"]
+                  ratio = {k: round(hg[k] / hs[k], 3) for k in ("p50", "p95") if hs[k] > 0}
+                  for k, r in ratio.items():
+                      series.append({"series": f"chat_open.god_small_ratio.attach_to_latest.{k}@{klass}",
+                                     "runner_class": klass, "fixture": "god/small", "stat": f"ratio_{k}",
+                                     "head": r, "n": n, "head_sha": head,
+                                     "event": os.environ.get("GITHUB_EVENT_NAME"), "ref": os.environ.get("GITHUB_REF")})
+                  if ratio:
+                      out.append(f"| god / small | {n} | {ratio.get('p50', 0):.2f}x | {ratio.get('p95', 0):.2f}x |")
+                  if n < 10:
+                      out += ["", f"**Fewer than 10 opens per fixture** (n={n}): too few for a p95."]
+              out += ["", "A positive delta is head slower than base. A p95 move past 10 ms and 10% of base reads as a "
+                      "regression or an improvement; anything inside that, as noise. Report only: nothing here fails "
+                      "the pull request."]
+          elif status == "0":
+              out.append("**No result rows** in the bench output; the check passes anyway.")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("\n".join(out) + "\n")
+          with open(f"{tmp}/chat-open/series.json", "w") as f:
+              json.dump(series, f, indent=1)
+          print("\n".join(out))
+          PY
+          exit 0
+
+      - name: Upload logs and series
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chat-open-perf-${{ github.run_id }}-${{ steps.class.outputs.class || 'unknown' }}
+          path: ${{ runner.temp }}/chat-open
+          if-no-files-found: ignore
+          retention-days: 14

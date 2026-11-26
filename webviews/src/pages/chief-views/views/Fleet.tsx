@@ -2,18 +2,17 @@
 // core, CPU, free memory, busy runners and how many of the person's agents run on each, with the
 // runner and queue totals on top. Without a dashboard named, or when it does not answer, the view
 // says so and offers a field to name one.
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, memo } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { agentsOnHost, fleetTotals, loadPerCore } from "../model";
 import { agentsOf, Loaded } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { FleetMachine } from "../types";
+import { intl } from "../../../ui/intl";
 
 const percent = (value: number | null | undefined, language: string) =>
-  value == null
-    ? "–"
-    : new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 }).format(value / 100);
+  value == null ? "–" : intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 }).format(value / 100);
 
 export function FleetView({ data, strings, placement, onSetFleetURL }: ChiefViewProps) {
   const agents = agentsOf(data);
@@ -29,7 +28,7 @@ export function FleetView({ data, strings, placement, onSetFleetURL }: ChiefView
   );
   // Beside another view the table drops CPU and memory, which the load meter already sums up.
   const compact = placement !== "pane";
-  const number = new Intl.NumberFormat(strings.language);
+  const number = intl.NumberFormat(strings.language);
   return (
     <div className="cv-fleet">
       <Loaded
@@ -98,7 +97,9 @@ function Tile({ label, value, warn }: { label: string; value: string; warn?: boo
   );
 }
 
-function MachineRow({
+// A Refresh keeps an unchanged machine's object (store.ts keptReply): its row draws again only
+// when its own numbers or agent count changed.
+const MachineRow = memo(function MachineRow({
   machine,
   agents,
   compact,
@@ -112,6 +113,7 @@ function MachineRow({
   const load = loadPerCore(machine);
   return (
     <tr data-error={machine.error ? "" : undefined} data-hot={load !== undefined && load > 1 ? "" : undefined}>
+      {/* tooltip-allow: a machine's error shows nowhere else. */}
       <th scope="row" className="cv-host" title={machine.error ?? undefined}>
         {machine.host.split(".")[0]}
       </th>
@@ -125,7 +127,7 @@ function MachineRow({
       )}
     </tr>
   );
-}
+});
 
 function MachineCells({
   machine,
@@ -139,7 +141,7 @@ function MachineCells({
   language: string;
 }) {
   const load = loadPerCore(machine);
-  const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
+  const number = intl.NumberFormat(language, { maximumFractionDigits: 1 });
   return (
     <>
       <td>

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.customizeDoctor.removeBody" : {
+      "comment" : "Customization Problems: under the remove question.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux moves it aside and keeps a copy, so nothing is lost."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينقله cmux جانبًا ويحتفظ بنسخة، فلا يضيع شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ga premješta u stranu i čuva kopiju, pa se ništa ne gubi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux flytter den til side og gemmer en kopi, så intet går tabt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux legt sie beiseite und behält eine Kopie, es geht also nichts verloren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux lo aparta y guarda una copia, así que no se pierde nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux le met de côté et en garde une copie : rien n'est perdu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux lo sposta da parte e ne conserva una copia, quindi non si perde nulla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux はそれを別の場所に移してコピーを残すので、何も失われません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ផ្លាស់វាទៅដាក់ឡែក ហើយរក្សាច្បាប់ចម្លងមួយ ដូច្នេះគ្មានអ្វីបាត់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 옆으로 옮기고 사본을 보관하므로 아무것도 잃지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux flytter den til side og beholder en kopi, så ingenting går tapt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux odsuwa to na bok i zachowuje kopię, więc nic nie przepada."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux move para o lado e guarda uma cópia, então nada se perde."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux убирает это в сторону и сохраняет копию, так что ничего не потеряется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux จะย้ายไปเก็บไว้และเก็บสำเนาไว้ จึงไม่มีอะไรหาย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux bunu kenara taşır ve bir kopyasını saklar, böylece hiçbir şey kaybolmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux переносить це вбік і зберігає копію, тож нічого не загубиться."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux chuyển nó sang một bên và giữ một bản sao, nên không mất gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 会把它移到一旁并保留一份副本，不会丢失任何内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 會把它移到一旁並保留一份副本，不會遺失任何內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

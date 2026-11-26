@@ -5,7 +5,8 @@ Entries live in scripts/cmux-next/fast-tier.json. Each has a name, an owner
 lane, an optional bead and one of three kinds:
   swift   {package, filter}: `swift test --skip-build --filter` after one
           `swift build --build-tests` and one `swift test --list-tests` per package
-  cargo   {path, package[, filter]}: `cargo test --locked -p` in path
+  cargo   {path, package[, filter, lib]}: `cargo test --locked -p` in path; lib: true
+          builds and runs only the package's library unit tests (`--lib`)
   script  {path[, args]}: python3 -I for a .py path, bash otherwise
 An entry must be deterministic, need no window server or gui token, and finish
 within --max-seconds (60) after the build. A swift or cargo entry whose filter
@@ -15,6 +16,15 @@ runs no test fails.
 feeds two CI jobs: cmux-next.yml's `fast-tier-cargo` job runs
 `--kind cargo --kind script` and the Mac `fast-tier` job runs `--kind swift`.
 A --kind that selects no entry is a bad registry (exit 2), never an empty pass.
+
+--changed-files PATH (NUL- or newline-separated paths, a pull request's diff)
+runs only the entries the change reaches and builds only their packages:
+affected_jobs.py's crate graph for a cargo entry, cmux_next_route.py's test
+targets for a CmuxNext suite, the package and its local dependencies for another
+swift package, the script's folder for a script entry. The others print SKIP and
+run in the post-merge batch (cmux-next-fast-tier-batch.yml). An unreadable list,
+the full-ci label, a change to the runner or its registry, or any routing error
+runs every entry (docs/ci/cmux-next-workflow-notes.md#note-559).
 
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
 is FLAKY, and FLAKY fails the tier like FAIL: it is never silently retried. Its
@@ -70,18 +80,179 @@ def quarantined(path):
     return {e["name"] for e in json.loads(Path(path).read_text()).get("entries", [])}
 
 
+# What changes every entry's run: the runner, its registry and quarantine list.
+RUNNER_INPUTS = ("scripts/cmux-next/fast-tier.py", "scripts/cmux-next/fast-tier.json", "scripts/cmux-next/quarantine.json")
+SWIFT_LOCAL_PACKAGE = re.compile(r'\.package\(\s*path:\s*"([^"]+)"')
+
+
+def read_changed(path):
+    """The changed paths in FILE (NUL- or newline-separated), or None when it cannot be read."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return [item.strip() for item in re.split(r"[\0\n]", text) if item.strip()]
+
+
+def event_labels():
+    """The pull request's labels from $GITHUB_EVENT_PATH (empty when there is none)."""
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+    except (KeyError, OSError, ValueError):
+        return set()
+    return {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+
+
+def _under(path, prefix):
+    prefix = prefix.rstrip("/")
+    return path == prefix or path.startswith(prefix + "/")
+
+
+def _ci_modules(root):
+    ci = str(Path(root).resolve() / "scripts" / "ci")
+    if ci not in sys.path:
+        sys.path.insert(0, ci)
+
+
+def cargo_scope(root, entries, changed):
+    """{name: why} for the cargo entries CHANGED reaches, through affected_jobs.py's crate graph (the crate the
+    entry tests, everything it compiles and reads, and affected-jobs.json's workspace inputs), and whether the
+    cargo compile is reached at all (a touched entry or a file the job itself reads)."""
+    _ci_modules(root)
+    import affected_jobs  # noqa: PLC0415 - scripts/ci
+    import fast_tier_cargo_route  # noqa: PLC0415 - scripts/ci
+    import git_tree  # noqa: PLC0415 - scripts/ci
+
+    workspace, _ = affected_jobs.load_map((Path(root) / affected_jobs.MAP).read_text(encoding="utf-8"))
+    graph = affected_jobs.Graph(git_tree.GitTree(Path(root)), workspace, [])
+    touched = {}
+    for entry in entries:
+        crate = fast_tier_cargo_route.package_dir(Path(root), entry["path"], entry["package"])
+        if crate is None:
+            touched[entry["name"]] = f"no crate folder of {entry['path']} names {entry['package']}"
+            continue
+        reads = set(workspace) | set(fast_tier_cargo_route.LINKED)
+        reads |= {graph.outside_submodule(item) for item in graph.crate(crate.rstrip("/"), (), True)}
+        hit = next((path for path in changed if any(_under(path, read) for read in reads)), None)
+        if hit:
+            touched[entry["name"]] = f"{hit} is an input of {entry['package']}"
+    compile_reads = fast_tier_cargo_route.JOB_INPUTS + tuple(workspace) + fast_tier_cargo_route.LINKED
+    compile_hit = next((path for path in changed if any(_under(path, read) for read in compile_reads)), None)
+    return touched, bool(touched) or compile_hit is not None
+
+
+def script_scope(entries, changed):
+    """{name: why} for the script entries CHANGED reaches: the script's own folder or what it reads."""
+    import importlib  # noqa: PLC0415
+    reads_outside = importlib.import_module("fast_tier_cargo_route").SCRIPT_INPUTS
+    touched = {}
+    for entry in entries:
+        reads = (entry["path"].rsplit("/", 1)[0] + "/", *reads_outside)
+        hit = next((path for path in changed if any(_under(path, read) for read in reads)), None)
+        if hit:
+            touched[entry["name"]] = f"{hit} is read by {entry['path']}"
+    return touched
+
+
+def swift_scope(root, entries, changed, labels):
+    """{name: why} for the swift entries CHANGED reaches, and the packages whose compile it reaches. A CmuxNext
+    entry: cmux_next_route.py routes every test (a change to every tier or the swift job), or a test target
+    that holds the entry's suite, or names the suite as a priority suite. Another package's entry: a change
+    under the package or a local package it uses."""
+    _ci_modules(root)
+    import cmux_next_route  # noqa: PLC0415 - scripts/ci
+
+    touched, packages = {}, set()
+    cmux_next = cmux_next_route.PACKAGE.rstrip("/")
+    route = graph = None
+    if any(entry["package"] == cmux_next for entry in entries):
+        route = cmux_next_route.route(Path(root), "pull_request", changed, labels)
+        graph = cmux_next_route.load_graph(Path(root))
+        if route.fast_tier():
+            packages.add(cmux_next)
+    for entry in entries:
+        if entry["package"] == cmux_next:
+            if route.full or route.all_tests or route.fast_registry:
+                why = "cmux_next_route.py routes every test"
+            elif entry["filter"] in route.priority_suites:
+                why = f"a changed file names {entry['filter']}"
+            else:
+                hit = sorted(cmux_next_route.suite_targets(Path(root), graph, entry["filter"]) & route.tests)
+                why = f"cmux_next_route.py routes {', '.join(hit)}" if hit else None
+        else:
+            package = Path(root) / entry["package"]
+            try:
+                manifest = (package / "Package.swift").read_text(encoding="utf-8")
+                local = [os.path.normpath(os.path.join(entry["package"], rel))
+                         for rel in SWIFT_LOCAL_PACKAGE.findall(manifest)]
+            except OSError:
+                local = []
+            hit = next((path for path in changed
+                        if any(_under(path, read) for read in (entry["package"], *local))), None)
+            why = f"{hit} is in {entry['package']} or a local package it uses" if hit else None
+        if why:
+            touched[entry["name"]] = why
+            packages.add(entry["package"])
+    return touched, packages
+
+
+def scope(root, entries, changed, labels):
+    """(entries to run, entries whose package to build, {name: why skipped}) for a pull request whose changed paths
+    are CHANGED: only the entries the diff reaches run; the post-merge batch runs every entry at the merged
+    head (cmux-next-fast-tier-batch.yml). An unread change, a full-ci label, a change to the runner or its
+    registry, or a scope that cannot be read runs every entry."""
+    if changed is None:
+        return entries, entries, {}
+    if "full-ci" in labels:
+        return entries, entries, {}
+    if any(path in RUNNER_INPUTS for path in changed):
+        return entries, entries, {}
+    by_kind = {kind: [e for e in entries if e["kind"] == kind] for kind in KINDS}
+    touched, build_packages_of = {}, set()
+    try:
+        if by_kind["cargo"]:
+            found, compile_reached = cargo_scope(root, by_kind["cargo"], changed)
+            touched |= found
+            if compile_reached:
+                build_packages_of |= {("cargo", e["package"]) for e in by_kind["cargo"]}
+        if by_kind["script"]:
+            _ci_modules(root)
+            touched |= script_scope(by_kind["script"], changed)
+        if by_kind["swift"]:
+            found, packages = swift_scope(root, by_kind["swift"], changed, labels)
+            touched |= found
+            build_packages_of |= {("swift", package) for package in packages}
+    except Exception as error:  # noqa: BLE001 - an unread scope runs every entry
+        print(f"fast-tier: could not scope the run to the change ({error!r}): every entry runs", file=sys.stderr)
+        return entries, entries, {}
+    for name, why in touched.items():
+        print(f"fast-tier: {name}: {why}", flush=True)
+    run = [e for e in entries if e["name"] in touched]
+    build = [e for e in entries if e["name"] in touched or (e["kind"], e.get("package")) in build_packages_of]
+    skipped = {e["name"]: "the change reaches none of its inputs; the post-merge batch runs it"
+               for e in entries if e["name"] not in touched}
+    return run, build, skipped
+
+
 def command(entry):
     """(argv, working directory relative to the root) for one run of the entry."""
     kind = entry["kind"]
     if kind == "swift":
         return ["swift", "test", "--skip-build", "--package-path", entry["package"], "--filter", entry["filter"]], "."
     if kind == "cargo":
-        argv = ["cargo", "test", "--locked", "-p", entry["package"]]
+        argv = ["cargo", "test", "--locked", "-p", entry["package"], *cargo_targets(entry)]
         if entry.get("filter"):
             argv += ["--", entry["filter"]]
         return argv, entry["path"]
     runner = ["python3", "-I"] if entry["path"].endswith(".py") else ["bash"]
     return runner + [entry["path"], *entry.get("args", [])], "."
+
+
+def cargo_targets(entry):
+    """`--lib` for an entry whose tests are the library's own: without it `cargo test -p`
+    builds every integration-test binary and doctest of the package, which the entry never runs
+    (cmux-tui-core: 32 test binaries, 6.5 of the job's 9 min prebuild, job 137303235769)."""
+    return ["--lib"] if entry.get("lib") else []
 
 
 def describe(argv, cwd):
@@ -175,20 +346,48 @@ def run_build(root, argv, cwd, what, log_lock):
     build running beside another stays readable. Returns (returncode, seconds, the
     lines naming a lock cargo refused to update under --locked)."""
     started = time.monotonic()
+    # A cargo build runs inside fixit-compile (ci-oops 0a): when every error has a machine-applicable fix it writes
+    # the fixup patch for fixit-compile-push and still exits with cargo's status.
+    if argv[0] == "cargo" and FIXIT_COMPILE.is_file():
+        argv = [sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "cargo", "--root", str(root), "--", *argv]
     proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, errors="replace")
+                            text=True, errors="replace", start_new_session=True)
     # cargo's stale-lock refusal, kept for cargo-locks.py explain: the only lines a failed build's cause needs.
     refusals = []
+    stop_after_error = argv[0] == "swift" and len(argv) > 1 and argv[1] == "build"
+    compiler_error = False
     for output_line in proc.stdout:
         with log_lock:
             print(f"[{what}] {output_line.rstrip()}", flush=True)
         if STALE_LOCK_HINT in output_line:
             refusals.append(output_line)
+        if stop_after_error and SWIFT_COMPILER_ERROR.search(output_line):
+            compiler_error = True
+            stop_tree(proc.pid)
+            break
+    if compiler_error:
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            stop_tree(proc.pid)
+            proc.kill()
+            proc.wait()
+        return proc.returncode or 1, time.monotonic() - started, refusals
     return proc.wait(), time.monotonic() - started, refusals
 
 
+FIXIT_COMPILE = Path(__file__).resolve().parent.parent / "ci" / "oops" / "fixit_compile.py"
+
 # The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
 STALE_LOCK_HINT = "--locked was passed"
+
+# Swift emits the first actionable compiler diagnostic before it finishes the
+# remaining files. The build has no useful work after that diagnostic and can
+# otherwise keep a Mac runner busy for tens of minutes.
+# Only a diagnostic's own head counts: `path:line:col: error:` or a line that starts
+# `error:`. A warning's source excerpt (` 446 |  func f(_ error: Error)`) holds the same
+# word, and matching it there stopped a clean CmuxNext build (seed run 45854893499).
+SWIFT_COMPILER_ERROR = re.compile(r"^(?:[^\s|][^|]*?:\d+(?::\d+)?: )?(?:fatal\s+)?error: ", re.IGNORECASE)
 
 
 def stale_lock_explained(root, refusals):
@@ -198,6 +397,18 @@ def stale_lock_explained(root, refusals):
     explain = [sys.executable, str(Path(__file__).resolve().parent / "cargo-locks.py"), "explain", "-",
                "--repo", str(Path(root).resolve())]
     return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
+
+
+# CMUX_SWIFT_TEST_PRODUCTS=fleet on a Mac: a package's test bundles come from the fleet job that built them for this
+# commit (scripts/ci/fleet-test-products.py); with none, or on any fault, this Mac builds them as it does without it.
+FLEET_OR_BUILD = ('python3 scripts/ci/fleet-test-products.py "$1" || { echo "::warning title=Fleet test products::$1: '
+                  'none for this commit; building them on this Mac"; swift build --build-tests --package-path "$1"; }')
+
+
+def swift_build_tests(package):
+    if os.environ.get("CMUX_SWIFT_TEST_PRODUCTS") == "fleet" and sys.platform == "darwin":
+        return ["bash", "-c", FLEET_OR_BUILD, "fleet-or-build", package]
+    return ["swift", "build", "--build-tests", "--package-path", package]
 
 
 def build_packages(root, entries, dry_run, timing):
@@ -214,13 +425,17 @@ def build_packages(root, entries, dry_run, timing):
     # (runs 41537871686, 41546766492).
     swift = [step
              for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")
-             for step in ((["swift", "build", "--build-tests", "--package-path", package], ".", package),
+             for step in ((swift_build_tests(package), ".", package),
                           (["swift", "test", "--skip-build", "--list-tests", "--package-path", package], ".",
                            f"{package} test plan"))]
-    cargo = []
-    for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
-        packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
-        cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
+    # One build per cargo package, the same `-p` its entry runs with: one build of
+    # `-p cmux-tui-core -p cmux-layout-reducer` unifies the two packages' dependency
+    # features, so the reducer entry's own `cargo test -p cmux-layout-reducer`
+    # rebuilt libc, serde_json and proptest inside its 60 s cap (57.6 s of build,
+    # then a timeout: job 137088937648 on cmux-runner-pool).
+    cargo = [(["cargo", "test", "--locked", "--no-run", "-p", package, *targets], path, f"{path} {package}")
+             for path, package, targets in dict.fromkeys(
+                 (e["path"], e["package"], tuple(cargo_targets(e))) for e in entries if e["kind"] == "cargo")]
     builds = swift + cargo
     if dry_run:
         for argv, cwd, what in builds:
@@ -315,6 +530,9 @@ def main():
     parser.add_argument("--repeat", type=int, default=0, help="admission: run each entry N times, no classify rerun")
     parser.add_argument("--dry-run", action="store_true", help="print the build and test commands only")
     parser.add_argument("--receipt", help="write a JSON timing receipt at this path")
+    parser.add_argument("--changed-files",
+                        help="a pull request's changed paths (NUL- or newline-separated): run only the entries "
+                             "they reach and build only the compiles they reach (scope)")
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -326,22 +544,35 @@ def main():
         if not entries:
             print(f"fast-tier: no entry of kind {', '.join(sorted(set(args.kind)))} to run", file=sys.stderr)
             return 2
+    build_entries, skipped, registered = entries, {}, {e["name"]: e for e in entries}
+    if args.changed_files:
+        entries, build_entries, skipped = scope(root, entries, read_changed(args.changed_files), event_labels())
     held = quarantined(args.quarantine)
     started = time.monotonic()
     started_wall = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     builds = []
+    skips = []
+    for name, why in skipped.items():
+        entry = registered[name]
+        print(line("SKIP", entry, 0.0, why), flush=True)
+        skips.append(("SKIP", entry, 0.0))
     if args.dry_run:
-        build_packages(root, entries, True, builds)
+        build_packages(root, build_entries, True, builds)
         for entry in entries:
             print(f"RUN {entry['name']}: " + describe(*command(entry)))
         return 0
-    if not build_packages(root, entries, False, builds):
+    if not build_packages(root, build_entries, False, builds):
         write_receipt(args.receipt, status="fail", started_wall=started_wall, builds=builds, results=[],
                       total_seconds=time.monotonic() - started, kinds=args.kind)
         return 1
+    # cmux-next.yml's fast-tier job checks the generated files on this build (its step output `built`),
+    # even when an entry fails below.
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            out.write("built=true\n")
 
     gating_failed = False
-    results = []
+    results = list(skips)
     for entry in entries:
         if args.repeat:
             runs = [run_once(root, entry, args.max_seconds) for _ in range(args.repeat)]

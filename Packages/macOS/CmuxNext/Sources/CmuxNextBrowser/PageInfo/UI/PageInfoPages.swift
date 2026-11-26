@@ -82,6 +82,8 @@ import CmuxNextDesign
     private func reloadNotice() -> NSView {
         let text = PageInfoStyle.label(PageInfoStrings.reloadToApply, font: PageInfoStyle.captionFont,
                                        color: PageInfoStyle.secondaryText, wraps: true)
+        // retry-prompt-ok: reloading throws away what the page holds (typed text, scroll, a playing video); the person
+        // picks when (Chrome's Page Info reload infobar).
         let button = PageInfoRowView(symbol: "arrow.clockwise", title: PageInfoStrings.reload, identifier: "pageInfo.reload")
         button.onActivate = { send(.reload) }
         return stack([padded(text), button], spacing: 2)
@@ -124,7 +126,8 @@ import CmuxNextDesign
                                       accessory: .externalLink, tint: valid ? nil : PageInfoStyle.danger,
                                       identifier: "pageInfo.certificate")
             let issuer = model.certificates?.first?.issuer.commonName ?? model.certificates?.first?.issuer.organization
-            row.themedToolTip = valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate
+            // The row shows its words: no tooltip (a1315's cut 2); VoiceOver hears where a click goes.
+            row.setAccessibilityHelp(valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate)
             row.onActivate = { send(.showCertificate) }
             views.append(row)
         }

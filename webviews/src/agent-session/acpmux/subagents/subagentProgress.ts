@@ -4,6 +4,8 @@
 // the same thing the same way.
 import type { PaneLanguage, Translate } from "../i18n";
 import type { Subagent } from "./subagentFold";
+import { intl } from "../../../ui/intl";
+import { orderedCountWords } from "../session-info/subagentsSectionModel";
 
 /// The progress parts that apply, in order; none until the harness reports any.
 /// `usage: false` leaves out its tokens and tool uses: the tray's and transcript's subagent rows
@@ -18,14 +20,12 @@ export function subagentProgress(
   const parts: string[] = [];
   if (agent.agents && agent.agents.started > 0)
     parts.push(t("subagents.workflowAgents", { n: agent.agents.started, done: agent.agents.done }));
-  if (agent.agents?.failed && agent.agents.failed > 0)
-    parts.push(t("summary.subagents.failed", { n: agent.agents.failed }));
-  if (agent.agents?.queued && agent.agents.queued > 0) parts.push(t("workflow.queued", { n: agent.agents.queued }));
+  parts.push(...orderedCountWords({ failed: agent.agents?.failed, queued: agent.agents?.queued }, t));
   if (usage && agent.tokens)
     parts.push(
       t("subagents.tokens", {
         n: agent.tokens,
-        tokens: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(agent.tokens),
+        tokens: intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(agent.tokens),
       }),
     );
   if (usage && agent.toolUses) parts.push(t("subagents.toolUses", { n: agent.toolUses }));

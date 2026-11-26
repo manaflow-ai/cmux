@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// The iOS composer row: the "+" glass circle, the glass field, and the send
 /// capsule inside the field.

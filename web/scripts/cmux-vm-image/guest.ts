@@ -116,7 +116,16 @@ export async function deleteLiveVms(): Promise<string[]> {
 /** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
 export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
 
-export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+/** One inline edge rule at create, as a product create carries it (web/services/vms/drivers/freestyle.ts freestyleEdgeRules). */
+export type CreateTlsRule = {
+  action: "allow";
+  domain: string;
+  source: Record<string, never>;
+  destination: { host: string; port: number };
+  transform: Array<{ headers: Record<string, string> }>;
+};
+
+export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean; tlsRules?: CreateTlsRule[] }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
   const { vm, vmId } = await fs.vms.create({
@@ -128,6 +137,7 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     // leave a VM running: Freestyle pauses it after this much network idleness
     // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
     idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
+    ...(options.tlsRules?.length ? { tls: { rules: options.tlsRules } } : {}),
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);
@@ -135,12 +145,14 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
   return { vm, vmId, createMs, t0 };
 }
 
-/** Waits before each retry of a delete the provider answered 5xx: 4 tries over 35 s. */
+/** Waits before each retry of a delete the provider answered 5xx, or that timed out: 4 tries over 35 s. */
 export const DELETE_RETRY_DELAYS_MS: readonly number[] = [5_000, 10_000, 20_000];
 
 // A provider 5xx on delete (run 44112930938: 503 INTERNAL_ERROR after a smoke whose checks all passed) is
 // retried: a delete is idempotent, and 404 below already reads a lost success as gone. Any other error, and a
-// 5xx that outlasts the delays, goes to the caller with the VM still tracked, as before.
+// 5xx that outlasts the delays, goes to the caller with the VM still tracked, as before. A delete the client gave
+// up on (TimeoutError, no status: run 45829777164's smoke failed in its cleanup after its checks passed) is retried
+// the same way: the provider may have done it, and the next try reads that as 404.
 export async function deleteVm(
   vm: Vm, vmId: string, name: string, ledger: Ledger,
   deps: { sleep?: (ms: number) => Promise<unknown>; delaysMs?: readonly number[] } = {},
@@ -154,7 +166,8 @@ export async function deleteVm(
       const status = (error as { status?: unknown } | null)?.status;
       // A prior delete may have succeeded before its response was lost.
       if (status === 404) break;
-      if (typeof status === "number" && status >= 500 && attempt < delays.length) {
+      const timedOut = (error as { name?: unknown } | null)?.name === "TimeoutError";
+      if (((typeof status === "number" && status >= 500) || timedOut) && attempt < delays.length) {
         await (deps.sleep ?? sleep)(delays[attempt]);
         continue;
       }

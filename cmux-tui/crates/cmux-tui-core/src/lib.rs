@@ -16,6 +16,7 @@ pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
+pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
@@ -37,6 +38,7 @@ pub mod chief_brains;
 mod chief_registry;
 mod command_context;
 mod conversation_drafts;
+mod conversation_inbox_once;
 mod conversation_live;
 mod conversation_search;
 mod conversation_store;
@@ -57,8 +59,15 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+#[cfg(unix)]
+pub mod projection_ns;
+/// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
+#[cfg(unix)]
+pub mod tool_packs;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -72,12 +81,12 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
-pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod paste_pacing;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
@@ -110,6 +119,7 @@ mod shell_history;
 mod shell_integration;
 #[cfg(unix)]
 mod shell_runs;
+mod shell_state;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
@@ -152,8 +162,8 @@ use cmux_tui_platform::process_identity;
 pub use cmux_tui_platform::process_resources;
 pub mod server;
 pub mod session_state_import;
-pub mod terminal_host;
-pub mod terminal_host_protocol;
+// The terminal host's wire is its own crate (cmux-remote and acpmux build without this one).
+pub use cmux_terminal_host_protocol::{net_keepalive, terminal_host, terminal_host_protocol};
 pub mod terminal_host_runtime;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub mod test_owner;
@@ -189,6 +199,8 @@ pub use model::{
     ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
+#[cfg(any(unix, windows))]
+pub use mux::process_census;
 pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,

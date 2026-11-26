@@ -22,6 +22,7 @@ import argparse, ctypes, json, os, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 KIT = os.path.join(HERE, "..", "journeys", "tui-kit", "heavy_profile.py")
 
@@ -42,7 +43,9 @@ class RUsage(ctypes.Structure):
         ("ri_spare", ctypes.c_uint64 * 32)]
 
 
-_LIBC = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+import macos_libs  # noqa: E402
+
+_LIBC = macos_libs.library("/usr/lib/libSystem.B.dylib")
 _LIBC.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
 _LIBC.proc_pid_rusage.restype = ctypes.c_int
 
@@ -66,6 +69,19 @@ def frame_files(directory):
     except OSError:
         pass
     return out
+
+
+def shown_programs_running(manifest):
+    """The shown panes' HEAVY programs still running, by their seeds (`--seed N` on each program's command line, the
+    Python engine's and tk-gradient's alike)."""
+    try:
+        with open(manifest) as handle:
+            plan = json.load(handle).get("plan") or {}
+    except (OSError, ValueError):
+        return []
+    seeds = [str(p["seed"]) for column in (plan.get("shown") or {}).get("columns") or [] for p in column if p.get("argv")]
+    lines = subprocess.run(["ps", "-axww", "-o", "args="], capture_output=True, text=True, timeout=30).stdout.splitlines()
+    return [seed for seed in seeds if any("--duration" in line and (" --seed %s " % seed) in line + " " for line in lines)]
 
 
 def measure(pid, directory, seconds):
@@ -126,12 +142,19 @@ def main():
         manifest = os.path.join(heavy_out, "heavy.json")
         report["heavy_build"] = {"exit": built.returncode, "out": built.stdout.strip()[-600:], "err": built.stderr.strip()[-600:]}
         report["frame_directory"] = directory
-        time.sleep(opts.settle)  # bench: the HEAVY programs start and the panes draw
+        # sleep-ok: --settle is the bench's warm-up window: the heavy phase measures from this far into the run, so
+        # the first draws' writes stay out of its steady-state rate.
+        time.sleep(opts.settle)
         report["heavy"] = measure(pid, directory, opts.seconds)
-        # The programs end after --heavy-duration; the idle phase starts once they did.
-        rest = opts.heavy_duration - opts.settle - opts.seconds + 10
-        if rest > 0:
-            time.sleep(rest)  # bench: the HEAVY programs end
+        # The programs end after --heavy-duration; the idle phase starts once they did: no shown program runs, then
+        # the frame folder holds still.
+        rest = max(0.0, opts.heavy_duration - opts.settle - opts.seconds)
+        ended = wait_until(lambda: not shown_programs_running(manifest), "the HEAVY programs to end",
+                           timeout=rest + 120, interval=0.5, raise_on_timeout=False)
+        if not ended:
+            report["idle_note"] = "programs still running at the idle phase: %s" % shown_programs_running(manifest)
+        wait_stable(lambda: frame_files(directory), "the frame folder after the programs ended", timeout=30,
+                    interval=0.5, reads=4, raise_on_timeout=False)
         report["idle"] = measure(pid, directory, opts.seconds)
     finally:
         if manifest and os.path.exists(manifest):

@@ -1,7 +1,20 @@
+import { BASE_SPACE, isDevSpace, parseBuildSpace, spaceOfEnv } from "./build-space.ts"
 import type { Principal } from "@cmux/ownership"
-import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, errors, importJWK, jwtVerify, SignJWT, type JSONWebKeySet, type JWK, type JWTVerifyGetKey, type RemoteJWKSetOptions } from "jose"
+import {
+  createLocalJWKSet,
+  createRemoteJWKSet,
+  decodeJwt,
+  importJWK,
+  jwtVerify,
+  SignJWT,
+  type JWK,
+  type JWTVerifyGetKey,
+  errors,
+  type JSONWebKeySet,
+  type RemoteJWKSetOptions,
+} from "jose";
 import { personalTeamIdFor, userIdFor } from "./domains/user.ts"
-import type { Env } from "./env.ts"
+import type { BuildSpace, Env } from "./env.ts"
 
 const STACK_API = "https://api.stack-auth.com"
 export const ACCESS_TOKEN_TTL_SECONDS = 600
@@ -120,7 +133,8 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | "u
       ...(name ? { display_name: name } : {}),
       // SSO is never read from the token (Stack tokens carry no custom claims); policy-gate.ts
       // resolves it from TeamDO's record of the sessions our OIDC callback created.
-      ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {})
+      ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {}),
+      ...(isDevSpace(env.BUILD_SPACE) ? { build_space: env.BUILD_SPACE } : {})
     }
   } catch (e) {
     return e instanceof StackKeysUnreachable ? "unreachable" : undefined
@@ -161,13 +175,15 @@ export interface InstallClaims {
   readonly vm?: true
   /** A team VM install (kind team-vm): claim `tvm`, so every entry point refuses it except its team VM ops. */
   readonly team_vm?: true
+  /** Only with `vm`: minted by cmux-platform's GitHub egress (claim `edge`), the one bearer an edge machine mints with. */
+  readonly edge?: true
 }
 
 export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ ...(c.scope ? { scope: c.scope } : {}), team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.team_vm ? { tvm: true } : {}) })
+  const token = await new SignJWT({ ...(c.scope ? { scope: c.scope } : {}), team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.vm && c.edge ? { edge: true } : {}), ...(c.team_vm ? { tvm: true } : {}), ...(isDevSpace(env.BUILD_SPACE) ? { bsp: env.BUILD_SPACE } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")
@@ -186,8 +202,10 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, tvm, scope: rawScope } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; tvm?: unknown; scope?: unknown }
+    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, edge, tvm, scope: rawScope, bsp } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; edge?: unknown; tvm?: unknown; scope?: unknown; bsp?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
+    // A token works only in the build space that minted it (build-space.ts): no claim is the base space.
+    if ((bsp === undefined ? BASE_SPACE : bsp) !== spaceOfEnv(env)) return undefined
     const scope = scopeClaim(rawScope)
     return {
       kind: "install",
@@ -201,7 +219,9 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       ...(typeof sso_team === "string" ? { sso_team } : {}),
       ...(typeof edom === "string" ? { email_domain: edom } : {}),
       ...(typeof agt === "string" ? { agent: agt } : {}),
-      ...(vm === true ? { install_kind: "vm" } : tvm === true ? { install_kind: "team-vm" } : {})
+      ...(vm === true ? { install_kind: "vm" } : tvm === true ? { install_kind: "team-vm" } : {}),
+      ...(vm === true && edge === true ? { edge: true } : {}),
+      ...(isDevSpace(env.BUILD_SPACE) ? { build_space: env.BUILD_SPACE } : {})
     }
   } catch {
     return undefined
@@ -319,5 +339,20 @@ export const verifyInstallSignature = async (jwk: JsonWebKey, message: string, s
     return der ? await verify(der) : false
   } catch {
     return false
+  }
+}
+
+/**
+ * The build space an install token says it was minted in, read without verifying it: only for an entry point that
+ * gets no request header (a service binding). authenticate() under that space's env still verifies the token and
+ * refuses it there unless the claim is that space.
+ */
+export const tokenBuildSpace = (token: string | undefined): BuildSpace | null => {
+  if (!token) return BASE_SPACE
+  try {
+    const bsp = decodeJwt(token).bsp
+    return bsp === undefined ? BASE_SPACE : typeof bsp === "string" ? parseBuildSpace(bsp) : null
+  } catch {
+    return BASE_SPACE
   }
 }

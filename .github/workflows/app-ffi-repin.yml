@@ -25,13 +25,24 @@ on:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   repin:
     name: open the re-pin pull request
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    # The release's LINUX ROUTE (app-ffi-release.yml): the nightly lane's reserved label first, attempts 1 and 2.
+    # On vars.LINUX_RUNNER this job waited behind all PR CI on a saturated Blacksmith pool (run 44645693256, 40 min
+    # pending, 2026-11-20) while the published release cmux-app-ffi-789a832a sat unpinned.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
+    # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
+    # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
+    # a timeout in that wait would hide its "Re-pin rate-limited" reason.
+    timeout-minutes: 30
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
     permissions:
@@ -42,7 +53,9 @@ jobs:
     # One group with app-ffi-release.yml's repin job: re-pins run one at a time
     # on the same pull request.
     concurrency:
-      group: app-ffi-repin
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
       cancel-in-progress: false
     steps:
       # The same two tokens as app-ffi-release.yml's repin job (see there).
@@ -100,7 +113,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
           fetch-depth: 0
@@ -113,6 +126,10 @@ jobs:
           READ_TOKEN: ${{ github.token }}
           BASE_TOKEN: ${{ steps.base-token.outputs.token }}
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
+          # after 60 s with no byte instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
 
@@ -126,4 +143,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next
+        # The run's installation token shares a rate limit with every other job: run 45792260236's
+        # dispatch got "HTTP 403: API rate limit exceeded for installation" (2026-11-26 09:33Z) and the
+        # pin stayed behind until the next push. Retry on a bounded backoff (about 9 min) instead.
+        run: |
+          for wait in 0 60 120 180 180; do
+            sleep "$wait"
+            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
+            echo "re-pin dispatch failed; retrying after backoff"
+          done
+          exit 1

@@ -101,10 +101,10 @@ export const ARMS: Record<string, Arm> = arms({
 ${LIVE} :is(.cv-worked__time, .cv-worked__own) { color: var(--cv-text-dim); font-variant-numeric: tabular-nums; }`,
     ready: LIVE,
   },
-  /// The band crosses the words only; the time is never lit and keeps tabular figures.
+  /// The band crosses the words only (the shipped default since the band's box is the words'); the
+  /// time keeps tabular figures.
   "shimmer-verb": {
     css: `
-${LIVE} .cv-shimmer__lit-time { visibility: hidden; }
 ${LIVE} :is(.cv-worked__time, .cv-worked__own) { color: var(--cv-text-dim); font-variant-numeric: tabular-nums; }`,
     ready: LIVE,
   },
@@ -130,8 +130,8 @@ ${LIVE}::before {
 }`,
     ready: LIVE,
   },
-  /// The model's finished thinking as its own row, "Thought for 12s" with its chevron, folded; its
-  /// text opens under it. The rule keeps its body folded. Under the live-turn-work `line` a
+  /// The model's finished thinking as its own row, its first line with its chevron, folded; the rest
+  /// of its text opens under it. The rule keeps its body folded. Under the live-turn-work `line` a
   /// running turn draws no finished thought (turns.ts `codexRuns`), so the stage waits for the live
   /// line, and the row shows once its stretch ended.
   "thinking-block": {

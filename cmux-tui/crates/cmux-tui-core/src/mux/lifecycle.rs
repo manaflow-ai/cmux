@@ -76,6 +76,7 @@ impl Mux {
         self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
+        self.forget_terminal_warm_compact(terminal_id);
     }
 
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
@@ -371,8 +372,33 @@ impl Mux {
         self.control_clients.daemon_handoff_committed()
     }
 
+    /// Releases `requesting_client`'s pending handoff, and with it the
+    /// idle-stop fence an idle stop raised (server/stop_if_idle.rs). Never
+    /// called with the workspace registry locked.
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
-        self.control_clients.cancel_daemon_handoff(requesting_client);
+        if self.control_clients.cancel_daemon_handoff(requesting_client) {
+            self.settle_idle_stop_fence();
+        }
+    }
+
+    /// Lowers the idle-stop fence unless the reservation that raised it is
+    /// still held. Called after a reservation is released (a cancel, its
+    /// client's disconnect). The idle check raises the fence only while its
+    /// reservation is pending, under the workspace registry lock this takes,
+    /// so a release before the raise refuses the raise and a release after it
+    /// is followed by this; a release of an older reservation leaves the fence
+    /// of a newer one alone. Never called with the workspace registry locked.
+    pub(crate) fn settle_idle_stop_fence(&self) {
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(owner) = registry.idle_stop_fence_owner() else { return };
+        if self.control_clients.daemon_handoff_held_by(owner) {
+            return;
+        }
+        if let Err(error) = registry.set_idle_stop_fence(None) {
+            eprintln!(
+                "cmux-tui: cannot lower the idle-stop fence, so new terminals stay refused: {error:#}"
+            );
+        }
     }
 
     /// Ask the owning frontend loop to leave through the normal daemon

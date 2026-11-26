@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Tailnet join preferences are user-controlled and exposed through Settings, CLI and MCP. Authentication keys are entered only for a join action and are never stored here."
+}

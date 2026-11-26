@@ -10,4 +10,7 @@ extension AppServices: SidebarArchiveHost {
     func archiveItem(workspace id: String) -> String? { sidebarDoc.item(workspace: id) }
     func archiveRefusal(_ error: any Error) -> String { RefusalStrings.describe(error) }
     var archiveDocument: SidebarDocStore? { sidebarDoc.store }
+    var archiveSections: [SidebarSection]? { windows.controllers.isEmpty ? nil : windows.controllers.flatMap(\.sidebar.model.sections) }
+    func archiveOpen(_ entry: SidebarArchivedEntry) { guard let window = windows.active ?? windows.controllers.first else { return }; if entry.kind == .workspace { SidebarNavigation.activate(.workspace(WorkspaceID(entry.id)), in: window, self) } else { window.sidebar.activateLayoutItem(LayoutItemID(entry.id)) } }
+    func archiveDelete(_ entry: SidebarArchivedEntry) -> String? { registry.reportingRefusal { _ = entry.kind == .workspace ? self.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: entry.id)) : self.registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: entry.id))) } }
 }
