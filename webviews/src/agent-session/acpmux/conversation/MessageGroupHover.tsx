@@ -170,7 +170,7 @@ function SenderWho({ message, unverified }: { message: IncomingMessage; unverifi
         <SenderMark message={message} />
       </span>
       <span className="cv-group-hover__name">{shortSender(message.name)}</span>
-      {unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
+      {unverified && <UnverifiedMark program={message.program} />}
     </>
   );
 }
@@ -290,7 +290,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
                 <SenderMark message={message} />
               </span>
               <span className="cv-group-hover__name">{shortSender(message.name)}</span>
-              {message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
+              {message.unverified && <UnverifiedMark program={message.program} />}
               {look === "lines" && preview && <span className="cv-group-hover__line">{preview}</span>}
             </div>
             {look === "messages" && preview && <div className="cv-group-hover__text">{preview}</div>}
