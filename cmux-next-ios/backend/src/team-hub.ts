@@ -1089,7 +1089,13 @@ export class TeamHub extends DurableObject<Env> {
       // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
       const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
       target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload, ...(relayTicket ? { relayTicket } : {}) }))
-      if (f.payload.kind === "wg-init") this.prewarmRelay(f.sessionId, att, target)
+      if (f.payload.kind === "wg-init") {
+        // PROTOCOL.md "Early relay ticket": a dialer with no path but the relay asks for its own ticket now, so its
+        // join runs while the Mac gathers and answers. Only the service sends `wg-ticket`; a client's is refused above.
+        const early = (f.payload as { ticketEarly?: unknown }).ticketEarly === true ? this.ticketFor(f.sessionId, att.deviceId) : null
+        if (early) ws.send(JSON.stringify({ type: "signal", to: att.deviceId, from: f.to, fromUserId: att.userId, sessionId: f.sessionId, payload: { kind: "wg-ticket" }, relayTicket: early }))
+        this.prewarmRelay(f.sessionId, att, target)
+      }
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
