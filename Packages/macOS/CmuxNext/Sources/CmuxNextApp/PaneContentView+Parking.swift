@@ -45,7 +45,7 @@ extension PaneContentView {
     /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
     /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
-        if let agent = view as? AgentPaneView, AgentPageDrawnParking.install(agent, in: contentHost, at: parkedFrame(of: view) ?? contentHost.contentBounds(for: view), fills: parkedFrame(of: view) == nil, cover: self) { needsLayout = true; return refreshNativeToolOwner() } // waited drawn: shows its last frame as it is
+        if AgentPageDrawnParking.install(content: view, in: contentHost, at: parkedFrame(of: view) ?? contentHost.contentBounds(for: view), fills: parkedFrame(of: view) == nil, cover: self) { needsLayout = true; return refreshNativeToolOwner() } // waited drawn: shows its last frame as it is
         guard view.superview === contentHost else {
             view.frame = contentHost.contentBounds(for: view)
             view.autoresizingMask = [.width, .height]
@@ -91,7 +91,7 @@ extension PaneContentView {
         // shown now), as when a view leaves the window.
         view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        if !((view as? AgentPaneView).map(AgentPageDrawnParking.park) ?? false) { view.isHidden = true } // a Chromium chat waits drawn
+        if !AgentPageDrawnParking.park(content: view) { view.isHidden = true } // a Chromium chat or internal page waits drawn
         // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
         // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
         // sets their frame. A page that shares the tab row is sized by `layoutParked` instead.
