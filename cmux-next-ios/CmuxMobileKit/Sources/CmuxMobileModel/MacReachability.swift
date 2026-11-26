@@ -44,7 +44,7 @@ public enum MacReachability: Equatable, Sendable {
     /// The rule is Rust's (`mac_reachability_late_quiet`); where Rust does not link, no age is kept.
     public static func lateQuiet(_ quietMs: Int?) -> Int? {
         #if os(iOS)
-        mac_reachability_late_quiet(quietMs: quietMs.map(Int64.init)).map(Int.init)
+        macReachabilityLateQuiet(quietMs: quietMs.map(Int64.init)).map(Int.init)
         #else
         nil
         #endif
