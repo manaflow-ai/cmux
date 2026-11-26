@@ -7,17 +7,17 @@ changed="$RUNNER_TEMP/changed-files.txt"
 labels=""
 if [[ "$EVENT_NAME" == pull_request ]]; then
   git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-  if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+  # Live labels on every attempt (docs/ci/cmux-next-workflow-notes.md#note-97): a late synchronize event carries
+  # the labels from before full-ci was added and, sharing the concurrency group, cancels the labeled run.
+  labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
+    echo "::warning::could not read the pull request labels; routing on the event's labels (${EVENT_LABELS:-none})"
     labels="$EVENT_LABELS"
-  else
-    labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
-      echo "::warning::could not read the pull request labels; routing on its paths only"
-      labels=""
-    }
-  fi
+  }
 else
   : > "$changed"
 fi
+# Read by every job's label check as contains(needs.path_route.outputs.labels, ',full-ci,').
+echo "labels=,$labels," >> "$GITHUB_OUTPUT"
 echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
 if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
   # Why: docs/ci/cmux-next-workflow-notes.md#note-391
