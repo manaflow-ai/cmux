@@ -112,8 +112,9 @@ class Target:
 
 
 def strip_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"//[^\n]*", "", text)
+    """The text without `//` and `/* */` comments; a `//` inside a string literal (a URL) is kept."""
+    return re.sub(r'"(?:\\.|[^"\\\n])*"|/\*.*?\*/|//[^\n]*',
+                  lambda m: m.group(0) if m.group(0).startswith('"') else "", text, flags=re.S)
 
 
 def balanced(text: str, start: int) -> str:

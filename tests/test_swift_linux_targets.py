@@ -113,6 +113,9 @@ let package = Package(name: "P", targets: [
     .target(name: "Core", dependencies: [.product(name: "Crypto", package: "swift-crypto")]),
     .target(name: "UI", dependencies: ["Core", .target(name: "Extra")], path: "Sources/TheUI"),
     .testTarget(name: "CoreTests", dependencies: ["Core"]),
+    // A `//` in a string (a binary target's URL) is not a comment: the targets after it count.
+    .binaryTarget(name: "Bin", url: "https://example.com/Bin.xcframework.zip", checksum: "00"),
+    .target(name: "AfterBin", dependencies: ["Bin"]),
 ])
 """
     with tempfile.TemporaryDirectory() as tmp:
@@ -129,6 +132,8 @@ let package = Package(name: "P", targets: [
             "Core": ("target", "./Sources/Core", ["product:swift-crypto:Crypto"]),
             "UI": ("target", "./Sources/TheUI", ["Core", "Extra"]),
             "CoreTests": ("testTarget", "./Tests/CoreTests", ["Core"]),
+            "Bin": ("binaryTarget", "./Sources/Bin", []),
+            "AfterBin": ("target", "./Sources/AfterBin", ["Bin"]),
         }
         if got != want:
             failures.append(f"parse_manifest: {got} != {want}")
