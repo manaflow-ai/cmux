@@ -3,6 +3,7 @@
 //! a rect is `{x, y, w, h}`, a missing optional field takes the Swift default, and a `None` reply
 //! (Swift `nil` or `CGRect.null`) is JSON `null`.
 
+use super::canvas::{self, Arrangement, Camera, CameraMotion, CanvasScreen};
 use super::column_strip::{self, EqualizeColumn};
 use super::divider_band::DividerBand;
 use super::dock_strip::{self, Docks, FrameOrientation};
@@ -613,6 +614,105 @@ struct CatchersRequest {
     visible: bool,
 }
 
+fn default_gap() -> f64 {
+    canvas::GAP
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum CameraOp {
+    New,
+    Visible { viewport: Size },
+    ZoomedTo { zoom: f64, anchor: Option<Point> },
+    ZoomedBy { factor: f64, anchor: Option<Point> },
+    Panned { delta: Size },
+    Revealing { rect: Rect, viewport: Size, margin: f64 },
+    Fitting { content: Rect, viewport: Size, padding: f64 },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasCameraRequest {
+    camera: Camera,
+    op: CameraOp,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum CameraMotionOp {
+    Retarget { camera: Camera, animated: bool },
+    Snap,
+    Advance { dt: f64, spring: Spring },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasCameraMotionRequest {
+    motion: CameraMotion,
+    op: CameraMotionOp,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasArrangeRequest {
+    command: Arrangement,
+    frames: BTreeMap<String, Rect>,
+    reference: Option<String>,
+    #[serde(default = "default_gap")]
+    gap: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasPaneDragRequest {
+    start: Rect,
+    #[serde(default)]
+    edges: u8,
+    minimum_size: Size,
+    translation: Size,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasHandleHitRequest {
+    frames: BTreeMap<String, Rect>,
+    order: Option<Vec<String>>,
+    thickness: f64,
+    point: Point,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasPlaceRequest {
+    size: Size,
+    anchor: Option<Rect>,
+    existing: Vec<Rect>,
+    #[serde(default = "default_gap")]
+    gap: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum CanvasScreenOp {
+    ContentBounds,
+    PaneAt { point: Point },
+    SetFrames { updates: BTreeMap<String, Rect> },
+    BringToFront { pane: String },
+    Reconcile { panes: Vec<String>, anchor: Option<String> },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasScreenRequest {
+    frames: BTreeMap<String, Rect>,
+    order: Option<Vec<String>>,
+    camera: Option<Camera>,
+    /// `init(seed:viewport:)` instead of `init(frames:order:camera:)`.
+    seed_viewport: Option<Size>,
+    #[serde(default)]
+    ops: Vec<CanvasScreenOp>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScrollRouteRequest {
@@ -1179,6 +1279,92 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
             } else {
                 to_value(edge_motion::undecided_lock(r.dx, r.dy, r.ended, r.facts))
             }
+        }
+        "canvas_camera" => {
+            let r: CanvasCameraRequest = parse(request)?;
+            // Swift builds every camera through `init(center:zoom:)`, which clamps.
+            let camera = Camera::new(r.camera.center, r.camera.zoom);
+            match r.op {
+                CameraOp::New => to_value(camera),
+                CameraOp::Visible { viewport } => to_value(camera.visible_rect(viewport)),
+                CameraOp::ZoomedTo { zoom, anchor } => to_value(camera.zoomed_to(zoom, anchor)),
+                CameraOp::ZoomedBy { factor, anchor } => to_value(camera.zoomed_by(factor, anchor)),
+                CameraOp::Panned { delta } => to_value(camera.panned(delta)),
+                CameraOp::Revealing { rect, viewport, margin } => {
+                    to_value(camera.revealing(rect, viewport, margin))
+                }
+                CameraOp::Fitting { content, viewport, padding } => {
+                    to_value(camera.fitting(content, viewport, padding))
+                }
+            }
+        }
+        "canvas_camera_motion" => {
+            let mut r: CanvasCameraMotionRequest = parse(request)?;
+            let moving = match r.op {
+                CameraMotionOp::Retarget { camera, animated } => {
+                    r.motion.retarget(Camera::new(camera.center, camera.zoom), animated);
+                    None
+                }
+                CameraMotionOp::Snap => {
+                    r.motion.snap();
+                    None
+                }
+                CameraMotionOp::Advance { dt, spring } => Some(r.motion.advance(dt, spring)),
+            };
+            Ok(json!({
+                "motion": r.motion,
+                "moving": moving,
+                "shown": r.motion.shown(),
+                "target": r.motion.target(),
+                "isMoving": r.motion.is_moving(),
+            }))
+        }
+        "canvas_arrange" => {
+            let r: CanvasArrangeRequest = parse(request)?;
+            to_value(canvas::arranged(r.command, &r.frames, r.reference.as_deref(), r.gap))
+        }
+        "canvas_pane_drag" => {
+            let r: CanvasPaneDragRequest = parse(request)?;
+            to_value(canvas::dragged_frame(r.start, r.edges, r.minimum_size, r.translation))
+        }
+        "canvas_handle_hit" => {
+            let r: CanvasHandleHitRequest = parse(request)?;
+            let screen = CanvasScreen::new(r.frames, r.order, Camera::default());
+            to_value(canvas::handle_hit(&screen, r.thickness, r.point))
+        }
+        "canvas_place" => {
+            let r: CanvasPlaceRequest = parse(request)?;
+            to_value(canvas::placed_frame(r.size, r.anchor, &r.existing, r.gap))
+        }
+        "canvas_screen" => {
+            let r: CanvasScreenRequest = parse(request)?;
+            let mut screen = match r.seed_viewport {
+                Some(viewport) => CanvasScreen::seeded(r.frames, viewport),
+                None => {
+                    let camera =
+                        r.camera.map_or_else(Camera::default, |c| Camera::new(c.center, c.zoom));
+                    CanvasScreen::new(r.frames, r.order, camera)
+                }
+            };
+            let mut results = vec![];
+            for op in r.ops {
+                results.push(match op {
+                    CanvasScreenOp::ContentBounds => json!(screen.content_bounds()),
+                    CanvasScreenOp::PaneAt { point } => json!(screen.pane_at(point)),
+                    CanvasScreenOp::SetFrames { updates } => {
+                        screen.set_frames(&updates);
+                        Value::Null
+                    }
+                    CanvasScreenOp::BringToFront { pane } => {
+                        screen.bring_to_front(&pane);
+                        Value::Null
+                    }
+                    CanvasScreenOp::Reconcile { panes, anchor } => {
+                        json!(screen.reconcile(&panes, anchor.as_deref()))
+                    }
+                });
+            }
+            Ok(json!({"screen": screen, "results": results}))
         }
         _ => Err(format!("unknown operation {operation}")),
     }

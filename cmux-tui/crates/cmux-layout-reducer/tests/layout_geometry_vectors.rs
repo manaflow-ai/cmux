@@ -7,7 +7,8 @@
 //! ColumnWidthLedger; `layout_geometry_screen_vectors.json`: ScreenGeometry with its scroll areas, row shifts,
 //! floating panes and canvas, LayoutModelPrototype, LayoutColumn.minimumSize, SplitRoom;
 //! `layout_geometry_slice5_vectors.json`: FloatingPaneCorners, DropPreviewLayout with CloseSizing, ShownResizeRange;
-//! `layout_geometry_slice6_vectors.json`: SharedEdgeMotion's place/seed/lowest/press/influence, DividerMouseCatchers' wanted set, LayoutRootView+Scroll's routes).
+//! `layout_geometry_slice6_vectors.json`: SharedEdgeMotion's place/seed/lowest/press/influence, DividerMouseCatchers' wanted set, LayoutRootView+Scroll's routes;
+//! `layout_geometry_slice7_vectors.json`: CanvasCamera, CanvasCameraMotion, CanvasArranger, CanvasPaneDrag, CanvasHandles, CanvasPlacer, CanvasScreen).
 //! Every case answers the Swift's reply; numbers compare as f64.
 
 use cmux_layout_reducer::geometry::wire;
@@ -75,6 +76,11 @@ fn layout_geometry_slice5_vectors_answer_the_swift_rules() {
 #[test]
 fn layout_geometry_slice6_vectors_answer_the_swift_rules() {
     replay(include_str!("data/layout_geometry_slice6_vectors.json"));
+}
+
+#[test]
+fn layout_geometry_slice7_vectors_answer_the_swift_rules() {
+    replay(include_str!("data/layout_geometry_slice7_vectors.json"));
 }
 
 #[test]

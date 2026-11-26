@@ -22,6 +22,7 @@
 //!   `MovedWindowPlacement`).
 //! - [`width_ledger`]: the R3b check that a create keeps other columns' widths (`ColumnWidthLedger`).
 
+pub mod canvas;
 pub mod column_strip;
 pub mod divider_band;
 pub mod dock_strip;
@@ -45,6 +46,8 @@ mod screen_tests;
 mod slice5_tests;
 #[cfg(test)]
 mod slice6_tests;
+#[cfg(test)]
+mod slice7_tests;
 #[cfg(test)]
 mod split_tests;
 #[cfg(test)]
