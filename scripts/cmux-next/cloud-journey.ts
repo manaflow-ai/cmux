@@ -5786,7 +5786,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // plain exec_command turn never spawns the host, so the journey checks the file itself.
       await J.step("Codex has its code-mode host", async () => {
         const r = await exec(
-          `p=$(bash -lc 'command -v codex' 2>/dev/null </dev/null); [ -n "$p" ] || p=/opt/cmux/current/bin/codex; ` +
+          // type -P, not command -v: a login shell where codex is a function or alias prints the bare name "codex",
+          // which readlink -f resolved against the working directory to /home/cmux/codex (a false red, 2026-11-26).
+          `p=$(bash -lc 'type -P codex' 2>/dev/null </dev/null); case "$p" in /*) ;; *) p=/opt/cmux/current/bin/codex ;; esac; ` +
             `r=$(readlink -f "$p"); h="$(dirname "$r")/codex-code-mode-host"; ` +
             `if [ -x "$h" ]; then echo "@@host $h"; else echo "@@missing $r"; fi`,
         );
