@@ -201,7 +201,8 @@ pub fn carry_copy(copy: &Path, segment: &Path, to: &Path) -> Result<bool> {
     let mut bytes = Vec::new();
     crate::config::private_state_file(copy)?.read_to_end(&mut bytes)?;
     let Some(end) = bytes.iter().position(|b| *b == b'\n') else { return Ok(false) };
-    let Ok(header) = serde_json::from_slice::<Header>(&bytes[..end]) else { return Ok(false) };
+    let Some(head) = bytes.get(..end) else { return Ok(false) };
+    let Ok(header) = serde_json::from_slice::<Header>(head) else { return Ok(false) };
     let mut lines = bytes.split_off(end.saturating_add(1));
     lines.truncate(usize::try_from(header.lines_len)?);
     let file = (header.dev, header.ino, header.born_ns);
@@ -495,7 +496,7 @@ impl LocalStore {
         };
         let segments = self.segments(id)?;
         let end = self.segment_starts.end(id, &segments, before)?;
-        for (index, path) in segments[..end].iter().rev() {
+        for (index, path) in segments.get(..end).unwrap_or_default().iter().rev() {
             let index = *index;
             if self.segment_starts.first_seq(id, index, path)?.is_some_and(|first| first >= before)
             {
@@ -757,7 +758,7 @@ impl LocalStore {
         let mut head = Vec::with_capacity(HEADER_WIDTH);
         (&mut file).take(HEADER_WIDTH as u64).read_to_end(&mut head).ok()?;
         let end = head.iter().position(|b| *b == b'\n')?;
-        let header: Header = serde_json::from_slice(&head[..end]).ok()?;
+        let header: Header = serde_json::from_slice(head.get(..end)?).ok()?;
         let file_of = (header.dev, header.ino, header.born_ns);
         let same = header.schema == SCHEMA
             && header.kinds == kinds()
@@ -772,7 +773,7 @@ impl LocalStore {
         // Bytes past the lines the header covers are an addition a crash cut before its header.
         let want = header.lines_len.min(now.len.saturating_sub(end as u64 + 1));
         let mut lines = Vec::with_capacity(usize::try_from(want).ok()?);
-        lines.extend_from_slice(&head[end + 1..]);
+        lines.extend_from_slice(head.get(end.saturating_add(1)..).unwrap_or_default());
         lines.truncate(usize::try_from(want).ok()?);
         let rest = want.saturating_sub(lines.len() as u64);
         (&mut file).take(rest).read_to_end(&mut lines).ok()?;
