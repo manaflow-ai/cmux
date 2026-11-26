@@ -513,6 +513,8 @@ async fn open_socket(
     request: tokio_tungstenite::tungstenite::handshake::client::Request,
     egress: crate::egress::Egress,
 ) -> Result<Socket, SignalingError> {
+    // Through the egress gate (docs/privacy.md) before any dial, proxy or direct.
+    let request = cmux_egress::ws::checked(request, "cmux_mobile_link::signaling").map_err(connect_error)?;
     let uri = request.uri().clone();
     let secure = uri.scheme_str() == Some("wss");
     let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
