@@ -38,7 +38,7 @@ extension DividerDrag {
         // No pane may show a negative size later in this drag (rule D keeps each edge's spring leftover): checked on
         // every pane, after the catch this press makes, along its spring's whole path, also without its share of a
         // clamp's spring (the line's leftover from where the layout rests it: the pointer can take it off).
-        let spring = Motion.panes.policy.spring(ScreenContentView.frameSpring)
+        let spring = Motion.panes.policy.spring(screen.currentFrameSpring)
         if SharedEdgeMotion.mayShowNegativeSize(screen.paneFrames, targets: caught.catches ? caughtGeometry.panes : nil,
                                                 influence: caught.catches ? influence : nil, speedChange: caught.speedChange,
                                                 clampLeftover: caught.catches ? caught.held - rested : 0,
