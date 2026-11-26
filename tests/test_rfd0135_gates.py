@@ -29,6 +29,15 @@ noise
 
 
 class Rfd0135GatesTest(unittest.TestCase):
+    def test_move_times_runs_the_move_times_test_and_reads_its_file(self) -> None:
+        def fake_run(cmd, **kw):
+            Path(kw["env"]["MOVE_TIMES_OUT"]).write_text('{"to_cloud_ms":[900,1200],"back_ms":[800,700]}')
+            self.assertEqual((cmd[-1], kw["env"]["MOVE_TIMES_RUNS"]), ("move_times::", "3"))
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.dict(os.environ, {"MOVE_TIMES": ""}), mock.patch.object(gates.subprocess, "run", side_effect=fake_run):
+            got = gates.move_times(argparse.Namespace(matrix_log=None, move_runs=3))
+        self.assertEqual((gates.p95(got["to_cloud_ms"]), gates.p95(got["back_ms"])), (1200, 800))
+
     def test_gates_run_tests_in_the_one_it_binary(self) -> None:
         # cmux-tui's tests are modules of `--test it` (cmux#56677); a `--test lid_close_gate` target is gone.
         with mock.patch.object(gates.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as run:
