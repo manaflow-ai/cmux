@@ -35,14 +35,16 @@ public nonisolated struct FontSmoothingSetting {
     ///
     /// - Parameters:
     ///   - fileURL: the settings file (``CmuxConfigFile/defaultURL(home:environment:)``).
-    ///   - managed: the managed (MDM) values, which win over the file.
+    ///   - managed: the managed (MDM) values, which win over the file; by default only this setting's key
+    ///     (``ManagedPreferenceLocation/reader(keys:environment:)``: not the whole schema, CMUX-631).
     ///   - defaults: the app's defaults.
     /// - Returns: the mode written.
     @discardableResult
     public static func applyBeforeLaunch(fileURL: URL = CmuxConfigFile.defaultURL(),
-                                         managed: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
+                                         managed: (any ManagedPreferenceReader)? = nil,
                                          defaults: UserDefaults = .standard) -> FontSmoothing {
         let root = (try? JSONC.parse(CmuxConfigFile.source(at: fileURL))) ?? .object([:])
+        let managed = managed ?? ManagedPreferenceLocation.reader(keys: [configPath.joined(separator: ".")])
         let mode = parse(EffectiveSettings.merge(file: root, managed: managed.read(), team: .none).root).0
         ProcessFontSmoothing.apply(mode, to: defaults)
         return mode

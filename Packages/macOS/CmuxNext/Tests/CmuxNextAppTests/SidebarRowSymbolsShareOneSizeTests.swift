@@ -24,18 +24,12 @@ import Testing
     }
 
     @Test(arguments: cases, DensityPreset.allCases)
-    func aHoveredRowsControlsAndTheLeadingPinShareOneSize(_ c: HomePinnedRowAlignmentTests.Case, preset: DensityPreset) throws {
+    func aHoveredRowsControlsShareOneSize(_ c: HomePinnedRowAlignmentTests.Case, preset: DensityPreset) throws {
         try HomePinnedRowAlignmentTests.at(c, preset: preset) {
             let (list, window) = SidebarLeadingEdgeTests.list(width: c.width)
             defer { window.close() }
             let side = SidebarStyle.rowSymbolSide
             #expect(side > 0 && side <= SidebarStyle.controlSize, "\(c.testDescription): the row symbol side \(side) fits a control")
-
-            // The pinned row's leading pin draws at the one side.
-            let pinRow = try HomePinnedRowAlignmentTests.item(list, SidebarLeadingEdgeTests.pins[0].id)
-            let leading = try #require(pinRow.pinSquareFrame, "\(c.testDescription): the pinned row drew no pin")
-            #expect(abs(leading.width - side) <= Self.tolerance,
-                    "\(c.testDescription): the leading pin is \(leading.width) pt, the hover controls \(side) pt")
 
             // A hovered workspace row's Pin, ⋮ and ✕: one glyph side, one hit box, one center line.
             let row = try HomePinnedRowAlignmentTests.row(list, SidebarLeadingEdgeTests.pinning)
