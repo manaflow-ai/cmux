@@ -20,6 +20,6 @@ export const compoundMotion = defineExperiment({
       description: "Each mover plays its own glide or moves at once, as before: the send's collapse then its rows.",
     },
   },
-  // On since a one-commit send and a queued tall send glide once too (#50851).
+  // On: a tall send and a queued tall send glide once; a one-commit send still takes a frame first (#50851).
   defaultArm: "transaction",
 });
