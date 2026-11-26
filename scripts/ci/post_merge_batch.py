@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""The post-merge batch tier: the base's deferred checks run on the clock, not once per merge.
+"""The post-merge batch tier: the base's deferred checks run once per pile of merges, not once per merge.
 
 RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
-once post-merge, batched". About every two hours (the window is one variable,
-vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) the newest feat-cmux-next tip gets one run of
+once post-merge, batched". About every 10 merges (NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns
+the count off), or once the window has passed when fewer have landed (vars.NEXT_POST_MERGE_WINDOW_MINUTES,
+default 120), the newest feat-cmux-next tip gets one run of
 every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
 tip. A job that was green on the last tip where it ran and is red now is bisected over the
 covered commits, running only that job, and the culprit gets a revert pull request through
@@ -11,10 +12,16 @@ normal landing (never merged here).
 
 Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick):
 
-  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min:
-          "is there an untested tip?" in two API calls. It dispatches a batch run when the tip
-          is not the newest batch run's commit, no batch run is in flight, and the newest one
-          started at least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min, and a
+          batch run's judge job runs it as its last step (--self-run-id), so a finished batch starts
+          the next one at once when the merges have piled up: "is there an untested tip?" in two or
+          three API calls. It dispatches a batch run when the tip is not the newest batch run's
+          commit, no other batch run is in flight, and the tip is at least NEXT_POST_MERGE_EVERY_MERGES
+          commits ahead of the newest batch run's commit (one compare call) or that run started at
+          least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+          Each tick also starts the hourly full tier (cmux-next-hourly-full-tier.yml, scripts/ci/hourly_full_tier.py)
+          when it is due (hourly_kick): no run in flight, the newest one at least HOURLY_MINUTES old and not at the
+          tip. Its failure never stops the batch tick.
   plan    which suites this run calls: on a batch run, every suite whose paths the commits since
           the last batch run touched (all of them when there is none); on a probe, the one suite.
   judge   after the suites: on a batch run, each red job that was green on the newest earlier
@@ -45,14 +52,26 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
 DEFAULT_WINDOW_MINUTES = 120
+# A batch run starts once the tip is this many commits (squash merges) ahead of the newest batch run's commit
+# (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."; at about 40 merges an hour
+# that is a batch every 15 min, one run covering ten merges). The window above stays the fallback for a quiet base.
+DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
-# Runs read back to find the last batch run where a job ran (one page; about 2.5 days at 12 a day,
-# plus probes).
-RUNS_PAGE = 60
+# Runs read back to find the last batch run where a job ran (one page, GitHub's largest: at a batch every
+# ~10 merges, about 100 a day, it reaches back about a day, plus probes).
+RUNS_PAGE = 100
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
+# At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
+# run, after the new reds. Before 2026-11-26 a red that outlived one batch run was "a known red, no bisect" forever: the
+# 06:29Z batch run 45768539377 skipped 43 of its 48 reds that way, and live base reds went 62 to 91 in 22 h (cmuxterm-hq
+# goals/base-batch-reverts-culprit.md).
+MAX_STUCK_CHAINS = 4
+# A stuck red is bisected again at most this many times after the bisect its first red batch run started, so a red no
+# bisect can pin (an outside service, a red on every commit) costs a bounded number of probe chains.
+MAX_REBISECTS = 2
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -68,6 +87,26 @@ PIECES_DRILL = "lane/post-merge-drill-pieces-"
 TEAMMATES = frozenset({"austinywang", "azooz2003-bit", "lawrencecchen", "lucasr1b"})
 TEAMMATE_HOLD = ("HOLD: {login}'s merge. This revert is ready for {login} to land or close; no agent merges it "
                  "(a teammate's PR is never merged, labelled or closed by an agent).")
+
+
+# next-autoland's hand-off label (cmuxterm-hq tools/fleet-reconcilers/next_autoland.py LABEL): on it, the PR is
+# ready, is reviewed and lands like any agent PR once its checks pass, and it starts the full CI tier
+# (scripts/ci/head_tier.py LAND_LABEL). Goal base-batch-reverts-culprit: a confirmed culprit's revert lands
+# with no person. A teammate's held revert never gets it (TEAMMATE_HOLD): it waits for them.
+LAND_LABEL = "ready-to-land"
+
+
+def hand_off(repo: str, number: int, author: str, api=None) -> str:
+    """Labels the revert or swap-out pull request `number` LAND_LABEL unless `author` (a teammate) holds it. Returns
+    the line for the run summary. A refused label leaves the pull request open for normal landing: it is the record."""
+    if author:
+        return f"Held for {author}: not labelled {LAND_LABEL}."
+    try:
+        (api or gh_api)(f"repos/{repo}/issues/{number}/labels", method="POST", fields={"labels": [LAND_LABEL]})
+    except RuntimeError as err:
+        print(f"label {LAND_LABEL} on #{number}: {err}", file=sys.stderr)
+        return f"Could not label it {LAND_LABEL} ({str(err)[-160:]}); it waits for normal landing."
+    return f"Labelled {LAND_LABEL}: next-autoland lands it once it is reviewed and green."
 
 
 # ---------------------------------------------------------------------------- GitHub and git
@@ -186,11 +225,12 @@ def publish(args: argparse.Namespace, branch: str, start: str, refspec: str, fil
     push_branch(push_url(args.push_url, token), refspec)
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
+def start_branch(repo: str, branch: str, sha: str, api=None, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
     """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
     then reaches it as an update. With the job token, a git push that creates the branch timed out every time
     (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
     44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     for wait in (*waits, None):
         try:
             api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[token or push_token()])
@@ -276,15 +316,17 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=gh_api) -> list[dict]:
+def list_runs(repo: str, branch: str, api=None) -> list[dict]:
     """This workflow's runs on branch, newest first (one page)."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
     runs = list((data or {}).get("workflow_runs") or [])
     runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
     return runs
 
 
-def run_jobs(repo: str, run_id: int, api=gh_api) -> list[dict]:
+def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     jobs: list[dict] = []
     page = 1
     while True:
@@ -319,11 +361,18 @@ def parse_time(value: str) -> datetime:
 # ---------------------------------------------------------------------------- tick
 
 
-def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True) -> tuple[str, str]:
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True,
+                  every_merges: int = 0, ahead=lambda base: None, self_run_id: int = 0) -> tuple[str, str]:
     """(action, reason): action is 'dispatch' or 'skip'. judged(run id): that run's judge succeeded; a batch on
-    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it."""
+    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it.
+    ahead(sha): how many commits the tip is ahead of sha (None when unknown); called only inside the window, where
+    every_merges or more (when above 0) dispatch. self_run_id: the batch run whose judge step asks (it has judged,
+    so it is neither in flight nor unjudged)."""
     batches = [r for r in runs if is_batch(r)]
-    live = [r for r in batches if r.get("status") != "completed"]
+    live = [r for r in batches if r.get("status") != "completed" and r.get("id") != self_run_id]
+    if self_run_id:
+        asked = judged
+        judged = lambda run_id: run_id == self_run_id or asked(run_id)  # noqa: E731
     if live:
         return "skip", f"batch run {live[0].get('id')} is {live[0].get('status')} on {str(live[0].get('head_sha'))[:11]}"
     if not batches:
@@ -341,7 +390,11 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
         return "dispatch", f"batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} gave no verdict (its plan or judge failed); tip {tip[:11]} is untested"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
-        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min"
+        count = ahead(newest.get("head_sha")) if every_merges > 0 else None
+        if count is not None and count >= every_merges:
+            return "dispatch", f"tip {tip[:11]} is {count} commits ahead of batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} (every {every_merges})"
+        piled = f", {count} of {every_merges} merges" if count is not None else ""
+        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min{piled}"
     return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
 
 
@@ -351,6 +404,66 @@ def window_minutes(value: str | None) -> int:
     except ValueError:
         return DEFAULT_WINDOW_MINUTES
     return minutes if minutes > 0 else DEFAULT_WINDOW_MINUTES
+
+
+def every_merges(value: str | None) -> int:
+    """NEXT_POST_MERGE_EVERY_MERGES: unset or unreadable is the default; 0 turns the count off (the window alone)."""
+    try:
+        count = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_EVERY_MERGES
+    return max(count, 0)
+
+
+def ahead_by(repo: str, base: str, tip: str, api=None) -> int | None:
+    """Commits tip has that base has not (one compare call, one commit listed); None when GitHub cannot say."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
+    if not base or not SHA_RE.match(str(base)):
+        return None
+    try:
+        data = api(f"repos/{repo}/compare/{base}...{tip}?per_page=1") or {}
+    except RuntimeError as err:
+        print(f"::warning::compare {str(base)[:11]}...{tip[:11]}: {err}; the window decides")
+        return None
+    count = data.get("ahead_by")
+    return count if isinstance(count, int) else None
+
+
+HOURLY_WORKFLOW = "cmux-next-hourly-full-tier.yml"
+HOURLY_MINUTES = 55  # the 30-minute schedule's ticks land at most an hour apart: :11 and :41
+
+
+def hourly_decision(tip: str, runs: list[dict], now: datetime, minutes: int = HOURLY_MINUTES) -> tuple[str, str]:
+    """Whether to start the hourly full tier at TIP. RUNS: its runs, newest first."""
+    if any(r.get("status") != "completed" for r in runs):
+        return "skip", "an hourly full tier run is in flight"
+    if not runs:
+        return "dispatch", "no hourly full tier run yet"
+    newest = runs[0]
+    if newest.get("head_sha") == tip:
+        return "skip", "the tip has not moved since the last hourly full tier run"
+    age = (now - parse_time(newest.get("created_at") or "")).total_seconds() / 60
+    if age < minutes:
+        return "skip", f"the last hourly full tier run is {age:.0f} min old"
+    return "dispatch", f"the tip moved since {str(newest.get('head_sha') or '')[:10]}, {age:.0f} min ago"
+
+
+def hourly_kick(args: argparse.Namespace, tip: str, now: datetime, api=None) -> str:
+    """Start cmux-next-hourly-full-tier.yml on the branch when hourly_decision says so; any API error is a warning."""
+    api = api or gh_api
+    try:
+        data = api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/runs?branch={args.branch}&per_page=5")
+        runs = sorted((data or {}).get("workflow_runs") or [],
+                      key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
+        action, reason = hourly_decision(tip, runs, now)
+        print(f"hourly full tier: {action}: {reason}")
+        if action == "dispatch" and not args.dry_run:
+            api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/dispatches", method="POST",
+                fields={"ref": args.branch})
+        return action
+    except (RuntimeError, ValueError, KeyError, TypeError) as err:
+        print(f"::warning::hourly full tier kick skipped: {err}")
+        return "error"
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
@@ -367,17 +480,22 @@ def tick(args: argparse.Namespace) -> int:
     # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
     # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
+    hourly_kick(args, tip, datetime.now(timezone.utc))
     runs = list_runs(args.repo, args.branch)
     def judged(run_id: int) -> bool:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
 
-    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged)
+    self_run_id = int(getattr(args, "self_run_id", 0) or 0)
+    action, reason = tick_decision(
+        tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged,
+        every_merges(getattr(args, "every_merges", None)), lambda base: ahead_by(args.repo, base, tip), self_run_id,
+    )
     print(f"{action}: {reason}")
     if action == "dispatch" and not args.dry_run:
         gh_api(
             f"repos/{args.repo}/actions/workflows/{WORKFLOW}/dispatches",
             method="POST",
-            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "tick"}},
+            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "next" if self_run_id else "tick"}},
         )
     return 0
 
@@ -422,7 +540,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if args.mode == PROBE:
         if args.suite not in suites or not SHA_RE.match(args.probe_sha or ""):
             raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
-        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
+        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": args.good if SHA_RE.match(args.good or "") else ""})
         summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
     def judged(run_id: int) -> bool:
@@ -511,6 +629,66 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
     return found, notes
 
 
+def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
+               suites: dict[str, "Suite"]) -> list[tuple[str, str, str, str]]:
+    """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
+
+    A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
+    run further back (good) and a first red one after it (bad): the culprit is in good..bad. It is bisected there,
+    with no confirming probe (two batch runs already agree it is red), unless a probe of the same suite job started
+    after the first red batch run is still running, or it was already bisected MAX_REBISECTS times since. Matrix legs
+    of one suite job with the same good and bad are one bisect (gallery-health's 21 shards were 21 known reds).
+    runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
+    runs (cmd_judge, before its origin) agrees with the batch run that dispatched it."""
+    reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    probes = [r for r in runs if (r.get("display_title") or "").split(" ", 1)[0] == PROBE]
+    cache: dict[int, object] = {}
+    out: list[tuple[str, str, str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for name in reds:
+        suite = verdicts[name][0]
+        first = green = None
+        red_runs = 0
+        for run in earlier:
+            if run["id"] not in cache:
+                cache[run["id"]] = jobs_of(run["id"])
+            got, judged = cache[run["id"]] if isinstance(cache[run["id"]], tuple) else (cache[run["id"]], True)
+            before = got.get(name)
+            if not before or before[1] not in ("success", "failure"):
+                continue
+            if before[1] == "failure":
+                if judged:
+                    first, red_runs = run, red_runs + 1
+                continue
+            green = run
+            break
+        if first is None or green is None:
+            continue  # a new red (new_reds bisects it) or no green in reach
+        only = suites[suite].job_id(name.partition(" / ")[2]) if suite in suites else ""
+        key = (suite, only, green["head_sha"], first["head_sha"])
+        if key in seen:
+            continue
+        prefix = f"{PROBE} {suite} {only or 'all'} at "
+        mine = [p for p in probes if (p.get("display_title") or "").startswith(prefix)
+                and (p.get("created_at") or "") > (first.get("created_at") or "")]
+        if any(p.get("status") != "completed" for p in mine):
+            continue
+        if mine and red_runs > MAX_REBISECTS:
+            continue
+        seen.add(key)
+        out.append((name, suite, green["head_sha"], first["head_sha"]))
+    return out
+
+
+def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str]) -> Probe:
+    """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
+    re-confirms it: next_step reads a pass there as a flake)."""
+    span = commits_between(commits, good, bad)
+    mid = span[(len(span) - 1) // 2] if span else bad
+    return Probe(suite, name, only, mid, good, bad, origin)
+
+
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
     ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
@@ -520,6 +698,8 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
         return "lost", None
     good, bad = probe.good, probe.bad
+    if bad and probe.sha == bad and conclusion == "success":  # a stuck red's one-commit range, re-confirmed: it passed
+        return "flake", None
     if not bad:  # the confirming probe, on the batch's own commit
         if conclusion == "success":
             return "flake", None
@@ -574,10 +754,34 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
     return ""
 
 
-def dispatch_probe(repo: str, branch: str, probe: Probe, api=gh_api) -> None:
+# GitHub answers a workflow dispatch with a 5xx now and then (HTTP 500 "Failed to run workflow dispatch", 502
+# "Server Error"); before this retry one such answer ended the judge and with it the bisect: nothing dispatched the
+# next probe, so the red stayed unbisected (cmux runs 45834479312 and 45839196986, 11-26).
+SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
+DISPATCH_WAITS = (15, 45)
+
+
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
+    """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
+    run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
+        if attempt:
+            listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
+            if any((r.get("display_title") or "") == title and r.get("status") != "completed" for r in (listed or {}).get("workflow_runs", [])):
+                print(f"dispatch of `{title}` answered 5xx but its run started", file=sys.stderr)
+                return
+        try:
+            api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+            return
+        except RuntimeError as e:
+            if wait is None or not SERVER_ERROR.search(str(e)):
+                raise
+            print(f"dispatch of `{title}`: {e}; retrying in {wait}s", file=sys.stderr)
+            sleep(wait)
 
 
 def piece_probe_refusal(probe: Probe, state, branch: str, origin: dict | None, found, covered, tree=None) -> str:
@@ -646,14 +850,23 @@ def cmd_judge(args: argparse.Namespace) -> int:
     jobs = run_jobs(args.repo, args.run_id)
     verdicts = suite_verdicts(jobs, suites)
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": "", "pieces": "", "piece": ""}
+    memo: dict[int, tuple[dict[str, tuple[str, str]], bool]] = {}
+
     def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
-        earlier = run_jobs(args.repo, rid)
-        judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
-        return suite_verdicts(earlier, suites), judged
+        # new_reds and stuck_reds walk the same earlier runs: read each run's jobs once.
+        if rid not in memo:
+            earlier = run_jobs(args.repo, rid)
+            judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
+            memo[rid] = (suite_verdicts(earlier, suites), judged)
+        return memo[rid]
 
     if args.mode != PROBE:
-        runs = list_runs(args.repo, args.branch)
+        # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
+        runs = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < int(args.run_id or 0) or not args.run_id]
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
+        stuck_names = {name for name, *_ in stuck}
+        notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
             summary(args.summary, f"- {note}")
         if not found:
@@ -666,6 +879,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 dispatch_probe(args.repo, args.branch, probe)
         for name, _, good in found[MAX_CHAINS:]:
             summary(args.summary, f"- New red `{name}` (green on `{good[:11]}`): over the {MAX_CHAINS}-bisect cap, named only.")
+        for name, suite, good, bad in stuck[:MAX_STUCK_CHAINS]:
+            inner = name.partition(" / ")[2]
+            probe = stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), first_parent_range(good, bad))
+            summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; bisecting there from `{probe.sha[:11]}`.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, probe)
+        for name, _, good, bad in stuck[MAX_STUCK_CHAINS:]:
+            summary(args.summary, f"- Stuck red `{name}` (green on `{good[:11]}`, red since `{bad[:11]}`): over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
         write_outputs(args.github_output, out)
         return 0
 
@@ -677,7 +898,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
     found: list[tuple[str, str, str]] = []
     if origin and is_batch(origin):
         before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
-        found, _ = new_reds(origin.get("head_sha") or "", jobs_of(origin["id"])[0], before, jobs_of)
+        origin_verdicts = jobs_of(origin["id"])[0]
+        found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+        found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
     state = None
     if probe.pieces:
         try:
@@ -728,10 +951,11 @@ def revert_title(subject: str, job: str, branch: str) -> str:
     return f'Revert "{subject}" (post-merge batch: {job} red on {branch})'
 
 
-def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
+def merged_by_teammate(repo: str, pr: str, api=None) -> str:
     """The culprit PR's author when a core teammate wrote it (their revert opens held), else "". An
     unreadable author counts as a teammate: a held revert costs a human glance, an agent landing a
     teammate's revert breaks the rule."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     if not pr:
         return ""
     try:
@@ -744,8 +968,9 @@ def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
 SWAPOUT_MARK = "<!-- post-merge piece swap-out {culprit} {job} -->"
 
 
-def swapouts_opened(repo: str, api=gh_api) -> list[datetime]:
+def swapouts_opened(repo: str, api=None) -> list[datetime]:
     """When each recent swap-out pull request opened (the breaker's count)."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     pulls = api(f"repos/{repo}/pulls?state=all&sort=created&direction=desc&per_page=50") or []
     return [parse_time(p["created_at"]) for p in pulls if str((p.get("head") or {}).get("ref") or "").startswith("swapout/")]
 
@@ -846,7 +1071,7 @@ def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, 
     publish(args, branch, git("rev-parse", "HEAD").strip(), f"+{sha}:refs/heads/{branch}", piece.files,
             f"python3 scripts/ci/piece_swap.py out {culprit} --piece {piece.id} --onto origin/{args.branch}")
     created = gh_api(f"repos/{args.repo}/pulls", method="POST", fields={"head": branch, "base": args.branch, "title": title, "body": body})
-    summary(args.summary, f"Swap-out pull request: {created['html_url']}")
+    summary(args.summary, f"Swap-out pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     if pr:
         mark = SWAPOUT_MARK.format(culprit=culprit, job=args.job)
@@ -897,7 +1122,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
     land = (
         f"This revert is {author}'s to land or close; no agent lands it."
         if author
-        else "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix."
+        else f"The base-break rule restores the base first: this carries `{LAND_LABEL}`, so it lands with no person once reviewed "
+        "and green; then reland the change with its fix."
     )
     body = "\n\n".join(
         ([TEAMMATE_HOLD.format(login=author)] if author else [])
@@ -905,7 +1131,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
             f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
             f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
             f"{land} If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
-            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert.",
+            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert itself.",
         ]
     )
     title = revert_title(subject, args.job, args.branch)
@@ -917,7 +1143,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         method="POST",
         fields={"head": branch, "base": args.branch, "title": title, "body": body},
     )
-    summary(args.summary, f"Revert pull request: {created['html_url']}")
+    summary(args.summary, f"Revert pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     return 0
 
@@ -954,6 +1180,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("tick")
     common(p)
     p.add_argument("--window-minutes", default=os.environ.get("NEXT_POST_MERGE_WINDOW_MINUTES"))
+    p.add_argument("--every-merges", default=os.environ.get("NEXT_POST_MERGE_EVERY_MERGES"),
+                   help=f"dispatch once the tip is this many commits past the last batch (default {DEFAULT_EVERY_MERGES}; 0: the window alone)")
+    p.add_argument("--self-run-id", type=int, default=0, help="the batch run whose judge job ticks (its own run)")
     p.set_defaults(func=cmd_tick)
 
     p = sub.add_parser("plan")

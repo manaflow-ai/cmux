@@ -175,6 +175,7 @@ public struct HostCLI: Sendable {
         // The stream may end (Cancel) at any point up to here; the gate decides under one lock
         // whether this start still runs, and a cancel that lands after it stops the process.
         do {
+            OpenDescriptors.noteBudgetSoon()
             try gate.start { try process.run() }
         } catch is CancellationError {
             // No process, so no exit to close the pipes at.

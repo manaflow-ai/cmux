@@ -38,6 +38,10 @@
       "fallback": "Blacksmith macOS after the dedicated-builder grace",
       "after_minutes": 5
     },
+    "glaeda-gateway-xcode-26.6": {
+      "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
+      "after_minutes": 10
+    },
     "cef-linux": {
       "fallback": "the owned Mac CEF worker after the Linux-host grace",
       "after_minutes": 5
@@ -103,19 +107,15 @@
       "fallback": "Blacksmith macOS (vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26): ios_internal_runner.py hands the archive the mini only while it is idle, waiting at most 5 min while busy",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "GitHub-hosted Linux capacity for fork pull requests; unset uses the workflow's ubuntu-24.04 fallback",
+      "after_minutes": 10
+    },
     "CI_NIGHTLY_NEXT_TRUSTED_RUNNER": {
       "fallback": "Blacksmith macOS after the dedicated-builder grace",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {
-      "fallback": "unset by default, so pr-pipeline.yml's linux job runs on its literal cmux-linux pool label; an operator sets it only to move that job to an overflow label",
-      "after_minutes": 5
-    },
     "CI_CLOUD_OVERFLOW_SAVED": {
-      "fallback": "the route-defined owned-pool or Blacksmith fallback",
-      "after_minutes": 5
-    },
-    "CI_OVERFLOW_LINUX": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
@@ -215,12 +215,13 @@
       "fallback": "the next member of the pool in .github/runners.json (its reconciler moves the pool when the current member starts nothing); with the variable unset, the selector's default, the pool's first member (tools/fleet-reconcilers/test_runner_pools.py)",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {"fallback": "unset or empty, ubuntu-24.04 in the same runs-on (a fork pull request only; pinned-files-mirror.yml mirror, swift-linux-packages.yml plan and linux-targets), a GitHub-hosted label with many hosts", "after_minutes": 5},
     "LINUX_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
     "CI_FORK_LINUX_RUNNER": {
-      "fallback": "read only by fork pull requests (scripts/ci/one_linux_label.py); unset or empty, GitHub-hosted ubuntu-24.04, never an owned host. An operator sets it only to a GitHub-hosted or vendor runner label",
+      "fallback": "read only for a fork's pull request; unset, those jobs take GitHub-hosted ubuntu-24.04 (many hosts, not one), and every other run takes cmux-linux",
       "after_minutes": 5
     },
     "LINUX_ARM64_RUNNER": {
@@ -292,6 +293,7 @@
       "after_minutes": 25,
       "note": "Leo's explicit exception to the no-reserved-host rule (rulebook, 2026-11-01: \"ok just dedicate at least one m4 pro mini just completely to the nightly situation idgaf anymore\" and \"i thought 7 and 15 were both capable of being dedicated\"), declared in #5857."
     },
+    "CI_FORK_LINUX_RUNNER": {"fallback": "unset by default, so a fork pull request's pinned-files-mirror mirror and swift-linux-packages linux-targets jobs take GitHub-hosted ubuntu-24.04 (the `|| 'ubuntu-24.04'` in the same runs-on); a same-repository run takes cmux-linux, which every owned Linux pool host carries. An operator sets it only to move fork runs to another hosted Linux label, and clearing it puts them back", "after_minutes": 5},
     "CI_LINUX_GATE_OWNED_RUNNER": {
       "fallback": "unset by default, so the no-kernel Linux gates (cmux ci.yml macos-admission-gate, linux-preflight and ci-status; ci-web.yml react-apps-check-shard, react-apps-base-check and react-apps-check) take fromJSON(vars.RUNNER_POOLS).linux or their Blacksmith literal in the same runs-on (cmux#30435). An operator sets it only during a Blacksmith backlog, and cmux scripts/ci/runner_label_policy.py holds it to the side-lane rule: an owned glaeda-side-<class>-xcode-<version> pool label, never one host, and it is read only on a push or a same-repository pull_request. Nothing moves a job queued there automatically (ci-owned-pool-rescue only alarms on an active PR run); clearing the variable puts new runs back on the Blacksmith route. after_minutes is the side-lane rescue window, as for CI_SIDE_LANE_RUNNER",
       "after_minutes": 5
@@ -339,10 +341,29 @@
     "CI_REPAIR_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset (or anything but `1`) sends the repair workflows (compile attribution, owned-pool rescue, stale-run janitor) to cmux-gcp-repair-jit-x64, one-job JIT VMs made on demand (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default",
       "after_minutes": 10
+    },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "unset or empty, ubuntu-24.04, GitHub's hosted Linux image (many hosts, not one); only a fork pull request's job reads it, and a same-repo job runs on cmux-linux",
+      "after_minutes": 5
     }
   },
   "nightly_workflow_marker": "nightly",
   "nightly_terminal_labels": {
+    "cmux-mac": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Mac pool is unavailable",
+      "after_minutes": 10,
+      "served_by": "owned Mac runners carrying cmux-mac"
+    },
+    "xcode-27.0": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27 pool is unavailable",
+      "after_minutes": 10,
+      "served_by": "owned Mac runners carrying Xcode 27.0"
+    },
+    "glaeda-gateway-xcode-26.6": {
+      "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
+      "after_minutes": 10,
+      "served_by": "the build-fleet gateway runners"
+    },
     "blacksmith-12vcpu-macos-26": {
       "fallback": "blacksmith-6vcpu-macos-26, then an owned Mac through the controller",
       "after_minutes": 10,
@@ -577,6 +598,17 @@
       ],
       "constrained_by": "cmux feat-cmux-next scripts/ci/ios_internal_runner.py pick(): DEDICATED_LABEL (vars.CI_IOS_INTERNAL_RUNNER) while an online repository runner carrying it is idle, waiting up to WAIT_SECONDS (5 min) while it is busy; empty when the variable is unset, the runners cannot be read, or the mini is offline or still busy. It never prints any other label.",
       "empty_falls_back_to": "vars.MACOS_RUNNER_26, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression; the archive reads the pick only on the attempt it was made for (pick-archive-runner.outputs.attempt), so a re-run takes the same vars.MACOS_RUNNER_26-then-literal chain, and the picker is continue-on-error, so a failed pick reads as empty. vars.MACOS_RUNNER_26 is checked as a declared variable on its own."
+    },
+    "ios-internal-nightly.yml:pick-archive-runner.fallback": {
+      "labels": [
+        "vars.MACOS_RUNNER_26",
+        "blacksmith-6vcpu-macos-26",
+        "cmux-mac",
+        "xcode-27.0"
+      ],
+      "array_pin": "glaeda-runner-",
+      "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
+      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
     },
     "nightly.yml:route-visual-gate-nightly.runs_on": {
       "labels": [

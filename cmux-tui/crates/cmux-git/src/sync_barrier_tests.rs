@@ -132,3 +132,34 @@ fn a_reader_runs_on_what_the_ledger_holds_and_asks_for_the_rest() {
     drop(again);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Leo, 2026-11-25 (#17): "what if the user deletes the folders that were on their source of
+/// truth machines? ... say genshin. it can go partial and resume whenever." A copy whose source
+/// went away past its head ends ready with a note of why, so tools run on what landed; one
+/// short of its head may not; the sync that completes it later takes the note away.
+#[test]
+fn a_partial_sync_reads_ready_with_its_note_until_a_whole_sync_completes_it() {
+    let dir = std::env::temp_dir().join(format!("cmux-sync-partial-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let repo = dir.canonicalize().unwrap().join("repo");
+    // Short of its head: refused, and dropping it leaves the folder failed as before.
+    let early = Sync::begin(&repo).unwrap();
+    assert!(early.complete_partial("source_missing").is_err());
+    assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
+    assert_eq!(partial(&repo), None);
+
+    let mut sync = Sync::begin(&repo).unwrap();
+    sync.head_ready();
+    sync.complete_partial("source_missing").unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+    wait_ready(&repo, Duration::from_secs(1)).unwrap();
+    assert_eq!(partial(&repo).as_deref(), Some("source_missing"));
+
+    // The resume: a whole sync of the same folder.
+    let mut again = Sync::begin(&repo).unwrap();
+    again.head_ready();
+    again.complete().unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+    assert_eq!(partial(&repo), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

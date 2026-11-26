@@ -16,6 +16,7 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
         "minimum-contrast", "faint-opacity", "palette-generate", "palette-harmonious",
         "alpha-blending", "window-colorspace",
         "search-background", "search-foreground", "search-selected-background", "search-selected-foreground",
+        "background-cells-opacity", "background-cells-neutral-fade",
     ]
     /// The longest value kept on one line (hostd's bound).
     static let maxValueLength = 64
@@ -59,8 +60,16 @@ public struct CmuxMobileTerminalTheme: Equatable, Sendable {
 
     /// The Ghostty config text that gives a terminal this theme: every theme key (and `theme`, so
     /// no theme file of the phone's loads) reset to Ghostty's default, then the Mac's lines.
-    public var configText: String {
-        (["theme ="] + Self.keys.map { "\($0) =" } + lines).joined(separator: "\n") + "\n"
+    public var configText: String { configText(seeThrough: false) }
+
+    /// ``configText``, and with `seeThrough` (the page under the terminal shows its Mac's wallpaper,
+    /// ``CmuxMobileMacTheme/wallpaper``) a transparent default background: the cells' own colors
+    /// stay, and the picture under the theme's tint shows behind the rest, as on the Mac, where the
+    /// window paints the picture and its tint and the surfaces draw at `background-opacity = 0`
+    /// (`GhosttyRuntimeSurfacePolicy`).
+    public func configText(seeThrough: Bool) -> String {
+        let ground = seeThrough ? ["background-opacity = 0"] : []
+        return (["theme ="] + Self.keys.map { "\($0) =" } + lines + ground).joined(separator: "\n") + "\n"
     }
 
     /// Whether the background is dark (relative luminance below one half).

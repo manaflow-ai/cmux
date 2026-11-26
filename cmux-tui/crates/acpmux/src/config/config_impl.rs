@@ -6,7 +6,8 @@ impl Config {
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
     /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
     /// `remote_pipe.ssh` (`true`/`false`),
-    /// `transport.wireguard` (`true`/`false`), else a
+    /// `lane_gh_broker` (the broker's socket path, or `none`), `lane_gh_carrier` (owners, comma
+    /// separated, or `none`), `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
     ///
     /// The whole resulting config must pass the daemon's start check
@@ -49,6 +50,39 @@ impl Config {
                 "true" | "on" | "1" => true,
                 "false" | "off" | "0" | "none" | "clear" | "default" => false,
                 _ => anyhow::bail!("remote_pipe.ssh must be true or false"),
+            };
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "lane_gh_broker" | "laneghbroker"
+        ) {
+            let value = value.trim();
+            self.lane_gh_broker = match value.to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                _ if value.starts_with('/') || value.starts_with("~/") => Some(value.to_owned()),
+                _ => anyhow::bail!(
+                    "lane_gh_broker must be the broker's socket as an absolute path (or ~/...)"
+                ),
+            };
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "lane_gh_carrier" | "laneghcarrier"
+        ) {
+            self.lane_gh_carrier = parse_lane_gh_carrier(value)?;
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "direct_port" | "directport"
+        ) {
+            self.direct_port = match value.trim().to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                port => Some(port.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(|| {
+                    anyhow::anyhow!("direct_port must be a TCP port (1-65535) or none")
+                })?),
             };
             return Ok(());
         }
@@ -118,7 +152,7 @@ impl Config {
             self.session.cpu_class = match value.to_ascii_lowercase().as_str() {
                 "" | "default" | "none" | "clear" => None,
                 _ => Some(crate::cpu_class::CpuClass::parse(value).ok_or_else(|| {
-                    anyhow::anyhow!("{key} must be `background`, `normal` or `default`")
+                    anyhow::anyhow!("{key} must be `dynamic`, `background`, `normal` or `default`")
                 })?),
             };
             return Ok(());
@@ -518,4 +552,28 @@ impl Config {
     pub fn web_listener(&self) -> Option<&WebSocketConfig> {
         self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
+}
+
+/// `lane_gh_carrier`'s value: owner names, comma or space separated, in order of preference;
+/// `none`, `off`, `clear` or empty for none. A name is a machine name (letters, digits, `-`, `_`,
+/// `.`), never a path or a flag.
+pub(crate) fn parse_lane_gh_carrier(value: &str) -> Result<Option<Vec<String>>> {
+    let value = value.trim();
+    if matches!(value.to_ascii_lowercase().as_str(), "" | "none" | "clear" | "off") {
+        return Ok(None);
+    }
+    let mut owners: Vec<String> = Vec::new();
+    for name in value.split(|c: char| c == ',' || c.is_whitespace()).filter(|n| !n.is_empty()) {
+        let ok = !name.starts_with('-')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        if !ok {
+            anyhow::bail!(
+                "lane_gh_carrier takes machine names, comma separated (or none): {name:?} is not one"
+            );
+        }
+        if !owners.iter().any(|o| o == name) {
+            owners.push(name.to_owned());
+        }
+    }
+    Ok(Some(owners))
 }

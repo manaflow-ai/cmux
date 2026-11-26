@@ -1,0 +1,209 @@
+name: Migrate journey (PR CLI on staging)
+
+# `cmux migrate` end to end (hq RFD 0168, scripts/cmux-next/migrate-journey-ci.sh): this pull request's
+# cmux-tui reads real public repos (a devcontainer, a compose file), then `migrate apply --headless` moves
+# each to a new staging machine through `cloud journey --repo` with the model stub and deletes it after.
+# The job summary and results.jsonl give each repo's result and time to its first working chat.
+#
+# Leo, 2026-11-24: "we ought to be able to have good migration capabilities all around for people of all
+# stages any and all levels of technical sophistication and teams and organizations of any size and demand
+# to move to autocloud"
+#
+# Secrets: the staging agent test account (CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev),
+# same-repo pull requests only.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/crates/cmux-migrate/**
+      - cmux-tui/crates/cmux-tui/src/cli/migrate*
+      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey*
+      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey/**
+      - scripts/cmux-next/migrate-journey-ci.sh
+      - .github/workflows/migrate-journey-pr.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate-journey-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  migrate:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      # The Zig is the one ghostty-next's build.zig.zon names, the libghostty-vt
+      # source cmux-tui builds from.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+      - name: Build this pull request's Linux cmux-tui
+        id: build-cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+          JOURNEY_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          JOURNEY_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          binary="$target_dir/debug/cmux-tui"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          test -x "$binary"
+          file "$binary" | grep -q 'ELF 64-bit'
+          sha256sum "$binary"
+          # Bind the caller to the checkout's actual merge, not just the PR head.
+          mkdir -p "$RUNNER_TEMP/migrate-journey"
+          python3 - "$binary" "$RUNNER_TEMP/migrate-journey/caller.json" <<'PY'
+          import hashlib, json, os, subprocess, sys
+          with open(sys.argv[1], 'rb') as binary:
+              digest = hashlib.file_digest(binary, 'sha256').hexdigest()
+          receipt = {
+              'schema': 1, 'repository': os.environ['GITHUB_REPOSITORY'],
+              'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'pr_head': os.environ['JOURNEY_PR_HEAD'], 'pr_base': os.environ['JOURNEY_PR_BASE'],
+              'cli_sha256': digest,
+          }
+          with open(sys.argv[2], 'w') as out:
+              json.dump(receipt, out, indent=2)
+          PY
+          if [[ "$binary" = /* ]]; then
+            echo "path=$binary" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
+          fi
+      # The ssh_host case: a throwaway sshd on 127.0.0.1 (unprivileged, a fresh ed25519 host and client key in
+      # $RUNNER_TEMP) whose sessions get their own HOME, the "remote" one: a public checkout and two dotfiles.
+      # The migrating HOME gets an ~/.ssh/config alias for it. OpenSSH reads ~/.ssh/config from the passwd home,
+      # never $HOME, so the same entry also goes into the runner user's own ~/.ssh/config.
+      - name: Start a throwaway SSH host for the ssh_host case
+        env:
+          MIGRATE_SSH_REPO: https://github.com/microsoft/vscode-remote-try-go
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/migrate-ssh-host"
+          remote_home="$base/remote-home"
+          mig_home="$RUNNER_TEMP/migrate-journey/home-ssh-host"
+          port=42722
+          sshd="$(command -v sshd || true)"
+          [ -n "$sshd" ] || sshd=/usr/sbin/sshd
+          if [ ! -x "$sshd" ]; then
+            sudo apt-get install -y openssh-server
+          fi
+          mkdir -p "$base" "$remote_home" "$mig_home/.ssh"
+          chmod 700 "$base" "$mig_home/.ssh"
+          ssh-keygen -q -t ed25519 -N '' -C migrate-journey-host -f "$base/host_ed25519"
+          ssh-keygen -q -t ed25519 -N '' -C migrate-journey-client -f "$base/client_ed25519"
+          cp "$base/client_ed25519.pub" "$base/authorized_keys"
+          chmod 600 "$base/authorized_keys"
+          git clone --depth 1 --quiet "$MIGRATE_SSH_REPO" "$remote_home/$(basename "$MIGRATE_SSH_REPO")"
+          printf '[user]\n\tname = Migrate Journey\n\temail = migrate-journey@example.invalid\n' > "$remote_home/.gitconfig"
+          printf 'export EDITOR=vi\n' > "$remote_home/.bashrc"
+          cat > "$base/sshd_config" <<CFG
+          ListenAddress 127.0.0.1
+          Port $port
+          HostKey $base/host_ed25519
+          PidFile $base/sshd.pid
+          AuthorizedKeysFile $base/authorized_keys
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          UsePAM no
+          StrictModes no
+          AllowTcpForwarding no
+          X11Forwarding no
+          PermitTTY no
+          ForceCommand cd "$remote_home" && HOME="$remote_home" exec /bin/sh -c "\$SSH_ORIGINAL_COMMAND"
+          CFG
+          "$sshd" -t -f "$base/sshd_config"
+          "$sshd" -f "$base/sshd_config" -E "$base/sshd.log"
+          entry="Host migrate-journey-host
+            HostName 127.0.0.1
+            Port $port
+            User $(id -un)
+            IdentityFile $base/client_ed25519
+            IdentitiesOnly yes
+            UserKnownHostsFile $base/known_hosts
+            StrictHostKeyChecking accept-new
+          "
+          printf '%s\n' "$entry" > "$mig_home/.ssh/config"
+          chmod 600 "$mig_home/.ssh/config"
+          passwd_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+          mkdir -p "$passwd_home/.ssh"
+          chmod 700 "$passwd_home/.ssh"
+          printf '\n%s\n' "$entry" >> "$passwd_home/.ssh/config"
+          chmod 600 "$passwd_home/.ssh/config"
+          # Up before the script: one bounded login, the same options `cmux migrate` passes.
+          HOME="$mig_home" timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=15 migrate-journey-host true
+          {
+            echo "MIGRATE_SSH_HOST=migrate-journey-host"
+            echo "MIGRATE_SSH_HOME=$mig_home"
+            echo "MIGRATE_SSH_REPO=$MIGRATE_SSH_REPO"
+          } >> "$GITHUB_ENV"
+      - name: cmux migrate on real public repos (staging, this pull request's CLI)
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          TARGET: staging
+        run: bash scripts/cmux-next/migrate-journey-ci.sh
+      - name: Keep plans, journeys, ledgers and the results table
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: migrate-journey-pr-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/migrate-journey/caller.json
+            ${{ runner.temp }}/migrate-journey/*.json
+            ${{ runner.temp }}/migrate-journey/*.jsonl
+            ${{ runner.temp }}/migrate-journey/*.log
+            ${{ runner.temp }}/migrate-ssh-host/sshd.log
+            ${{ runner.temp }}/migrate-journey/home-*/.cmux/migrate/**
+          if-no-files-found: warn
+          retention-days: 7

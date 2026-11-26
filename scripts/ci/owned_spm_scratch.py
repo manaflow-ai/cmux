@@ -5,12 +5,15 @@
     owned_spm_scratch.py lease WORKSPACE [STORE]
     owned_spm_scratch.py evict [STORE]
     owned_spm_scratch.py drop-bundles BUILD
-    owned_spm_scratch.py seeded
+    owned_spm_scratch.py seeded [ROOT KEY]
+    owned_spm_scratch.py seed-kept ROOT PREFIX
 
 With CMUX_FAST_TIER_OWNED_SEED=1 (cmux-next.yml's fast tier, unless vars.CI_FAST_TIER_OWNED_SEED is "0"),
 `lease` first holds the mini's seed root (seed_lease): the workspace path the R2 base seed is built at,
 /Users/runner/_work/cmux/cmux, so the fast tier restores the seed there as Blacksmith does and builds only
 what differs from the base. It prints `root=` and `seed=1`; `seeded` then records the warm start.
+While another job holds that root it tries the second one, /Users/runner/_work/cmux-2/cmux, seeded at that path
+too, on a mini with the disk to keep both (second_seed_fits; vars.CI_FAST_TIER_SECOND_SEED_ROOT "0" turns it off).
 
 swift-package-tests, swift-test and fast-tier run `swift build` for the packages
 a change selects. On an owned Mac (a glaeda runner) the workspace is reused, but
@@ -106,6 +109,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 from typing import Mapping
 
@@ -798,6 +802,13 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 # shared roots above were warm on 3% of fast-tier jobs in 48 h to 2026-11-18 (cmux#44271): the light
 # 228 GiB minis rest at 32-48 GiB free and the lease's reserve never admitted a root there.
 SEED_WORKSPACE = Path("/Users/runner/_work/cmux/cmux")
+# The second seed root, tried only while another fast-tier job holds the first: of 15 fast-tier jobs that
+# started cold and hit the 60-minute cap in 6 h to 01Z 2026-11-23, 7 found the one seed root held by another
+# fast-tier job, which came free 12 to 60 minutes later (controller timing records, ci-three-pushes-per-pr).
+# SwiftPM's build records absolute paths, so it has its own seed: cmux-next-fast-tier-seed.yml builds one at
+# this path too (its blacksmith-root2 pool). vars.CI_FAST_TIER_SECOND_SEED_ROOT "0" turns it off.
+SECOND_SEED_WORKSPACE = Path("/Users/runner/_work/cmux-2/cmux")
+SECOND_SEED_SETTING = "CMUX_FAST_TIER_SECOND_SEED_ROOT"  # "0" from cmux-next.yml when the variable is "0"
 SEED_LOCK = ".cmux-seed-root.lock"
 # Provisioning writes this in the seed root's parent. The nightly-next builder's runner works in
 # /Users/runner/_work/cmux/cmux too, so the directory alone does not make the path ours.
@@ -806,6 +817,72 @@ SEED_SETTING = "CMUX_FAST_TIER_OWNED_SEED"  # "1" from cmux-next.yml unless vars
 # The seed's CmuxNext and CmuxHomeRender builds (15 GiB `du` in seed job 134522053219), rounded up.
 SEED_BYTES_ESTIMATE = 16 * 1024**3
 SEED_BUILDS = ("Packages/macOS/CmuxNext/.build", "Packages/Shared/CmuxHomeRender/.build")
+# A seed root keeps the last job's build. The fast tier and generated-files downloaded the seed into it
+# again on every job: 7.8 min (job 137945651156) to 11.6 min (job 138202614348) from R2 on a mini, before
+# a build that compiled about as many files as without it. The marker says the kept build descends from
+# a seed restored under KEY at AT, and only jobs with KEY's prefix (toolchain, manifests, path) built on it
+# since: such a build is SwiftPM's normal incremental state, and mirror() kept the time of every file
+# whose content it already had, so the next job of that prefix builds on it with no download.
+# seed_lease sets the marker aside (SEED_PENDING); `seed-kept` puts it back only for a job of the same
+# prefix within SEED_KEEP_MINUTES (vars.CI_FAST_TIER_SEED_KEEP_MINUTES; "0" restores every time), and
+# `seeded ROOT KEY` writes it after a restore. A job that reads neither leaves no marker behind.
+SEED_KEPT_MARKER = "cmux-seed-kept.json"
+SEED_PENDING = "cmux-seed-kept.pending"
+SEED_KEEP_SETTING = "CMUX_FAST_TIER_SEED_KEEP_MINUTES"
+SEED_KEEP_MINUTES = 120
+
+
+def seed_marker(root: Path, name: str = SEED_KEPT_MARKER) -> Path:
+    return root / SEED_BUILDS[0] / name
+
+
+def set_seed_marker_aside(root: Path) -> None:
+    """At lease: the kept build's marker waits for `seed-kept` to judge it against this job's prefix."""
+    marker, pending = seed_marker(root), seed_marker(root, SEED_PENDING)
+    try:
+        os.replace(marker, pending)
+    except FileNotFoundError:
+        pending.unlink(missing_ok=True)
+
+
+def write_seed_marker(root: Path, key: str, at: float | None = None) -> Path | None:
+    build = root / SEED_BUILDS[0]
+    if not key or not build.is_dir():
+        return None
+    marker = seed_marker(root)
+    staged = marker.with_name(f"{marker.name}.{os.getpid()}")
+    staged.write_text(json.dumps({"key": key, "at": time.time() if at is None else at}) + "\n", encoding="utf-8")
+    staged.replace(marker)
+    seed_marker(root, SEED_PENDING).unlink(missing_ok=True)
+    return marker
+
+
+def seed_keep_minutes(environ: Mapping[str, str] = os.environ) -> float:
+    try:
+        return max(0.0, float(environ.get(SEED_KEEP_SETTING) or SEED_KEEP_MINUTES))
+    except ValueError:
+        return float(SEED_KEEP_MINUTES)
+
+
+def take_kept_seed(root: Path, prefix: str, now: float | None = None,
+                   environ: Mapping[str, str] = os.environ) -> str | None:
+    """The seed key the root's kept build descends from, when this job (PREFIX) may build on it instead of
+    restoring a seed: the same prefix, restored at most seed_keep_minutes ago, and a planned build still
+    in every seed directory. Puts the marker back for it; drops it otherwise."""
+    pending = seed_marker(root, SEED_PENDING)
+    try:
+        record = json.loads(pending.read_text(encoding="utf-8"))
+        key, at = str(record["key"]), float(record["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pending.unlink(missing_ok=True)
+        return None
+    pending.unlink(missing_ok=True)
+    age = (time.time() if now is None else now) - at
+    if (not prefix or not key.startswith(prefix) or not 0 <= age <= seed_keep_minutes(environ) * 60
+            or not all(any((root / build).glob("*/*/description.json")) for build in SEED_BUILDS)):
+        return None
+    write_seed_marker(root, key, at=at)
+    return key
 
 
 def seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> bool:
@@ -816,12 +893,82 @@ def seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footpri
     return free + kept >= int(floor_gib * 1024**3) + max(0, footprint - int(growth_gib * 1024**3))
 
 
+def second_seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> bool:
+    """Whether a mini has the disk for a second seed root: its build stays after the job, beside the first
+    root's, so it needs room above glaeda's floor for itself and still for the next job's growth."""
+    return free + kept >= int((floor_gib + growth_gib) * 1024**3) + footprint
+
+
+# The off switch for make_seed_room: "0" leaves the scratch alone and the seed root falls through on room as
+# before (cmux-next.yml sets it from vars.CI_SPM_SCRATCH_SEED_EVICT).
+SEED_EVICT_SETTING = "CMUX_SPM_SCRATCH_SEED_EVICT"
+
+
+def in_use(entry: Path) -> bool:
+    """Whether a job holds ENTRY's lock now (shared or exclusive); drop checks again under its own lock."""
+    try:
+        with open(lock_path(entry), "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    return False
+
+
+def same_volume(a: Path, b: Path) -> bool:
+    try:
+        return a.stat().st_dev == b.stat().st_dev
+    except OSError:
+        return False
+
+
+def free_needed(fits, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> int:
+    """The least free space at which FITS (a seed root's room check: seed_fits, second_seed_fits) passes."""
+    high = 1
+    while not fits(high, kept, floor_gib, growth_gib, footprint):
+        high *= 2
+    low = 0
+    while low < high:
+        mid = (low + high) // 2
+        if fits(mid, kept, floor_gib, growth_gib, footprint):
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def make_seed_room(parent: Path, scratch: Path, kept: int, floor_gib: float, growth_gib: float, footprint: int,
+                   environ: Mapping[str, str] = os.environ, fits=None) -> list[str]:
+    """Drop the least recently used SwiftPM scratch directories no job holds until the seed root fits by its own
+    test (FITS, seed_fits by default: glaeda's floor plus what the seed needs past one job's growth), and no further. The bound is
+    that admission's threshold, not a size: a mini with room keeps all its scratch. The seed root fell through on
+    room on 8 fast-tier jobs (three minis at 15.4, 48.4 and 56.2 GiB free, 2026-11-23) while
+    one of them held 31 GiB of scratch. A directory a job holds (its lock, shared or exclusive) is never dropped
+    (drop). Off: CMUX_SPM_SCRATCH_SEED_EVICT=0. Returns the dropped directories' names."""
+    if environ.get(SEED_EVICT_SETTING, "1") == "0" or not scratch.is_dir() or not same_volume(parent, scratch):
+        return []
+    short = free_needed(fits or seed_fits, kept, floor_gib, growth_gib, footprint) - free_bytes(parent)
+    if short <= 0:
+        return []
+    stats = {entry: tree_stats(entry) for entry in entries(scratch)}
+    if sum(size for entry, (size, _) in stats.items() if not in_use(entry)) < short:
+        return []  # dropping all of it would still leave the seed no room: keep the scratch warm
+    sizes: dict[str, int] = {}
+    total = sum(size for size, _ in stats.values())
+    dropped = prune(scratch, max_bytes=max(0, total - short), sizes=sizes)
+    freed = sum(sizes.get(name, 0) for name in dropped)
+    if dropped:
+        print(f"owned SwiftPM scratch: dropped {len(dropped)} least recently used scratch directories "
+              f"({freed / 1024**3:.1f} GiB) to make room for the seed root ({short / 1024**3:.1f} GiB short)")
+    return dropped
+
+
 def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
-               verdict: dict[str, object] | None = None) -> Path | None:
+               verdict: dict[str, object] | None = None, fits=seed_fits,
+               store: Path = DEFAULT_STORE) -> Path | None:
     """Hold the mini's seed root for this job and mirror WORKSPACE into it; return it, or None to take the
     shared roots as before: not an owned runner, the root's parent not provisioned (the mini's user owns
     /Users/runner/_work/cmux and marks it with SEED_MARKER), another job holding it, or no room above
-    glaeda's floor (seed_fits).
+    glaeda's floor (seed_fits) even after make_seed_room dropped the idle SwiftPM scratch it may.
     The packages' .build stay real directories there: the job restores the seed into them."""
     if "-glaeda" not in runner or os.path.realpath(workspace) == os.path.realpath(seed_workspace):
         return None
@@ -839,7 +986,9 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         kept = sum(tree_bytes(seed_workspace / build) for build in SEED_BUILDS)
         floor_gib, growth_gib = disk_limits_gib()
         footprint = max(SEED_BYTES_ESTIMATE, kept)
-        if not seed_fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
+        if not fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
+            make_seed_room(parent, store / SCRATCH, kept, floor_gib, growth_gib, footprint, fits=fits)
+        if not fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
             os.close(fd)
             return None
         hold(parent / SEED_LOCK, fd=fd)
@@ -852,6 +1001,8 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         if seed_workspace.is_symlink() or not seed_workspace.is_dir():
             seed_workspace.unlink()
     seed_workspace.mkdir(exist_ok=True)
+    with contextlib.suppress(OSError):
+        set_seed_marker_aside(seed_workspace)  # before the mirror: a half-mirrored root keeps no marker
     mirror(workspace, seed_workspace)
     for package in packages(seed_workspace):
         build = package / ".build"
@@ -860,8 +1011,20 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         else:
             drop_resource_bundles(build)  # the last job may have built another branch (cmux#26961)
     if verdict is not None:
-        verdict.update(state="cold", reason="seed root", bytes=0)
+        verdict.update(state="cold", reason="seed root", bytes=kept)
     return seed_workspace
+
+
+def seed_roots(environ: Mapping[str, str] = os.environ) -> list[tuple[Path, object]]:
+    """The seed roots a fast-tier job tries, in order, each with its room check. CMUX_FAST_TIER_SEED_WORKSPACE
+    names one root alone (tests)."""
+    named = environ.get("CMUX_FAST_TIER_SEED_WORKSPACE")
+    if named:
+        return [(Path(named), seed_fits)]
+    roots: list[tuple[Path, object]] = [(SEED_WORKSPACE, seed_fits)]
+    if environ.get(SECOND_SEED_SETTING) != "0":
+        roots.append((SECOND_SEED_WORKSPACE, second_seed_fits))
+    return roots
 
 
 def write_seeded(environ: Mapping[str, str] = os.environ) -> Path | None:
@@ -906,20 +1069,23 @@ def main(argv: list[str]) -> int:
         runner = os.environ.get("RUNNER_NAME", "")
         verdict = {}
         if os.environ.get(SEED_SETTING) == "1":
-            seed = Path(os.environ.get("CMUX_FAST_TIER_SEED_WORKSPACE") or SEED_WORKSPACE)
-            try:
-                seeded = seed_lease(workspace, seed, runner, verdict=verdict)
-            except (OSError, subprocess.SubprocessError) as error:
-                release_holders()
-                print(f"owned SwiftPM scratch: no seed root ({error}); taking a shared root")
-                seeded, verdict = None, {}
+            seeded = None
+            for seed, fits in seed_roots():
+                try:
+                    seeded = seed_lease(workspace, seed, runner, verdict=verdict, fits=fits, store=store)
+                except (OSError, subprocess.SubprocessError) as error:
+                    release_holders()
+                    print(f"owned SwiftPM scratch: no seed root at {seed} ({error})")
+                    seeded, verdict = None, {}
+                if seeded is not None:
+                    break
             if seeded is not None:
                 write_output("root", str(seeded))
                 write_output("seed", "1")
                 print(f"owned SwiftPM scratch: building in the mini's seed root {seeded} (the base seed restores here)")
                 report(verdict)
                 return 0
-            print("owned SwiftPM scratch: the seed root is busy, unprovisioned or has no room; taking a shared root")
+            print("owned SwiftPM scratch: every seed root is busy, unprovisioned or has no room; taking a shared root")
             verdict = {}
         try:
             source = lease(workspace, store, runner, verdict=verdict)
@@ -965,9 +1131,29 @@ def main(argv: list[str]) -> int:
         if verdict:
             report(verdict)
         return 0
-    if len(argv) == 2 and argv[1] == "seeded":
+    if len(argv) in (2, 4) and argv[1] == "seeded":
         write_seeded()
+        if len(argv) == 4:
+            with contextlib.suppress(OSError):
+                write_seed_marker(Path(argv[2]), argv[3])
         print("owned SwiftPM scratch: the base seed was restored into the seed root (starts seeded)")
+        return 0
+    if len(argv) == 4 and argv[1] == "seed-kept":
+        root = Path(argv[2])
+        try:
+            key = take_kept_seed(root, argv[3])
+        except OSError as error:
+            print(f"owned SwiftPM scratch: no kept seed ({error})")
+            key = None
+        if key is None:
+            write_output("kept", "0")
+            print("owned SwiftPM scratch: the seed root keeps no build of this prefix; restoring the seed")
+            return 0
+        kept_bytes = sum(tree_bytes(root / build) for build in SEED_BUILDS)
+        write_output("kept", "1")
+        write_output("key", key)
+        write_warm_start("warm", kept_bytes, "kept seed")
+        print(f"owned SwiftPM scratch: starts warm (kept seed {key}, {kept_bytes / 1024**3:.1f} GiB kept); no restore")
         return 0
     if len(argv) == 3 and argv[1] == "drop-bundles":
         dropped = drop_resource_bundles(Path(argv[2]))

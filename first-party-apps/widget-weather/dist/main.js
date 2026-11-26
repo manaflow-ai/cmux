@@ -35,6 +35,10 @@
         docs: "A pane was split, closed, resized or focused.",
         reads: "pane.list"
       },
+      "system_calendar.changed": {
+        docs: "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+        reads: "system_calendar.events"
+      },
       "tab.changed": {
         docs: "A tab was opened, closed, moved or selected.",
         reads: "tab.list"
@@ -46,6 +50,10 @@
       "agent.changed": {
         docs: "An agent's state changed (working, blocked, idle, done).",
         reads: "agent.list"
+      },
+      "media.changed": {
+        docs: "What plays changed: another track, play or pause, a seek, or new artwork.",
+        reads: "media.get"
       },
       "agent_chat.changed": {
         docs: "An agent chat was added, closed, renamed, read or changed state.",
@@ -110,6 +118,14 @@
         scope: "agents:write",
         class: "mutation"
       },
+      "app.pane.close": {
+        scope: "none",
+        class: "runtime"
+      },
+      "app.pane.open": {
+        scope: "none",
+        class: "runtime"
+      },
       "app.storage.delete": {
         scope: "storage:local",
         class: "mutation"
@@ -125,6 +141,10 @@
       "app.storage.set": {
         scope: "storage:local",
         class: "mutation"
+      },
+      "app.view.state": {
+        scope: "none",
+        class: "runtime"
       },
       "automation.audit.list": {
         scope: "automation:read",
@@ -322,6 +342,14 @@
         scope: "chat:write",
         class: "mutation"
       },
+      "chief.automation.list": {
+        scope: "chief:read",
+        class: "read"
+      },
+      "chief.automation.update": {
+        scope: "chief:write",
+        class: "mutation"
+      },
       "chief.continue": {
         scope: "chief:write",
         class: "mutation"
@@ -494,6 +522,10 @@
         scope: "cloud:write",
         class: "mutation"
       },
+      "cloud.machine.pause_all": {
+        scope: "cloud:write",
+        class: "mutation"
+      },
       "cloud.machine.rename": {
         scope: "cloud:write",
         class: "mutation"
@@ -546,11 +578,23 @@
         scope: "cloud:read",
         class: "read"
       },
+      "cloud.surge.preview": {
+        scope: "cloud:read",
+        class: "read"
+      },
+      "cloud.usage.current": {
+        scope: "cloud:read",
+        class: "read"
+      },
       "cloud.vm.attention.emit": {
         scope: "cloud:execute",
         class: "mutation"
       },
       "cloud.vm.event.emit": {
+        scope: "cloud:execute",
+        class: "mutation"
+      },
+      "cloud.vm.machine.request": {
         scope: "cloud:execute",
         class: "mutation"
       },
@@ -593,26 +637,6 @@
       "coderouter.accounts.list": {
         scope: "coderouter:read",
         class: "read"
-      },
-      "coderouter.app.connect_account": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.create_key": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.open": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.run_test": {
-        scope: "coderouter:execute",
-        class: "mutation"
-      },
-      "coderouter.app.start_onboarding": {
-        scope: "coderouter:write",
-        class: "mutation"
       },
       "coderouter.detect": {
         scope: "coderouter:read",
@@ -695,6 +719,10 @@
         class: "read"
       },
       "diff.comments.save": {
+        scope: "diff:write",
+        class: "mutation"
+      },
+      "diff.comments.thread": {
         scope: "diff:write",
         class: "mutation"
       },
@@ -858,6 +886,18 @@
         scope: "git:external",
         class: "mutation"
       },
+      "git.review.comment": {
+        scope: "git:write",
+        class: "mutation"
+      },
+      "git.review.post": {
+        scope: "git:external",
+        class: "mutation"
+      },
+      "git.review.start": {
+        scope: "git:execute",
+        class: "mutation"
+      },
       "git.status": {
         scope: "git:read",
         class: "read"
@@ -877,6 +917,10 @@
       "git.worktree.setup": {
         scope: "git:read",
         class: "read"
+      },
+      "git.worktree.setup.run": {
+        scope: "git:execute",
+        class: "mutation"
       },
       "github.issue.comment": {
         scope: "github:external",
@@ -1060,6 +1104,14 @@
       },
       "mail.threads.peek": {
         scope: "mail:read",
+        class: "read"
+      },
+      "media.control": {
+        scope: "media:control",
+        class: "mutation"
+      },
+      "media.get": {
+        scope: "media:read",
         class: "read"
       },
       "memory_app.cycle_variant": {
@@ -1269,6 +1321,10 @@
       "participants.unban": {
         scope: "participants:write",
         class: "mutation"
+      },
+      "project.actions.list": {
+        scope: "project:read",
+        class: "read"
       },
       "project.add": {
         scope: "project:write",
@@ -1578,6 +1634,10 @@
         scope: "settings:read",
         class: "read"
       },
+      "settings.history": {
+        scope: "settings:read",
+        class: "read"
+      },
       "settings.list": {
         scope: "settings:read",
         class: "read"
@@ -1690,6 +1750,18 @@
         scope: "sidebar:write",
         class: "mutation"
       },
+      "signal.publish": {
+        scope: "none",
+        class: "mutation"
+      },
+      "signal.read": {
+        scope: "none",
+        class: "read"
+      },
+      "signal.sources.list": {
+        scope: "none",
+        class: "read"
+      },
       "skills_app.cycle_variant": {
         scope: "skills_app:write",
         class: "mutation"
@@ -1724,6 +1796,14 @@
       },
       "stash.restore": {
         scope: "stash:write",
+        class: "mutation"
+      },
+      "system_calendar.events": {
+        scope: "system_calendar:read",
+        class: "read"
+      },
+      "system_calendar.request_access": {
+        scope: "system_calendar:read",
         class: "mutation"
       },
       "tab_group.add_tabs": {
@@ -2006,6 +2086,10 @@
         scope: "theme:read",
         class: "read"
       },
+      "theme.slots.resolve": {
+        scope: "theme:read",
+        class: "read"
+      },
       "thread.update": {
         scope: "thread:write",
         class: "mutation"
@@ -2178,6 +2262,9 @@
       "agent.message.send",
       "agent.message.unsend",
       "automation.delete",
+      "automation.secret.list",
+      "automation.secret.remove",
+      "automation.secret.set",
       "automation.settings.set",
       "automation.webhook.get",
       "browser.attach",
@@ -2203,8 +2290,11 @@
       "cloud.fs.remove",
       "cloud.machine.archive_delete",
       "cloud.machine.chat_access",
+      "cloud.machine.chief_resize",
+      "cloud.machine.chief_start",
       "cloud.machine.create",
       "cloud.machine.delete",
+      "cloud.machine.fork",
       "cloud.machine.io",
       "cloud.machine.link_token",
       "cloud.machine.resize",
@@ -2235,6 +2325,7 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.restore",
+      "cloud.surge.create",
       "cloud.vm.domains",
       "cloud.vm.firewall_create",
       "cloud.vm.firewall_delete",
@@ -2304,6 +2395,7 @@
       "keybindings.remove",
       "keybindings.reset",
       "keybindings.set",
+      "language_packs.ensure",
       "layout.bulk",
       "network.list",
       "origin.confirmation.issue",
@@ -2329,7 +2421,10 @@
       "settings.edit",
       "settings.reset",
       "settings.reset_all",
+      "settings.reset_group",
+      "settings.restore",
       "settings.set",
+      "settings.undo",
       "sidebar_view.attach",
       "sso.connection.activate",
       "sso.connection.create",
@@ -2381,6 +2476,23 @@
       "workspace.open_url"
     ]
   };
+  var TYPE_ROLES = {
+    numeral: { size: 34, weight: "semibold" },
+    heading: { size: 20, weight: "semibold" },
+    title: { size: 15, weight: "semibold" },
+    label: { size: 13, weight: "semibold" },
+    body: { size: 13, weight: "regular" },
+    caption: { size: 12, weight: "regular" },
+    footnote: { size: 11, weight: "regular" }
+  };
+  var WIDGET_TYPE = {
+    bigNumber: TYPE_ROLES.numeral.size,
+    title: TYPE_ROLES.title.size,
+    label: TYPE_ROLES.label.size,
+    body: TYPE_ROLES.body.size,
+    caption: TYPE_ROLES.caption.size,
+    footnote: TYPE_ROLES.footnote.size
+  };
   function widget(render) {
     return render;
   }
@@ -2416,7 +2528,9 @@
     Circle,
     Capsule,
     Rectangle,
-    RoundedRectangle
+    RoundedRectangle,
+    Line,
+    Particles
   } = g;
   var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
   var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));
@@ -2491,16 +2605,16 @@
       return day ? "cloudy-day" : "cloudy-night";
     return day ? "clear-day" : "clear-night";
   }
-  var SKY_COLORS = {
-    "clear-day": "#3A86D4",
-    "clear-night": "#14203A",
-    "cloudy-day": "#62798F",
-    "cloudy-night": "#272F3C",
-    "rain-day": "#4F6274",
-    "rain-night": "#1E2631",
-    snow: "#7F93A8",
-    fog: "#717D88",
-    storm: "#363A4B"
+  var SKY_GRADIENTS = {
+    "clear-day": ["#235C9B", "#3076B4"],
+    "clear-night": ["#0B1A3A", "#253B6E", "#3A4E86"],
+    "cloudy-day": ["#526B82", "#607589"],
+    "cloudy-night": ["#1D2636", "#3C485C"],
+    "rain-day": ["#354D63", "#566F85"],
+    "rain-night": ["#151D2B", "#2E3C50"],
+    snow: ["#425B73", "#60758A"],
+    fog: ["#435661", "#5C707C"],
+    storm: ["#24283A", "#5A5874"]
   };
   function hourLabel(time, twelveHour) {
     const hour = Number(time.slice(11, 13));
@@ -2698,7 +2812,8 @@
   var degrees = (celsius, look) => `${shown(celsius, look.units)}°`;
   function symbol(name, size, look) {
     const color = symbolColor(name);
-    return Icon(name).size(size).font(size).color(look.sky || color !== "#FFFFFF" ? color : look.text);
+    const icon = Icon(name).size(size).font(size).color(look.sky || color !== "#FFFFFF" ? color : look.text);
+    return look.sky ? icon.symbolRendering("multicolor") : icon;
   }
   function header(r, look, big) {
     return VStack({ spacing: 0 }, [
@@ -2796,14 +2911,14 @@
     const shownReading = computed(() => preview ? { key: keyOf(settings()), place: SAMPLE_PLACE, forecast: SAMPLE_FORECAST, at: 0 } : reading());
     const look = computed(() => {
       const s = settings();
-      const units = unitsFor(cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "");
-      return s.look === "plain" ? { sky: false, text: cmux.theme.text.primary, secondary: cmux.theme.text.secondary, units } : { sky: true, text: "#FFFFFF", secondary: "#FFFFFFB3", units };
+      const units = unitsFor(ctx.locale || cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "");
+      return s.look === "plain" ? { sky: false, text: cmux.theme.text.primary, secondary: cmux.theme.text.secondary, units } : { sky: true, text: "#FFFFFF", secondary: "#FFFFFF", units };
     });
     const sky = computed(() => {
       if (!look().sky)
         return null;
       const r = shownReading();
-      return r ? SKY_COLORS[skyFor(r.forecast.code, r.forecast.day)] : SKY_COLORS["clear-day"];
+      return linearGradient(SKY_GRADIENTS[r ? skyFor(r.forecast.code, r.forecast.day) : "clear-day"], 180);
     });
     return VStack({ spacing: 0 }, [
       watchKey,

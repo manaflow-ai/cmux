@@ -717,6 +717,7 @@ fn a_hold_that_cannot_be_written_fails_closed() {
 /// `running` after. Before, its first report took the bake's daemon block and said `running` at
 /// once (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later, and its
 /// chat never connected).
+#[cfg(unix)] // `updater::gate` is unix-only.
 #[test]
 fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies() {
     use super::client::CloudClient;
@@ -815,4 +816,60 @@ fn the_flips_stopping_report_says_stopping_with_the_last_reported_block() {
     assert_eq!(op.body["params"]["machine"], MACHINE);
     assert_eq!(op.body["params"]["state"], "stopping");
     assert_eq!(op.body["params"]["daemon"], reported.to_json());
+}
+
+fn bind_with_sccache(section: Value) -> String {
+    let mut bind: Value = serde_json::from_str(&bind_text()).unwrap();
+    bind["sccache"] = section;
+    bind.to_string()
+}
+
+fn bind_once(text: &str, kept: Option<&str>) -> (BindResult, MemoryStore) {
+    use crate::sccache_env::KEPT_FILE;
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    if let Some(kept) = kept {
+        store.write(KEPT_FILE, kept, 0o600).unwrap();
+    }
+    store.write(BIND_FILE, text, 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    let body = fake.0.borrow().seen[0].body.clone();
+    assert!(body.get("sccache").is_none(), "the section is not sent back: {body}");
+    (result, store)
+}
+
+/// A bind with a valid `sccache` section keeps it as sccache.json (0600, `sccache_env.rs`).
+#[test]
+fn a_sccache_bind_keeps_its_section() {
+    use crate::sccache_env::{KEPT_FILE, parse_file};
+    let section = json!({"env": {"RUSTC_WRAPPER": "sccache", "SCCACHE_BUCKET": "cmux-sccache"}});
+    let (result, store) = bind_once(&bind_with_sccache(section), None);
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
+    assert_eq!(store.mode_of(KEPT_FILE), Some(0o600));
+    assert_eq!(
+        parse_file(&store.read(KEPT_FILE).unwrap()).unwrap(),
+        [
+            ("RUSTC_WRAPPER".to_owned(), "sccache".to_owned()),
+            ("SCCACHE_BUCKET".to_owned(), "cmux-sccache".to_owned())
+        ]
+    );
+}
+
+/// A bind without the section, or with a refused one, still binds and leaves no sccache.json,
+/// removing one an earlier bind kept: the cache is then off.
+#[test]
+fn a_bind_without_a_valid_sccache_section_binds_with_the_cache_off() {
+    use crate::sccache_env::KEPT_FILE;
+    let earlier = Some("{\"env\":{\"RUSTC_WRAPPER\":\"sccache\"}}\n");
+    let refused = bind_with_sccache(json!({"env": {"LD_PRELOAD": "/x.so"}}));
+    let malformed = bind_with_sccache(json!("on"));
+    for (text, kept) in
+        [(bind_text(), None), (bind_text(), earlier), (refused, earlier), (malformed, None)]
+    {
+        let (result, store) = bind_once(&text, kept);
+        assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
+        assert_eq!(store.read(KEPT_FILE), None);
+    }
 }

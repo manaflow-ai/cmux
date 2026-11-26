@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.autocloud.form.conditionsHelp" : {
+      "comment" : "Settings > Automations form: help under the conditions heading.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It runs only when every condition holds."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعمل فقط عند تحقق كل الشروط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokreće se samo kada su svi uslovi ispunjeni."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kører kun, når alle betingelser er opfyldt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Läuft nur, wenn alle Bedingungen erfüllt sind."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo se ejecuta si se cumplen todas las condiciones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ne s’exécute que si toutes les conditions sont remplies."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Si avvia solo se tutte le condizioni sono vere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべての条件を満たす場合にのみ実行されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការតែនៅពេលលក្ខខណ្ឌទាំងអស់ត្រូវបានបំពេញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 조건이 충족될 때만 실행됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjører bare når alle vilkår er oppfylt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uruchamia się tylko po spełnieniu wszystkich warunków."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Só é executada quando todas as condições são atendidas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запускается, только если выполнены все условия."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำงานเมื่อเงื่อนไขทั้งหมดเป็นจริงเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yalnızca tüm koşullar sağlandığında çalışır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запускається лише за виконання всіх умов."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chỉ chạy khi mọi điều kiện đều thỏa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "仅当所有条件都满足时才运行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "僅當所有條件都符合時才執行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

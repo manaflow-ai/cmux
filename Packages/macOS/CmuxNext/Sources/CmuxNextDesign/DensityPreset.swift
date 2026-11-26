@@ -142,7 +142,7 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
     private static let reference: [String: Double] = [
         "sidebarRowHeight": 28, "browserRowHeight": 30, "browserRowGap": 3, "tabStripHeight": 36,
         "tabTitleSize": 14, "sidebarTitleSize": 14, "chatEditorMin": 35,
-        "sidebarRowInset": 6, "sidebarContentInset": 7, "sidebarLineBoxBaseline": 1,
+        "sidebarContentInset": 7, "sidebarLineBoxBaseline": 1,
         "sidebarIconColumn": 16.5, "sidebarIconGap": 7,
         "tabIconSize": 16.5, "tabIconTitleGap": 7, "tabGap": 3, "tabMaxWidth": 201,
         "rowCornerRadius": 9, "tabCornerRadius": 9,

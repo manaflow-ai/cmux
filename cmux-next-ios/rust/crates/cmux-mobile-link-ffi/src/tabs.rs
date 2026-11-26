@@ -49,6 +49,9 @@ pub struct TabsViewport {
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct TabsRow {
     pub tab_id: String,
+    /// The tab's durable id on the Mac (the daemon's `tab_resource_id`): `tab_id` names a tab
+    /// only within one epoch, this one stays the tab's across them. Empty when unknown.
+    pub tab_key: String,
     pub title: String,
     /// `browser`, `terminal`, `agent`, or a kind a newer Mac names.
     pub kind: String,
@@ -155,6 +158,7 @@ impl State {
             .iter()
             .map(|row| TabsRow {
                 tab_id: row.tab_id.clone(),
+                tab_key: row.tab_key.clone(),
                 title: row.title.clone(),
                 kind: row.kind.as_str().to_owned(),
                 favicon_hash: hex(row.favicon_hash),
@@ -332,16 +336,21 @@ impl TabsMirror {
         vec![framed(&Message::Want(order).encode())]
     }
 
-    /// Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+    /// Of `on_disk`, the blob names no row shows any more: the ones the phone deletes.
     /// Before a first manifest nothing is known to be unused, so nothing is returned.
+    /// The mirror stops holding them: the mirror lives across reconnects, and a `have` that
+    /// still named a deleted blob would keep the Mac from sending it when a row names it again
+    /// (a page reopened shows its old favicon hash).
     pub fn unreferenced(&self, on_disk: Vec<String>) -> Vec<String> {
-        let state = self.state();
+        let mut state = self.state();
         if state.mirror.rev().is_none() {
             return Vec::new();
         }
         let used: HashSet<String> =
             state.mirror.rows().iter().flat_map(Row::hashes).map(|h| h.to_hex()).collect();
-        on_disk.into_iter().filter(|name| !used.contains(name)).collect()
+        let gone: Vec<String> = on_disk.into_iter().filter(|name| !used.contains(name)).collect();
+        state.mirror.forget(gone.iter().filter_map(|name| BlobHash::from_hex(name)));
+        gone
     }
 }
 
@@ -423,6 +432,18 @@ mod tests {
         assert_eq!(rows[0].thumb_mime, "image/jpeg");
         assert!(rows.iter().all(|r| !r.filled));
         assert_eq!(wants(&send), vec![h(b"f2"), h(b"ta"), h(b"tb"), h(b"tc")]);
+    }
+
+    #[test]
+    fn a_row_carries_the_tabs_durable_key_and_none_when_the_mac_sends_none() {
+        let mirror = TabsMirror::new(Vec::new());
+        let keyed = Row { tab_key: "res-a".to_owned(), ..row("a", b"f1", b"ta") };
+        let TabsEvent::Rows { rows, .. } = recv(&mirror, manifest(1, vec![keyed, row("b", b"f1", b"tb")]))
+        else {
+            panic!("rows expected");
+        };
+        assert_eq!(rows[0].tab_key, "res-a");
+        assert_eq!(rows[1].tab_key, "", "an older Mac sends no key");
     }
 
     #[test]
@@ -578,6 +599,31 @@ mod tests {
         assert_eq!(mirror.unreferenced(names), vec![old]);
     }
 
+    /// The mirror lives across reconnects: a blob the phone deleted is not in the next
+    /// `have`, and a row naming it again (a closed page reopened) asks for it.
+    #[test]
+    fn a_deleted_blob_is_not_claimed_on_reconnect_and_is_asked_for_again() {
+        let gone = row("d", b"f-reopened", b"td");
+        let mirror = TabsMirror::new(vec![h(b"f-reopened").to_hex(), h(b"td").to_hex()]);
+        recv(&mirror, manifest(1, three()));
+        let deleted = mirror.unreferenced(vec![h(b"f-reopened").to_hex(), h(b"td").to_hex()]);
+        assert_eq!(deleted.len(), 2);
+        let frames = mirror.link_up(TabsViewport::default());
+        let have = frames.iter().find_map(|f| match Message::decode(&unframed(f)) {
+            Ok(Message::Have(hashes)) => Some(hashes),
+            _ => None,
+        });
+        assert!(have.is_none(), "nothing held any more: {have:?}");
+        let mut rows = three();
+        rows.push(gone);
+        let TabsEvent::Rows { rows, send, .. } = recv(&mirror, manifest(2, rows)) else {
+            panic!("rows expected");
+        };
+        assert!(!rows[3].filled, "a deleted blob does not fill its card");
+        let wanted = wants(&send);
+        assert!(wanted.contains(&h(b"f-reopened")) && wanted.contains(&h(b"td")), "{wanted:?}");
+    }
+
     /// What the phone needs on the wire to paint the overview of 29 tabs: the cold manifest,
     /// one tab's delta, and nothing when nothing visible changed. Frames come from the real
     /// `Producer` and `Session` (no push, so blobs are not counted here: they are separate
@@ -647,6 +693,7 @@ mod tests {
         // never sent in this test.
         let browser = |i: usize, title: &str, thumb_rev: u32| Observation {
             tab_id: format!("{}", 1000 + i),
+            tab_key: String::new(),
             title: title.to_owned(),
             kind: Kind::Browser,
             favicon: Some(FaviconInput {
@@ -665,6 +712,7 @@ mod tests {
         };
         let terminal = |i: usize, title: &str| Observation {
             tab_id: format!("{}", 1000 + i),
+            tab_key: String::new(),
             title: title.to_owned(),
             kind: if i.is_multiple_of(2) { Kind::Terminal } else { Kind::Agent },
             favicon: None,
