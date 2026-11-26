@@ -956,7 +956,6 @@ mod rows_tests;
 mod sidebar_face_tests;
 
 pub mod auto_archive;
-pub mod automatic;
 pub mod chief_panel;
 pub mod closing_panes;
 pub mod divider_insert;

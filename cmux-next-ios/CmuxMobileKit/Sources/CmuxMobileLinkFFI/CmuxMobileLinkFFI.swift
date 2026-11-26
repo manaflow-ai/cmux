@@ -6012,7 +6012,7 @@ public func FfiConverterTypeMailboxTracker_lower(_ value: MailboxTracker) -> UIn
 
 
 /**
- * One Mac's catch-up cursors.
+ * One Mac's catch-up cursors, and the relay positions they reached.
  */
 public protocol PhoneCatchUpProtocol: AnyObject, Sendable {
     
@@ -6021,6 +6021,12 @@ public protocol PhoneCatchUpProtocol: AnyObject, Sendable {
      * its cursor.
      */
     func apply(reply: Data, now: UInt64) throws  -> CatchUpAnswer
+    
+    /**
+     * The args for a background wake: a push about `push_chat`, or a refresh when nil
+     * (`budget_bytes` 0 asks for the wake's budget).
+     */
+    func backgroundRequest(ask: CatchUpAsk, pushChat: String?)  -> String
     
     /**
      * The bytes to keep.
@@ -6037,9 +6043,34 @@ public protocol PhoneCatchUpProtocol: AnyObject, Sendable {
      */
     func openedChat(sessionId: String, now: UInt64) 
     
+    /**
+     * Reads the relay's reply: unseals with the phone's key (`viewer`) what the Mac's identity
+     * key (`source_public`, SEC1) sealed, moves the cursors of each delta applied and returns
+     * them in order.
+     */
+    func relayApply(sourceDevice: String, viewerDevice: String, reply: Data, viewer: RelayViewerKey, sourcePublic: Data, now: UInt64) throws  -> RelayCatchUpAnswer
+    
+    /**
+     * The relay positions to keep beside [`PhoneCatchUp::encode`]'s bytes.
+     */
+    func relayEncode()  -> Data
+    
+    /**
+     * The relay catch-up call to `source_device`'s cache as `viewer_device`: the workspaces,
+     * the chat list, then `chats` in the order given (on screen first, then recent; the budget
+     * cuts from the end). Nil when no surface has a relay position yet (the Mac has not said
+     * where its state reached).
+     */
+    func relayRequest(sourceDevice: String, viewerDevice: String, chats: [String], budgetBytes: UInt64)  -> RelayCall?
+    
+    /**
+     * Reads back the relay positions [`PhoneCatchUp::relay_encode`] kept.
+     */
+    func relayRestore(kept: Data) 
+    
 }
 /**
- * One Mac's catch-up cursors.
+ * One Mac's catch-up cursors, and the relay positions they reached.
  */
 open class PhoneCatchUp: PhoneCatchUpProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -6121,6 +6152,20 @@ open func apply(reply: Data, now: UInt64)throws  -> CatchUpAnswer  {
 }
     
     /**
+     * The args for a background wake: a push about `push_chat`, or a refresh when nil
+     * (`budget_bytes` 0 asks for the wake's budget).
+     */
+open func backgroundRequest(ask: CatchUpAsk, pushChat: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_background_request(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeCatchUpAsk_lower(ask),
+        FfiConverterOptionString.lower(pushChat),$0
+    )
+})
+}
+    
+    /**
      * The bytes to keep.
      */
 open func encode() -> Data  {
@@ -6151,6 +6196,65 @@ open func openedChat(sessionId: String, now: UInt64)  {try! rustCall() {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(sessionId),
         FfiConverterUInt64.lower(now),$0
+    )
+}
+}
+    
+    /**
+     * Reads the relay's reply: unseals with the phone's key (`viewer`) what the Mac's identity
+     * key (`source_public`, SEC1) sealed, moves the cursors of each delta applied and returns
+     * them in order.
+     */
+open func relayApply(sourceDevice: String, viewerDevice: String, reply: Data, viewer: RelayViewerKey, sourcePublic: Data, now: UInt64)throws  -> RelayCatchUpAnswer  {
+    return try  FfiConverterTypeRelayCatchUpAnswer_lift(try rustCallWithError(FfiConverterTypeCatchUpError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_apply(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sourceDevice),
+        FfiConverterString.lower(viewerDevice),
+        FfiConverterData.lower(reply),
+        FfiConverterTypeRelayViewerKey_lower(viewer),
+        FfiConverterData.lower(sourcePublic),
+        FfiConverterUInt64.lower(now),$0
+    )
+})
+}
+    
+    /**
+     * The relay positions to keep beside [`PhoneCatchUp::encode`]'s bytes.
+     */
+open func relayEncode() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_encode(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The relay catch-up call to `source_device`'s cache as `viewer_device`: the workspaces,
+     * the chat list, then `chats` in the order given (on screen first, then recent; the budget
+     * cuts from the end). Nil when no surface has a relay position yet (the Mac has not said
+     * where its state reached).
+     */
+open func relayRequest(sourceDevice: String, viewerDevice: String, chats: [String], budgetBytes: UInt64) -> RelayCall?  {
+    return try!  FfiConverterOptionTypeRelayCall.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_request(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sourceDevice),
+        FfiConverterString.lower(viewerDevice),
+        FfiConverterSequenceString.lower(chats),
+        FfiConverterUInt64.lower(budgetBytes),$0
+    )
+})
+}
+    
+    /**
+     * Reads back the relay positions [`PhoneCatchUp::relay_encode`] kept.
+     */
+open func relayRestore(kept: Data)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_restore(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(kept),$0
     )
 }
 }
@@ -6407,6 +6511,373 @@ public func FfiConverterTypePhoneReadStore_lift(_ handle: UInt64) throws -> Phon
 #endif
 public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UInt64 {
     return FfiConverterTypePhoneReadStore.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An in-memory [`RelayViewerKey`] from a P-256 scalar (tests, and a phone without an enclave).
+ */
+public protocol RelaySoftwareKeyProtocol: AnyObject, Sendable {
+    
+}
+/**
+ * An in-memory [`RelayViewerKey`] from a P-256 scalar (tests, and a phone without an enclave).
+ */
+open class RelaySoftwareKey: RelaySoftwareKeyProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relaysoftwarekey(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relaysoftwarekey(handle, $0) }
+    }
+
+    
+public static func fromScalar(scalar: Data)throws  -> RelaySoftwareKey  {
+    return try  FfiConverterTypeRelaySoftwareKey_lift(try rustCallWithError(FfiConverterTypeCatchUpError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_relaysoftwarekey_from_scalar(
+        FfiConverterData.lower(scalar),$0
+    )
+})
+}
+    
+
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelaySoftwareKey: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RelaySoftwareKey
+
+    public static func lift(_ handle: UInt64) throws -> RelaySoftwareKey {
+        return RelaySoftwareKey(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RelaySoftwareKey) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelaySoftwareKey {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RelaySoftwareKey, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelaySoftwareKey_lift(_ handle: UInt64) throws -> RelaySoftwareKey {
+    return try FfiConverterTypeRelaySoftwareKey.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelaySoftwareKey_lower(_ value: RelaySoftwareKey) -> UInt64 {
+    return FfiConverterTypeRelaySoftwareKey.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The phone's key the Mac seals relay deltas to: its push box key, a Secure Enclave key in
+ * the app, so it only agrees (ECDH) and never leaves the enclave.
+ */
+public protocol RelayViewerKey: AnyObject, Sendable {
+    
+    /**
+     * The public key, SEC1 uncompressed (65 bytes).
+     */
+    func publicKey()  -> Data
+    
+    /**
+     * The ECDH shared secret's x coordinate (32 bytes) with `peer` (SEC1).
+     */
+    func agree(peer: Data) throws  -> Data
+    
+}
+/**
+ * The phone's key the Mac seals relay deltas to: its push box key, a Secure Enclave key in
+ * the app, so it only agrees (ECDH) and never leaves the enclave.
+ */
+open class RelayViewerKeyImpl: RelayViewerKey, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayviewerkey(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayviewerkey(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The public key, SEC1 uncompressed (65 bytes).
+     */
+open func publicKey() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_relayviewerkey_public_key(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The ECDH shared secret's x coordinate (32 bytes) with `peer` (SEC1).
+     */
+open func agree(peer: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCatchUpError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_relayviewerkey_agree(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(peer),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceRelayViewerKey {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceRelayViewerKey = UniffiVTableCallbackInterfaceRelayViewerKey(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeRelayViewerKey.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface RelayViewerKey: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeRelayViewerKey.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface RelayViewerKey: handle missing in uniffiClone")
+            }
+        },
+        publicKey: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Data in
+                guard let uniffiObj = try? FfiConverterTypeRelayViewerKey.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.publicKey(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterData.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        agree: { (
+            uniffiHandle: UInt64,
+            peer: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Data in
+                guard let uniffiObj = try? FfiConverterTypeRelayViewerKey.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.agree(
+                     peer: try FfiConverterData.lift(peer)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterData.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeCatchUpError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceRelayViewerKey> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceRelayViewerKey>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitRelayViewerKey() {
+    uniffi_cmux_mobile_link_ffi_fn_init_callback_vtable_relayviewerkey(UniffiCallbackInterfaceRelayViewerKey.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayViewerKey: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<RelayViewerKey>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = RelayViewerKey
+
+    public static func lift(_ handle: UInt64) throws -> RelayViewerKey {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return RelayViewerKeyImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: RelayViewerKey) -> UInt64 {
+         if let rustImpl = value as? RelayViewerKeyImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayViewerKey {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RelayViewerKey, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayViewerKey_lift(_ handle: UInt64) throws -> RelayViewerKey {
+    return try FfiConverterTypeRelayViewerKey.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayViewerKey_lower(_ value: RelayViewerKey) -> UInt64 {
+    return FfiConverterTypeRelayViewerKey.lower(value)
 }
 
 
@@ -9834,6 +10305,423 @@ public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> Rus
 
 
 /**
+ * Inserts and removals that turn one row order into another.
+ */
+public struct FeedInsertEdit: Equatable, Hashable {
+    public var removed: [String]
+    public var groups: [FeedInsertGroup]
+    /**
+     * New rows after the last kept row.
+     */
+    public var tail: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(removed: [String], groups: [FeedInsertGroup], 
+        /**
+         * New rows after the last kept row.
+         */tail: [String]) {
+        self.removed = removed
+        self.groups = groups
+        self.tail = tail
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedInsertEdit: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedInsertEdit: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedInsertEdit {
+        return
+            try FeedInsertEdit(
+                removed: FfiConverterSequenceString.read(from: &buf), 
+                groups: FfiConverterSequenceTypeFeedInsertGroup.read(from: &buf), 
+                tail: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedInsertEdit, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.removed, into: &buf)
+        FfiConverterSequenceTypeFeedInsertGroup.write(value.groups, into: &buf)
+        FfiConverterSequenceString.write(value.tail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertEdit_lift(_ buf: RustBuffer) throws -> FeedInsertEdit {
+    return try FfiConverterTypeFeedInsertEdit.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertEdit_lower(_ value: FeedInsertEdit) -> RustBuffer {
+    return FfiConverterTypeFeedInsertEdit.lower(value)
+}
+
+
+/**
+ * New rows inserted before a row that was already shown.
+ */
+public struct FeedInsertGroup: Equatable, Hashable {
+    public var before: String
+    public var ids: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(before: String, ids: [String]) {
+        self.before = before
+        self.ids = ids
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedInsertGroup: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedInsertGroup: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedInsertGroup {
+        return
+            try FeedInsertGroup(
+                before: FfiConverterString.read(from: &buf), 
+                ids: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedInsertGroup, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.before, into: &buf)
+        FfiConverterSequenceString.write(value.ids, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertGroup_lift(_ buf: RustBuffer) throws -> FeedInsertGroup {
+    return try FfiConverterTypeFeedInsertGroup.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedInsertGroup_lower(_ value: FeedInsertGroup) -> RustBuffer {
+    return FfiConverterTypeFeedInsertGroup.lower(value)
+}
+
+
+/**
+ * One row order turned into another by moving a few rows.
+ */
+public struct FeedMovePlan: Equatable, Hashable {
+    public var removed: [String]
+    /**
+     * From the last row to the first: each step's `before` row is already in its place.
+     */
+    public var steps: [FeedMoveStep]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(removed: [String], 
+        /**
+         * From the last row to the first: each step's `before` row is already in its place.
+         */steps: [FeedMoveStep]) {
+        self.removed = removed
+        self.steps = steps
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedMovePlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedMovePlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedMovePlan {
+        return
+            try FeedMovePlan(
+                removed: FfiConverterSequenceString.read(from: &buf), 
+                steps: FfiConverterSequenceTypeFeedMoveStep.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedMovePlan, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.removed, into: &buf)
+        FfiConverterSequenceTypeFeedMoveStep.write(value.steps, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMovePlan_lift(_ buf: RustBuffer) throws -> FeedMovePlan {
+    return try FfiConverterTypeFeedMovePlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMovePlan_lower(_ value: FeedMovePlan) -> RustBuffer {
+    return FfiConverterTypeFeedMovePlan.lower(value)
+}
+
+
+/**
+ * One step of a move edit: put `id` before `before` (none: after the last
+ * row). `moved`: a shown row moving; else a new row.
+ */
+public struct FeedMoveStep: Equatable, Hashable {
+    public var id: String
+    public var before: String?
+    public var moved: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, before: String?, moved: Bool) {
+        self.id = id
+        self.before = before
+        self.moved = moved
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedMoveStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedMoveStep: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedMoveStep {
+        return
+            try FeedMoveStep(
+                id: FfiConverterString.read(from: &buf), 
+                before: FfiConverterOptionString.read(from: &buf), 
+                moved: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedMoveStep, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.before, into: &buf)
+        FfiConverterBool.write(value.moved, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMoveStep_lift(_ buf: RustBuffer) throws -> FeedMoveStep {
+    return try FfiConverterTypeFeedMoveStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedMoveStep_lower(_ value: FeedMoveStep) -> RustBuffer {
+    return FfiConverterTypeFeedMoveStep.lower(value)
+}
+
+
+/**
+ * What stacking needs to know of one Feed event.
+ */
+public struct FeedStackItem: Equatable, Hashable {
+    public var id: String
+    /**
+     * The chat it belongs to: one Mac's workspace and tab.
+     */
+    public var macId: String?
+    public var workspaceId: String
+    public var tabId: String?
+    /**
+     * An ask waiting on the person, an answer on its way, or a refused
+     * answer: never folded and never leads a stack.
+     */
+    public var keepsOwnRow: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * The chat it belongs to: one Mac's workspace and tab.
+         */macId: String?, workspaceId: String, tabId: String?, 
+        /**
+         * An ask waiting on the person, an answer on its way, or a refused
+         * answer: never folded and never leads a stack.
+         */keepsOwnRow: Bool) {
+        self.id = id
+        self.macId = macId
+        self.workspaceId = workspaceId
+        self.tabId = tabId
+        self.keepsOwnRow = keepsOwnRow
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedStackItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedStackItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedStackItem {
+        return
+            try FeedStackItem(
+                id: FfiConverterString.read(from: &buf), 
+                macId: FfiConverterOptionString.read(from: &buf), 
+                workspaceId: FfiConverterString.read(from: &buf), 
+                tabId: FfiConverterOptionString.read(from: &buf), 
+                keepsOwnRow: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedStackItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.macId, into: &buf)
+        FfiConverterString.write(value.workspaceId, into: &buf)
+        FfiConverterOptionString.write(value.tabId, into: &buf)
+        FfiConverterBool.write(value.keepsOwnRow, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackItem_lift(_ buf: RustBuffer) throws -> FeedStackItem {
+    return try FfiConverterTypeFeedStackItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackItem_lower(_ value: FeedStackItem) -> RustBuffer {
+    return FfiConverterTypeFeedStackItem.lower(value)
+}
+
+
+/**
+ * The Feed's rows with each chat's run folded.
+ */
+public struct FeedStacking: Equatable, Hashable {
+    public var rows: [FeedStackRow]
+    /**
+     * The newest event of each stack, in list order.
+     */
+    public var heads: [String]
+    /**
+     * The events folded away, in order.
+     */
+    public var hidden: [String]
+    /**
+     * The stacks open now, by their newest event's id: a stack that got a
+     * newer event stays open under it, and stacks that are gone drop out.
+     */
+    public var expanded: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: [FeedStackRow], 
+        /**
+         * The newest event of each stack, in list order.
+         */heads: [String], 
+        /**
+         * The events folded away, in order.
+         */hidden: [String], 
+        /**
+         * The stacks open now, by their newest event's id: a stack that got a
+         * newer event stays open under it, and stacks that are gone drop out.
+         */expanded: [String]) {
+        self.rows = rows
+        self.heads = heads
+        self.hidden = hidden
+        self.expanded = expanded
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedStacking: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedStacking: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedStacking {
+        return
+            try FeedStacking(
+                rows: FfiConverterSequenceTypeFeedStackRow.read(from: &buf), 
+                heads: FfiConverterSequenceString.read(from: &buf), 
+                hidden: FfiConverterSequenceString.read(from: &buf), 
+                expanded: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedStacking, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFeedStackRow.write(value.rows, into: &buf)
+        FfiConverterSequenceString.write(value.heads, into: &buf)
+        FfiConverterSequenceString.write(value.hidden, into: &buf)
+        FfiConverterSequenceString.write(value.expanded, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStacking_lift(_ buf: RustBuffer) throws -> FeedStacking {
+    return try FfiConverterTypeFeedStacking.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStacking_lower(_ value: FeedStacking) -> RustBuffer {
+    return FfiConverterTypeFeedStacking.lower(value)
+}
+
+
+/**
  * One file moved: where it landed and what crossed the link.
  */
 public struct FileTransfer: Equatable, Hashable {
@@ -11550,6 +12438,142 @@ public func FfiConverterTypeProjectionStats_lift(_ buf: RustBuffer) throws -> Pr
 #endif
 public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> RustBuffer {
     return FfiConverterTypeProjectionStats.lower(value)
+}
+
+
+/**
+ * One HTTPS call to the relay: `POST` `path` (under the relay's origin) with `body` (JSON).
+ */
+public struct RelayCall: Equatable, Hashable {
+    public var path: String
+    public var body: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, body: String) {
+        self.path = path
+        self.body = body
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RelayCall: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayCall: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayCall {
+        return
+            try RelayCall(
+                path: FfiConverterString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RelayCall, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayCall_lift(_ buf: RustBuffer) throws -> RelayCall {
+    return try FfiConverterTypeRelayCall.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayCall_lower(_ value: RelayCall) -> RustBuffer {
+    return FfiConverterTypeRelayCall.lower(value)
+}
+
+
+/**
+ * What a relay catch-up brought.
+ */
+public struct RelayCatchUpAnswer: Equatable, Hashable {
+    /**
+     * One per delta, in order: apply each as a Mac `catch-up` reply.
+     */
+    public var answers: [CatchUpAnswer]
+    /**
+     * Surfaces it did not bring up (`workspaces`, `chatList`, `chats:<id>`): ask the Mac.
+     */
+    public var cut: [CatchUpCut]
+    /**
+     * Send after applying: each drains the relay's log through what applied.
+     */
+    public var acks: [RelayCall]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * One per delta, in order: apply each as a Mac `catch-up` reply.
+         */answers: [CatchUpAnswer], 
+        /**
+         * Surfaces it did not bring up (`workspaces`, `chatList`, `chats:<id>`): ask the Mac.
+         */cut: [CatchUpCut], 
+        /**
+         * Send after applying: each drains the relay's log through what applied.
+         */acks: [RelayCall]) {
+        self.answers = answers
+        self.cut = cut
+        self.acks = acks
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RelayCatchUpAnswer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayCatchUpAnswer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayCatchUpAnswer {
+        return
+            try RelayCatchUpAnswer(
+                answers: FfiConverterSequenceTypeCatchUpAnswer.read(from: &buf), 
+                cut: FfiConverterSequenceTypeCatchUpCut.read(from: &buf), 
+                acks: FfiConverterSequenceTypeRelayCall.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RelayCatchUpAnswer, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeCatchUpAnswer.write(value.answers, into: &buf)
+        FfiConverterSequenceTypeCatchUpCut.write(value.cut, into: &buf)
+        FfiConverterSequenceTypeRelayCall.write(value.acks, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayCatchUpAnswer_lift(_ buf: RustBuffer) throws -> RelayCatchUpAnswer {
+    return try FfiConverterTypeRelayCatchUpAnswer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayCatchUpAnswer_lower(_ value: RelayCatchUpAnswer) -> RustBuffer {
+    return FfiConverterTypeRelayCatchUpAnswer.lower(value)
 }
 
 
@@ -14303,6 +15327,91 @@ public func FfiConverterTypeComposerSendOutcome_lift(_ buf: RustBuffer) throws -
 #endif
 public func FfiConverterTypeComposerSendOutcome_lower(_ value: ComposerSendOutcome) -> RustBuffer {
     return FfiConverterTypeComposerSendOutcome.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * One row of the stacked list.
+ */
+
+public enum FeedStackRow: Equatable, Hashable {
+    
+    /**
+     * The event at this index of the input.
+     */
+    case event(index: UInt32
+    )
+    /**
+     * The fold line under the event at `head` (an index of the input),
+     * standing for `count` older events of its chat.
+     */
+    case fold(head: UInt32, count: UInt32, expanded: Bool
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FeedStackRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedStackRow: FfiConverterRustBuffer {
+    typealias SwiftType = FeedStackRow
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedStackRow {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .event(index: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .fold(head: try FfiConverterUInt32.read(from: &buf), count: try FfiConverterUInt32.read(from: &buf), expanded: try FfiConverterBool.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FeedStackRow, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .event(index):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(index, into: &buf)
+            
+        
+        case let .fold(head,count,expanded):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(head, into: &buf)
+            FfiConverterUInt32.write(count, into: &buf)
+            FfiConverterBool.write(expanded, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackRow_lift(_ buf: RustBuffer) throws -> FeedStackRow {
+    return try FfiConverterTypeFeedStackRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedStackRow_lower(_ value: FeedStackRow) -> RustBuffer {
+    return FfiConverterTypeFeedStackRow.lower(value)
 }
 
 
@@ -17168,6 +18277,54 @@ fileprivate struct FfiConverterOptionTypeComposerSendRequest: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFeedInsertEdit: FfiConverterRustBuffer {
+    typealias SwiftType = FeedInsertEdit?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFeedInsertEdit.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeedInsertEdit.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFeedMovePlan: FfiConverterRustBuffer {
+    typealias SwiftType = FeedMovePlan?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFeedMovePlan.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeedMovePlan.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLastPlaceAnchor: FfiConverterRustBuffer {
     typealias SwiftType = LastPlaceAnchor?
 
@@ -17256,6 +18413,30 @@ fileprivate struct FfiConverterOptionTypeProjectionLocation: FfiConverterRustBuf
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeProjectionLocation.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeRelayCall: FfiConverterRustBuffer {
+    typealias SwiftType = RelayCall?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRelayCall.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRelayCall.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -17604,6 +18785,31 @@ fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCatchUpAnswer: FfiConverterRustBuffer {
+    typealias SwiftType = [CatchUpAnswer]
+
+    public static func write(_ value: [CatchUpAnswer], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCatchUpAnswer.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CatchUpAnswer] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CatchUpAnswer]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCatchUpAnswer.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeCatchUpChatAsk: FfiConverterRustBuffer {
     typealias SwiftType = [CatchUpChatAsk]
 
@@ -17829,6 +19035,81 @@ fileprivate struct FfiConverterSequenceTypeComposerSendDone: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFeedInsertGroup: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedInsertGroup]
+
+    public static func write(_ value: [FeedInsertGroup], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedInsertGroup.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedInsertGroup] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedInsertGroup]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedInsertGroup.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedMoveStep: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedMoveStep]
+
+    public static func write(_ value: [FeedMoveStep], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedMoveStep.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedMoveStep] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedMoveStep]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedMoveStep.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedStackItem: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedStackItem]
+
+    public static func write(_ value: [FeedStackItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedStackItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedStackItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedStackItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedStackItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeKeychainDelete: FfiConverterRustBuffer {
     typealias SwiftType = [KeychainDelete]
 
@@ -18029,6 +19310,31 @@ fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRelayCall: FfiConverterRustBuffer {
+    typealias SwiftType = [RelayCall]
+
+    public static func write(_ value: [RelayCall], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRelayCall.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RelayCall] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RelayCall]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRelayCall.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeRowLayoutKey: FfiConverterRustBuffer {
     typealias SwiftType = [RowLayoutKey]
 
@@ -18121,6 +19427,31 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFeedStackRow: FfiConverterRustBuffer {
+    typealias SwiftType = [FeedStackRow]
+
+    public static func write(_ value: [FeedStackRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFeedStackRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FeedStackRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FeedStackRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFeedStackRow.read(from: &buf))
         }
         return seq
     }
@@ -18741,6 +20072,61 @@ public func cloudWakeResumed(machine: String, ok: Bool) -> UInt64?  {
 public func cloudWakeVersion() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_version($0
+    )
+})
+}
+/**
+ * The edit that moves `movers` (an ask that was answered leaves the pinned
+ * group for its place in time, one that opened again goes back), with
+ * inserts and removals beside them; none when any other row changes place
+ * too (a re-sort), or when no mover or more than `limit` move at once.
+ */
+public func feedMoveEdit(old: [String], new: [String], movers: [String], limit: UInt32) -> FeedMovePlan?  {
+    return try!  FfiConverterOptionTypeFeedMovePlan.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_move_edit(
+        FfiConverterSequenceString.lower(old),
+        FfiConverterSequenceString.lower(new),
+        FfiConverterSequenceString.lower(movers),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+/**
+ * The steps applied to `old` (what the list does to its snapshot).
+ */
+public func feedMoveEditApplied(edit: FeedMovePlan, old: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_move_edit_applied(
+        FfiConverterTypeFeedMovePlan_lower(edit),
+        FfiConverterSequenceString.lower(old),$0
+    )
+})
+}
+/**
+ * The edit when the rows both orders keep stay in the same order (a live
+ * event, a done swipe); none when they do not (a re-sort), so the list
+ * rebuilds the section instead.
+ */
+public func feedSnapshotEdit(old: [String], new: [String]) -> FeedInsertEdit?  {
+    return try!  FfiConverterOptionTypeFeedInsertEdit.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_snapshot_edit(
+        FfiConverterSequenceString.lower(old),
+        FfiConverterSequenceString.lower(new),$0
+    )
+})
+}
+/**
+ * When one chat posts several events in a row, with no other chat's event
+ * between them, the newest shows as the full row and the older ones fold
+ * into one line under it. `open`: rows that never fold (a reply being
+ * written under them); one may still lead a stack.
+ */
+public func feedStacking(items: [FeedStackItem], expanded: [String], `open`: [String]) -> FeedStacking  {
+    return try!  FfiConverterTypeFeedStacking_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_feed_stacking(
+        FfiConverterSequenceTypeFeedStackItem.lower(items),
+        FfiConverterSequenceString.lower(expanded),
+        FfiConverterSequenceString.lower(`open`),$0
     )
 })
 }
@@ -19407,6 +20793,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit() != 55354) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit_applied() != 40757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_snapshot_edit() != 17619) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_stacking() != 45213) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19725,6 +21123,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_apply() != 48986) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_background_request() != 4735) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_encode() != 59540) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19732,6 +21133,24 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_opened_chat() != 40317) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_apply() != 28158) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_encode() != 24234) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_request() != 40974) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_restore() != 22105) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_relayviewerkey_public_key() != 2092) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_relayviewerkey_agree() != 46288) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_answered() != 15608) {
@@ -20202,6 +21621,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_phonecatchup_open() != 21440) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_relaysoftwarekey_from_scalar() != 223) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 37424) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20247,6 +21669,7 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitLinkObserver()
     uniffiCallbackInitMacScreenObserver()
     uniffiCallbackInitMailboxSigner()
+    uniffiCallbackInitRelayViewerKey()
     return InitializationResult.ok
 }()
 
