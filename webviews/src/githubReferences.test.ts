@@ -101,16 +101,7 @@ describe("short repository names", () => {
     githubReferences(text, repository, "pull", true).map((ref) => [ref.text, ref.href]);
 
   const positives: Array<[name: string, text: string, refs: Array<[text: string, href: string]>]> = [
-    [
-      "a known repository's name",
-      "Relay deploy (subrouter-internal#54):",
-      [["subrouter-internal#54", pull("manaflow-ai/subrouter-internal", 54)]],
-    ],
     ["cmux", "landed as cmux#37758.", [["cmux#37758", pull("manaflow-ai/cmux", 37758)]]],
-    ["cmux-platform", "see cmux-platform#812", [["cmux-platform#812", pull("manaflow-ai/cmux-platform", 812)]]],
-    ["leo-workspace", "leo-workspace#843,", [["leo-workspace#843", pull("teamleaderleo/leo-workspace", 843)]]],
-    ["the hq alias", "hq#4879", [["hq#4879", pull("manaflow-ai/cmuxterm-hq", 4879)]]],
-    ["the lw alias", "(lw#1234)", [["lw#1234", pull("teamleaderleo/leo-workspace", 1234)]]],
     ["any case", "Cmux#5", [["Cmux#5", pull("manaflow-ai/cmux", 5)]]],
     ["owner/repo always", "acme/widgets#9", [["acme/widgets#9", pull("acme/widgets", 9)]]],
   ];
@@ -129,6 +120,10 @@ describe("short repository names", () => {
     ["a path", "src/cmux#12/x is a path"],
     ["an email", "mail cmux@example.com#1"],
     ["an unknown repository name", "subrouter-external#54"],
+    // No team's own repositories (Leo 2026-11-26: "identify all the weird opinoinated fleet things
+    // we shipped into the app and remove them").
+    ["a team's repository name", "subrouter-internal#54 and leo-workspace#843"],
+    ["a team's alias", "hq#4879 and (lw#1234)"],
     ["number zero", "cmux#0"],
   ];
   test.each(falseHits)("%s stays text", (_name, text) => {
@@ -141,8 +136,8 @@ describe("short repository names", () => {
   });
 
   test("only agent replies take short names", () => {
-    expect(githubReferences("subrouter-internal#54")).toEqual([]);
-    expect(REPOSITORY_ALIASES.get("subrouter-internal")).toBe("manaflow-ai/subrouter-internal");
+    expect(githubReferences("cmux#54")).toEqual([]);
+    expect(REPOSITORY_ALIASES.get("cmux")).toBe("manaflow-ai/cmux");
   });
 });
 

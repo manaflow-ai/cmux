@@ -154,6 +154,7 @@ struct MacScreenFullPaneState {
             return Spec(symbol: "hand.raised", ink: \.attention, headline: L.t("macScreen.hub.declinedTitle", "Declined"),
                         why: String(format: L.t("macScreen.hub.declinedBody", "%@ declined your request."), name),
                         secondary: closeTab(),
+                        // retry-prompt-ok: the host's person declined; asking again prompts them again
                         primary: primary(L.t("macScreen.hub.askAgain", "Ask Again"), id: "macScreen.hub.askAgain") { $0.requestScope(scope) })
         case let .hubRefused(refusal, requested):
             return refused(refusal, requested: requested)
@@ -181,7 +182,10 @@ struct MacScreenFullPaneState {
 
     /// A failed session, said as what happened: asleep, locked, no picture, or an error with its details.
     private func failed() -> Spec {
-        let retry = primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.retry") { $0.connect() }
+        // No Try Again while the pane retries on its own (``MacScreenCardView/Shown/retriesOnItsOwn``).
+        let retry: NSView? = shown.retriesOnItsOwn ? nil
+            // retry-prompt-ok: an Ask permission: asking again prompts the person at that Mac
+            : primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.retry") { $0.connect() }
         let detail = shown.failedDetail
         let cause = model.failureCause
         // The host gives a reason as words only (no code): sleep and lock are read from them.
@@ -189,7 +193,7 @@ struct MacScreenFullPaneState {
             let lowered = reason.lowercased()
             if lowered.contains("sleep") {
                 return Spec(symbol: "moon.zzz", headline: String(format: L.t("macScreen.full.asleepTitle", "%@ is asleep"), name),
-                            why: L.t("macScreen.full.asleepBody", "Its display is off. Wake it, then try again."),
+                            why: L.t("macScreen.full.asleepBody", "Its display is off. Wake it to connect."),
                             details: detail, secondary: closeTab(), primary: retry)
             }
             if lowered.contains("lock") {
@@ -232,14 +236,12 @@ struct MacScreenFullPaneState {
                             headline: MacScreenCardView.refusedTitle(refusal, host: name),
                             why: MacScreenCardView.refusedBody(refusal, host: name, platform: model.platform), secondary: closeTab())
             if refusal == .notSignedIn {
-                let retry = MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [actions] in
-                    actions.requestScope(requested)
-                }
+                // The pane asks again on its own once it is signed in.
                 let signIn = SignInButton { [actions] in actions.signIn() }
                 signIn.setAccessibilityIdentifier("macScreen.card.signIn")
-                spec.secondary = MacScreenStack.make(.horizontal, spacing: Metrics.space5, alignment: .centerY, [closeTab(), retry])
                 spec.primary = signIn
-            } else if refusal.canRetry {
+            } else if refusal.canRetry, !shown.retriesOnItsOwn {
+                // retry-prompt-ok: the host's permission is Ask, so asking again prompts the person at that Mac
                 spec.primary = primary(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { $0.requestScope(requested) }
             }
             return spec
@@ -308,11 +310,15 @@ struct MacScreenFullPaneState {
         return column
     }
 
-    private func reconnect() -> NSView {
-        primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() }
+    /// Reconnect, only when the pane does not retry the shown failure on its own (``MacScreenCardView/Shown/retriesOnItsOwn``).
+    private func reconnect() -> NSView? {
+        guard !shown.retriesOnItsOwn else { return nil }
+        // retry-prompt-ok: a person's own end, the host's Stop, or an Ask permission: asking again is their choice
+        return primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() }
     }
 
     private func connectAgain() -> NSView {
+        // retry-prompt-ok: the host revoked or changed this Mac's access; a new session is the person's choice
         primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() }
     }
 

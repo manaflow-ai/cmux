@@ -223,6 +223,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.
@@ -583,7 +584,8 @@ class PrePushGateTests(unittest.TestCase):
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
         # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
         # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
-        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
+        # refuse only for the pusher's own diff). The web lint says the same and, since #49904 (Leo 2026-11-22: lint
+        # never stops a push), lets the push through too: every message names the fix, nothing traces back.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -595,13 +597,14 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push_ref("fresh")
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("nothing was checked, and the push goes through UNCHECKED", output)
         self.assertIn("cannot tell which commits are this push's own", output)
         self.assertIn("git fetch origin", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
-        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
+        # The cmux-next gate warns and passes (CannotDecide); the web lint never stops a push (#49904). The fix is named.
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -610,7 +613,7 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push()
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(result.returncode, 0, output)
         self.assertIn("push_range.py is missing; rerun scripts/install-git-hooks.sh", output)
         self.assertNotIn("Traceback", output)
 
