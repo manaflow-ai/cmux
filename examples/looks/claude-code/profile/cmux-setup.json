@@ -31,6 +31,13 @@
     // The app has no Home or App Store rows above its sessions: hide cmux's top section (Settings and the account stay in the bottom row).
     "sidebar.sections.hidden": ["sec_top"],
     "sidebar.controlsOnHover": true,
+    // The app's top rows: New session, Search, Artifacts, Customize (its More menu has no cmux action).
+    "sidebar.nav": [
+      "palette.newAgentChat | New session | plus",
+      "search.chats | Search | magnifyingglass",
+      "artifacts.show | Artifacts | square.stack.3d.up",
+      "customize.open | Customize | briefcase"
+    ],
     "appearance.metrics.sidebarWidth": 284,
     "tabs.hideLoneChatTab": true,
     "agentPane.display.presentation": "transcript",
