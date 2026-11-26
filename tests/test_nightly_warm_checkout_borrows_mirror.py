@@ -165,6 +165,9 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
     # -- a healthy mirror: the slot borrows it before the fetch ---------------------------------------
 
     def test_a_cold_slot_borrows_the_mirror_before_it_fetches(self) -> None:
+        # A commit the mirror already holds is not fetched at all (test_nightly_warm_checkout_auth.py),
+        # so build one pushed after the mirror's last sync.
+        self.sha = self.commit({"README": "three\n"}, "newer than the mirror")
         result = self.run_warm_step()
         self.assertTrue(self.fetches(), "the step ran no git fetch")
         self.assertEqual(self.fetches()[0], "fetch: record alternates",
@@ -175,6 +178,7 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
 
     def test_the_fetch_of_a_commit_the_mirror_has_transfers_nothing(self) -> None:
         self.run_warm_step()
+        self.assertEqual(self.fetches(), [], "a commit the mirror holds needs no fetch")
         counts = self.local_objects()
         self.assertEqual((counts["count"], counts["packs"], counts["size-pack"]), (0, 0, 0),
                          f"the slot stored objects of its own: {counts}")

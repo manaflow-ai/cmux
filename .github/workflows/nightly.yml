@@ -2196,6 +2196,8 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
+          # An anonymous fetch got 403 on every try (run 45756842046, 2026-11-26): read with the job's token.
+          FETCH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
@@ -2236,8 +2238,25 @@ jobs:
             fi
           }
           started=$SECONDS
-          retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
-          echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          if git cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; then
+            echo "have $BUILD_SHA already (kept clone or borrowed mirror): no fetch"
+          else
+            # The header goes in GIT_CONFIG_* entries, scoped to this repository's URL, so it is in no
+            # command line git_fetch_retry.py logs, and is not sent to the submodules' hosts.
+            if [ -n "${FETCH_TOKEN:-}" ]; then
+              header=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
+              echo "::add-mask::$header"
+              n=${GIT_CONFIG_COUNT:-0}
+              export "GIT_CONFIG_KEY_$n=http.$REPO_URL.extraheader" "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $header"
+              export GIT_CONFIG_COUNT=$((n + 1))
+            fi
+            retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+            if [ -n "${FETCH_TOKEN:-}" ]; then
+              export GIT_CONFIG_COUNT=$n
+              unset "GIT_CONFIG_KEY_$n" "GIT_CONFIG_VALUE_$n" header
+            fi
+            echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          fi
           git_dir="${GITHUB_WORKSPACE:?}/.git"
           for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
             git config --local --unset-all "$key" || true
