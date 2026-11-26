@@ -31,7 +31,7 @@ Leo, 2026-11-25: "he needs to be able to test on his phone, as well as have his 
 simulator... always-on simulators are capable of having code changes reflect fast if they stay on".
 One device with one driver made agents queue, so the default is slots:
 
-- `IOS_LIVE_HOSTS` (default `aws-m4pro-1,aws-m4pro-7,cmux25,cmux26,cmux27,cmux30`, the reserved ios pool) each carry
+- `IOS_LIVE_HOSTS` (default `aws-m4pro-1,aws-m4pro-7,cmux25,cmux26,cmux27,cmux28,cmux29,cmux30`, the reserved ios pool) each carry
   `IOS_LIVE_SLOTS_PER_HOST` (default 3) iPhones, `cmux-ios-live-1..N`.
 - `ios-live lease take` holds the first free slot on any host (your own first, so a second take
   renews it) and prints `HOST/SLOT`. Every other command then drives that slot. The client

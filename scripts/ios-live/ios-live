@@ -16,7 +16,7 @@
 #   ios-live whoami                  the owner name your lease carries (IOS_LIVE_OWNER overrides it)
 #
 # Slots (the default): many always-on iPhones, IOS_LIVE_SLOTS_PER_HOST (default 3) on each of
-# IOS_LIVE_HOSTS (default aws-m4pro-1,aws-m4pro-7,cmux25,cmux26,cmux27,cmux30, the reserved ios pool). `lease take` holds any
+# IOS_LIVE_HOSTS (default aws-m4pro-1,aws-m4pro-7,cmux25,cmux26,cmux27,cmux28,cmux29,cmux30, the reserved ios pool). `lease take` holds any
 # free slot and prints HOST/SLOT; every other command then drives that slot. `lease release [--erase]`
 # puts it back at origin/feat-cmux-next (erasing the device first with --erase) and frees it.
 # IOS_LIVE_AT=HOST/SLOT looks at a slot you do not hold.
@@ -77,7 +77,7 @@ if [[ -z "${IOS_LIVE_HOSTS:-}" && -n "${IOS_LIVE_HOST:-}" ]]; then
   host="$IOS_LIVE_HOST"
 else
   slot_mode=1
-  IFS=', ' read -r -a hosts <<<"${IOS_LIVE_HOSTS:-aws-m4pro-1,aws-m4pro-7,cmux25,cmux26,cmux27,cmux30}"
+  IFS=', ' read -r -a hosts <<<"${IOS_LIVE_HOSTS:-aws-m4pro-1,aws-m4pro-7,cmux25,cmux26,cmux27,cmux28,cmux29,cmux30}"
   [[ ${#hosts[@]} -gt 0 ]] || die "IOS_LIVE_HOSTS names no host"
   per_host="${IOS_LIVE_SLOTS_PER_HOST:-3}"
   [[ "$per_host" =~ ^[1-9][0-9]?$ ]] || die "bad IOS_LIVE_SLOTS_PER_HOST $per_host"
