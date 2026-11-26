@@ -663,16 +663,18 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         }
     }
 
-    /// The frame at the awaited size is in this layer: its commit goes to the render server now, then the fences held
-    /// for it are released, so the render server shows the held resize step and this frame together.
+    /// The frame at the awaited size is in this layer: once this turn's commit (which carries it) went to the render
+    /// server, the fences held for it are released, so the render server shows the held resize step and this frame
+    /// together.
     private func releaseFences() {
         guard !fenceHolds.isEmpty else { return }
-        CATransaction.flush()
         let holds = fenceHolds
         fenceHolds.removeAll()
-        for done in holds {
-            done(true)
-            CEFRuntime.shared.offscreenPages.fenceReleased()
+        AfterFrameCommit().run {
+            for done in holds {
+                done(true)
+                CEFRuntime.shared.offscreenPages.fenceReleased()
+            }
         }
     }
 
