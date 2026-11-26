@@ -197,7 +197,10 @@ impl Hub {
         if !self.prompt_schedules.running.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.prompt_schedules.wake.clone();
-            tokio::spawn(async move { Self::scheduler_loop(weak, wake).await });
+            // The Hub's scope owns the timer: it stops with the Hub.
+            self.scope.spawn_until_cancelled("prompt-schedule-timer", async move {
+                Self::scheduler_loop(weak, wake).await;
+            });
         }
         self.prompt_schedules.wake.notify_one();
     }
@@ -365,7 +368,7 @@ impl Hub {
         }
         tracing::info!(session = %session.id, schedule = %id, run, "scheduled prompt sent");
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_named("prompt-schedule-run", async move {
             let blocks = vec![json!({"type": "text", "text": prompt})];
             // Whether acpmux took the prompt (queued or started): an error after that is the
             // turn's, and the agent may have acted on it, so the run is not given back.
