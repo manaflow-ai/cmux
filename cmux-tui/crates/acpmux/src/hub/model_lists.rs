@@ -182,6 +182,7 @@ impl ModelLists {
     }
 
     /// Whether `harness` has a live list, and whether it is fresh.
+    #[cfg(test)]
     pub(crate) fn live_freshness(&self, harness: &str) -> Freshness {
         freshness(&self.lock().get(&ListKey::Live(harness.to_owned())))
     }
