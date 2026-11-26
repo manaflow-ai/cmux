@@ -279,13 +279,6 @@ struct HangReportServiceTests {
         clock.advance(2 * 24 * 60 * 60)
         let second = identity.current()
         #expect(second != first)
-        #expect(ImageClassifier.isUUID(second))
-    }
-
-    @Test func callStackTreesReadTheAttributedThreadsHeaviestPath() {
-        let frames = CallStackTreeReader().stack(Data(HangReportFixtures.hangTree.utf8))
-        #expect(frames.map(\.offset) == [4_096, 123_456, 777, 55])
-        #expect(CallStackTreeReader().stack(Data("[]".utf8)).isEmpty)
-        #expect(CallStackTreeReader().stack(Data(HangReportFixtures.cpuTree.utf8)).map(\.offset) == [20, 30])
+        #expect(UUID(uuidString: second) != nil)
     }
 }

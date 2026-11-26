@@ -1,15 +1,17 @@
 public import Foundation
 
-/// Builds a ``HangReport`` by allow-list: it copies only the fields of hang-reports-DESIGN.md
-/// section 4 from typed inputs, and every frame goes through ``ImageClassifier``.
+/// Gathers what a ``HangReport`` needs from this process (the images its stacks name, through
+/// ``ImageResolving``, and which bare names are Apple's on disk) and asks Rust's rules
+/// (``HangReportRules``) to build, fit, scan and encode it: the allow-list of hang-reports-DESIGN.md
+/// section 4 and the frame rules of section 3 live in cmux-tui/crates/cmux-hang-report.
 ///
 /// ```swift
 /// let builder = HangReportBuilder(classifier: classifier, resolver: DyldImageResolver())
-/// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries)
+/// let composed = builder.compose(context: context, watchdog: aggregate, metricKit: deliveries)
 /// ```
 public nonisolated struct HangReportBuilder: Sendable {
     /// The envelope of one report: who, when and what was open.
-    public struct Context: Sendable, Equatable {
+    public struct Context: Sendable, Equatable, Encodable {
         /// A random id per report.
         public var reportId: String
         /// ``InstallIdentity``'s id.
@@ -38,11 +40,32 @@ public nonisolated struct HangReportBuilder: Sendable {
         }
     }
 
-    /// Decides what each frame may say.
+    /// One composed report: the body to queue and its readable copy, or why there is none.
+    public struct Composed: Sendable, Equatable {
+        /// What the rules decided.
+        public enum Status: Sendable, Equatable {
+            /// Nothing worth sending.
+            case empty
+            /// Over the body cap even fitted.
+            case tooLarge
+            /// The leak scan found something: never sent.
+            case refused([PrivacyLeakScanner.Finding])
+            /// `body` may be queued.
+            case ok
+        }
+
+        /// What the rules decided.
+        public var status: Status
+        /// The wire body (sorted keys), set when ``status`` is ``Status/ok``.
+        public var body: Data?
+        /// The readable copy of ``body`` (View Hang Report).
+        public var readable: Data?
+    }
+
+    /// The facts the frame rules read (the app bundle, personal terms, Apple images on disk).
     public let classifier: ImageClassifier
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
-    private let reader = CallStackTreeReader()
 
     /// Makes the value from its parts.
     public init(classifier: ImageClassifier, resolver: any ImageResolving) {
@@ -50,105 +73,51 @@ public nonisolated struct HangReportBuilder: Sendable {
         self.resolver = resolver
     }
 
-    /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report.
-    public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput]) -> HangReport {
-        var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
-                                app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
-                                hardware: context.hardware, counts: context.counts)
-        let metricKitHangs = metricKit.flatMap(\.hangs).map { hang in
-            HangSample(source: .metrickit, kind: .hang, durationMs: hang.durationMs, frames: frames(hang.callStackTree))
+    /// The report of `watchdog`'s findings and the MetricKit deliveries since the last report,
+    /// fitted, scanned and encoded; nil when the rules do not answer (nothing is sent).
+    public func compose(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput]) -> Composed? {
+        guard let reply = HangReportRules.call("compose", request(context, watchdog, metricKit), as: HangReportRules.Composed.self) else {
+            return nil
         }
-        report.hangs = Array((metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
-            .prefix(HangReport.maxHangs))
-        report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
-            .prefix(HangReport.maxCPUExceptions)
-            .map { CPUExceptionSample(cpuMs: $0.cpuMs, sampledMs: $0.sampledMs, frames: frames($0.callStackTree)) })
-        report.stallHistogram = watchdog.histogram
-        report.metrics = Self.metrics(metricKit.map(\.metrics))
-        report.intervals = Self.intervals(metricKit.flatMap(\.signposts))
-        return report
+        let status: Composed.Status = switch reply.status {
+        case .empty: .empty
+        case .tooLarge: .tooLarge
+        case .refused: .refused(reply.findings)
+        case .ok: .ok
+        }
+        return Composed(status: status, body: reply.body.map { Data($0.utf8) }, readable: reply.readable.map { Data($0.utf8) })
     }
 
-    /// Frames of a watchdog sample (return addresses, innermost first).
+    /// The readable copy of what would be sent now, nil when the leak scan refuses it.
+    public func preview(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput]) -> Data? {
+        HangReportRules.call("preview", request(context, watchdog, metricKit), as: HangReportRules.Readable.self)?
+            .readable.map { Data($0.utf8) }
+    }
+
+    /// Frames of a watchdog sample (return addresses, innermost first); every frame is
+    /// ``HangReportFrame/other`` when the rules do not answer.
     public func frames(addresses: [UInt]) -> [HangReportFrame] {
-        addresses.prefix(HangSample.maxFrames).map { address in
-            classifier.frame(image: resolver.image(containing: UInt64(address)), address: UInt64(address))
+        let addresses = addresses.prefix(HangSample.maxFrames).map { address in
+            HangReportRules.Frames.Address(address: UInt64(address),
+                                           image: resolver.image(containing: UInt64(address)).map(HangReportRules.Image.init))
         }
+        let request = HangReportRules.Frames(addresses: addresses, appBundlePath: classifier.appBundlePath,
+                                             forbiddenTerms: classifier.terms())
+        return HangReportRules.call("frames", request, as: HangReportRules.FramesReply.self)?.frames
+            ?? Array(repeating: .other, count: addresses.count)
     }
 
-    /// Frames of a MetricKit call stack tree.
-    func frames(_ callStackTree: Data) -> [HangReportFrame] {
-        var loaded: [String: LoadedImage?] = [:]
-        return reader.stack(callStackTree).map { raw in
-            let uuid = raw.binaryUUID?.uppercased()
-            let image = uuid.flatMap { uuid -> LoadedImage? in
-                if let known = loaded[uuid] { return known }
-                let found = resolver.image(uuid: uuid)
-                loaded[uuid] = found
-                return found
-            }
-            return classifier.frame(metricKitName: raw.binaryName, uuid: uuid, offset: raw.offset, loaded: image)
-        }
-    }
-
-    /// The deliveries' metrics, merged: histograms add, ratios keep the newest.
-    static func metrics(_ all: [HangReport.Metrics]) -> HangReport.Metrics {
-        var merged = HangReport.Metrics()
-        merged.hangTime = HistogramBucket.normalized(all.flatMap(\.hangTime))
-        merged.launchFirstDraw = HistogramBucket.normalized(all.flatMap(\.launchFirstDraw))
-        merged.launchResume = HistogramBucket.normalized(all.flatMap(\.launchResume))
-        merged.launchOptimizedFirstDraw = HistogramBucket.normalized(all.flatMap(\.launchOptimizedFirstDraw))
-        merged.launchExtended = HistogramBucket.normalized(all.flatMap(\.launchExtended))
-        merged.scrollHitchMsPerS = all.compactMap(\.scrollHitchMsPerS).last.flatMap(safeRatio)
-        merged.hitchMsPerS = all.compactMap(\.hitchMsPerS).last.flatMap(safeRatio)
-        return merged
-    }
-
-    /// Allowlisted intervals only (``HangReportSignposts/allows(category:name:)``), merged by
-    /// category and name.
-    static func intervals(_ signposts: [MetricKitInput.Signpost]) -> [IntervalHistogram] {
-        var merged: [String: IntervalHistogram] = [:]
-        var order: [String] = []
-        for signpost in signposts where HangReportSignposts.allows(category: signpost.category, name: signpost.name) {
-            let key = signpost.category + " " + signpost.name
-            if var existing = merged[key] {
-                existing.count += max(0, signpost.count)
-                existing.buckets = HistogramBucket.normalized(existing.buckets + signpost.buckets)
-                existing.hitchMsPerS = signpost.hitchMsPerS.flatMap(safeRatio) ?? existing.hitchMsPerS
-                merged[key] = existing
-            } else {
-                merged[key] = IntervalHistogram(category: signpost.category, name: signpost.name, count: signpost.count,
-                                                buckets: signpost.buckets, hitchMsPerS: signpost.hitchMsPerS.flatMap(safeRatio))
-                order.append(key)
-            }
-        }
-        return Array(order.compactMap { merged[$0] }.prefix(HangReport.maxIntervals))
-    }
-
-    /// A ratio in 0...1000 ms per s, else nil.
-    static func safeRatio(_ value: Double) -> Double? {
-        value.isFinite && value >= 0 && value <= 1_000 ? value : nil
-    }
-
-    /// `yyyy-MM-dd`, else `1970-01-01`.
-    static func safeDay(_ day: String) -> String {
-        day.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"#, options: .regularExpression) != nil ? day : "1970-01-01"
-    }
-
-    /// Digits and dots (at most 4 parts of at most 6 digits), else `0`.
-    static func safeVersion(_ version: String) -> String {
-        version.range(of: #"^[0-9]{1,6}(\.[0-9]{1,6}){0,3}$"#, options: .regularExpression) != nil ? version : "0"
-    }
-
-    /// A build number: a version, or one run of up to 20 digits (NIGHTLY's `CFBundleVersion` is the
-    /// CI run id plus the attempt, about 13 digits); else `0`.
-    static func safeBuild(_ build: String) -> String {
-        build.range(of: #"^[0-9]{1,20}$"#, options: .regularExpression) != nil ? build : safeVersion(build)
-    }
-
-    static func safeApp(_ app: HangReport.App) -> HangReport.App {
-        let channels = ["nightly", "dev", "rc", "release"]
-        return HangReport.App(version: safeVersion(app.version), build: safeBuild(app.build),
-                              channel: channels.contains(app.channel) ? app.channel : "dev")
+    /// The compose request: the deliveries' stacks name images by UUID and name; this process
+    /// answers which of those UUIDs are loaded and which bare names are Apple's.
+    private func request(_ context: Context, _ watchdog: StallAggregate, _ metricKit: [MetricKitInput]) -> HangReportRules.Compose {
+        let deliveries = metricKit.map(HangReportRules.MetricKit.init)
+        let trees = deliveries.flatMap { $0.hangs.map(\.callStackTree) + $0.cpuExceptions.map(\.callStackTree) }
+        let refs = trees.isEmpty ? HangReportRules.StackRefs()
+            : HangReportRules.call("stack_refs", HangReportRules.Trees(trees: trees), as: HangReportRules.StackRefs.self)
+            ?? HangReportRules.StackRefs()
+        return HangReportRules.Compose(
+            context: context, watchdog: watchdog, metricKit: deliveries, appBundlePath: classifier.appBundlePath,
+            forbiddenTerms: classifier.terms(), systemImages: refs.names.filter(classifier.systemImageExists),
+            loadedImages: refs.uuids.compactMap { resolver.image(uuid: $0) }.map(HangReportRules.Image.init))
     }
 }

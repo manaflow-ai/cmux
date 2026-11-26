@@ -7,8 +7,8 @@ public import Foundation
 /// producer; ``PrivacyLeakScanner`` checks the encoded bytes before anything leaves the Mac.
 ///
 /// ```swift
-/// let report = builder.build(context: context, watchdog: collector.drain(), metricKit: inputs)
-/// let body = try HangReport.encoder.encode(report)
+/// let composed = builder.compose(context: context, watchdog: collector.drain(), metricKit: inputs)
+/// let report = try JSONDecoder().decode(HangReport.self, from: composed?.body ?? Data())
 /// ```
 public nonisolated struct HangReport: Codable, Sendable, Equatable {
     /// The wire schema this type writes. 2 has the same fields as 1; it marks a report built with
@@ -101,7 +101,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var hangs: [HangSample] = []
     /// MetricKit CPU exceptions, heaviest first.
     public var cpuExceptions: [CPUExceptionSample] = []
-    /// The watchdog's finished stalls by duration (``StallAggregate/bucketEdgesMs``).
+    /// The watchdog's finished stalls by duration (Rust's `BUCKET_EDGES_MS`).
     public var stallHistogram: [HistogramBucket] = []
     /// MetricKit's aggregated metrics.
     public var metrics = Metrics()

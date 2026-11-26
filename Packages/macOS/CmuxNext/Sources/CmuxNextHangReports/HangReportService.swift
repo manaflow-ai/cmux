@@ -47,10 +47,8 @@ public actor HangReportService {
         }
     }
 
-    /// The most reports built per UTC day.
+    /// The most reports built per UTC day (Rust's `DAILY_LIMIT`, which enforces it; tests read it).
     public static let dailyLimit = 4
-    /// A launch sends a watchdog-only report when the last one is older than this.
-    public static let watchdogReportInterval: TimeInterval = 24 * 60 * 60
 
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hang-reports")
     private let store: HangReportStore
@@ -118,10 +116,14 @@ public actor HangReportService {
     public func launched() async {
         guard isEnabled, await allowed() else { return }
         await flushOutbox()
-        let last = await store.sendLog().lastSentAt ?? .distantPast
-        if environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval, !collector.snapshot().isEmpty {
-            await sendReport()
+        struct Request: Encodable {
+            var lastSentAt: Double?
+            var now: Double
+            var watchdogEmpty: Bool
         }
+        let request = Request(lastSentAt: await store.sendLog().lastSentAt?.timeIntervalSince1970,
+                              now: environment.now().timeIntervalSince1970, watchdogEmpty: collector.snapshot().isEmpty)
+        if HangReportRules.call("launch_due", request, as: HangReportRules.Due.self)?.due == true { await sendReport() }
     }
 
     /// A MetricKit delivery (metrics about daily, diagnostics usually at the next launch).
@@ -147,10 +149,8 @@ public actor HangReportService {
     public func viewableReport() async -> URL? {
         if await store.hasLastReport() { return store.lastReportURL }
         // While off, the preview names a throwaway id: viewing must not start an install id.
-        let report = await build(watchdog: collector.snapshot(), metricKit: waiting,
-                                 installId: isEnabled ? nil : UUID().uuidString.lowercased())
-        guard let readable = try? HangReport.readableEncoder.encode(report),
-              scanner.findings(in: readable).isEmpty else { return nil }
+        let context = await context(installId: isEnabled ? nil : UUID().uuidString.lowercased())
+        guard let readable = builder.preview(context: context, watchdog: collector.snapshot(), metricKit: waiting) else { return nil }
         await store.savePreview(readable)
         return store.previewURL
     }
@@ -176,32 +176,33 @@ public actor HangReportService {
         guard await allowed() else { return }
         let started = generation
         let now = environment.now()
-        let today = Self.day(now)
-        var log = await store.sendLog()
+        let saved = await store.sendLog()
         guard generation == started else { return }
-        if log.day != today { log = HangReportStore.SendLog() }
-        guard log.sentToday < Self.dailyLimit else { return }
+        // The daily cap: nil when today's reports are used up.
+        guard let log = HangReportStore.SendLog.slot(after: saved, now: now) else { return }
         let aggregate = collector.drain()
         let deliveries = waiting
         waiting = []
         guard !aggregate.isEmpty || !deliveries.isEmpty else { return }
-        log.day = today
-        log.sentToday += 1
-        log.lastSentAt = now
         await store.saveSendLog(log)
-        let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries))
-        guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
-              body.count <= HangReport.maxBodyBytes else { return }
-        let findings = scanner.findings(in: body)
-        guard findings.isEmpty else {
-            refusedCount += 1
-            logger.error("hang report refused by the leak scan: \(findings.count) findings, first \(findings[0].description, privacy: .public)")
+        let context = await context()
+        guard generation == started, let composed = builder.compose(context: context, watchdog: aggregate, metricKit: deliveries) else {
             return
         }
-        guard generation == started else { return }
-        await store.enqueue(body, reportId: report.reportId)
+        switch composed.status {
+        case let .refused(findings):
+            refusedCount += 1
+            logger.error("hang report refused by the leak scan: \(findings.count) findings, first \(findings.first?.description ?? "none", privacy: .public)")
+            return
+        case .empty, .tooLarge:
+            return
+        case .ok:
+            break
+        }
+        guard generation == started, let body = composed.body else { return }
+        await store.enqueue(body, reportId: context.reportId)
         // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
-        if generation == started, let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
+        if generation == started, let readable = composed.readable { await store.saveLastReport(readable) }
         await flushOutbox()
     }
 
@@ -240,9 +241,14 @@ public actor HangReportService {
 
     /// Whether a queued body would be sent: built by this build (its schema and app), and clean.
     private func isSendable(_ body: Data) -> Bool {
-        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == HangReport.schemaVersion,
-              report.app == HangReportBuilder.safeApp(environment.app) else { return false }
-        return scanner.findings(in: body).isEmpty
+        struct Request: Encodable {
+            var body: String
+            var app: HangReport.App
+            var forbiddenTerms: [String]
+        }
+        guard let text = String(data: body, encoding: .utf8) else { return false }
+        let request = Request(body: text, app: environment.app, forbiddenTerms: scanner.terms())
+        return HangReportRules.call("sendable", request, as: HangReportRules.Sendable.self)?.sendable ?? false
     }
 
     /// ``Environment/stillAllowed``; when it says no, everything recorded and queued is dropped
@@ -255,31 +261,15 @@ public actor HangReportService {
         return true
     }
 
-    private func build(watchdog: StallAggregate, metricKit: [MetricKitInput], installId: String? = nil) async -> HangReport {
+    private func context(installId: String? = nil) async -> HangReportBuilder.Context {
         let now = environment.now()
-        let context = HangReportBuilder.Context(
+        return HangReportBuilder.Context(
             reportId: environment.makeReportID(), installId: installId ?? identity.current(), day: Self.day(now), app: environment.app,
             os: environment.os, hardware: environment.hardware, counts: await environment.counts())
-        return builder.build(context: context, watchdog: watchdog, metricKit: metricKit)
     }
 
-    /// `report` shrunk until it encodes under the body cap: the shortest hangs, then CPU
-    /// exceptions, then intervals go first.
-    static func fitted(_ report: HangReport) -> HangReport {
-        var report = report
-        while (try? HangReport.encoder.encode(report).count) ?? 0 > HangReport.maxBodyBytes {
-            if !report.hangs.isEmpty { report.hangs.removeLast() } else if !report.cpuExceptions.isEmpty {
-                report.cpuExceptions.removeLast()
-            } else if !report.intervals.isEmpty { report.intervals.removeLast() } else { break }
-        }
-        return report
-    }
-
-    /// The UTC day of `date` (`yyyy-MM-dd`).
+    /// The UTC day of `date` (`yyyy-MM-dd`; `1970-01-01` when the rules do not answer).
     static func day(_ date: Date) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04ld-%02ld-%02ld", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
+        HangReportRules.call("day", HangReportRules.Now(now: date.timeIntervalSince1970), as: HangReportRules.Day.self)?.day ?? "1970-01-01"
     }
 }

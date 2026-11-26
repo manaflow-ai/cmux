@@ -1,12 +1,20 @@
 @testable import CmuxNextHangReports
+import Foundation
 import Testing
 
 /// Only images on the sealed system volume (or an OS cryptex) and in the app bundle are named:
 /// the Data volume seen through `/System/Volumes/`, firmlinked writable folders and paths with
 /// `..` are not Apple's.
 struct ImageOwnerTests {
-    private let classifier = HangReportFixtures.classifier()
     private let uuid = "0F1E2D3C-4B5A-3968-8776-5A4B3C2D1E0F"
+
+    /// The frame of an address inside an image loaded from `path`.
+    private func frame(path: String) -> HangReportFrame? {
+        let image = LoadedImage(path: path, uuid: uuid, base: 0x3_0000_0000, size: 0x1000)
+        let builder = HangReportBuilder(classifier: HangReportFixtures.classifier(),
+                                        resolver: HangReportFixtures.FakeResolver(images: [image]))
+        return builder.frames(addresses: [0x3_0000_0010]).first
+    }
 
     @Test(arguments: [
         "/System/Volumes/Data/Users/alice/secret-project/libX.dylib",
@@ -21,14 +29,7 @@ struct ImageOwnerTests {
         "System/Library/Frameworks/AppKit.framework/AppKit",
     ])
     func notTheSealedSystemVolume(path: String) {
-        #expect(classifier.owner(path: path) == .other)
-        let image = LoadedImage(path: path, uuid: uuid, base: 0x3_0000_0000, size: 0x1000)
-        #expect(classifier.frame(image: image, offset: 0x10) == .other)
-    }
-
-    @Test func aMetricKitPathNameOnTheDataVolumeIsOther() {
-        #expect(classifier.frame(metricKitName: "/System/Volumes/Data/Users/alice/secret-project/libX.dylib", uuid: uuid,
-                                 offset: 0x10, loaded: nil) == .other)
+        #expect(frame(path: path) == .other)
     }
 
     @Test(arguments: [
@@ -37,11 +38,11 @@ struct ImageOwnerTests {
         "/System/Volumes/Preboot/Cryptexes/OS/System/Library/Frameworks/WebKit.framework/Versions/A/WebKit",
     ])
     func appleImagesStayApples(path: String) {
-        #expect(classifier.owner(path: path) == .apple)
+        #expect(frame(path: path) == HangReportFrame(image: (path as NSString).lastPathComponent, uuid: uuid, offset: 0x10))
     }
 
     @Test func theAppBundleIsOurs() {
-        #expect(classifier.owner(path: HangReportFixtures.appBundle + "/Contents/MacOS/cmux") == .ours)
-        #expect(classifier.owner(path: HangReportFixtures.appBundle + "/../Acme.app/Contents/MacOS/Acme") == .other)
+        #expect(frame(path: HangReportFixtures.appBundle + "/Contents/MacOS/cmux")?.image == "cmux")
+        #expect(frame(path: HangReportFixtures.appBundle + "/../Acme.app/Contents/MacOS/Acme") == .other)
     }
 }

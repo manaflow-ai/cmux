@@ -36,7 +36,7 @@ public nonisolated struct MetricKitInput: Sendable, Equatable {
     }
 
     /// One `MXSignpostMetric`.
-    public struct Signpost: Sendable, Equatable {
+    public struct Signpost: Sendable, Equatable, Encodable {
         /// The signpost category (untrusted).
         public var category: String
         /// The signpost name (untrusted).

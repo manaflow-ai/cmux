@@ -17,12 +17,32 @@ public actor HangReportStore {
 
         /// Makes the value from its parts.
         public init() {}
-    }
 
-    /// The most reports the outbox keeps.
-    public static let outboxLimit = 3
-    /// How long an unsent report is kept.
-    public static let outboxMaxAge: TimeInterval = 14 * 24 * 60 * 60
+        /// The log after taking one of today's sends at `now`; nil when today's are used up (or
+        /// the rules do not answer: nothing is sent). The cap is Rust's.
+        static func slot(after log: SendLog, now: Date) -> SendLog? {
+            struct Wire: Codable {
+                var lastSentAt: Double?
+                var day: String
+                var sentToday: Int
+            }
+            struct Request: Encodable {
+                var log: Wire
+                var now: Double
+            }
+            struct Reply: Decodable {
+                var log: Wire?
+            }
+            let request = Request(log: Wire(lastSentAt: log.lastSentAt?.timeIntervalSince1970, day: log.day, sentToday: log.sentToday),
+                                  now: now.timeIntervalSince1970)
+            guard let wire = HangReportRules.call("send_slot", request, as: Reply.self)?.log else { return nil }
+            var next = SendLog()
+            next.lastSentAt = wire.lastSentAt.map(Date.init(timeIntervalSince1970:))
+            next.day = wire.day
+            next.sentToday = wire.sentToday
+            return next
+        }
+    }
 
     /// The folder that holds every hang report file.
     public nonisolated let directory: URL
@@ -60,28 +80,47 @@ public actor HangReportStore {
 
     // MARK: Outbox
 
-    /// Queues a report body; the oldest go when more than ``outboxLimit`` wait.
+    /// Queues a report body; the oldest go when more wait than the outbox keeps.
     public func enqueue(_ body: Data, reportId: String) {
         try? manager.createDirectory(at: outboxURL, withIntermediateDirectories: true)
         write(body, to: outboxURL.appending(path: "\(reportId).json"))
-        let entries = outbox(now: Date())
-        for entry in entries.dropLast(Self.outboxLimit) { try? manager.removeItem(at: entry.url) }
+        for name in plan(now: Date())?.trim ?? [] { try? manager.removeItem(at: outboxURL.appending(path: name)) }
     }
 
-    /// The waiting reports, oldest first; older than ``outboxMaxAge`` are deleted.
+    /// The waiting reports, oldest first; expired ones are deleted (none when the rules do not answer).
     public func outbox(now: Date) -> [(url: URL, body: Data)] {
+        (plan(now: now)?.ordered ?? []).compactMap { name -> (url: URL, body: Data)? in
+            let url = outboxURL.appending(path: name)
+            return (try? Data(contentsOf: url)).map { (url: url, body: $0) }
+        }
+    }
+
+    private struct Plan: Decodable {
+        var expired: [String]
+        var ordered: [String]
+        var trim: [String]
+    }
+
+    /// The outbox files by name and age, planned by Rust; the expired ones are deleted here.
+    private func plan(now: Date) -> Plan? {
+        struct Entry: Encodable {
+            var name: String
+            var modified: Double?
+        }
+        struct Request: Encodable {
+            var entries: [Entry]
+            var now: Double
+        }
         let files = (try? manager.contentsOfDirectory(at: outboxURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let dated = files.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, Date)? in
-            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            if now.timeIntervalSince(date) > Self.outboxMaxAge {
-                try? manager.removeItem(at: url)
-                return nil
-            }
-            return (url, date)
+        let entries = files.map { url in
+            Entry(name: url.lastPathComponent,
+                  modified: (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate?.timeIntervalSince1970)
         }
-        return dated.sorted { $0.1 < $1.1 }.compactMap { entry -> (url: URL, body: Data)? in
-            (try? Data(contentsOf: entry.0)).map { (url: entry.0, body: $0) }
+        guard let plan = HangReportRules.call("outbox_plan", Request(entries: entries, now: now.timeIntervalSince1970), as: Plan.self) else {
+            return nil
         }
+        for name in plan.expired { try? manager.removeItem(at: outboxURL.appending(path: name)) }
+        return plan
     }
 
     /// Deletes one outbox entry.

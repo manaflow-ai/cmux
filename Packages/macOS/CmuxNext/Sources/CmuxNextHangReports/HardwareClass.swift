@@ -9,11 +9,8 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
     public var chip: String
     /// Active processor cores.
     public var cores: Int
-    /// Physical memory rounded to the nearest of ``memorySizesGB``.
+    /// Physical memory rounded to the nearest size Apple sells.
     public var memoryGB: Int
-
-    /// The memory sizes a report may name.
-    public static let memorySizesGB = [4, 8, 16, 18, 24, 32, 36, 48, 64, 96, 128, 192, 256, 512]
 
     /// Makes the value from its parts.
     public init(arch: String, chip: String, cores: Int, memoryGB: Int) {
@@ -24,27 +21,24 @@ public nonisolated struct HardwareClass: Codable, Sendable, Equatable {
     }
 
     /// The class from raw values (sysctl `hw.machine`, `machdep.cpu.brand_string`), each
-    /// reduced to its allowed form.
+    /// reduced to its allowed form by Rust (``HangReportRules``); `other`, `other`, 1 core and 0 GB
+    /// when the rules do not answer.
     public init(rawArch: String?, rawChip: String?, cores: Int, memoryBytes: UInt64) {
-        let arch = rawArch?.trimmingCharacters(in: .whitespaces) ?? ""
-        self.arch = ["arm64", "arm64e", "x86_64"].contains(arch) ? (arch == "arm64e" ? "arm64" : arch) : "other"
-        self.chip = Self.chipFamily(rawChip)
-        self.cores = min(max(cores, 1), 1_024)
-        let gigabytes = Double(memoryBytes) / 1_073_741_824
-        self.memoryGB = Self.memorySizesGB.min { abs(Double($0) - gigabytes) < abs(Double($1) - gigabytes) } ?? 0
+        struct Request: Encodable {
+            var rawArch: String?
+            var rawChip: String?
+            var cores: Int
+            var memoryBytes: UInt64
+        }
+        let request = Request(rawArch: rawArch, rawChip: rawChip, cores: cores, memoryBytes: memoryBytes)
+        self = HangReportRules.call("hardware", request, as: HardwareClass.self)
+            ?? HardwareClass(arch: "other", chip: "other", cores: 1, memoryGB: 0)
     }
 
     /// This Mac's class (sysctl and `ProcessInfo`).
     public static func current() -> HardwareClass {
         HardwareClass(rawArch: sysctlString("hw.machine"), rawChip: sysctlString("machdep.cpu.brand_string"),
                       cores: ProcessInfo.processInfo.activeProcessorCount, memoryBytes: ProcessInfo.processInfo.physicalMemory)
-    }
-
-    /// `Apple M4 Pro` stays; any other brand string becomes `Intel` or `other`.
-    static func chipFamily(_ raw: String?) -> String {
-        guard let raw = raw?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return "other" }
-        if raw.range(of: #"^Apple M[0-9]{1,2}( (Pro|Max|Ultra))?$"#, options: .regularExpression) != nil { return raw }
-        return raw.localizedCaseInsensitiveContains("intel") ? "Intel" : "other"
     }
 
     private static func sysctlString(_ name: String) -> String? {
