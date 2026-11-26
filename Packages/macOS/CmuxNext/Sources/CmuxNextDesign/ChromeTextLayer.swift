@@ -57,6 +57,11 @@ nonisolated public final class ChromeTextLayer: CALayer {
     override public var bounds: CGRect {
         didSet {
             guard oldValue.size != bounds.size else { return }
+            if keepsGlyphs(from: oldValue.size) {
+                layoutFill()
+                return
+            }
+            keptWidth = nil
             layoutFill()
             // Truncation and alignment follow the width, which the whole-pixel mask may not show.
             redraw()
@@ -72,6 +77,11 @@ nonisolated public final class ChromeTextLayer: CALayer {
     /// The line's glyph image per stem weight: a color change between two weights (a tab's selected
     /// and plain colors) swaps images and draws each weight once.
     private var images: [Int: CGImage] = [:]
+    /// The width ``images`` were drawn at, while a width change that moves no glyph keeps them
+    /// (``keepsGlyphs(from:)``); nil while the glyphs span the layer.
+    private var keptWidth: CGFloat?
+    /// Lines drawn, for tests.
+    private(set) var glyphDraws = 0
 
     override public init() {
         super.init()
@@ -114,7 +124,33 @@ nonisolated public final class ChromeTextLayer: CALayer {
 
     private func redraw() {
         images = [:]
+        if keptWidth != nil {
+            keptWidth = nil
+            layoutFill()
+        }
         glyphs.setNeedsDisplay()
+    }
+
+    /// A width change of a left-aligned line that fits both the drawn width and the new one draws the
+    /// same pixels at either: no ellipsis, nothing clipped, the first glyph at x 0. So its glyphs stay,
+    /// on a mask at the width they were drawn at; the fill shows nothing past the line. A sidebar
+    /// title narrowing for a status glyph and widening again then draws nothing.
+    private func keepsGlyphs(from old: CGSize) -> Bool {
+        guard old.height == bounds.height, old.width > 0, alignmentMode != .center, alignmentMode != .right,
+              !images.isEmpty, !string.isEmpty else { return false }
+        let drawn = keptWidth ?? old.width
+        let ink = inkWidth()
+        guard ink <= drawn, ink <= bounds.width else { return false }
+        keptWidth = drawn
+        return true
+    }
+
+    /// How far right the line's ink reaches from x 0: its advance or its glyphs' outlines, whichever
+    /// is wider, and a point for smoothing, which spreads past the outline.
+    private func inkWidth() -> CGFloat {
+        let line = line()
+        let advance = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        return max(advance, CTLineGetImageBounds(line, nil).maxX) + 1
     }
 
     override public func layoutSublayers() {
@@ -126,7 +162,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         fill.frame = CGRect(origin: .zero, size: bounds.size)
-        GlyphMask.place(glyphs, in: fill, scale: contentsScale)
+        GlyphMask.place(glyphs, in: fill, scale: contentsScale, width: keptWidth)
         CATransaction.commit()
     }
 
@@ -181,7 +217,9 @@ nonisolated public final class ChromeTextLayer: CALayer {
 
     private func drawLine() -> CGImage? {
         guard !string.isEmpty else { return nil }
-        let size = bounds.size
+        // Kept glyphs (``keptWidth``) draw a new ink at the width their mask still has.
+        let size = CGSize(width: keptWidth ?? bounds.width, height: bounds.height)
+        glyphDraws &+= 1
         var line = line()
         if let truncation, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) > size.width {
             let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "\u{2026}", attributes: [
