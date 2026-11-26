@@ -19,8 +19,8 @@
 //!   `CMUX_VM_ID`, from the process environment,
 //!   `$HOME/.config/cmux/model-plane.env`, the image's
 //!   `/etc/cmux/model-plane.env` and the bound `/etc/cmux/daemon-instance-id`;
-//!   the source the machine spend readout uses,
-//!   `coderouter_usage::machine_source`).
+//!   its reader,
+//!   `machine_identity::machine_source`).
 //!
 //! No argv flag is added, so an upgraded daemon starts with the guest's
 //! existing command line.
@@ -80,7 +80,7 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
 
 /// True when this machine is a cmux Cloud host (the module's test).
 fn this_is_a_cloud_host() -> bool {
-    let identity = crate::coderouter_usage::machine_source().is_some();
+    let identity = crate::machine_identity::machine_source().is_some();
     let linux = cfg!(target_os = "linux");
     // The root-owned stamp of a Cloud image (`/etc/cmux/image-stamp`).
     let etc = crate::agent_start_host::cloud_etc();

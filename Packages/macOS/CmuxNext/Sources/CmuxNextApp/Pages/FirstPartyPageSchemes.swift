@@ -63,7 +63,6 @@ enum FirstPartyPageSchemes {
         .chiefUsage,
         .cloud,
         .cloudProgress,
-        .coderouter,
         .debugSettings,
         .diff,
         .editor,

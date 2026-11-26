@@ -124,7 +124,7 @@ fn pending_socket() -> SlotAttachment {
 }
 
 fn route() -> PendingRoute {
-    PendingRoute { lane: LaneToken("lane".into()), generation: 1 }
+    PendingRoute { lane: LaneToken("lane".into()), generation: 1, region: None }
 }
 
 impl World {

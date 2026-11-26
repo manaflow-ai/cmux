@@ -21,6 +21,7 @@
 //! | `get` | `session` | `GET :id` |
 //! | `lease` | `session`, `body` | `POST :id/lease` |
 //! | `release` | `session`, `body` | `POST :id/release` |
+//! | `give` | `session`, `body` | `POST :id/give` |
 //! | `events_append` | `session`, `body` | `POST :id/events` |
 //! | `events` | `session`, `after`, `limit`? | `GET :id/events?after=&limit=` |
 //! | `chunk_put` | `session`, `sha256`, `holder`, `epoch`, `bytes` | `PUT :id/chunks/:sha256` |
@@ -83,6 +84,8 @@ pub enum Kind {
     Get,
     Lease,
     Release,
+    /// The holder hands the chat to where the person moved it.
+    Give,
     EventsAppend,
     Events,
     ChunkPut,
@@ -95,12 +98,13 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 14] = [
+    pub const ALL: [Kind; 15] = [
         Kind::Machine,
         Kind::Assignments,
         Kind::Get,
         Kind::Lease,
         Kind::Release,
+        Kind::Give,
         Kind::EventsAppend,
         Kind::Events,
         Kind::ChunkPut,
@@ -120,6 +124,7 @@ impl Kind {
             Kind::Get => "get",
             Kind::Lease => "lease",
             Kind::Release => "release",
+            Kind::Give => "give",
             Kind::EventsAppend => "events_append",
             Kind::Events => "events",
             Kind::ChunkPut => "chunk_put",
@@ -142,6 +147,7 @@ impl Kind {
             Kind::Machine | Kind::Assignments | Kind::Get => ("GET", ""),
             Kind::Lease => ("POST", "/lease"),
             Kind::Release => ("POST", "/release"),
+            Kind::Give => ("POST", "/give"),
             Kind::EventsAppend => ("POST", "/events"),
             Kind::Events => ("GET", "/events"),
             Kind::ChunkPut => ("PUT", "/chunks/"),
@@ -160,6 +166,7 @@ impl Kind {
             self,
             Kind::Lease
                 | Kind::Release
+                | Kind::Give
                 | Kind::EventsAppend
                 | Kind::SnapshotPost
                 | Kind::InboxAck
