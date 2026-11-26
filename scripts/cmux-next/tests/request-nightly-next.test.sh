@@ -1178,7 +1178,7 @@ batch_walk() { # <commits> <tick cache> <run id>: the tick's loop over the newes
 for c in $(git -C "$src" rev-list "$batch_tip"); do echo 404 > "$TMP/precheck/$c"; done
 reads4=$(batch_walk 4 "$TMP/batch-tick-4" 41)
 reads12=$(batch_walk 12 "$TMP/batch-tick-12" 42)
-grep -q "not prechecked yet" <<<"$out" || fail "a commit with no verdict must be refused as not prechecked:" "$out"
+grep -q "not prechecked yet" <<<"$out" || fail "a commit with no verdict must be refused as not prechecked:" "$out" "keys: $(for c in $(git -C "$src" rev-list -n 14 "$batch_tip"); do echo "$c $(key "$c")"; done)" "published: $(ls "$cdn/tree")" "walk_tip~5=$(git -C "$src" rev-parse "$walk_tip~5")"
 distinct=$(sort -u "$TMP/precheck.log" | grep -c .)
 (( reads12 == distinct )) || fail "a walk must read each commit's verdict once, read $reads12 for $distinct commits:" "$(sort "$TMP/precheck.log" | uniq -c | sort -rn | head)"
 (( reads12 - reads4 <= 8 )) || fail "8 more commits walked may cost at most 8 more reads, got $reads4 then $reads12"
