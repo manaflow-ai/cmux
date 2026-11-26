@@ -27,7 +27,8 @@
    the header: the band covered + and Send (ask c-6a24624c5c). There the strip takes the chips size,
    the shortest one, so the tiles, the draft and the controls all stay in sight. */
 @media (height < 220px) {
-  .acpmux-composer-box {
+  /* Match the attach-size attribute rule above so a compact strip also takes the chips size. */
+  .acpmux-composer-box[data-attach-size] {
     --acpmux-attach-height: 32px;
     --acpmux-attach-top: 6px;
   }
