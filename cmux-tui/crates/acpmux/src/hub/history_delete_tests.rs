@@ -197,3 +197,46 @@ async fn an_export_copies_the_chat_before_it_goes_and_a_failed_one_keeps_it() {
     );
     hub.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn a_chat_pinned_in_the_list_or_starred_is_never_deleted() {
+    // Leo-Ask-Trace: ask-a4c6c940cc. The design's rule: "Pinned and starred chats are never
+    // deleted". The sidebar pin (`_acpmux/pin`, `meta.pinned`) is not a tag, so a check on the
+    // `pinned` tag alone deleted a chat its person pinned.
+    let root =
+        Root(std::env::temp_dir().join(format!("acpmux-history-kept-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let now = now_ms();
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "plain", "closed", now - 40 * DAY, json!({}));
+        chat(&*store, "sidebar", "closed", now - 40 * DAY, json!({}));
+        chat(&*store, "starred", "closed", now - 40 * DAY, json!({"starred": {"value": "1"}}));
+        chat(
+            &*store,
+            "star-expired",
+            "closed",
+            now - 40 * DAY,
+            json!({"starred": {"value": "1", "expires_at": now - DAY}}),
+        );
+        store.flush().unwrap();
+    }
+    let hub = open(&root.0);
+    let sidebar = hub.resolve("sidebar").unwrap();
+    hub.set_pinned(&sidebar, true).unwrap();
+    assert!(super::history_delete::kept_by_person(&sidebar.meta()));
+    let after = std::time::Duration::from_millis(30 * DAY);
+    assert_eq!(hub.history_delete_pass_after(after).await, 2);
+    assert!(hub.resolve("plain").is_err());
+    assert!(hub.resolve("star-expired").is_err(), "a star that expired keeps nothing");
+    for kept in ["sidebar", "starred"] {
+        assert!(hub.resolve(kept).is_ok(), "{kept} is kept");
+        assert!(hub.store.session_path(kept).unwrap().exists(), "{kept}'s folder is kept");
+    }
+    // Unpinned, it goes like any other.
+    hub.set_pinned(&sidebar, false).unwrap();
+    assert_eq!(hub.history_delete_pass_after(after).await, 1);
+    assert!(hub.resolve("sidebar").is_err());
+    hub.shutdown_all().await;
+}

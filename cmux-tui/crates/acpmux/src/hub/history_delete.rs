@@ -23,8 +23,21 @@ use super::*;
 /// After how many days with no activity a closed chat's history is deleted; 0 (the default) is
 /// never.
 pub(crate) const SETTING: &str = "agents.chats.deleteHistoryAfterDays";
-/// The tag that keeps a chat whatever its age.
-const KEPT_TAG: &str = "pinned";
+/// The tags that keep a chat whatever its age: a person pinned or starred it.
+const KEPT_TAGS: [&str; 2] = ["pinned", "starred"];
+
+/// Whether a person asked to keep this chat: pinned in their list (`_acpmux/pin`, synced
+/// `pin/<id>`), or tagged `pinned` or `starred` with no expiry or one still ahead. A delete pass
+/// and an offload pass (`cloud_offload.rs`) never take a kept chat (cmuxterm-hq
+/// `docs/design/cold-storage-and-shared-tier.md` section 5: "Pinned and starred chats are never
+/// deleted").
+pub(crate) fn kept_by_person(meta: &SessionMeta) -> bool {
+    let now = now_ms();
+    meta.pinned
+        || KEPT_TAGS.iter().any(|name| {
+            meta.tags.get(*name).is_some_and(|tag| tag.expires_at.is_none_or(|at| at > now))
+        })
+}
 
 /// How long a chat stays unchanged before a pass deletes it, from the settings document; None
 /// when the setting is absent, 0, or not a positive number of days (`7`, `"7"`, `"7d"`).
@@ -64,8 +77,7 @@ impl Hub {
             SessionStatus::Idle if cold => {}
             _ => return Err("open"),
         }
-        if meta.tags.get(KEPT_TAG).is_some_and(|tag| tag.expires_at.is_none_or(|at| at > now_ms()))
-        {
+        if kept_by_person(&meta) {
             return Err("kept");
         }
         if self.age(session, &meta) > cutoff {
