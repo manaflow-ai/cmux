@@ -58,8 +58,10 @@ jobs:
     # still plans and gates on every label it gets.
     if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
-    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
-    timeout-minutes: 10
+    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint). The ceiling fits the worst
+    # retried path: probe 3 x 60 s, base checkout 3 x 75 s plus its 90 s blob read, head fetch and blob
+    # read 3 x 90 s each, plus 20 s backoff per retried read (about 19 minutes); a healthy run never comes near it.
+    timeout-minutes: 19
     permissions:
       contents: read
       pull-requests: read
@@ -83,6 +85,28 @@ jobs:
           set -uo pipefail
           git init -q probe && cd probe || exit 0
           git remote add origin "https://github.com/$REPO.git"
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
           # A pool runner's git mirror (fetched each minute: branch tips, every PR's head and merge) holds both
           # commits nearly always; borrowing its objects answers with no network. GitHub's shallow, filtered
           # fetch of this repository is what timed out here (60 s, runs 45772484255 and 45744047896).
@@ -91,7 +115,7 @@ jobs:
           if inmirror "$BASE_SHA" && inmirror "$HEAD_SHA"; then
             echo "$mirror/objects" > .git/objects/info/alternates
             echo "base and head read from the runner's git mirror"
-          elif ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
+          elif ! git_retry "treeless fetch of the base and the head" 60 -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
             echo "treeless fetch failed: full plan"; exit 0
           fi
           base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
@@ -116,16 +140,38 @@ jobs:
       # GitHub building a shallow, filtered pack of a 3 GB repository: p50 66 s, p95 286 s on the pool
       # (2026-11-24, pool.sh's mirror notes), so a 60 s bound failed both attempts on PRs 56905, 53402 and
       # 57565 on 2026-11-26 while the runner's mirror already held the base. Each network attempt is bounded
-      # with a low-speed abort, tried three times with backoff, and a failure names its cause.
+      # with a low-speed abort, tried three times with backoff (git_retry, as every read below), and a failure names its cause.
       - name: Checkout base (trusted tooling)
         id: checkout
         if: steps.same-tree.outputs.same != 'true'
-        timeout-minutes: 5
+        timeout-minutes: 6
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
           mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}"
           rm -rf trusted && git init -q trusted && cd trusted || { echo "::error::could not create trusted/"; exit 1; }
           git remote add origin "https://github.com/$REPO.git"
@@ -135,17 +181,10 @@ jobs:
             echo "$mirror/objects" > .git/objects/info/alternates
             how="the runner's git mirror, no network"
           else
-            tried=""
-            for pause in 0 10 30; do
-              sleep "$pause"
-              t0=$SECONDS rc=0
-              GIT_TERMINAL_PROMPT=0 timeout 75 git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
-                fetch -q --no-tags --filter=blob:none --depth=1 origin "+$BASE_SHA:refs/remotes/origin/base" || rc=$?
-              if [ "$rc" = 0 ]; then how="github.com in $((SECONDS - t0)) s"; break; fi
-              tried="$tried rc=$rc after $((SECONDS - t0)) s;"
-            done
-            if [ -z "$how" ]; then
-              echo "::error::base fetch of $BASE_SHA from github.com failed on 3 attempts (${tried% }; 124 is the 75 s bound) on runner ${RUNNER_NAME:-unknown}, and the runner has no git mirror holding it: a fetch problem on this runner, not the PR"
+            if git_retry "base fetch of $BASE_SHA from github.com" 75 -c protocol.version=2 fetch -q --no-tags --filter=blob:none --depth=1 origin "+$BASE_SHA:refs/remotes/origin/base"; then
+              how="github.com"
+            else
+              echo "::error::base fetch of $BASE_SHA from github.com failed (124 is the 75 s bound) on runner ${RUNNER_NAME:-unknown}, and the runner has no git mirror holding it: a fetch problem on this runner, not the PR"
               exit 1
             fi
           fi
@@ -172,7 +211,29 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || exit 1
           base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
           head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
           if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
@@ -203,13 +264,37 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          # The trees step above fetched the head already; fetch only a commit this clone lacks.
+          fetch_head() { git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head"; }
           case "$BASE_REF" in refs/heads/main|refs/heads/feat-cmux-next|main|feat-cmux-next) ;; *) echo "::error::unexpected base branch"; exit 1 ;; esac
           if [ "$EVENT" = pull_request_target ]; then
             # Most PRs never touch migrations: decide that from git before using the API. The
             # installation's API quota ran out under load and failed the plan on UI PRs (#17602).
             # The same backend/db/migrations tree as the base means no migration change; a
             # different one (the PR's change, or a base move it has not merged) is listed below.
-            GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            fetch_head || exit 1
             base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
             head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
             if [ "$base_tree" = "$head_tree" ]; then
@@ -232,9 +317,9 @@ jobs:
           fi
           # Head migration files only: fetched as blobs, never checked out or executed.
           mkdir -p head-migrations
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
-          # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound it too.
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted archive -o head-migrations.tar "$HEAD_SHA" backend/db/migrations || { echo "::error::reading the head's migrations ($HEAD_SHA) failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          fetch_head || exit 1
+          # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound and retry it too.
+          git_retry "reading the head's migrations ($HEAD_SHA)" 90 -C trusted archive -o "$PWD/head-migrations.tar" "$HEAD_SHA" backend/db/migrations || exit 1
           tar -x -C head-migrations --strip-components=3 -f head-migrations.tar && rm -f head-migrations.tar
           # Data only: flat regular files with migration names. No symlinks, devices or subdirectories,
           # so no later job can be made to read anything outside these SQL texts.
