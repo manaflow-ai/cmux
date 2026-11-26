@@ -13,7 +13,17 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  Component,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -235,6 +245,18 @@ class LineBoxes {
     };
   }
 
+  /// Before this commit writes (no side effect): whether it may move the boxes, as `check` will find,
+  /// short of a new node, which has nothing drawn to move from.
+  mayMove(drawn: readonly unknown[]): boolean {
+    const was = this.drawn;
+    return (
+      this.resized ||
+      was === undefined ||
+      was.length !== drawn.length ||
+      drawn.some((value, index) => !Object.is(value, was[index]))
+    );
+  }
+
   /// This commit's check: sets `moved`, and observes the line's boxes again when what it draws changed.
   check(node: HTMLDivElement | undefined, drawn: readonly unknown[]) {
     const was = this.drawn;
@@ -290,17 +312,17 @@ function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly un
 
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
-/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
-/// only in the effect.
-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
+/// tail on past it. The width is read before the commit that starts a roll writes the DOM
+/// (`BeforeLineCommit`), while the old words are still drawn and the page's layout is the one last
+/// painted, so the read costs no layout of its own (A1: reading it after each moved commit forced the
+/// whole transcript's layout once a streamed call, 3 ms at 2777 rows). Set on the roll's copies in
+/// that commit, before paint; refs only in the read and the effect.
+function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number): () => void {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
-    // Nothing drawn moved: the width read last still holds.
-    if (turns === last.turns && !moved.moved) return;
     if (turns !== last.turns && last.width !== undefined) {
       const px = `${last.width}px`;
       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
@@ -308,30 +330,42 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, 
       if (words) words.style.width = px;
       if (tail) tail.style.left = px;
     }
-    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
-    drawn.current = { turns, width: width && width > 0 ? width : undefined };
+    drawn.current = { turns, width: last.width };
   });
+  // Before the commit writes: a roll starts (its `turns` moved on), so read the old words' width.
+  return () => {
+    const node = line.current;
+    if (!node || turns === drawn.current.turns) return;
+    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+    drawn.current = { ...drawn.current, width: width && width > 0 ? width : undefined };
+  };
 }
 
 /// The line's counts glide to where their words leave them (Leo, 2026-11-11: "the animation system
 /// is so borked and unintegrated"): a count that moves sideways while the line does not roll (its
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
-/// (`useRoll`), and the gates that stop the roll stop this too.
-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
-  const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
+/// (`useRoll`), and the gates that stop the roll stop this too. Where the counts sat is read before the
+/// commit writes (`BeforeLineCommit`, on the layout last painted), and where they land after it only
+/// when they may glide: a commit that rolls, has no counts or changed nothing drawn reads no layout.
+function useCountGlide(
+  line: RefObject<HTMLDivElement | null>,
+  turns: number,
+  moved: LineBoxes,
+  drawnNow: readonly unknown[],
+  filling: boolean,
+): () => void {
+  const drawn = useRef<{ turns: number; filling?: boolean; lefts?: number[] }>({ turns });
   useLayoutEffect(() => {
+    const before = drawn.current;
+    drawn.current = { turns, filling };
     const node = line.current;
-    if (!node) return;
-    // Nothing drawn moved: the counts sit where they were read last, so none glides.
-    if (turns === drawn.current.turns && !moved.moved) return;
+    // Nothing drawn moved: the counts sit where they were, so none glides.
+    if (!node || !before.lefts || before.turns !== turns || !moved.moved) return;
     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     const lefts = counts.map((count) => count.offsetLeft);
-    const before = drawn.current;
-    drawn.current = { turns, lefts };
-    if (before.turns !== turns || !motionAllowed(node) || !countsMove(node)) return;
     counts.forEach((count, index) => {
-      const from = before.lefts[index];
+      const from = before.lefts![index];
       const dx = from === undefined ? 0 : from - lefts[index]!;
       if (Math.abs(dx) < 0.5) return;
       count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
@@ -340,6 +374,33 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
       });
     });
   });
+  // Before the commit writes: where the counts sit now, when this commit may glide them.
+  return () => {
+    const node = line.current;
+    const last = drawn.current;
+    // A roll moves the counts with its words; the commit right after it that fills the old copy's
+    // tail in (`filling`, before any paint) moves none.
+    if (!node || turns !== last.turns || last.filling || !moved.mayMove(drawnNow)) return;
+    if (!motionAllowed(node) || !countsMove(node)) return;
+    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+    if (counts.length > 0) drawn.current = { ...last, lefts: counts.map((count) => count.offsetLeft) };
+  };
+}
+
+/// Calls `read` before each commit of the live line writes the DOM (React's before-mutation phase),
+/// the one point at which the line is still drawn as last painted (KeepOpenedLine.tsx does the same).
+/// Draws nothing.
+class BeforeLineCommit extends Component<{ read: () => void }> {
+  getSnapshotBeforeUpdate(): null {
+    this.props.read();
+    return null;
+  }
+
+  componentDidUpdate(): void {}
+
+  render() {
+    return null;
+  }
 }
 
 /// The same gates as the roll (conversation.css `cv-roll-*`).
@@ -739,7 +800,7 @@ export function Thinking({
   // shouldnt be special cased as white. all in the "thinking" spot should glimmer like that").
   // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
   // none of it (its `quietKey` and `heardKey` only time the line).
-  const moved = useLineMoved(lineRef, [
+  const drawnNow = [
     below,
     waiting,
     asked,
@@ -757,16 +818,31 @@ export function Thinking({
     tail,
     roll.out?.tail,
     command && !done && doing !== undefined ? doingAt : undefined,
-  ]);
-  useRollOutWidth(lineRef, roll.turns, moved);
-  useCountGlide(lineRef, roll.turns, moved);
+  ];
+  const moved = useLineMoved(lineRef, drawnNow);
+  const readWidth = useRollOutWidth(lineRef, roll.turns);
+  // The commit that fills a new roll's old tail in (`useRoll`) only adds the rolled-out copy's tail.
+  const filling = roll.out !== undefined && roll.out.tail === undefined;
+  const readCounts = useCountGlide(lineRef, roll.turns, moved, drawnNow, filling);
+  // Every look below keeps this first, so the line's reads before a commit run in each of them.
+  const withBefore = (line: ReactNode) => (
+    <>
+      <BeforeLineCommit
+        read={() => {
+          readWidth();
+          readCounts();
+        }}
+      />
+      {line}
+    </>
+  );
   // The question card already asks for an answer above the composer.
-  if (waiting === "question") return null;
+  if (waiting === "question") return withBefore(null);
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
     const parts = retryParts(t, retry, retryNow);
-    return (
+    return withBefore(
       <div
         className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
         data-find-skip
@@ -801,20 +877,20 @@ export function Thinking({
             <span className="cv-retrying__words">{parts.error}</span>
           </span>
         )}
-      </div>
+      </div>,
     );
   }
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
-    return (
+    return withBefore(
       <div
         className={`cv-worked${below ? " is-below" : ""}${startLook === "silent" ? " is-quiet" : ""}`}
         data-find-skip
       >
         {startLook === "spinner" && <Spinner size={14} loading />}
-      </div>
+      </div>,
     );
-  return (
+  return withBefore(
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
     <div
       ref={lineRef}
@@ -918,6 +994,6 @@ export function Thinking({
       ))}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
       {command && !done && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
-    </div>
+    </div>,
   );
 }
