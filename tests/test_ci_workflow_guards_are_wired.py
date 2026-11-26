@@ -49,7 +49,8 @@ UNWIRED: set[str] = {
     # to reach cmux-linux, which #49544 and #48188 made the PR-gate Linux label. Exit: update the test to the
     # cmux-linux route, then wire it into ci-guards.yml's ci group.
     "tests/test_ci_same_repo_linux_owned_first.py",
-    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
+    # A shell test the registry does not take (it lists .py tests). Exit: wire it into ci-guards.yml or a nightly step.
+    "tests/test_ci_nightly_warm_checkout_mirror.sh",    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
     # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
     # wrong, then wire it into ci-guards.yml's ci group.
     "tests/test_ci_webviews_affected.py",
