@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Env } from "../src/env.ts"
 import { hubCall } from "../src/chief-brain-cc/hub.ts"
-import { toolPathOk } from "../src/chief-brain-cc/tools.ts"
+import { mergeTurnFiles, toolPathOk } from "../src/chief-brain-cc/tools.ts"
 import { fakeCloud, notes, type Started } from "./chief-brain-cc-fake.ts"
 import { enabledChief, replies, send, useCcSettings } from "./chief-brain-cc-harness.ts"
 
@@ -95,5 +95,17 @@ describe("Cloud Chief hub tools", () => {
     expect(input.files[".local/bin/chief-hub"]).toContain("hub_call")
     expect(input.system).toContain("chief-hub search|describe|call|status")
     expect(toolPathOk(".local/bin/chief-hub")).toBe(false)
+  })
+
+  it("every turn client sends nothing when its request could not be built", () => {
+    // A request built in a pipe (`node -e ... | call`) that fails arrives at call() empty; before this, call() sent it
+    // anyway and the runner answered something unrelated. Each client's call() now stops first (exit 2).
+    const clients = Object.entries(mergeTurnFiles({}, {})).filter(([p]) => p.startsWith(".local/bin/chief-"))
+    expect(clients.map(([p]) => p).sort()).toEqual([".local/bin/chief-auto", ".local/bin/chief-github", ".local/bin/chief-hub", ".local/bin/chief-memory", ".local/bin/chief-tools", ".local/bin/chief-wake"])
+    for (const [path, text] of clients) {
+      expect(text, path).toContain('[ -n "$req" ] || {')
+      expect(text, path).toContain("nothing was sent")
+      expect(text, path).not.toMatch(/out=\$\(curl /)
+    }
   })
 })
