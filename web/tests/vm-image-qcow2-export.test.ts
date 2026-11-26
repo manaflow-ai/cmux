@@ -16,6 +16,10 @@ describe("qcow2 export guest script (RFD 0100 step 6)", () => {
     expect(script).toMatch(/tar --numeric-owner --xattrs .*--acls .*--exclude=\.\/var\/tmp\/cmux-qcow2/);
   });
 
+  test("refreshes apt lists before installing zstd: the baked image ships without them (roll 45615566876)", () => {
+    expect(script).toMatch(/command -v zstd >\/dev\/null \|\| \{ apt-get update -q >\/dev\/null && .*apt-get install -y -q zstd/);
+  });
+
   test("uploads to the presigned URL quoted as one word", () => {
     expect(script).toContain(
       `-T /var/tmp/cmux-qcow2/rootfs.tar.zst 'https://acct.r2.cloudflarestorage.com/cmux-fleet-artifacts/cmux-vm-image/ci-1-1/rootfs.tar.zst?X-Amz-Signature=ab&x='"'"'q'"'"''`,
