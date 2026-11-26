@@ -152,8 +152,11 @@ final class PaneHeaderView: NSView {
     /// that draws its own title, chevron and glass padding, which take about 8 pt more than
     /// Messages' measure, so a long name such as "workspace-1005" was cut (a1285, 2026-11-20).
     private var pillWidth: CGFloat {
-        max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
+        Self.pillMeasurements += 1
+        return max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
     }
+    /// Measurements of a pill's width, all headers (its title's and the button's own): tests count them.
+    static var pillMeasurements = 0
 
     /// The trailing edge the pill's line may reach: the trailing accessory's start, else the inset.
     private var pillLineLimit: CGFloat {
