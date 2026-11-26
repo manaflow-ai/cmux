@@ -106,6 +106,30 @@ print("Driver times, the steps both passed (same job, same runner):\n\n| step | 
 print("\n".join(rows)); print(f"| **total** | **{tt}** | **{rt}** |\n")
 PY
 }
+# Each failed step of a run's final attempt as an error annotation on the run page, so the red's cause is one click
+# from the NOW red and the deploy gate (cmuxterm-hq now_cloud_deploy_gate.py) instead of a 20 min log: run
+# 45708085975 (cmux-vm staging unproven, 2026-11-25) showed only "Process completed with exit code 1", and its
+# three causes (a create never settled, a turn after resume not signed in, prod quota full) sat in the log.
+# At most three steps, each detail cut at 300 characters. Reading journey.json never fails the journey.
+annotate_failed() { # label, run dir
+  python3 -I - "$TARGET" "${phase:+$phase }$1" "$2/journey.json" 2>/dev/null <<'PY' || true
+import json, sys
+target, label, path = sys.argv[1:4]
+esc = lambda t: t.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+try:
+    steps = json.load(open(path, encoding="utf-8")).get("steps") or []
+except Exception:
+    steps = []
+failed = [s for s in steps if isinstance(s, dict) and s.get("status") == "fail"]
+if not failed:
+    print(f"::error title=Cloud journey failed::target={target} {esc(label)}: no failed step recorded (journey.json missing or unread; see the job summary)")
+for s in failed[:3]:
+    detail = " ".join(str(s.get("detail") or "").split())[:300]
+    print(f"::error title=Cloud journey failed::target={target} {esc(label)}: {esc(str(s.get('step')))} :: {esc(detail)}")
+if len(failed) > 3:
+    print(f"::error title=Cloud journey failed::target={target} {esc(label)}: {len(failed) - 3} more failed step(s) in the job summary")
+PY
+}
 run() { # label, extra args...
   local label="$1"; shift
   local dir="$out/${phase:+$phase-}$label"
@@ -118,18 +142,19 @@ run() { # label, extra args...
   if [ -n "${JOURNEY_MODEL:-}" ]; then args+=(--model "$JOURNEY_MODEL"); fi
   # cmux-autocloud (RFD 0139) chats over the carrier after the journey's own dial; needs --cmux.
   if [ -n "${AUTOCLOUD_TUI_PATH:-}" ] && [ -n "${CMUX_PATH:-}" ]; then args+=(--autocloud-tui "$AUTOCLOUD_TUI_PATH"); fi
-  local t0; t0="$(date +%s)"
+  local t0 failed=0; t0="$(date +%s)"
   if ! bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
     if ! room_for_retry $(( $(date +%s) - t0 )) "$label"; then
-      status=1
+      status=1; failed=1
     else
       { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
       echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
       rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
       sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
-      if bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
+      if bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; failed=1; fi
     fi
   fi
+  if [ "$failed" = 1 ]; then annotate_failed "$label" "$dir"; fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the
   # test team's run, send-trace-<phase-label>.json for the others. Tracing never fails the journey.

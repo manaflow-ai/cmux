@@ -115,7 +115,7 @@ struct SavedTabGroupPicker: View {
                     HStack {
                         Circle().fill(TabGroupChip.color(group.color)).frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(group.displayName).foregroundStyle(chooser.action == .delete ? Color.red : .primary)
+                            Text(group.displayName).foregroundStyle(chooser.action == .delete ? CmuxMobileTheme.standard.colors.dangerText.color : CmuxMobileTheme.standard.colors.label.color)
                             Text(group.isOpen ? "Open · \(group.summary)" : group.summary)
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
