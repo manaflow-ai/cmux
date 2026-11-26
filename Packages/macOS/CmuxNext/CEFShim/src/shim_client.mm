@@ -76,6 +76,7 @@
     case CMUX_SHIM_AUTH_PROMPT:
     case CMUX_SHIM_JS_DIALOG:
     case CMUX_SHIM_JS_DIALOG_DISMISSED:
+    case CMUX_SHIM_GOT_FOCUS:
       return true;
   }
   return false;
