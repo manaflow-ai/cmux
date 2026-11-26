@@ -176,17 +176,23 @@ export function markdownTable(rows: ArmRow[]): string {
 export const PAUSE_AB_STALE_MS = 90 * 60_000;
 
 /** Machines an earlier pause-ab run left behind: our name shape, tag older than maxAgeMs, idle for an hour. */
-export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS): { id: string; name: string }[] {
+export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS, kept?: string[]): { id: string; name: string }[] {
   const out: { id: string; name: string }[] = [];
   for (const r of rows) {
-    if (!r || r.status === "deleted" || r.status === "deleting") continue;
-    const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+$/.exec(typeof r.name === "string" ? r.name : "");
+    const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+$/.exec(typeof r?.name === "string" ? r.name : "");
     if (!m) continue;
-    const started = parseInt(m[1], 36);
-    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs || nowMs - started <= maxAgeMs) continue;
-    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
+    const keep = (why: string) => kept?.push(`${id || "?"} ${r.name} ${why}`);
+    if (r.status === "deleted" || r.status === "deleting") { keep(`status=${r.status}`); continue; }
+    const started = parseInt(m[1], 36);
+    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) { keep("tag is not a start time"); continue; }
+    if (nowMs - started <= maxAgeMs) { keep(`started ${Math.round((nowMs - started) / 60_000)} min ago`); continue; }
+    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) {
+      keep(`active ${Math.round((nowMs - r.last_active_at) / 60_000)} min ago`);
+      continue;
+    }
     if (id) out.push({ id, name: r.name });
+    else keep("no id");
   }
   return out;
 }
@@ -508,12 +514,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const t0 = Date.now();
       try {
         const rows = await listAllMachines((p) => api.read("cloud.machine.list", p));
-        const stale = stalePauseAbMachines(rows, Date.now());
+        const kept: string[] = [];
+        const stale = stalePauseAbMachines(rows, Date.now(), PAUSE_AB_STALE_MS, kept);
+        for (const k of kept) console.log(`sweep: kept ${k}`);
         for (const m of stale) {
           console.log(`sweep: deleting leaked ${m.id} (${m.name})`);
-          await api.deleteMachine(m.id, `pab-${tag}-sweep-${m.id}`).catch(() => undefined);
+          await api.deleteMachine(m.id, `pab-${tag}-sweep-${m.id}`).catch((e: Error) => console.log(`sweep: delete ${m.id} failed: ${String(e?.message ?? e).slice(0, 200)}`));
         }
-        J.record({ step: "sweep leaked pause-ab machines", status: "pass", ms: Date.now() - t0, detail: `${stale.length} swept of ${rows.length}` });
+        J.record({ step: "sweep leaked pause-ab machines", status: "pass", ms: Date.now() - t0, detail: `${stale.length} swept, ${kept.length} pause-ab kept, of ${rows.length}` });
       } catch (e) {
         J.record({ step: "sweep leaked pause-ab machines", status: "skip", ms: Date.now() - t0, detail: String((e as Error)?.message ?? e).slice(0, 300) });
       }

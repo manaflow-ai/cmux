@@ -66,6 +66,22 @@ describe("stalePauseAbMachines", () => {
     ];
     expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["vm_killed"]);
   });
+
+  test("every pause-ab machine it keeps comes with the reason", () => {
+    const now = Date.UTC(2026, 10, 26, 10, 43);
+    const old = Date.UTC(2026, 10, 26, 8, 0).toString(36);
+    const rows = [
+      { id: "vm_busy", name: `pause-ab-${old}-aggressive-1`, status: "running", last_active_at: now - 5 * 60_000 },
+      { id: "vm_gone", name: `pause-ab-${old}-turn_end-1`, status: "deleting" },
+      { id: "vm_other", name: "someone-else", status: "running" },
+    ];
+    const kept: string[] = [];
+    expect(stalePauseAbMachines(rows, now, undefined, kept)).toEqual([]);
+    expect(kept).toEqual([
+      `vm_busy pause-ab-${old}-aggressive-1 active 5 min ago`,
+      `vm_gone pause-ab-${old}-turn_end-1 status=deleting`,
+    ]);
+  });
 });
 
 describe("parseGuestUpdate", () => {
