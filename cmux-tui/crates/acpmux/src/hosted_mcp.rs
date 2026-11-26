@@ -138,8 +138,15 @@ pub fn cloud_reply(answer: &Value, id: &Value) -> Result<Value, String> {
 async fn cloud_call(socket: &std::path::Path, message: &Value) -> Result<Value, String> {
     let unreachable = || "this machine's cmux Cloud agent is not reachable".to_owned();
     let exchange = async {
+        #[cfg(unix)]
         let mut stream =
             tokio::net::UnixStream::connect(socket).await.map_err(|_| unreachable())?;
+        // The Cloud agent's socket is a unix socket, on a Cloud machine: none elsewhere.
+        #[cfg(not(unix))]
+        let mut stream: tokio::io::DuplexStream = {
+            let _ = socket;
+            return Err(unreachable());
+        };
         let mut line =
             json!({ (cmux_host::cloud::mcp_call::CALL_KEY): { "body": message } }).to_string();
         line.push('\n');
