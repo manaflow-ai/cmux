@@ -112,3 +112,8 @@ Wide on purpose: a file left out lets a stale golden pass, one too many only cos
 
 The action builds the binary from the checkout (pinned toolchain), runs `batch`, appends the table to the step
 summary and fails the step on a fail.
+
+`.github/workflows/shotdiff.yml` checks the step itself on real Chrome renders in `tests/fixtures/chrome`
+(sources in `html/`, store in `store/`, specs with `min_tile_ssim: 0.9`): same renders pass at SSIM 1.0, a
+clock change under its mask passes, and a 6 px nudge and a shortened label fail on their worst tile (0.62 and
+0.37 against 0.9) while moving only 0.31% and 0.53% of pixels.
