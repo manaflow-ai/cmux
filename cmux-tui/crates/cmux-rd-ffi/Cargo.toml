@@ -14,7 +14,7 @@ description = "C ABI of the cmux remote desktop viewer core: cmux.rd/1 bytes in,
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-# c-abi: the screen viewer core's C ABI (cmux-rd-core include/cmux_screen_kit.h)
+# c-abi: the screen viewer core's C ABI (CCmuxScreenKit's cmux_screen_kit.h)
 # rides in the app library for CmuxScreenKit.
 cmux-rd-core = { path = "../cmux-rd-core", features = ["c-abi"] }
 # `serde`: the app line reader reads the host's typed lines (app_line::AppLine).

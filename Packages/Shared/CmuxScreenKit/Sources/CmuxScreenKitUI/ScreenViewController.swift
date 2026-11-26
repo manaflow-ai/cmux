@@ -1,4 +1,5 @@
 #if os(iOS)
+import CCmuxScreenKit
 import CmuxScreenKit
 import GameController
 import Observation
@@ -50,9 +51,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private var streamCursor: ScreenStreamCursor?
     private let keyInput = KeyInputView()
     private var frameSize = CGSize.zero
-    private var scrollRemainder = CGPoint.zero
-    /// Finger travel in points per wheel click.
-    private let pointsPerScrollClick: CGFloat = 18
+    /// Scroll travel not yet sent as a whole pixel or wheel click.
+    private var scrollRemainder = CmuxScreenScrollQuantizer()
     /// The displays, in framebuffer pixels; empty for one display.
     private var screens: [CGRect] = []
     /// Whether the server reported the layout (then no detection).
@@ -258,8 +258,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// the whole streamed display at the current zoom.
     private func reportDemand(pinch: Bool) {
         guard session.isStream, frameSize.width > 0, view.window != nil else { return }
-        let pixels = max(frameSize.width, frameSize.height) * scrollView.zoomScale * traitCollection.displayScale
-        session.reportView(longEdge: Int(pixels.rounded(.up)), pinch: pinch)
+        let longEdge = cmux_screen_demand_long_edge(CmuxScreenSize(frameSize), scrollView.zoomScale, traitCollection.displayScale)
+        session.reportView(longEdge: Int(longEdge), pinch: pinch)
     }
 
     /// The content size for a stream's video: the Mac display's own pixel
@@ -268,10 +268,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// pointer where they are; the video's size otherwise.
     private func streamLayoutSize(for video: CGSize) -> CGSize {
         guard session.isStream, streamDisplays.indices.contains(page) else { return video }
-        let display = streamDisplays[page]
-        guard display.width > 0, display.height > 0, video.height > 0,
-              abs(display.width / display.height - video.width / video.height) < 0.01 else { return video }
-        return display
+        return CGSize(cmux_screen_stream_layout_size(CmuxScreenSize(video), true, CmuxScreenSize(streamDisplays[page])))
     }
 
     /// A new frame size (VNC framebuffer or video): reset the content and refit.
@@ -434,7 +431,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         pageControl.isHidden = next.count < 2
         page = min(page, max(0, next.count - 1))
         // First time: open on the display at the origin (the main display on a Mac).
-        if first, next.count > 1 { page = next.firstIndex { $0.origin == .zero } ?? 0 }
+        if first, next.count > 1 {
+            page = next.map(CmuxScreenRect.init).withUnsafeBufferPointer { cmux_screen_initial_page($0.baseAddress, $0.count) }
+        }
         if fitToDisplay || (paged && next.count > 1) {
             show(page: page, animated: !first)
         } else {
@@ -462,14 +461,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     }
 
     private func fitScale(_ rect: CGRect) -> CGFloat {
-        guard rect.width > 0, rect.height > 0 else { return 1 }
-        return min(view.bounds.width / rect.width, view.bounds.height / rect.height)
+        cmux_screen_fit_scale(CmuxScreenRect(rect), CmuxScreenSize(view.bounds.size))
     }
 
     /// The content offset that centers `rect` at `scale`.
     private func centeredOffset(_ rect: CGRect, scale: CGFloat) -> CGPoint {
-        CGPoint(x: rect.minX * scale - (view.bounds.width - rect.width * scale) / 2,
-                y: rect.minY * scale - (view.bounds.height - rect.height * scale) / 2)
+        CGPoint(cmux_screen_centered_offset(CmuxScreenRect(rect), scale, CmuxScreenSize(view.bounds.size)))
     }
 
     /// Fits display `index` to the view.
@@ -483,7 +480,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         let scale = fitScale(rect)
         let apply = { [self] in
             scrollView.minimumZoomScale = fitToDisplay ? scale : fitScale(CGRect(origin: .zero, size: frameSize))
-            scrollView.maximumZoomScale = max(scale * 6, 2)
+            scrollView.maximumZoomScale = cmux_screen_maximum_zoom(scale)
             centerContent()
             scrollView.zoomScale = scale
             scrollView.contentOffset = centeredOffset(rect, scale: scale)
@@ -496,23 +493,13 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         updateCursor()
     }
 
-    private var atFit: Bool { abs(scrollView.zoomScale - fitScale(focusRect)) < 0.001 }
+    private var atFit: Bool { cmux_screen_same_zoom(scrollView.zoomScale, fitScale(focusRect)) }
 
     /// The offsets that keep the focused display on screen (centered on an
     /// axis where it is smaller than the view).
     private func clamped(_ offset: CGPoint, allowHorizontal: Bool) -> CGPoint {
-        let rect = focusRect, scale = scrollView.zoomScale, bounds = view.bounds.size
-        func range(_ minEdge: CGFloat, _ length: CGFloat, _ viewLength: CGFloat) -> ClosedRange<CGFloat> {
-            let low = minEdge * scale, size = length * scale
-            if size <= viewLength {
-                let centered = low - (viewLength - size) / 2
-                return centered ... centered
-            }
-            return low ... low + size - viewLength
-        }
-        let x = range(rect.minX, rect.width, bounds.width), y = range(rect.minY, rect.height, bounds.height)
-        return CGPoint(x: allowHorizontal ? offset.x : min(max(offset.x, x.lowerBound), x.upperBound),
-                       y: min(max(offset.y, y.lowerBound), y.upperBound))
+        CGPoint(cmux_screen_clamped_offset(CmuxScreenPoint(offset), CmuxScreenRect(focusRect), scrollView.zoomScale,
+                                           CmuxScreenSize(view.bounds.size), allowHorizontal))
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -530,11 +517,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         // Stream mode: each display is its own video; a swipe at fit asks the Mac for the next one.
         if session.isStream, allowsDisplayPaging, streamDisplays.count > 1, atFit {
-            let home = centeredOffset(focusRect, scale: scrollView.zoomScale).x
-            let moved = scrollView.contentOffset.x - home
-            var target = page
-            if velocity.x > 0.3 || moved > view.bounds.width * 0.25 { target = min(page + 1, streamDisplays.count - 1) }
-            if velocity.x < -0.3 || moved < -view.bounds.width * 0.25 { target = max(page - 1, 0) }
+            let target = pageTarget(velocity: velocity, count: streamDisplays.count)
             targetContentOffset.pointee = scrollView.contentOffset
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -548,13 +531,15 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             if fitToDisplay { targetContentOffset.pointee = clamped(targetContentOffset.pointee, allowHorizontal: false) }
             return
         }
-        let home = centeredOffset(focusRect, scale: scrollView.zoomScale).x
-        let moved = scrollView.contentOffset.x - home
-        var target = page
-        if velocity.x > 0.3 || moved > view.bounds.width * 0.25 { target = min(page + 1, screens.count - 1) }
-        if velocity.x < -0.3 || moved < -view.bounds.width * 0.25 { target = max(page - 1, 0) }
+        let target = pageTarget(velocity: velocity, count: screens.count)
         targetContentOffset.pointee = scrollView.contentOffset
         DispatchQueue.main.async { [weak self] in self?.show(page: target, animated: true) }
+    }
+
+    /// The display a swipe that ends at fit lands on, of `count`.
+    private func pageTarget(velocity: CGPoint, count: Int) -> Int {
+        let moved = scrollView.contentOffset.x - centeredOffset(focusRect, scale: scrollView.zoomScale).x
+        return cmux_screen_page_target(page, count, velocity.x, moved, view.bounds.width)
     }
 
     public func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
@@ -569,7 +554,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         defer { reportFocusSize() }
         if fitToDisplay || paged {
             // Re-fit after a rotation or resize; keep a zoomed-in view zoomed.
-            let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
+            let wasAtFit = cmux_screen_same_zoom(scrollView.zoomScale, scrollView.minimumZoomScale)
             if resetToFit || wasAtFit { show(page: page, animated: false) } else {
                 scrollView.minimumZoomScale = fitToDisplay ? fitScale(focusRect) : fitScale(CGRect(origin: .zero, size: frameSize))
                 centerContent()
@@ -577,9 +562,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             return
         }
         let fit = fitScale(CGRect(origin: .zero, size: frameSize))
-        let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
+        let wasAtFit = cmux_screen_same_zoom(scrollView.zoomScale, scrollView.minimumZoomScale)
         scrollView.minimumZoomScale = fit
-        scrollView.maximumZoomScale = max(fit * 6, 2)
+        scrollView.maximumZoomScale = cmux_screen_maximum_zoom(fit)
         if resetToFit || wasAtFit || scrollView.zoomScale < fit { scrollView.zoomScale = fit }
         centerContent()
     }
@@ -599,15 +584,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// Insets that let any display sit centered (fitted mode and pages);
     /// otherwise letterboxing for a frame smaller than the view.
     private func centerContent() {
-        if fitToDisplay || screens.count > 1 {
-            let bounds = scrollView.bounds.size
-            scrollView.contentInset = UIEdgeInsets(top: bounds.height, left: bounds.width, bottom: bounds.height, right: bounds.width)
-            return
-        }
-        let width = content.frame.width, height = content.frame.height
-        let insetX = max(0, (scrollView.bounds.width - width) / 2)
-        let insetY = max(0, (scrollView.bounds.height - height) / 2)
-        scrollView.contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
+        let insets = cmux_screen_content_insets(fitToDisplay || screens.count > 1, CmuxScreenSize(scrollView.bounds.size),
+                                                CmuxScreenSize(content.frame.size))
+        scrollView.contentInset = UIEdgeInsets(top: insets.top, left: insets.left, bottom: insets.bottom, right: insets.right)
     }
 
     // MARK: Input mode
@@ -711,7 +690,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     }
 
     /// Framebuffer pixels under one point of the view.
-    private var pixelsPerPoint: CGFloat { 1 / max(scrollView.zoomScale, 0.01) }
+    private var pixelsPerPoint: CGFloat { cmux_screen_pixels_per_point(scrollView.zoomScale) }
 
     /// Presses `button` with the sticky modifiers down first (held until `releaseButton`).
     private func pressButton(_ button: VNCButtons) {
@@ -771,7 +750,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         let translation = recognizer.translation(in: view)
         recognizer.setTranslation(.zero, in: view)
         if recognizer.state == .began {
-            scrollRemainder = .zero
+            scrollRemainder = CmuxScreenScrollQuantizer()
             // Scroll what is under the fingers (trackpad mode: under the cursor).
             if inputMode == .direct { session.movePointer(to: framebufferPoint(recognizer)) }
         }
@@ -782,21 +761,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// takes them (smooth), else in wheel lines.
     private func scroll(by translation: CGPoint) {
         // Natural scrolling: fingers moving down move the content down (wheel up).
-        scrollRemainder.x += translation.x
-        scrollRemainder.y += translation.y
-        if session.supportsPixelScroll {
-            // The content follows the fingers: their travel in framebuffer pixels.
-            let scale = pixelsPerPoint
-            let pixelsX = Int(scrollRemainder.x * scale), pixelsY = Int(scrollRemainder.y * scale)
-            scrollRemainder.x -= CGFloat(pixelsX) / scale
-            scrollRemainder.y -= CGFloat(pixelsY) / scale
-            session.scrollPixels(dx: pixelsX, dy: pixelsY)
-            return
-        }
-        let clicksX = Int(scrollRemainder.x / pointsPerScrollClick), clicksY = Int(scrollRemainder.y / pointsPerScrollClick)
-        scrollRemainder.x -= CGFloat(clicksX) * pointsPerScrollClick
-        scrollRemainder.y -= CGFloat(clicksY) * pointsPerScrollClick
-        session.scroll(dx: clicksX, dy: clicksY)
+        // Pixels: the content follows the fingers' travel in framebuffer pixels.
+        let pixels = session.supportsPixelScroll
+        var x: Int64 = 0, y: Int64 = 0
+        cmux_screen_scroll_quantize(&scrollRemainder, CmuxScreenPoint(translation), pixels, pixelsPerPoint, &x, &y)
+        if pixels { session.scrollPixels(dx: Int(x), dy: Int(y)) } else { session.scroll(dx: Int(x), dy: Int(y)) }
     }
 
     // MARK: Trackpad mode
@@ -904,15 +873,14 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// Two fingers dragged on the pad: scrolls what is under the pointer.
     func padScroll(by translation: CGPoint, began: Bool) {
-        if began { scrollRemainder = .zero }
+        if began { scrollRemainder = CmuxScreenScrollQuantizer() }
         scroll(by: translation)
     }
 
     /// A pointer position kept on the focused display (fitted mode) or the frame.
     private func clampedToFocus(_ point: CGPoint) -> CGPoint {
         let rect = fitToDisplay ? focusRect : CGRect(origin: .zero, size: frameSize)
-        return CGPoint(x: min(max(point.x, rect.minX), max(rect.minX, rect.maxX - 1)),
-                       y: min(max(point.y, rect.minY), max(rect.minY, rect.maxY - 1)))
+        return CGPoint(cmux_screen_clamp_to_rect(CmuxScreenPoint(point), CmuxScreenRect(rect)))
     }
 
     /// Trackpad mode, zoomed in: scrolls the view so the cursor stays clear of its edges.
@@ -921,20 +889,15 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         guard inputMode == .trackpad || trackpadPadActive, session.camera?.isFollowing != true, frameSize != .zero,
               view.bounds.width > 0 else { return }
         let zoom = scrollView.zoomScale, bounds = scrollView.bounds.size
-        let cursor = CGPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
-        let margin = min(bounds.width, bounds.height) * 0.12
-        var offset = scrollView.contentOffset
-        func follow(_ position: CGFloat, _ origin: inout CGFloat, _ length: CGFloat) {
-            if position - origin < margin { origin = position - margin } else if position - origin > length - margin { origin = position - length + margin }
-        }
-        follow(cursor.x, &offset.x, bounds.width)
-        follow(cursor.y, &offset.y, bounds.height)
+        let cursor = CmuxScreenPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
+        var offset = CGPoint(cmux_screen_follow_cursor(CmuxScreenPoint(scrollView.contentOffset), cursor, CmuxScreenSize(bounds)))
         if fitToDisplay {
             offset = clamped(offset, allowHorizontal: false)
         } else {
-            let inset = scrollView.contentInset, size = scrollView.contentSize
-            offset.x = min(max(offset.x, -inset.left), max(-inset.left, size.width + inset.right - bounds.width))
-            offset.y = min(max(offset.y, -inset.top), max(-inset.top, size.height + inset.bottom - bounds.height))
+            let inset = scrollView.contentInset
+            let insets = CmuxScreenInsets(top: inset.top, left: inset.left, bottom: inset.bottom, right: inset.right)
+            offset = CGPoint(cmux_screen_clamp_to_content(CmuxScreenPoint(offset), insets, CmuxScreenSize(scrollView.contentSize),
+                                                          CmuxScreenSize(bounds)))
         }
         if offset != scrollView.contentOffset { scrollView.contentOffset = offset }
     }
@@ -984,7 +947,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         let translation = recognizer.translation(in: view)
         recognizer.setTranslation(.zero, in: view)
         if recognizer.state == .began {
-            scrollRemainder = .zero
+            scrollRemainder = CmuxScreenScrollQuantizer()
             session.movePointer(to: framebufferPoint(recognizer))
         }
         scroll(by: translation)

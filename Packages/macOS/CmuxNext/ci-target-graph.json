@@ -2710,6 +2710,17 @@
       "targets": [],
       "packages": []
     },
+    "CmuxScreenKitTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxScreenKitTests",
+      "targets": [
+        "CCmuxAppFFI"
+      ],
+      "packages": [
+        "CmuxScreenKit"
+      ],
+      "reads": []
+    },
     "SettingsSchemaPlugin": {
       "kind": "plugin",
       "path": "Packages/macOS/CmuxNext/Plugins/SettingsSchemaPlugin",

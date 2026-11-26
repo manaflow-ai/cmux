@@ -1,4 +1,4 @@
-import CmuxScreenKit
+@testable import CmuxScreenKit
 import CoreGraphics
 import Testing
 
