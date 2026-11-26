@@ -545,6 +545,13 @@ elif args[0] == "api":
             server_error()
         state.setdefault("run_reads", []).append(endpoint); save()
         emit({"workflow_runs": state.get("runs", [])})
+    elif "/actions/runs?head_sha=" in endpoint:
+        # The workflow runs at a re-pin head: held_pr counts the ones that never started.
+        if os.environ.get("GH_TOKEN") != "read-token":
+            print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
+        if state.get("head_runs_read") == "fail":
+            server_error()
+        emit({"workflow_runs": [{"conclusion": c} for c in state.get("head_runs", [])]})
     elif "/actions/runs/" in endpoint and endpoint.split("?")[0].endswith("/jobs"):
         if os.environ.get("GH_TOKEN") != "read-token":
             print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
@@ -993,6 +1000,9 @@ class RePinPublication(unittest.TestCase):
             "a failure, and the base's checks unreadable": {"head_age_min": 20, "checks": ("failure",),
                                                           "staged_on": "5" * 40, "base_checks": ("failure",),
                                                           "base_checks_read": "fail"},
+            # 2026-11-26: #58251's base had a cmux-next.yml over GitHub's size limit, its dispatch never started,
+            # and cmux-next/compile stayed pending while the hold kept the head.
+            "a workflow run that never started": {"head_age_min": 20, "head_runs": ("success", "startup_failure")},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
             "the PR is closed": {"head_age_min": 20, "closed": True},
