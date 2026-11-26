@@ -17698,7 +17698,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # The Windows RD host's build (path-gated on its crates), as cmux-rd-windows.yml.
             "cmux-rd-windows-host-build.yml",
             # cmux-shotdiff's self-check on real Chrome renders (#57873): reads the tool's own code.
-            "shotdiff.yml"),
+            "shotdiff.yml",
+            # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
+            # (#57443) and the pause-policy A/B on staging (#54833).
+            "ios-launch-tti-hosted.yml", "pause-ab.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
