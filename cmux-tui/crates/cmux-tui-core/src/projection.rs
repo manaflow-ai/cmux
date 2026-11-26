@@ -1368,6 +1368,19 @@ fn mount(
             let _ = replaying.replay_prefetch();
         });
     }
+    // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
+    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
+    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
+    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
+            cmux_projection::overlay::bulk::lower_priority();
+            let _ = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
+        });
+    }
     let projected = Arc::new(Projected {
         link,
         digest: AtomicU64::new(digest),
