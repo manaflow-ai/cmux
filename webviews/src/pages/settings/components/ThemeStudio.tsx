@@ -51,6 +51,8 @@ import {
   HIGHLIGHT_COLOR_KEY,
   ROTATE_FAVORITES_KEY,
   THEME_FILE_KEY,
+  SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
 } from "../cardRows";
 
 export {
@@ -153,9 +155,11 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const appPaired = appSpec?.kind === "pair";
   const themeState = useRowState(THEME_KEY);
   const accentRow = rowsByKey.get(ACCENT_KEY);
+  const selectionRow = rowsByKey.get(SELECTION_KEY);
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
   const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
+  const doctorNoticeRow = rowsByKey.get(DOCTOR_NOTICE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -435,6 +439,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               />
             </StudioRow>
           )}
+          {selectionRow && <SettingRow row={selectionRow} focused={focused === SELECTION_KEY} />}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
           {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
           {themeFileRow && (
@@ -460,6 +465,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               </Button>
             </StudioRow>
           )}
+          {doctorNoticeRow && <SettingRow row={doctorNoticeRow} focused={focused === DOCTOR_NOTICE_KEY} />}
         </div>
       </section>
     </div>
