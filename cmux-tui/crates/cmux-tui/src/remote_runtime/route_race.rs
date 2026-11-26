@@ -16,9 +16,16 @@
 //! default), so a black-holed first route cost every first connect 15 s.
 //!
 //! Without a [`RouteRace`] the pass is the old one: one route at a time, in order.
+//!
+//! Both passes run on Braid's one racer, `cmux_braid_path::race` (RFD 0164 slice B1): the
+//! same code cmux-remote's hedged connect and the phone's signaling dial use. The pass's own
+//! loop is kept for one release behind `CMUX_ROUTE_RACE_BRAID=0` (the A/B).
 
+use std::io;
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
+use cmux_braid_path::{RacePolicy, Won};
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use tokio::time::Instant;
@@ -127,6 +134,93 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
     upgrade: bool,
     attempt: &(impl InitialRouteAttempt<T, E> + ?Sized),
 ) -> Result<T, InitialRouteSelectionError<E>> {
+    if braid_enabled() {
+        select_routes_braid(routes, order, session, lane_policy, auth, upgrade, attempt).await
+    } else {
+        select_routes_own(routes, order, session, lane_policy, auth, upgrade, attempt).await
+    }
+}
+
+/// `CMUX_ROUTE_RACE_BRAID=0` runs the passes on their own loops again (one release, the A/B
+/// for the adoption). Tests flip it per thread with [`own_loops_for_test`].
+fn braid_enabled() -> bool {
+    #[cfg(test)]
+    if OWN_LOOPS.with(std::cell::Cell::get) {
+        return false;
+    }
+    std::env::var_os("CMUX_ROUTE_RACE_BRAID").is_none_or(|value| value != "0")
+}
+
+#[cfg(test)]
+thread_local! {
+    static OWN_LOOPS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs this thread's passes on their own loops (`true`) or on Braid's racer (`false`).
+#[cfg(test)]
+pub(crate) fn own_loops_for_test(own: bool) {
+    OWN_LOOPS.with(|cell| cell.set(own));
+}
+
+/// Longer than any dial: an attempt the race never times out or a stagger that never runs out
+/// (a serial pass keeps one route in flight, so its stagger is never read).
+const NEVER: Duration = Duration::from_secs(365 * 24 * 60 * 60);
+
+/// The race policy for a pass over `routes` routes: each route once; raced, all may be in
+/// flight with `race`'s stagger; serial, one at a time. No attempt timeout: each route's own
+/// attempt budget ends it, as in the pass's own loop.
+fn braid_policy(race: Option<RouteRace>, routes: usize) -> RacePolicy {
+    RacePolicy {
+        stagger: race.map_or(NEVER, |race| race.stagger),
+        attempt_timeout: NEVER,
+        max_in_flight: if race.is_some() { routes } else { 1 },
+        max_attempts: routes,
+    }
+}
+
+/// What ends a race: a connect, or a failure that ends the whole pass. A route failure that
+/// lets the pass go on is the race's `Err` (the next route starts at once); its text is kept in
+/// a [`Tally`].
+enum Decisive<T, E> {
+    Connected(T),
+    Terminal(E),
+}
+
+/// The failures of a pass's routes as they answer, for the error when every one failed.
+struct Tally<E> {
+    failures: Vec<Option<String>>,
+    last: Option<(usize, E)>,
+    retryable: bool,
+}
+
+impl<E> Tally<E> {
+    fn new(routes: usize) -> Mutex<Self> {
+        Mutex::new(Self { failures: vec![None; routes], last: None, retryable: false })
+    }
+}
+
+/// Records one route's failure in `tally` and hands the race its `Err`.
+fn tallied<E>(tally: &Mutex<Tally<E>>, position: usize, failure: String) -> io::Error {
+    let mut tally = tally.lock().unwrap_or_else(PoisonError::into_inner);
+    record(&mut tally.failures, position, failure);
+    io::Error::other("route failed")
+}
+
+/// The order of a pass's dials: `first`, then the rest by index.
+fn pass_sequence(routes: usize, first: Option<usize>) -> Vec<usize> {
+    first.into_iter().chain((0..routes).filter(|&index| Some(index) != first)).collect()
+}
+
+/// [`select_routes`] on Braid's racer.
+async fn select_routes_braid<T: Send, E: RouteFailure>(
+    routes: &[ResolvedRouteCandidate],
+    order: RouteOrder,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    upgrade: bool,
+    attempt: &(impl InitialRouteAttempt<T, E> + ?Sized),
+) -> Result<T, InitialRouteSelectionError<E>> {
     if routes.is_empty() {
         return Err(InitialRouteSelectionError::terminal(E::terminal(
             "remote connection has no route candidates".into(),
@@ -139,8 +233,117 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
     }
     let first = order.first.filter(|&first| !upgrade && first < routes.len());
     let race = order.race.filter(|_| !upgrade);
-    let sequence: Vec<usize> =
-        first.into_iter().chain((0..routes.len()).filter(|&index| Some(index) != first)).collect();
+    let sequence = pass_sequence(routes.len(), first);
+    let positions: Vec<usize> = (0..sequence.len()).collect();
+    let tally = Tally::new(sequence.len());
+    let tally = &tally;
+    let sequence = &sequence;
+    let outcome = cmux_braid_path::race(
+        &positions,
+        braid_policy(race, positions.len()),
+        |position| async move {
+            let Some((index, candidate)) = route_at(routes, sequence, position) else {
+                return Err(io::Error::other("no route at this place"));
+            };
+            let display = sanitized_route(&candidate.endpoint);
+            if !candidate.supports_client_auth(auth) {
+                let error = ProviderError::UnsupportedClientAuth {
+                    scheme: candidate.endpoint.scheme().into(),
+                    auth,
+                };
+                return Err(tallied(tally, position, format!("{display}: {error}")));
+            }
+            let request = match connect_request(candidate, session, lane_policy) {
+                Ok(request) => request,
+                Err(error) => return Ok(Decisive::Terminal(E::terminal(format!("{error:#}")))),
+            };
+            let upgrade_candidate = upgrade && index == 0;
+            let Finished { stage, result, .. } =
+                dial(attempt, position, index, display.clone(), request, upgrade_candidate).await;
+            match result {
+                Ok(connected) => Ok(Decisive::Connected(connected)),
+                Err(InitialRouteAttemptError::Route { error, retryable }) => {
+                    let summary = error.summary();
+                    if upgrade_candidate {
+                        return Ok(Decisive::Terminal(E::terminal(upgrade_failure(
+                            stage, &display, &summary,
+                        ))));
+                    }
+                    let failure = route_failure(stage, &display, &summary);
+                    {
+                        let mut tally = tally.lock().unwrap_or_else(PoisonError::into_inner);
+                        tally.retryable |= retryable;
+                        if tally.last.as_ref().is_none_or(|(at, _)| *at < position) {
+                            tally.last = Some((position, error));
+                        }
+                    }
+                    Err(tallied(tally, position, failure))
+                }
+                Err(InitialRouteAttemptError::Fatal(error)) => Ok(Decisive::Terminal(error)),
+            }
+        },
+    )
+    .await;
+    match outcome {
+        Ok(Won { value: Decisive::Connected(connected), .. }) => Ok(connected),
+        Ok(Won { value: Decisive::Terminal(error), .. }) => {
+            Err(InitialRouteSelectionError::terminal(error))
+        }
+        Err(_) => {
+            let Tally { failures, last, retryable } = std::mem::replace(
+                &mut *tally.lock().unwrap_or_else(PoisonError::into_inner),
+                Tally { failures: Vec::new(), last: None, retryable: false },
+            );
+            Err(InitialRouteSelectionError {
+                error: E::all_failed(
+                    failures.into_iter().flatten().collect(),
+                    last.map(|(_, e)| e),
+                ),
+                retryable,
+            })
+        }
+    }
+}
+
+/// A failed route's entry in a pass's error.
+fn route_failure(stage: Stage, display: &str, summary: &str) -> String {
+    match stage {
+        Stage::Bootstrap => format!("{display}: SSH bootstrap failed: {summary}"),
+        Stage::Connect => format!("{display}: {summary}"),
+    }
+}
+
+/// The error that ends an `--upgrade` pass whose SSH route failed.
+fn upgrade_failure(stage: Stage, display: &str, summary: &str) -> String {
+    match stage {
+        Stage::Bootstrap => format!("SSH bootstrap failed for {display}: {summary}"),
+        Stage::Connect => format!("upgraded SSH route failed for {display}: {summary}"),
+    }
+}
+
+/// [`select_routes`] on the pass's own loop (`CMUX_ROUTE_RACE_BRAID=0`).
+async fn select_routes_own<T: Send, E: RouteFailure>(
+    routes: &[ResolvedRouteCandidate],
+    order: RouteOrder,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    upgrade: bool,
+    attempt: &(impl InitialRouteAttempt<T, E> + ?Sized),
+) -> Result<T, InitialRouteSelectionError<E>> {
+    if routes.is_empty() {
+        return Err(InitialRouteSelectionError::terminal(E::terminal(
+            "remote connection has no route candidates".into(),
+        )));
+    }
+    if upgrade && routes.first().is_none_or(|route| route.endpoint.scheme() != "ssh") {
+        return Err(InitialRouteSelectionError::terminal(E::terminal(
+            "--upgrade requires SSH to be the initial route".into(),
+        )));
+    }
+    let first = order.first.filter(|&first| !upgrade && first < routes.len());
+    let race = order.race.filter(|_| !upgrade);
+    let sequence = pass_sequence(routes.len(), first);
     // Each route's failure at its place in the order, so the error lists them as dialed.
     let mut failures: Vec<Option<String>> = vec![None; sequence.len()];
     let mut last: Option<(usize, E)> = None;
@@ -193,27 +396,12 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
             Ok(connected) => return Ok(connected),
             Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
                 if upgrade_candidate {
-                    let message = match stage {
-                        Stage::Bootstrap => {
-                            format!("SSH bootstrap failed for {display}: {}", error.summary())
-                        }
-                        Stage::Connect => {
-                            format!("upgraded SSH route failed for {display}: {}", error.summary())
-                        }
-                    };
-                    return Err(InitialRouteSelectionError::terminal(E::terminal(message)));
+                    return Err(InitialRouteSelectionError::terminal(E::terminal(
+                        upgrade_failure(stage, &display, &error.summary()),
+                    )));
                 }
                 retryable |= route_retryable;
-                record(
-                    &mut failures,
-                    position,
-                    match stage {
-                        Stage::Bootstrap => {
-                            format!("{display}: SSH bootstrap failed: {}", error.summary())
-                        }
-                        Stage::Connect => format!("{display}: {}", error.summary()),
-                    },
-                );
+                record(&mut failures, position, route_failure(stage, &display, &error.summary()));
                 if last.as_ref().is_none_or(|(at, _)| *at < position) {
                     last = Some((position, error));
                 }
@@ -292,11 +480,93 @@ pub(crate) async fn select_reconnect_routes_skipping<T: Send>(
     if routes.is_empty() {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     }
-    let skip = skip.filter(|_| routes.len() > 1);
-    let sequence: Vec<usize> = (0..routes.len())
-        .map(|offset| (start + offset) % routes.len())
+    let sequence = reconnect_sequence(routes.len(), start, skip);
+    if braid_enabled() {
+        reconnect_braid(routes, &sequence, race, session, lane_policy, auth, attempt).await
+    } else {
+        reconnect_own(routes, &sequence, race, session, lane_policy, auth, attempt).await
+    }
+}
+
+/// A reconnect pass's order: from `start` round the list, without `skip` unless it is the
+/// only route.
+fn reconnect_sequence(routes: usize, start: usize, skip: Option<usize>) -> Vec<usize> {
+    let skip = skip.filter(|_| routes > 1);
+    (0..routes)
+        .map(|offset| (start + offset) % routes)
         .filter(|&index| Some(index) != skip)
-        .collect();
+        .collect()
+}
+
+/// The error of a reconnect pass whose every route failed.
+fn reconnect_failed(failures: Vec<Option<String>>) -> ProviderError {
+    ProviderError::Transport(format!(
+        "all reconnect route providers failed: {}",
+        failures.into_iter().flatten().collect::<Vec<_>>().join("; ")
+    ))
+}
+
+/// [`select_reconnect_routes_skipping`] on Braid's racer.
+async fn reconnect_braid<T: Send>(
+    routes: &[ResolvedRouteCandidate],
+    sequence: &[usize],
+    race: Option<RouteRace>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
+) -> Result<(usize, T), ProviderError> {
+    let positions: Vec<usize> = (0..sequence.len()).collect();
+    let tally = Tally::<()>::new(sequence.len());
+    let tally = &tally;
+    let outcome = cmux_braid_path::race(
+        &positions,
+        braid_policy(race, positions.len()),
+        |position| async move {
+            let Some((index, candidate)) = route_at(routes, sequence, position) else {
+                return Err(io::Error::other("no route at this place"));
+            };
+            if !candidate.supports_client_auth(auth) {
+                let error = ProviderError::UnsupportedClientAuth {
+                    scheme: candidate.endpoint.scheme().into(),
+                    auth,
+                };
+                let display = sanitized_route(&candidate.endpoint);
+                return Err(tallied(tally, position, format!("{display}: {error}")));
+            }
+            let request = match connect_request(candidate, session, lane_policy) {
+                Ok(request) => request,
+                Err(error) => {
+                    return Ok(Decisive::Terminal(ProviderError::Configuration(error.to_string())));
+                }
+            };
+            let display = sanitized_route(&request.endpoint);
+            match attempt.connect(index, request, auth).await {
+                Ok(group) => Ok(Decisive::Connected((index, group))),
+                Err(error) => Err(tallied(tally, position, format!("{display}: {error}"))),
+            }
+        },
+    )
+    .await;
+    match outcome {
+        Ok(Won { value: Decisive::Connected(won), .. }) => Ok(won),
+        Ok(Won { value: Decisive::Terminal(error), .. }) => Err(error),
+        Err(_) => Err(reconnect_failed(std::mem::take(
+            &mut tally.lock().unwrap_or_else(PoisonError::into_inner).failures,
+        ))),
+    }
+}
+
+/// [`select_reconnect_routes_skipping`] on the pass's own loop (`CMUX_ROUTE_RACE_BRAID=0`).
+async fn reconnect_own<T: Send>(
+    routes: &[ResolvedRouteCandidate],
+    sequence: &[usize],
+    race: Option<RouteRace>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
+) -> Result<(usize, T), ProviderError> {
     let mut failures: Vec<Option<String>> = vec![None; sequence.len()];
     let mut cursor = 0;
     let mut in_flight = FuturesUnordered::new();
@@ -307,7 +577,7 @@ pub(crate) async fn select_reconnect_routes_skipping<T: Send>(
         {
             let position = cursor;
             cursor += 1;
-            let Some((index, candidate)) = route_at(routes, &sequence, position) else { continue };
+            let Some((index, candidate)) = route_at(routes, sequence, position) else { continue };
             if !candidate.supports_client_auth(auth) {
                 record(
                     &mut failures,
@@ -348,8 +618,5 @@ pub(crate) async fn select_reconnect_routes_skipping<T: Send>(
             }
         }
     }
-    Err(ProviderError::Transport(format!(
-        "all reconnect route providers failed: {}",
-        failures.into_iter().flatten().collect::<Vec<_>>().join("; ")
-    )))
+    Err(reconnect_failed(failures))
 }

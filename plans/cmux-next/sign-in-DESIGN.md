@@ -80,7 +80,64 @@ kept only for a harness that has none.
 
 ## 6. GitHub, apps, MCP OAuth, cmux account (signin-github-setup-ux)
 
-To be written by `signin-github-setup-ux`: the GitHub install and redirect, the styled "you're
-signed in, back to cmux" page on our domain for every callback (3+ variants), Settings >
-Connections and MCP OAuth (Linear, Slack, Sentry), and cmux's own account (passkeys, the magic
-link handled in-app).
+GitHub's install and redirect belong to the GitHub helpers (#55885: `BrowserExternalApps.openOwn`
+hands an own-scheme return from a cmux tab to the app in-process, with no prompt, and closes the
+flow's tab). Everything below builds on that.
+
+### 6.1 Today, mapped (feat-cmux-next 1a1723eeab3, 2026-11-25)
+
+| Flow | Opens in | Token back | Landing page | Pill |
+|---|---|---|---|---|
+| Settings > Connections (Linear, Sentry, Notion, Stripe, …) | System browser (`SettingsConnections.swift`, `LinkRouter.open(.system)`) | Platform seals it; app polls 2 s × 60 s | Platform redirect to `cmux://settings/integrations` behind the browser's "Open cmux?" | Yes (labels from Rust `mcp_servers.rs entry_view`) |
+| Settings > MCP Servers (local hub OAuth 2.1, DCR, PKCE) | In-app tab | Hub loopback `127.0.0.1:<port>/callback` | Inline HTML on the loopback (`oauth.rs auth_page`), not our domain; tab left open | Yes |
+| Agent asks for an MCP server (`_acpmux/mcp_connect_request`) | n/a | n/a | n/a | No inline `needs_auth` card yet |
+| cmux account: emailed code, passkey, GitHub/Google/Apple | `ASWebAuthenticationSession` popup (Safari) or the default browser | `cmux://auth-callback` + state nonce | Plain white HTML (`after-sign-in/handler.ts nativeReturnResponse`) or a bare 302 | Accounts row |
+
+### 6.2 Steps before and after
+
+Steps are the person's clicks, typing, app switches and browser prompts; a provider page's own
+sign-in is left out when already signed in there. Hops are windows outside cmux.
+
+| Flow | Before | After | What removes the steps |
+|---|---|---|---|
+| Linear, Sentry, Notion, … from Settings > Connections | 5 (open Integrations, Connect, Approve, "Open cmux?" Allow, switch back), 1 hop | 2 (Connect, Approve), 0 hops | In-app sheet; `cmux://settings/integrations` handed off in-process; tab closes; pill flips |
+| Same, needed in a chat | 7 (notice, open Settings, find it, then the 4 above) | 2 (Connect on the inline card, Approve) | Inline card where the 401 happens (next) |
+| MCP server via the local hub | 4 (Sign In, Approve, close the loopback tab, go back) | 2 (Sign In, Approve) | Loopback 302s to `cmux.com/connected`, which opens cmux |
+| API-key apps (Context7, Exa) | 3 (Connect, paste, Save) | 2 (paste, Connect) | Key field in the card |
+| cmux account: emailed code | 7 (Sign in, email + Continue, switch to Mail, read code, type it, "Open cmux?" Allow, switch back), browser + Mail | 4 (Sign in, email + Continue, read code in Mail, type it), 0 browser hops | In-app sheet; callback handed off in-process; tab closes |
+| cmux account: emailed link clicked in Mail | 6, and the native attempt's state is lost | target 2 ("Finish in cmux") | Link-to-app handoff (open, 6.5) |
+| cmux account: passkey | 5 (Sign in, Passkey, Touch ID, "Open cmux?" Allow, switch back) | 3 (Sign in, Passkey, Touch ID) | In-app sheet (CEF WebAuthn on cmux.com) |
+| cmux account: GitHub / Google / Apple | 5 | 3 | In-app sheet with the profile's sessions |
+
+### 6.3 The signed-in page, on our domain, for every callback
+
+`https://cmux.com/connected?app=<id>&status=ok|error[&return=<scheme>][&variant=card|plain|spotlight]`
+(`web/app/connected`). Every value is allowlisted (`apps.ts`, own schemes only), so it is no open
+redirect and reflects no markup; dark and light; system fonts only; every `web/messages` locale.
+"Back to cmux" opens the app once on success; in a cmux tab that link is an in-process handoff and
+the tab closes. Used by the cmux account's after-sign-in page (same look), the local hub's loopback
+(302 on success; errors keep the inline page so error text never enters a URL), and the platform's
+MCP callback fallback. Three looks; `card` is the default.
+
+### 6.4 Where it opens, the pills, one list
+
+- Rust `cmux-cloud-config` decides where the cmux sign-in opens; `automatic` is now the in-app sheet,
+  the popup and default browser stay as Debug choices, "Continue in browser" stays as the way out.
+- Settings > Connections Connect/Reconnect open the vendor page in the in-app sheet; the platform's
+  return link is a handoff.
+- App connections render on section 2's card with a status pill (connect, waiting, connected,
+  expiring, sign in again, unavailable, error); labels come from Rust where the state does.
+- Settings > Integrations > Connections opens with *All connections*: the cmux account, GitHub, model
+  accounts and apps, each with a pill and one action; rows another surface owns link there.
+
+### 6.5 Open
+
+- **Emailed link clicked outside cmux.** Stack finishes it in whatever browser Mail opens, away from
+  the attempt cmux started. Fix: a "Finish in cmux" handoff the in-app sheet completes, after a
+  trust review of a code arriving by URL. Until then the emailed code typed in the sheet is the path.
+- **iCloud Keychain passkeys in CEF** need the browser public-key-credential entitlement (nightly and
+  release have it; tagged dev builds do not). Profile passkeys work everywhere.
+- **Expiry.** The platform catalog needs each connection's `expiresAt` (or a computed `expiring`
+  state) for the pill to warn before a token lapses; it refreshes 60 s early but does not say so yet.
+- **Slack, Google, Figma** need registered OAuth clients (`docs/design/integrations.md` [outward]).
+- **Inline `needs_auth` card in chat** for an agent's MCP 401 (integrations slice 3).
