@@ -1,10 +1,9 @@
 //! Where the host agent's commands come from.
 //!
-//! The hub's command lease on the MeshHub inbox (RFD 0100 step 4) is the source this is
-//! for; until it is served, [`SpoolSource`] takes commands from a local folder, written
-//! by `acpmux machine hypervisor apply` (or anything else that writes one JSON file per
-//! command). Both sit behind [`CommandSource`], so the loop does not change when the hub's
-//! lease lands.
+//! [`SpoolSource`] takes commands from a local folder, written by `acpmux machine hypervisor
+//! apply` (or anything else that writes one JSON file per command); [`super::hub::HubSource`]
+//! leases them from the hub (RFD 0100 step 4). Both sit behind [`CommandSource`], so the loop
+//! is the same for either.
 
 use super::{PauseMode, SlotName, SlotSpec, SlotState, lease::Lease};
 use anyhow::{Context, Result};
@@ -73,6 +72,15 @@ pub trait CommandSource {
     fn take(&mut self) -> Result<Vec<Envelope>>;
     /// Report a command's outcome; it is not handed out again.
     fn ack(&mut self, envelope: &Envelope, outcome: &Outcome) -> Result<()>;
+}
+
+impl CommandSource for Box<dyn CommandSource> {
+    fn take(&mut self) -> Result<Vec<Envelope>> {
+        (**self).take()
+    }
+    fn ack(&mut self, envelope: &Envelope, outcome: &Outcome) -> Result<()> {
+        (**self).ack(envelope, outcome)
+    }
 }
 
 /// A folder of commands: `inbox/<id>.json` waits, `done/<id>.json` holds the command and
