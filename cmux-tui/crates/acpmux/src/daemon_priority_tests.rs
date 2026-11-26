@@ -53,6 +53,28 @@ fn the_report_is_one_line_with_every_knob() {
 }
 
 #[test]
+fn a_daemon_in_a_unit_without_weights_asks_for_them_once() {
+    let unit = "/user.slice/user-1006.slice/user@1006.service/app.slice/acpmux.service";
+    assert!(raise_weight_at_runtime(unit, Some("100\n")));
+    assert!(!raise_weight_at_runtime(unit, Some("1000\n")), "acpmux's own unit already has it");
+    assert!(!raise_weight_at_runtime(unit, None), "no cpu controller: nothing to ask");
+    let detached = "/user.slice/user-1006.slice/session-4.scope";
+    assert!(!raise_weight_at_runtime(detached, Some("100")), "only its own unit");
+    assert!(!raise_weight_at_runtime("/app.slice/acpmux.service.bak", Some("100")));
+    assert_eq!(
+        raised_knob(Some("100\n"), Some("1000\n")),
+        Knob::Took("1000 (raised from 100 at runtime)".into())
+    );
+    let unit_text = crate::cli::hosts::SYSTEMD_UNIT;
+    assert!(unit_text.contains(&format!("CPUWeight={UNIT_WEIGHT}\n")), "same as acpmux's unit");
+    assert!(unit_text.contains(&format!("IOWeight={UNIT_WEIGHT}\n")));
+    assert_eq!(
+        raised_knob(Some("100"), None),
+        Knob::Refused("kept 100: systemctl set-property failed".into())
+    );
+}
+
+#[test]
 fn only_daemon_run_is_the_daemon() {
     assert!(is_daemon_run(&os(&["daemon"])));
     assert!(is_daemon_run(&os(&["daemon", "run", "--take-over"])));

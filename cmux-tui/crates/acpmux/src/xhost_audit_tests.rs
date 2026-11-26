@@ -66,6 +66,15 @@ fn the_log_is_cut_past_its_cap_and_keeps_its_previous_copy() {
 }
 
 #[test]
+fn a_queued_line_is_stamped_when_recorded_not_when_written() {
+    let line = stamp("sent", json!({"to": "lane-2/chat"}));
+    assert_eq!(line["dir"], "sent");
+    assert!(line["at"].as_u64().is_some_and(|at| at > 0), "{line}");
+    assert!(line["host"].is_string(), "{line}");
+    assert_eq!(stamp("sent", json!({"host": "elsewhere"}))["host"], "elsewhere");
+}
+
+#[test]
 fn only_a_sender_on_another_machine_crosses_machines() {
     let own = crate::pairing::machine_name();
     assert_eq!(other_machine("lane-1/perf"), Some("lane-1"));

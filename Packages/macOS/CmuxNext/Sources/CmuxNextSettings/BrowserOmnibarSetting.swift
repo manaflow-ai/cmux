@@ -31,8 +31,6 @@ import Foundation
 /// (`searchEngineValues`: the built-in engines, then `custom`) come from
 /// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
-    /// The paths whose number is clamped into range (with a diagnostic) instead of refused.
-    static let clampedPaths: [[String]: ClosedRange<Double>] = [heightPath: heightRange, fontSizePath: fontSizeRange]
     /// The custom engine's addresses: each must mark where the typed text goes.
     public static let templatePaths = [customSearchPath, customSuggestPath]
 
@@ -41,11 +39,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     /// same page whatever was typed, so it is refused when written and
     /// reported when loaded.
     public static func isSearchTemplate(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return true }
-        guard trimmed.contains("%s") || trimmed.contains("{searchTerms}") else { return false }
-        return BrowserNewTabPage.url(from: trimmed.replacingOccurrences(of: "%s", with: "x")
-            .replacingOccurrences(of: "{searchTerms}", with: "x")) != nil
+        SettingsRust.answer("omnibar.search_template", ["text": .string(text)])["valid"]?.boolValue ?? false
     }
 
     public var searchEngine = BrowserOmnibarSetting.searchEngineDefault
@@ -81,16 +75,17 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     /// so the parser and the Settings window agree on what is valid.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BrowserOmnibarSetting {
         var setting = fallback
+        let reply = SettingsRust.answer("omnibar.parse", ["root": root])
+        let invalid = Set(reply["invalid"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        let clamped = reply["clamped"]?.objectValue ?? [:]
         for descriptor in BrowserSettingsSchema.addressBar {
-            guard var value = root.value(at: descriptor.path) else { continue }
-            if let range = clampedPaths[descriptor.path], let number = value.doubleValue, number.isFinite, !range.contains(number) {
-                // A size past its range applies at the nearest end, and says so.
-                let clamped = min(max(number, range.lowerBound), range.upperBound)
+            let key = descriptor.path.joined(separator: ".")
+            guard root.value(at: descriptor.path) != nil else { continue }
+            if let value = clamped[key]?.doubleValue {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id,
-                                                      message: OmnibarSettingsSchema.expectation(descriptor) + "; using \(Int(clamped))"))
-                value = .number(clamped)
+                                                      message: OmnibarSettingsSchema.expectation(descriptor) + "; using \(Int(value))"))
             }
-            guard descriptor.accepts(value) else {
+            guard !invalid.contains(key), let value = reply["values"]?.objectValue?[key] else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
             }

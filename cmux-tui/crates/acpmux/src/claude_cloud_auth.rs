@@ -341,6 +341,11 @@ pub(crate) fn flag_settings(
     }
 }
 
+/// `argv` without any `--settings` (before a `--`): the rest of its words, in order.
+pub(crate) fn without_settings(argv: &[String]) -> Vec<String> {
+    settings_args(argv).0
+}
+
 /// `argv` without any `--settings` (before a `--`), and the last one's value.
 fn settings_args(argv: &[String]) -> (Vec<String>, Option<String>) {
     let mut rest = Vec::with_capacity(argv.len());
