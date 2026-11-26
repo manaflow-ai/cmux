@@ -22,11 +22,14 @@ pub enum PeerLink {
     AuthFailed,
     UpdateRequired,
     Paused,
+    /// Not dialed on purpose (unused since this daemon started, or closed after going unused):
+    /// drawn as reachable, and using it connects it.
+    Idle,
 }
 
 impl PeerLink {
     /// Every state acpmux sends, in its enum's order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Connected,
         Self::Connecting,
         Self::Reconnecting,
@@ -36,6 +39,7 @@ impl PeerLink {
         Self::AuthFailed,
         Self::UpdateRequired,
         Self::Paused,
+        Self::Idle,
     ];
 }
 
@@ -49,8 +53,9 @@ pub struct Shown {
 /// An acpmux link as the dot draws it: green only once the handshake finished; a link on its
 /// way (the first attempt, a redial, a restart, a handshake still running or a ping unanswered)
 /// spins; one a person must fix (sign-in, an update) or that is down is red; a paused Cloud
-/// machine is grey. Only a down link reconnects on use: one on its way already does, and a
-/// refused token or an old build waits for a person.
+/// machine is grey; a link acpmux left closed because nothing used it (`idle`) is drawn as the
+/// reachable machine it was. A down or idle link reconnects on use: one on its way already does,
+/// and a refused token or an old build waits for a person.
 pub fn peer_link(link: PeerLink) -> Shown {
     let (link, reconnects_on_use) = match link {
         PeerLink::Connected => (LinkState::Connected, false),
@@ -61,6 +66,7 @@ pub fn peer_link(link: PeerLink) -> Shown {
         PeerLink::Offline => (LinkState::Offline, true),
         PeerLink::AuthFailed | PeerLink::UpdateRequired => (LinkState::Offline, false),
         PeerLink::Paused => (LinkState::Paused, false),
+        PeerLink::Idle => (LinkState::Connected, true),
     };
     Shown { link, reconnects_on_use }
 }
