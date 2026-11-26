@@ -11,6 +11,7 @@ use super::drop_zones::{
 };
 use super::pane_chrome::{self, ChromeStyle};
 use super::row_stack::{self, Row, RowStack};
+use super::screen::{self, FloatingPane, ScreenGeometry, ScreenLayout, ScreenStyle};
 use super::split_layout::{self, DividerGeometry, PointerRatio, PushResize, SplitNode, SplitStyle};
 use super::strip_math::{self, StripStart, UniformEdge};
 use super::width_ledger::{self, LedgerColumn, LedgerRecord};
@@ -393,6 +394,44 @@ struct LedgerTakeRequest {
     viewport_width: f64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScreenRequest {
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    scale: Option<f64>,
+    /// `shiftingRows`: per row column, its vertical scroll offset.
+    #[serde(default)]
+    row_offsets: BTreeMap<String, f64>,
+    /// `shiftingAreas`: per scroll area, its horizontal scroll offset.
+    #[serde(default)]
+    area_offsets: BTreeMap<String, f64>,
+    /// `placingFloating`: the floating panes, back to front.
+    #[serde(default)]
+    floating: Vec<FloatingPane>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SplitRoomRequest {
+    pane: String,
+    axis: SplitAxis,
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    removing: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasRequest {
+    frames: BTreeMap<String, Rect>,
+    visible: Rect,
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
@@ -739,6 +778,46 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
         "width_ledger_take" => {
             let r: LedgerTakeRequest = parse(request)?;
             to_value(width_ledger::take(r.record.as_ref(), &r.current, r.viewport_width))
+        }
+        "screen_compute" => {
+            let r: ScreenRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let geometry = ScreenGeometry::compute(&r.layout, r.viewport, &r.style, scale)
+                .shifting_rows(&r.row_offsets)
+                .shifting_areas(&r.area_offsets)
+                .placing_floating(&r.floating, scale);
+            let navigation: BTreeMap<&String, Rect> = geometry
+                .panes
+                .keys()
+                .filter_map(|pane| geometry.navigation_rect(pane).map(|rect| (pane, rect)))
+                .collect();
+            let docks: BTreeMap<&String, &str> = geometry
+                .panes
+                .keys()
+                .filter_map(|pane| {
+                    geometry.dock_frame(pane).map(|dock| (pane, dock.column.as_str()))
+                })
+                .collect();
+            let mut value = to_value(&geometry)?;
+            value["maxOffset"] = json!(geometry.max_offset());
+            value["navigationRects"] = to_value(navigation)?;
+            value["dockOfPane"] = to_value(docks)?;
+            Ok(value)
+        }
+        "screen_canvas" => {
+            let r: CanvasRequest = parse(request)?;
+            to_value(ScreenGeometry::canvas(&r.frames, r.visible))
+        }
+        "split_room" => {
+            let r: SplitRoomRequest = parse(request)?;
+            to_value(screen::split_placement(
+                &r.pane,
+                r.axis,
+                &r.layout,
+                r.viewport,
+                &r.style,
+                r.removing.as_deref(),
+            ))
         }
         _ => Err(format!("unknown operation {operation}")),
     }

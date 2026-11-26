@@ -28,6 +28,7 @@ pub mod dock_strip;
 pub mod drop_zones;
 pub mod pane_chrome;
 pub mod row_stack;
+pub mod screen;
 pub mod split_layout;
 pub mod strip_math;
 pub mod width_ledger;
