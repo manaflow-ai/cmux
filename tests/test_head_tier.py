@@ -159,6 +159,8 @@ class LandTierTests(unittest.TestCase):
                       "github.event.pull_request.number": "'7'", "github.run_id": "'99'"}
             expr = re.sub(r"(github\.event\.changes\.[\w.]+|github\.event\.pull_request\.body)", "None", expr)
             expr = re.sub(r"contains\(None, '[^']*'\)", "False", expr)
+            expr = re.sub(r"!contains\(fromJSON\('(\[[^\]]*\])'\), github\.event\.label\.name\)",
+                          lambda m: f"(github.event.label.name not in {m.group(1)})", expr)
             expr = re.sub(r"format\('([^']*)', ([^)]*)\)", lambda m: repr(m.group(1).replace("{0}", "99")), expr)
             for name, value in values.items():
                 expr = expr.replace(name, value)
@@ -166,8 +168,10 @@ class LandTierTests(unittest.TestCase):
             expr = expr.replace("!", " not ").replace(" __NE__ ", " != ")
             return eval(expr, {"__builtins__": {}}, {})  # noqa: S307 - our own workflow's expression
 
+        # Removing a label routes nothing (pr-router takes no `unlabeled` event either; the shared label guard,
+        # tests/test_ci_label_events_skip_full_ci.py, skips removing a coverage label in every workflow).
         for action, label, routes in (("labeled", "ready-to-land", True), ("labeled", "full-ci", True),
-                                      ("unlabeled", "ready-to-land", True), ("unlabeled", "full-ci", False),
+                                      ("unlabeled", "ready-to-land", False), ("unlabeled", "full-ci", False),
                                       ("labeled", "risk:low", False), ("synchronize", "", True)):
             with self.subTest(action=action, label=label):
                 self.assertEqual(bool(ev(cond, action, label)), routes)

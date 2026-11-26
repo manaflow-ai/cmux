@@ -20,7 +20,7 @@ permissions: {}
 # A push supersedes the pull request's older run (and its calls, which tested an older head). Any other event runs in a
 # group of its own, so a label, review-ready or close event never cancels a push's calls in flight.
 concurrency:
-  group: docs-only-fallback-${{ github.event.pull_request.number }}${{ !contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) && format('-{0}-{1}', github.event.action, github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: docs-only-fallback-${{ github.event.pull_request.number }}${{ !contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) && format('-{0}-{1}', github.event.action, github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
     name: docs-only fallback gate
     # Into feat-cmux-next a label event for any other label skips with no runner
     # (tests/test_ci_label_events_skip_full_ci.py).
-    if: ${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.event.pull_request.changed_files > 300) || (contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) && (github.event.action == 'labeled' || github.event.pull_request.changed_files > 300))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    if: ${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.event.pull_request.changed_files > 300) || (contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) && (github.event.action == 'labeled' || github.event.pull_request.changed_files > 300))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
