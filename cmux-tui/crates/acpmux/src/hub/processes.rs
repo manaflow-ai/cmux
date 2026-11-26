@@ -170,7 +170,7 @@ mod process_preview_tests;
 /// host here (cmux#51494).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct SavedProcesses {
+pub(crate) struct SavedProcesses {
     /// The last record folded.
     pub(super) through: u64,
     /// The processes in the order they started, each with whether its state is logged.
@@ -982,12 +982,9 @@ impl Hub {
         table.saved()
     }
 
-    pub(super) fn rebuild_processes(&self, session: &Session) {
-        self.rebuild_processes_from(session, None);
-    }
-
-    /// `rebuild_processes` from the table `saved` holds (an adoption checkpoint's): only the
-    /// records after it are read.
+    /// Reads the session's processes from its log again: a daemon that adopted a running host
+    /// lists them again (`hosts.rs`). From the table `saved` holds (an adoption checkpoint's),
+    /// only the records after it are read.
     pub(super) fn rebuild_processes_from(&self, session: &Session, saved: Option<SavedProcesses>) {
         let mut table = self.read_processes_from(session, saved);
         let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());

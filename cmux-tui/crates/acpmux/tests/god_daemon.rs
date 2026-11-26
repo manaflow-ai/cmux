@@ -132,6 +132,9 @@ const PAGE_BYTES: u64 = 131072;
 const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
 
+/// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
+const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
+
 /// The startup points kept as marks, not phases (`gauges.rs`).
 const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
 
@@ -2446,6 +2449,16 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
+    // Its host up, the chat's adoption checkpoint is folded in the background
+    // (`hosts/checkpoint.rs` `prime_adoption_checkpoint`): how long after the sends it is there.
+    // A long chat's host has been up that long; a restart before it reads the whole log at
+    // adoption. A daemon that writes none waits the whole bound and restarts without one.
+    let checkpoint = home.join("sessions").join(&id).join("adoption-checkpoint.json");
+    let checkpoint_wait = Instant::now();
+    while !checkpoint.exists() && checkpoint_wait.elapsed() < ADOPTION_CHECKPOINT_WITHIN {
+        std::thread::sleep(ALL_LOGS_POLL);
+    }
+    let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
@@ -2525,6 +2538,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
+        "adoptionCheckpointMs": adoption_checkpoint_ms,
         "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,

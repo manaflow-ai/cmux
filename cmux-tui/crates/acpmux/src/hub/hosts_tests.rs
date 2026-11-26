@@ -198,7 +198,7 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
         let _ = hub.remote_host_env_current(&session, "inc");
         let after = hub.last_host_seq(&session, "inc");
         let work = hub.open_work(&session, "inc");
-        hub.rebuild_processes(&session);
+        hub.rebuild_processes_from(&session, None);
         resumed.push((after, work.turn.map(|t| t.1), work.requests.len()));
     }
     let elapsed = started.elapsed();
