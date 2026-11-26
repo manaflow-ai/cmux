@@ -206,8 +206,10 @@ dependencies = [
  "cmux-pane-pictures",
  "cmux-process",
  "cmux-rd-ffi",
+ "cmux-screenshots",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
+ "cmux-url-input",
  "cmux-wallpaper",
  "serde",
  "serde_json",
@@ -570,6 +572,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "serde",
  "serde_json",
 ]
 
@@ -597,6 +600,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -658,6 +669,10 @@ version = "0.1.0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "cmux-url-input"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-wallpaper"
