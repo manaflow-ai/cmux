@@ -1415,29 +1415,37 @@ jobs:
       - name: Reject stale continuation before publication
         run: |
           set -euo pipefail
-          # Read through gh, so gh_budget_wait.sh waits through a spent API budget: run
-          # 45868042226 (2026-11-26) read this with urllib, got HTTP 403 and never published.
-          release_json="$RUNNER_TEMP/publication-release.json"
-          release_err="$RUNNER_TEMP/publication-release.err"
-          if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$release_json" 2> "$release_err"; then
-            if grep -q 'HTTP 404' "$release_err"; then
-              echo '{"missing": true}' > "$release_json"
-            else
-              cat "$release_err" >&2
-              exit 1
-            fi
-          fi
-          python3 - "$release_json" "$SOURCE_HEAD_SHA" "$NIGHTLY_BUILD" <<'PY' > "$RUNNER_TEMP/publication-guard"
+          python3 - "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$SOURCE_HEAD_SHA" "$NIGHTLY_BUILD" <<'PY' > "$RUNNER_TEMP/publication-guard"
           import json
+          import os
           import re
           import sys
+          import subprocess
+          import time
 
-          path, source_sha, build = sys.argv[1:]
-          with open(path) as handle:
-              release = json.load(handle)
-          if release.get("missing") is True:
-              print("release_missing=true")
-              raise SystemExit(0)
+          repository, tag, source_sha, build = sys.argv[1:]
+          # gh api, not a bare urllib call: gh sends its own User-Agent and token,
+          # and a refusal prints its body (run 45868119309 died on a bare
+          # "HTTP Error 403: Forbidden" with no reason). Retry 403/429/5xx.
+          release = None
+          for attempt in range(4):
+              try:
+                  # The installed gh wrappers wait out a rate limit (first backoff 60 s): outlast that.
+                  result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
+                                          capture_output=True, text=True, timeout=240)
+              except subprocess.TimeoutExpired:
+                  result = subprocess.CompletedProcess([], 1, "", "gh api timed out (HTTP 504)")
+              if result.returncode == 0:
+                  release = json.loads(result.stdout)
+                  break
+              detail = (result.stderr or result.stdout).strip()
+              if "HTTP 404" in detail:
+                  print("release_missing=true")
+                  raise SystemExit(0)
+              print(f"::warning::release read attempt {attempt + 1} failed: {detail[:300]}", file=sys.stderr)
+              if attempt == 3 or not re.search(r"HTTP (403|429|5\d\d)", detail):
+                  raise SystemExit(f"release read failed: {detail[:300]}")
+              time.sleep(10 * (attempt + 1))
           body = release.get("body") or ""
           sha = re.search(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", body, re.I)
           published_build = re.search(r"<!--\s*cmux-published-build:\s*([0-9]+)\s*-->", body, re.I)
