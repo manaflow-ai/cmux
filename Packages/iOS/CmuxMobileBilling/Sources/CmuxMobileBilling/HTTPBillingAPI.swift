@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// ``BillingAPI`` over the cmux web API with native Stack bearer auth.
+/// ``BillingAPI`` over classic web or cmux-platform with native Stack bearer auth.
 ///
 /// Sends the same headers as the other native `/api` clients
 /// (`Authorization: Bearer`, `X-Stack-Refresh-Token`) plus `x-cmux-bundle-id`,
@@ -24,6 +24,13 @@ public struct HTTPBillingAPI: BillingAPI {
     /// Reads the app's StoreKit environment (`Sandbox` or `Production`); nil when unknown.
     public typealias EnvironmentProvider = @Sendable () async -> String?
 
+    /// Selects the server wire contract. Existing callers keep classic until platform rollout is complete.
+    public enum Backend: Sendable {
+        case classic
+        case platform
+    }
+
+    private let backend: Backend
     private let baseURL: String
     private let bundleID: String
     private let credentials: CredentialsProvider
@@ -33,21 +40,24 @@ public struct HTTPBillingAPI: BillingAPI {
 
     /// Creates the client.
     /// - Parameters:
-    ///   - baseURL: The web API origin, with or without a trailing slash.
+    ///   - baseURL: The selected backend origin, with or without a trailing slash.
     ///   - bundleID: The app's bundle id, sent as `x-cmux-bundle-id`.
     ///   - credentials: Reads the Stack session; nil means signed out.
     ///   - storeKitEnvironment: Reads the app's StoreKit environment, sent as
     ///     `x-cmux-storekit-environment`; nil omits the header.
     ///   - session: The URL session. Tests pass one with a stub protocol.
     ///   - timeout: Per-request deadline in seconds.
+    ///   - backend: Explicit platform opt-in; does not infer a backend from a URL.
     public init(
         baseURL: String,
         bundleID: String,
         credentials: @escaping CredentialsProvider,
         storeKitEnvironment: @escaping EnvironmentProvider = { nil },
         session: URLSession,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
+        backend: Backend = .classic
     ) {
+        self.backend = backend
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         self.bundleID = bundleID
         self.credentials = credentials
@@ -57,14 +67,63 @@ public struct HTTPBillingAPI: BillingAPI {
     }
 
     public func accountToken() async throws -> BillingAccount {
-        let request = try await makeRequest(path: "/api/billing/apple/account-token", body: Data("{}".utf8))
-        return try await send(request, decoding: BillingAccount.self)
+        let request = try await accountTokenRequest()
+        switch backend {
+        case .classic:
+            return try await send(request, decoding: BillingAccount.self)
+        case .platform:
+            let account = try await send(request, decoding: PlatformAccount.self)
+            return BillingAccount(
+                appAccountToken: account.appAccountToken,
+                eligible: account.eligible,
+                reason: account.reason,
+                currentPlan: BillingCurrentPlan(
+                    planID: account.current.planId ?? .free,
+                    source: account.current.planId == nil ? .none : .apple
+                ),
+                products: account.products.map {
+                    BillingProductReference(productID: $0.productId, planID: $0.planId, billingPeriod: $0.billingPeriod)
+                },
+                catalogFamily: .next
+            )
+        }
     }
 
     public func submitTransaction(signedTransactionInfo: String) async throws -> BillingTransactionReceipt {
-        let body = try JSONEncoder().encode(TransactionBody(signedTransactionInfo: signedTransactionInfo))
-        let request = try await makeRequest(path: "/api/billing/apple/transactions", body: body)
-        return try await send(request, decoding: BillingTransactionReceipt.self)
+        let request = try await transactionRequest(signedTransactionInfo: signedTransactionInfo)
+        switch backend {
+        case .classic:
+            return try await send(request, decoding: BillingTransactionReceipt.self)
+        case .platform:
+            let receipt = try await send(request, decoding: PlatformReceipt.self)
+            return BillingTransactionReceipt(
+                planID: receipt.grants ? receipt.planId : .free,
+                status: receipt.status,
+                expiresAt: receipt.expiresAt.map {
+                    ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0 / 1_000))
+                }
+            )
+        }
+    }
+
+    func accountTokenRequest() async throws -> URLRequest {
+        switch backend {
+        case .classic:
+            return try await makeRequest(path: "/api/billing/apple/account-token", body: Data("{}".utf8))
+        case .platform:
+            let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase
+            let body = try encoder.encode(PlatformAccountRequest(bundleId: bundleID, environment: await storeKitEnvironment()))
+            return try await makeRequest(path: "/v1/billing/apple/account-token", body: body)
+        }
+    }
+
+    func transactionRequest(signedTransactionInfo: String) async throws -> URLRequest {
+        let encoder = JSONEncoder()
+        if backend == .platform { encoder.keyEncodingStrategy = .convertToSnakeCase }
+        let body = try encoder.encode(TransactionBody(signedTransactionInfo: signedTransactionInfo))
+        let prefix = backend == .platform ? "/v1" : "/api"
+        return try await makeRequest(path: "\(prefix)/billing/apple/transactions", body: body)
     }
 
     /// Builds a `POST` request; exposed to tests to pin the header contract.
@@ -88,13 +147,15 @@ public struct HTTPBillingAPI: BillingAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = timeout
         request.setValue("Bearer \(pair.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(pair.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        request.setValue(bundleID, forHTTPHeaderField: "x-cmux-bundle-id")
-        // This client offers a Monthly/Yearly choice, so the server may list
-        // yearly products; older clients do not send it and get monthly only.
-        request.setValue("monthly,yearly", forHTTPHeaderField: "x-cmux-billing-periods")
-        if let environment = await storeKitEnvironment() {
-            request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
+        if backend == .classic {
+            request.setValue(pair.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+            request.setValue(bundleID, forHTTPHeaderField: "x-cmux-bundle-id")
+            // This client offers a Monthly/Yearly choice, so the server may list
+            // yearly products; older clients do not send it and get monthly only.
+            request.setValue("monthly,yearly", forHTTPHeaderField: "x-cmux-billing-periods")
+            if let environment = await storeKitEnvironment() {
+                request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
+            }
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -112,13 +173,18 @@ public struct HTTPBillingAPI: BillingAPI {
         }
         guard let http = response as? HTTPURLResponse else { throw BillingAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 403, (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error == "account_mismatch" {
-                throw BillingAPIError.accountMismatch
+            if http.statusCode == 403, let error = try? JSONDecoder().decode(ErrorBody.self, from: data) {
+                let mismatch = backend == .platform
+                    ? error.code == "appstore.account_mismatch"
+                    : error.error == "account_mismatch"
+                if mismatch { throw BillingAPIError.accountMismatch }
             }
             throw BillingAPIError.rejected(statusCode: http.statusCode)
         }
         do {
-            return try JSONDecoder().decode(Response.self, from: data)
+            let decoder = JSONDecoder()
+            if backend == .platform { decoder.keyDecodingStrategy = .convertFromSnakeCase }
+            return try decoder.decode(Response.self, from: data)
         } catch {
             throw BillingAPIError.invalidResponse
         }
@@ -130,5 +196,36 @@ public struct HTTPBillingAPI: BillingAPI {
 
     private struct ErrorBody: Decodable {
         let error: String?
+        let code: String?
+    }
+
+    private struct PlatformAccountRequest: Encodable {
+        let bundleId: String
+        let environment: String?
+    }
+
+    private struct PlatformAccount: Decodable {
+        let appAccountToken: UUID
+        let eligible: Bool
+        let reason: BillingIneligibilityReason?
+        let current: PlatformCurrent
+        let products: [PlatformProduct]
+    }
+
+    private struct PlatformCurrent: Decodable {
+        let planId: BillingPlanID?
+    }
+
+    private struct PlatformProduct: Decodable {
+        let productId: String
+        let planId: BillingPlanID
+        let billingPeriod: BillingPeriod
+    }
+
+    private struct PlatformReceipt: Decodable {
+        let planId: BillingPlanID
+        let status: String
+        let expiresAt: Double?
+        let grants: Bool
     }
 }

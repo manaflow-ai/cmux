@@ -716,7 +716,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "AgentPanePolicyPlugin")]
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
@@ -1170,7 +1171,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextComputerUsePreview",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
                 "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
@@ -2786,6 +2790,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-agent-pane-policy-swift.py --swift-out into its work directory.
+        .plugin(name: "AgentPanePolicyPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
