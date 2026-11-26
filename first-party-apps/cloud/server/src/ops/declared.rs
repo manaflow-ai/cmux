@@ -55,6 +55,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         "cloud.machine.create",
         MUTATION,
         &[
+            "cloud.machine.not_found",
             "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
