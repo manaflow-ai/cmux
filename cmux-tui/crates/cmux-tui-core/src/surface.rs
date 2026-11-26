@@ -26,7 +26,7 @@ mod input;
 mod local_output;
 mod metadata;
 mod mirror_park;
-pub(crate) use mirror_park::{MirrorGuard, TerminalMirror};
+pub(crate) use mirror_park::{MirrorGuard, ParkedLook, TerminalMirror};
 mod mouse_input;
 mod options;
 mod pending_bells;

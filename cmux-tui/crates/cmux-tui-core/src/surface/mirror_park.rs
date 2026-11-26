@@ -23,6 +23,7 @@
 use super::*;
 use ghostty_vt::{TerminalColorOverrides, VtReplay};
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{LockResult, PoisonError, TryLockResult};
 
 use crate::lock_rank::{LockRank, RankedGuard, RankedMutex};
@@ -38,6 +39,33 @@ struct ParkedMirror {
     defaults: DefaultColors,
     callbacks: Callbacks,
     title_changed: Arc<AtomicBool>,
+    look: ParkedLook,
+}
+
+/// What a look at the screen reads, written down at the park: nothing
+/// changes a parked screen, so a reader that only asks this (the output
+/// store's snapshot pass deciding that no snapshot is due) rebuilds nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParkedLook {
+    /// The output store's content digest of the screen (`None`: unreadable).
+    pub(crate) digest: Option<u64>,
+    /// Columns and rows.
+    pub(crate) size: (u16, u16),
+    /// The alternate screen is active.
+    pub(crate) alternate: bool,
+    /// A Kitty image upload was being assembled.
+    pub(crate) upload: bool,
+}
+
+impl ParkedLook {
+    fn of(term: &mut Terminal) -> Self {
+        Self {
+            digest: crate::output_store::snapshot::content_digest(term),
+            size: (term.cols(), term.rows()),
+            alternate: term.active_screen() != ghostty_vt::Screen::Primary,
+            upload: term.kitty_upload_in_progress(),
+        }
+    }
 }
 
 /// What [`TerminalMirror::park`] needs from the reader that owns the mirror.
@@ -59,6 +87,8 @@ pub(crate) struct TerminalMirror {
     /// The scrollback budget the terminal was made with, for parking an
     /// ended terminal, which has no reader to say it.
     scrollback: usize,
+    /// Scratch terminals built for a look at the parked mirror.
+    scratch_builds: AtomicUsize,
 }
 
 impl TerminalMirror {
@@ -67,6 +97,7 @@ impl TerminalMirror {
             term: RankedMutex::new(LockRank::Terminal, "pty.term", Some(term)),
             parked: Mutex::new(None),
             scrollback,
+            scratch_builds: AtomicUsize::new(0),
         }
     }
 
@@ -96,27 +127,48 @@ impl TerminalMirror {
         guard.is_some().then_some(MirrorGuard { guard })
     }
 
-    /// Runs `f` on the terminal and leaves a parked mirror parked: it is
-    /// rebuilt into a scratch terminal that `f` reads and that is dropped
-    /// after, so its page pool goes with it. For readers that only look
-    /// (the output store's snapshot of a log that went dirty just before the
-    /// park): a lock would rebuild the mirror for good and undo the park.
-    /// A replay that cannot be rebuilt unparks, as a lock would.
-    pub(crate) fn with_terminal_kept_parked<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> R {
+    /// Runs `f` on the terminal and leaves a parked mirror parked. For
+    /// readers that only look (the output store's snapshot of a log that
+    /// went dirty just before the park): a lock would rebuild the mirror for
+    /// good and undo the park.
+    ///
+    /// A parked mirror first gets `look` with what the park wrote down of
+    /// its screen; an answer there is the answer, and nothing is rebuilt
+    /// (a thousand parked tabs cost the pass nothing). Only when `look` needs
+    /// the terminal itself (a snapshot replay) is a scratch terminal rebuilt
+    /// for `f`, with the same [`ParkedLook`], and dropped after, so its page
+    /// pool goes with it. A replay that cannot be rebuilt unparks, as a lock
+    /// would.
+    pub(crate) fn with_terminal_kept_parked<R>(
+        &self,
+        look: impl FnOnce(&ParkedLook) -> Option<R>,
+        f: impl FnOnce(&mut Terminal, Option<&ParkedLook>) -> R,
+    ) -> R {
         let mut guard = self.term.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(term) = guard.as_mut() {
-            return f(term);
+            return f(term, None);
         }
-        let scratch = self
-            .parked
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .and_then(|parked| build(parked, Callbacks::default()).ok());
+        let parked = self.parked.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(seen) = parked.as_ref().map(|parked| parked.look) else {
+            drop(parked);
+            return f(&mut self.unparked(guard), None);
+        };
+        if let Some(answer) = look(&seen) {
+            return answer;
+        }
+        self.scratch_builds.fetch_add(1, Ordering::Relaxed);
+        let scratch = parked.as_ref().and_then(|parked| build(parked, Callbacks::default()).ok());
+        drop(parked);
         match scratch {
-            Some(mut scratch) => f(&mut scratch),
-            None => f(&mut self.unparked(guard)),
+            Some(mut scratch) => f(&mut scratch, Some(&seen)),
+            None => f(&mut self.unparked(guard), None),
         }
+    }
+
+    /// Scratch terminals built so far for looks at the parked mirror.
+    #[cfg(test)]
+    pub(crate) fn scratch_builds(&self) -> usize {
+        self.scratch_builds.load(Ordering::Relaxed)
     }
 
     fn unparked<'a>(&self, mut guard: RankedGuard<'a, Option<Box<Terminal>>>) -> MirrorGuard<'a> {
@@ -147,6 +199,7 @@ impl TerminalMirror {
             return false;
         }
         let colors = term.color_overrides();
+        let look = ParkedLook::of(term);
         *self.parked.lock().unwrap_or_else(PoisonError::into_inner) = Some(ParkedMirror {
             replay,
             colors,
@@ -155,6 +208,7 @@ impl TerminalMirror {
             defaults: park.defaults,
             callbacks: park.callbacks,
             title_changed: park.title_changed.clone(),
+            look,
         });
         // The terminal and its page pool are freed here, under the lock.
         *slot = None;
@@ -368,6 +422,12 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn mirror_parked(&self) -> bool {
         self.as_pty().is_some_and(|pty| pty.term.is_parked())
+    }
+
+    /// Scratch terminals built for looks at this terminal's parked mirror.
+    #[cfg(test)]
+    pub(crate) fn mirror_scratch_builds(&self) -> usize {
+        self.as_pty().map_or(0, |pty| pty.term.scratch_builds())
     }
 }
 

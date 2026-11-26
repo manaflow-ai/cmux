@@ -71,15 +71,50 @@ fn output_after_a_rebuild_lands_where_it_would_have() {
 #[test]
 fn a_look_at_a_parked_mirror_leaves_it_parked() {
     let (mirror, title_changed) = mirror_with(SCREEN);
-    let read = |term: &mut Terminal| (term.plain_text().unwrap(), term.scrollback_rows());
-    let live = mirror.with_terminal_kept_parked(read);
+    let read = |term: &mut Terminal, _: Option<&ParkedLook>| {
+        (term.plain_text().unwrap(), term.scrollback_rows())
+    };
+    let live = mirror.with_terminal_kept_parked(|_| None, read);
     title_changed.store(false, Ordering::Relaxed);
     assert!(park(&mirror, &title_changed));
-    assert_eq!(mirror.with_terminal_kept_parked(read), live);
+    assert_eq!(mirror.with_terminal_kept_parked(|_| None, read), live);
+    assert_eq!(mirror.scratch_builds(), 1);
     assert!(mirror.is_parked(), "the look read a scratch rebuild");
     assert!(!title_changed.load(Ordering::Relaxed), "the scratch rebuild is no title change");
     let (text, history, ..) = state(&mirror);
     assert_eq!((text, history), live, "the mirror still rebuilds from the kept replay");
+}
+
+/// What the park wrote down of the screen is what a look at the live
+/// terminal read, and a look it answers builds no scratch terminal: a
+/// thousand parked tabs cost a snapshot pass nothing.
+#[test]
+fn a_look_answered_by_the_park_rebuilds_nothing() {
+    let mirrors: Vec<_> = (0..16).map(|_| mirror_with(SCREEN)).collect();
+    for (mirror, title_changed) in &mirrors {
+        let live = mirror.with_terminal_kept_parked(
+            |_| -> Option<Option<u64>> { unreachable!("a live mirror is not parked") },
+            |term, look| {
+                assert!(look.is_none());
+                crate::output_store::snapshot::content_digest(term)
+            },
+        );
+        assert!(live.is_some());
+        assert!(park(mirror, title_changed));
+        for _ in 0..3 {
+            let parked = mirror.with_terminal_kept_parked(
+                |look| {
+                    assert_eq!(look.size, (20, 4));
+                    assert!(!look.alternate && !look.upload);
+                    Some(look.digest)
+                },
+                |_, _| unreachable!("the look answered"),
+            );
+            assert_eq!(parked, live, "the parked digest is the live one");
+        }
+        assert_eq!(mirror.scratch_builds(), 0);
+        assert!(mirror.is_parked());
+    }
 }
 
 #[test]

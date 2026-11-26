@@ -228,12 +228,13 @@ impl Surface {
     /// mirror stays parked (`TerminalMirror::with_terminal_kept_parked`).
     pub(crate) fn try_with_terminal_kept_parked<R>(
         &self,
-        f: impl FnOnce(&mut Terminal) -> R,
+        look: impl FnOnce(&ParkedLook) -> Option<R>,
+        f: impl FnOnce(&mut Terminal, Option<&ParkedLook>) -> R,
     ) -> anyhow::Result<R> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        Ok(pty.term.with_terminal_kept_parked(f))
+        Ok(pty.term.with_terminal_kept_parked(look, f))
     }
 
     /// Abort an unreplayable parser sequence and run a capture while the
