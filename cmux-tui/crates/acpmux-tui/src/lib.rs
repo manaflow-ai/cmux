@@ -36,6 +36,7 @@ mod scheduler;
 mod start_wait;
 mod state;
 mod terminal;
+mod usage_reset;
 pub use run::run;
 
 /// Make this process's acpmux CLI open sessions in this terminal UI (`acpmux::tui_entry::run`).
