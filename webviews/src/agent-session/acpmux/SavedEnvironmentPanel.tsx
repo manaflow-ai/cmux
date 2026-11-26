@@ -270,6 +270,7 @@ export function SavedEnvironmentPanel({
           </output>
           {browseFailed && !ssh && (
             <button type="button" className="acpmux-env-button" onClick={() => void browse()} disabled={browsing}>
+              {/* retry-prompt-ok: opens the native folder chooser again, a sheet the person must want. */}
               {t("project.retry")}
             </button>
           )}
