@@ -1,9 +1,13 @@
-//! The Computer Use worker on Linux and Windows: the daemon starts the
-//! same `cmux-tui` binary in its hidden `__computer-use-worker` mode, keeps
-//! it running while Computer Use is on, and hands agents (acpmux's bridge)
-//! its endpoint through the `computer-use-endpoint` command
-//! (`server/computer_use_command.rs`). On macOS the signed cmux Remote host
-//! runs the worker instead (`remote_host.rs`); this supervisor is idle there.
+//! The Computer Use worker: on Linux and Windows the daemon starts the
+//! same `cmux-tui` binary in its hidden `__computer-use-worker` mode; on
+//! macOS, in a build that embeds no cmux Remote (Release and NIGHTLY), the
+//! Screen Sharing helper `cmux-screen-sharing __computer-use-worker`, which
+//! holds the grants (`computer_use_host/macos.rs`). It keeps the worker
+//! running while Computer Use is on, and hands agents (acpmux's bridge) its
+//! endpoint through the `computer-use-endpoint` command
+//! (`server/computer_use_command.rs`). A macOS build that embeds cmux Remote
+//! (a DEV build) runs the worker in cmux Remote (`remote_host.rs`) instead,
+//! and this supervisor stays unconfigured there.
 //!
 //! - Start: on the first endpoint request (never at daemon start, so a
 //!   machine nobody automates runs no worker). The worker gets a fresh 32-byte
@@ -13,6 +17,11 @@
 //! - Exit or crash: started again after [`Backoff`] (200 ms doubling to 30 s,
 //!   reset after a healthy run) while Computer Use is on. Its state directory
 //!   is the same on every launch, so grants and saved approvals survive.
+//! - Hot upgrade: a worker whose executable was replaced on disk (a newer
+//!   build swapped the signed helper in at its fixed path, or cmux-tui was
+//!   updated) lets its running calls finish, says `replaced` and exits
+//!   (`cmux_computer_use::replaced`); the next worker starts at once, from the
+//!   new executable, with no backoff and no relaunch of the app or the daemon.
 //! - No desktop (a headless box without DISPLAY): `unavailable` with the
 //!   reason; tried again on the next request.
 //! - Off (`computerUse.mode` = off): the worker is stopped (stdin closed) and
@@ -23,12 +32,10 @@
 //!   notification, answered through `computer-use-approvals` `answer`);
 //!   otherwise they are answered `unavailable` at once.
 
-#![cfg_attr(target_os = "macos", allow(dead_code))]
-
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
@@ -44,6 +51,9 @@ pub(crate) mod config;
 mod platform;
 #[cfg(windows)]
 #[path = "computer_use_host/windows.rs"]
+pub(crate) mod platform;
+#[cfg(target_os = "macos")]
+#[path = "computer_use_host/macos.rs"]
 pub(crate) mod platform;
 
 /// Advertised by `identify` once the `computer-use-*` commands exist.
@@ -128,6 +138,8 @@ struct Link {
     input: Mutex<Option<Box<dyn Write + Send>>>,
     started: Instant,
     secret: String,
+    /// The worker said its executable was replaced: start the new one at once.
+    replaced: AtomicBool,
 }
 
 impl Link {
@@ -411,6 +423,7 @@ impl Inner {
             input: Mutex::new(Some(process.input)),
             started: Instant::now(),
             secret: secret.clone(),
+            replaced: AtomicBool::new(false),
         });
         let configure = json!({
             "type": "configure", "config": config, "socket": paths.endpoint, "secret": secret,
@@ -470,6 +483,7 @@ impl Inner {
                     said_unavailable = Some(reason);
                 }
                 "ask" => Self::asked(&inner, link, &message),
+                "replaced" => link.replaced.store(true, Ordering::SeqCst),
                 "approvals" => {
                     if let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(waiting) = lock(&inner.replies).remove(&id)
@@ -519,6 +533,17 @@ impl Inner {
         }
         if !this.wanted() {
             this.set_phase(Phase::Idle);
+            return;
+        }
+        // An update, not a failure: the new executable starts now, and the
+        // backoff starts over.
+        if link.replaced.load(Ordering::SeqCst) {
+            eprintln!("cmux-tui: the Computer Use helper was updated; starting the new one");
+            if let Some(backoff) = lock(&this.backoff).as_mut() {
+                backoff.reset();
+            }
+            this.set_phase(Phase::Idle);
+            Self::start_in_background(this);
             return;
         }
         if !was_ready {
@@ -607,15 +632,21 @@ fn current_policy(mux: &Arc<crate::mux::Mux>) -> (PolicyConfig, config::Source, 
 }
 
 impl crate::mux::Mux {
-    /// Lets this daemon (Linux, Windows) run the Computer Use worker for the
-    /// daemon on `daemon_socket`, with durable state beside the daemon's own.
-    #[cfg(any(target_os = "linux", windows))]
+    /// Lets this daemon (Linux, Windows, and macOS without cmux Remote) run
+    /// the Computer Use worker for the daemon on `daemon_socket`, with durable
+    /// state beside the daemon's own.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     pub(crate) fn configure_computer_use(self: &Arc<Self>, daemon_socket: &Path) {
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
             return;
         };
+        // macOS: the file itself, never a link it was started by, so the app
+        // bundle that carries the Screen Sharing helper is found.
+        #[cfg(target_os = "macos")]
+        let Ok(exe) = cmux_link::app_caller::own_executable() else { return };
+        #[cfg(not(target_os = "macos"))]
         let Ok(exe) = std::env::current_exe() else { return };
         let launcher: Arc<dyn Launcher> = Arc::new(platform::NativeLauncher::new(exe));
         self.configure_computer_use_with(paths_for(daemon_socket, &state_root), launcher);

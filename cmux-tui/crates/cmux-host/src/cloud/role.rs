@@ -50,7 +50,6 @@ use crate::linux::spawn::lookup_user;
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
 pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
-const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
 
 fn log(line: &str) {
@@ -203,94 +202,9 @@ impl Store for FileStore {
     }
 }
 
-/// [`Http`] over cmux-server's HTTPS poster.
-pub struct PosterHttp(pub JsonPoster);
-
-impl PosterHttp {
-    /// Runs `send` on this poster and `url`. Tests: while [`TEST_ORIGIN`] is
-    /// set, every request goes to its path at that plain-HTTP origin instead,
-    /// on a poster of the calling thread (the before/after harness).
-    fn via<T>(&self, url: &str, send: impl FnOnce(&JsonPoster, &str) -> T) -> T {
-        #[cfg(test)]
-        let send = match test_route(url, send) {
-            Ok(answer) => return answer,
-            Err(send) => send,
-        };
-        send(&self.0, url)
-    }
-}
-
-/// [`PosterHttp::via`] while [`TEST_ORIGIN`] is set; `Err(send)` otherwise.
+pub use super::poster_http::PosterHttp;
 #[cfg(test)]
-fn test_route<T, F: FnOnce(&JsonPoster, &str) -> T>(url: &str, send: F) -> Result<T, F> {
-    let Some(origin) =
-        TEST_ORIGIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
-    else {
-        return Err(send);
-    };
-    thread_local! {
-        static POSTER: Option<JsonPoster> = JsonPoster::allowing_http().ok();
-    }
-    let path = url
-        .split_once("://")
-        .and_then(|(_, rest)| rest.find('/').map(|at| rest.split_at(at).1))
-        .unwrap_or("/");
-    let routed = format!("{origin}{path}");
-    POSTER.with(|poster| match poster {
-        Some(poster) => Ok(send(poster, &routed)),
-        None => Err(send),
-    })
-}
-
-/// Tests: the origin every Cloud request goes to ([`PosterHttp::via`]).
-#[cfg(test)]
-pub(crate) static TEST_ORIGIN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-impl Http for PosterHttp {
-    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.get(url, bearer))
-    }
-
-    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.post(url, body, bearer))
-    }
-
-    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.via(url, |poster, url| poster.post_empty(url, bearer))
-    }
-
-    fn request_with_deadline(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: &cmux_server::cloud_http::RequestDeadline,
-    ) -> Result<(u16, Vec<u8>), String> {
-        self.via(url, |poster, url| poster.request_with_deadline(url, body, bearer, deadline))
-    }
-
-    fn request_with_headers(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: &cmux_server::cloud_http::RequestDeadline,
-    ) -> Result<cmux_server::cloud_http::Response, String> {
-        self.via(url, |poster, url| {
-            poster.request_with_deadline_headers(url, body, bearer, deadline)
-        })
-    }
-
-    fn reset(&self) {
-        self.0.reset();
-        #[cfg(test)]
-        let _ = test_route("/", |poster, _| poster.reset());
-    }
-
-    fn fresh(&self) -> Option<Self> {
-        self.0.twin().ok().map(PosterHttp)
-    }
-}
+pub(crate) use super::poster_http::TEST_ORIGIN;
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
 /// exchange, not each read, and the reply line is at most `MAX_LINE`.
@@ -663,12 +577,19 @@ struct Worker {
     github: Minter<PosterHttp>,
     /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
     carrier: Option<CarrierServer<PosterHttp>>,
+    /// Auto mode's store for the machine's daemon, on its own socket and threads
+    /// (`auto_session_server.rs`).
+    auto_sessions: Option<super::auto_session_server::AutoSessions<PosterHttp>>,
     /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
     keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
     /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
     gateway_token: Option<super::gateway_token::GatewayToken>,
+    /// The person's usage-sharing choice and the idle edge, from the status report replies
+    /// (`additions.rs`), and the thread that lists and sends their additions at that edge.
+    additions_gate: super::additions::Gate,
+    additions: Option<super::additions_thread::Additions>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// A carrier bind waiting for the session host's Noise key (its
@@ -678,6 +599,9 @@ struct Worker {
     /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
     workload: super::workload::Tracker,
     workload_at: Option<u64>,
+    /// The pressure probe (`pressure.rs`): its memory and when it reads next (while bound).
+    pressure: super::pressure::Tracker,
+    pressure_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
     /// This service is the restart a flip or a rollback queued: the first session starts
@@ -704,6 +628,19 @@ impl Worker {
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
+        // Before the bind, like the carrier socket: a call made meanwhile is answered `vm.unbound`.
+        let auto_sessions = listen(&paths, super::auto_session_server::AUTO_SESSION_SOCKET)
+            .and_then(|l| {
+                let hooks = super::auto_session_server::Hooks { now: wall_ms, log };
+                super::auto_session_server::AutoSessions::spawn(
+                    l,
+                    hooks,
+                    Arc::clone(&github_stop),
+                    &resumes,
+                )
+            })
+            .map_err(|e| log(&format!("auto-session socket: {e}")))
+            .ok();
         // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
         let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
             .and_then(|l| {
@@ -738,14 +675,19 @@ impl Worker {
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
             carrier,
+            auto_sessions,
             keyset,
             trajectories,
             gateway_token: None,
+            additions_gate: super::additions::Gate::default(),
+            additions: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_wait: None,
             workload: super::workload::Tracker::default(),
             workload_at: None,
+            pressure: super::pressure::Tracker::default(),
+            pressure_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
             restarted: false,
@@ -776,6 +718,7 @@ impl Worker {
                 self.bind_retry_at,
                 self.activity.retry_at,
                 self.workload_at,
+                self.pressure_at,
             ]
             .into_iter()
             .flatten()
@@ -880,7 +823,7 @@ impl Worker {
                     }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now);
+                        let reqs = live.session.resume(now, wall_ms());
                         self.drive(reqs);
                     }
                 }
@@ -893,14 +836,7 @@ impl Worker {
     fn accept(&mut self) {
         let Some(listener) = self.listener.as_ref() else { return };
         while let Ok((stream, _)) = listener.accept() {
-            if self.clients.len() >= MAX_CLIENTS {
-                // A GitHub token asker gets an answer rather than an EOF.
-                let mut stream = stream;
-                let busy = github::refusal("busy", "the Cloud agent's socket is full; retry");
-                let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
-                let _ = stream.write_all(format!("{busy}\n").as_bytes());
-                continue;
-            }
+            // Every client is taken: each is one descriptor and a line of at most MAX_LINE.
             if stream.set_nonblocking(true).is_err() {
                 continue;
             }
@@ -957,7 +893,7 @@ impl Worker {
                 client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
                 continue;
             }
-            if let Some(ask) = agent_ask(&line) {
+            if let Some(ask) = agent_ask(&line, &self.paths) {
                 asks.push((i, ask));
                 continue;
             }
@@ -1088,7 +1024,9 @@ impl Worker {
         );
         drop(carrier_held);
         let Some(result) = result else {
-            log("bind: a restart of this service is pending; the restarted service binds");
+            log(
+                "bind: waits for the restart gate (a restart of this service is pending, or the gate failed)",
+            );
             self.bind_retry_at = Some(self.now() + 30_000);
             return;
         };
@@ -1096,6 +1034,8 @@ impl Worker {
         match result {
             BindResult::Bound(bound, first_ticket) => {
                 self.bind_backoff.reset();
+                // The compiler cache settings the bind kept, for acpmux (`sccache_env.rs`).
+                crate::sccache_env::publish(&self.paths);
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
@@ -1180,6 +1120,15 @@ impl Worker {
                 Err(e) => log(&format!("carrier ticket: {e}")),
             }
         }
+        if let Some(auto_sessions) = self.auto_sessions.as_ref() {
+            // Each call's thread makes or reuses a client of this bind: the same install key,
+            // its own HTTPS connection.
+            let (bind, pkcs8) = (bound.clone(), key.pkcs8().to_vec());
+            auto_sessions.bound(&bound.machine, move || {
+                let key = InstallKey::from_pkcs8(&pkcs8, &SystemRandom::new())?;
+                github_client(&bind, &key)
+            });
+        }
         match github_client(&bound, &key) {
             Ok(client) => self.keyset.bound(client),
             Err(e) => log(&format!("carrier keyset: {e}")),
@@ -1199,6 +1148,24 @@ impl Worker {
                         .ok();
             }
             Err(e) => log(&format!("inference gateway token: {e}")),
+        }
+        // A new binding knows no choice yet: off until a report's reply says on.
+        self.additions_gate = super::additions::Gate::default();
+        self.additions = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                let store = FileStore::new(self.paths.clone());
+                self.additions = super::additions_thread::Additions::spawn(
+                    client,
+                    self.paths.clone(),
+                    store,
+                    wall_ms,
+                    log,
+                )
+                .map_err(|e| log(&format!("additions: {e}")))
+                .ok();
+            }
+            Err(e) => log(&format!("additions: {e}")),
         }
         // The first report carries the updater's block: after an update's restart, its swap.
         // After a flip's or a rollback's restart, degraded until the restarted session host
@@ -1221,6 +1188,8 @@ impl Worker {
         // A new session knows no workload yet: the first probe now, the first result one interval on.
         self.workload = super::workload::Tracker::default();
         self.workload_at = Some(self.now());
+        self.pressure = super::pressure::Tracker::default();
+        self.pressure_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1341,11 +1310,26 @@ impl Worker {
         if self.workload_at.is_some_and(|at| at <= self.now()) {
             self.probe_workload();
         }
+        if self.pressure_at.is_some_and(|at| at <= self.now()) {
+            self.probe_pressure();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One pressure probe (`pressure.rs`); the next one an interval later. A probe that does not
+    /// read reports nothing short.
+    fn probe_pressure(&mut self) {
+        let now = self.now();
+        self.pressure_at = Some(now + super::pressure::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let block = super::pressure::read(self.paths.root())
+            .and_then(|r| self.pressure.observe(&r, wall_ms()).to_json());
+        let reqs = live.session.pressure(block, now);
+        self.drive(reqs);
     }
 
     /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
@@ -1358,7 +1342,17 @@ impl Worker {
         let reqs = live.session.updater(crate::updater::look::report(&self.paths), now);
         self.drive(reqs);
         let Some(live) = self.live.as_mut() else { return };
-        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+        // And the applied machine.toml's idle window (a lane: 300 s), read on the same tick.
+        let window = cmux_cloud_start_core::machine_config::idle::read(self.paths.root());
+        let reqs = live.session.idle_window(window, now);
+        self.drive(reqs);
+        let Some(live) = self.live.as_mut() else { return };
+        let snapshot = super::workload::read_snapshot(self.paths.root(), now);
+        // Whether acpmux runs at all: none for a count's lifetime makes 0 turns a known 0.
+        let reqs = live.session.acpmux_running(snapshot.as_ref().map(|s| s.acpmux_running()), now);
+        self.drive(reqs);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match snapshot {
             // The first probe has no CPU baseline yet: it changes nothing.
             Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
                 Some(workload) => Some(workload),
@@ -1385,6 +1379,13 @@ impl Worker {
             }
             if req.op == super::wire::STATUS_REPORT_OP {
                 self.write_state(&req, &answer);
+                // At the edge into idle with the person's choice on (never otherwise): list and
+                // send on the additions thread.
+                if self.additions_gate.report_answered(&req.params, &answer)
+                    && let Some(additions) = &self.additions
+                {
+                    additions.collect();
+                }
             }
             queue.extend(next);
         }
@@ -1403,6 +1404,7 @@ impl Worker {
             "last_report": { "reason": req.reason, "ok": ok, "applied": applied, "at": wall_ms(), "status": status },
             "daemon": live.session.reporter.daemon().to_json(),
             "heartbeat_ms": live.session.reporter.heartbeat_ms(),
+            "wake": live.session.wake_latest(),
         });
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);
@@ -1479,7 +1481,7 @@ fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
 
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
 /// line (checked), or `None` for every other line (the session's).
-fn agent_ask(line: &str) -> Option<Ask> {
+fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
@@ -1492,6 +1494,29 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
+        return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::machine_request::REQUEST_KEY) {
+        let ask = super::machine_request::check_ask(ask);
+        return Some(Ask::MachineRequest(Box::new(ask)));
+    }
+    if let Some(ask) = msg.get(super::mcp_call::CALL_KEY) {
+        return Some(Ask::McpCall(Box::new(super::mcp_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::apps_call::LISTENER_KEY) {
+        // The machine's own `proc`, as the workload probe reads it (`workload.rs`).
+        let proc_root = paths.root().join("proc");
+        return Some(Ask::AppsListener(super::apps_call::check_listener(ask), proc_root));
+    }
+    use super::apps_spawn::{RUN_ROOT, RunPaths, SPAWN_KEY, STATUS_KEY, STOP_KEY, check_run};
+    for key in [SPAWN_KEY, STATUS_KEY, STOP_KEY] {
+        if let Some(ask) = msg.get(key) {
+            let run =
+                RunPaths { proc_root: paths.root().join("proc"), run_root: paths.at(RUN_ROOT) };
+            return Some(Ask::AppsRun(Box::new((check_run(key, ask), run))));
+        }
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

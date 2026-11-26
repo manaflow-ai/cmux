@@ -1,0 +1,94 @@
+name: Executor journey (staging)
+
+# executor.sh (npm `executor@beta`, github.com/UsefulSoftwareCo/executor) end to end inside a cmux Cloud machine on
+# staging: scripts/cmux-next/executor-journey.ts signs in as the staging agent test account, creates
+# `cmux-test-exec-<tag>`, installs and starts Executor in it over machine exec (executor-journey-guest.sh), adds
+# DeepWiki's keyless MCP server as an app, runs `executor execute` with a program that calls one of its tools, checks
+# the result, and deletes the machine by id, pass or fail (a killed run's machine is swept by the next run).
+#
+# Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev (the pair cloud-journey-pr.yml reads).
+# Same-repo pull requests that change the journey's files, and manual runs (`gh workflow run executor-journey.yml
+# --ref feat-cmux-next`); the daily schedule lives on main (executor-journey-nightly-dispatch.yml).
+
+# The daily dispatcher on main finds its own run by the request_id at the end of the run name.
+run-name: Executor journey (staging) ${{ inputs.request_id || github.event.pull_request.title || github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Dispatcher's id for this run (executor_journey_dispatch.mjs on main); any text"
+        required: false
+        type: string
+        default: ""
+      executor_version:
+        description: "Executor release to install (empty: its newest beta)"
+        required: false
+        type: string
+        default: ""
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/executor-journey.ts
+      - scripts/cmux-next/executor-journey-guest.sh
+      - scripts/cmux-next/executor-journey.test.ts
+      - .github/workflows/executor-journey.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: executor-journey-${{ github.event.pull_request.number || github.ref }}
+  # A newer push to the pull request ends the older head's journey: a machine the cancel cut off is swept by the next
+  # run, the newer head's (header). Dispatches and the daily run are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  journey:
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/cmux-next/
+            /tests/fixtures/model-stub/
+            /Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            .gitmodules
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Unit tests
+        run: bun test scripts/cmux-next/executor-journey.test.ts
+      - name: Executor in a staging machine
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          EXECUTOR_VERSION: ${{ inputs.executor_version }}
+        run: bun scripts/cmux-next/executor-journey.ts --backend staging --out "$RUNNER_TEMP/executor-journey"
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/executor-journey/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "no summary written" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: executor-journey-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/executor-journey/
+          if-no-files-found: warn
+          retention-days: 3

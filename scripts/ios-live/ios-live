@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+# ios-live: the always-on cmux NEXT iOS simulator, from any checkout (README.md beside this file).
+#
+#   ios-live status                  what runs: base, patch, owner, last timings; who holds the lease
+#   ios-live shot [OUT.png]          screenshot of the live sim (default ./ios-live.png)
+#   ios-live lease take [MIN]        become the one driver (default 20 min, at most 120); beat to extend
+#   ios-live lease beat|release|show
+#   ios-live swift                   your Swift edits, live in ~2 s: no build, no relaunch (lease)
+#   ios-live swap                    your whole change (anything): warm rebuild + relaunch (lease)
+#   ios-live up [REF]                rebuild at REF (default origin/feat-cmux-next), no patch (lease)
+#   ios-live undo [--all]            take back the newest live Swift patch (or all of them) (lease)
+#   ios-live relaunch | tap X Y | type TEXT | tree | log [N]
+#   ios-live window                  open the Simulator app (Xcode 27: Device Hub) on the live device, in the background
+#   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
+#   ios-live slots                   every slot on every host: base, holder; and how many are free
+#   ios-live whoami                  the owner name your lease carries (IOS_LIVE_OWNER overrides it)
+#
+# Slots (the default): many always-on iPhones, IOS_LIVE_SLOTS_PER_HOST (default 3) on each of
+# IOS_LIVE_HOSTS (default aws-m4pro-1,aws-m4pro-7, the reserved ios pool). `lease take` holds any
+# free slot and prints HOST/SLOT; every other command then drives that slot. `lease release [--erase]`
+# puts it back at origin/feat-cmux-next (erasing the device first with --erase) and frees it.
+# IOS_LIVE_AT=HOST/SLOT looks at a slot you do not hold.
+#
+# Person slots: one person's own iPhone, which they and their agents share and which nobody else
+# gets. It never lapses and is never reset; a supervisor on its host keeps it booted with the app
+# running, and puts live Swift patches back after a relaunch. IOS_LIVE_PERSON=NAME (or
+# `ios-live --person NAME CMD`) drives it as owner NAME/... with no lease (changes queue instead).
+#   ios-live person create NAME [HOST]   make it (default: the least loaded of IOS_LIVE_HOSTS), then `up`
+#   ios-live people                      every person slot on every host: base, device, RSS, restarts
+#
+# One host, one device (the person-mirroring iPhone on air-blue): set IOS_LIVE_HOST and leave
+# IOS_LIVE_HOSTS unset; then nothing above about slots applies.
+#
+# "Your change" is this checkout against its merge base with origin/feat-cmux-next: commits,
+# staged, unstaged and untracked files. Nothing is pushed.
+#
+# IOS_LIVE_OWNER names you on the lease (default HOST/SESSION/CHECKOUT, the same on every call from one
+# agent in one checkout; `ios-live whoami` prints it). Every call goes through `reach`.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# default_owner: the same name on every call from one agent in one checkout, so a lease taken in one shell is
+# still yours in the next (each agent tool call is a fresh shell: $PPID changes, it is no name). HOST/SESSION/CHECKOUT
+# when the agent's session id is in the environment (Claude Code, Codex); else HOST/CHECKOUT-TOKEN, the token made
+# once and kept in this checkout's git dir. The checkout is in both, so helpers of one session in two checkouts differ.
+default_owner() {
+  local who top gitdir name file token
+  who="$(hostname -s)"
+  top="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+  name="$(basename "$top")"; name="${name//[^A-Za-z0-9._-]/_}"
+  local sid="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}}}"
+  if [[ -n "$sid" ]]; then echo "$who/$sid/$name"; return; fi
+  if gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then
+    file="$gitdir/ios-live-owner"
+  else
+    file="${XDG_CACHE_HOME:-$HOME/.cache}/ios-live/owner-$(printf '%s' "$top" | shasum -a 256 | cut -c1-16)"
+  fi
+  token="$(head -n 1 "$file" 2>/dev/null | tr -dc 'A-Za-z0-9' || true)"
+  if [[ -z "$token" ]]; then
+    token="$(od -An -N6 -tx1 /dev/urandom | tr -dc '0-9a-f')"
+    mkdir -p "$(dirname "$file")" && echo "$token" >"$file"
+  fi
+  echo "$who/$name-$token"
+}
+if [[ "${1:-}" == --person ]]; then IOS_LIVE_PERSON="${2:?--person NAME}"; shift 2; fi
+person="${IOS_LIVE_PERSON:-}"
+owner="${IOS_LIVE_OWNER:-$(default_owner)}"
+# A person slot admits NAME and NAME/*: an agent driving it is NAME/<its usual owner>.
+[[ -z "$person" || -n "${IOS_LIVE_OWNER:-}" ]] || owner="$person/$owner"
+remote_root='~/ios-live'
+
+die() { echo "ios-live: $*" >&2; exit 1; }
+
+slot=""
+if [[ -z "${IOS_LIVE_HOSTS:-}" && -n "${IOS_LIVE_HOST:-}" ]]; then
+  slot_mode=0
+  host="$IOS_LIVE_HOST"
+else
+  slot_mode=1
+  IFS=', ' read -r -a hosts <<<"${IOS_LIVE_HOSTS:-aws-m4pro-1,aws-m4pro-7}"
+  [[ ${#hosts[@]} -gt 0 ]] || die "IOS_LIVE_HOSTS names no host"
+  per_host="${IOS_LIVE_SLOTS_PER_HOST:-3}"
+  [[ "$per_host" =~ ^[1-9][0-9]?$ ]] || die "bad IOS_LIVE_SLOTS_PER_HOST $per_host"
+  # The slot you hold: HOST SLOT, in a file named for you (one per owner, so sessions never share).
+  held_file="${XDG_CACHE_HOME:-$HOME/.cache}/ios-live/held-$(printf '%s' "$owner" | tr -c 'A-Za-z0-9._-' '_')"
+  host=""
+  if [[ -n "${IOS_LIVE_AT:-}" ]]; then
+    host="${IOS_LIVE_AT%/*}"; slot="${IOS_LIVE_AT##*/}"
+  elif [[ -f "$held_file" ]]; then
+    read -r host slot <"$held_file" || true
+  fi
+  [[ -z "$slot" || "$slot" =~ ^[1-9][0-9]?$ ]] || die "bad slot $slot (IOS_LIVE_AT=HOST/SLOT)"
+fi
+# --- person slots ---------------------------------------------------------------------------------
+person_file() { echo "${XDG_CACHE_HOME:-$HOME/.cache}/ios-live/person-$1"; }
+# person_host NAME: the host that has NAME's slot (remembered; else asked of each of IOS_LIVE_HOSTS).
+person_host() {
+  local h f; f="$(person_file "$1")"
+  if [[ -s "$f" ]]; then cat "$f"; return 0; fi
+  for h in "${hosts[@]}"; do
+    host="$h"
+    if host_sh person-where >/dev/null 2>&1; then mkdir -p "$(dirname "$f")"; echo "$h" >"$f"; echo "$h"; return 0; fi
+  done
+  die "no person slot $1 on ${hosts[*]} (ios-live person create $1)"
+}
+# person create NAME [HOST]: on HOST, else on the host running the fewest devices.
+person_create() {
+  local name="${1:?person create NAME [HOST]}" to="${2:-}" h n best=""
+  person="$name"; slot=""
+  if [[ -z "$to" ]]; then
+    for h in "${hosts[@]}"; do
+      host="$h"; person=""
+      n="$(host_sh load 2>/dev/null | grep . | tail -n 1 | tr -d '[:space:]')" || continue
+      [[ "$n" =~ ^[0-9]+$ ]] || continue
+      if [[ -z "$best" ]] || (( n < best )); then best="$n"; to="$h"; fi
+    done
+    [[ -n "$to" ]] || die "no host of ${hosts[*]} answered"
+  fi
+  host="$to"; person="$name"
+  host_sh person-create "$owner" || die "person create $name on $to failed"
+  mkdir -p "$(dirname "$(person_file "$name")")"; echo "$to" >"$(person_file "$name")"
+  echo "ios-live: $name's slot is on $to; build it: IOS_LIVE_PERSON=$name ios-live up"
+}
+list_people() {
+  local h p="$person"
+  local out
+  for h in "${hosts[@]}"; do
+    host="$h"; person=""
+    out="$(host_sh people)" || { echo "$h unreachable" >&2; continue; }
+    grep . <<<"$out" | sed "s|^|$h/|" || true
+  done
+  person="$p"
+}
+
+need_slot() { [[ -n "$host" && -n "$slot" ]] || die "you hold no slot: ios-live lease take (or IOS_LIVE_AT=HOST/SLOT to look at one; ios-live slots lists them)"; }
+quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already exists' >&2 || true; }
+# REACH_AUTO_LEASE=0: a slot command needs no whole-host fleet lease (the slot lease in host.sh admits it; the lane-gh
+# broker relays the host_sh form on an ios pool host without one), so reach must never take the host to run it.
+on_host() { REACH_AUTO_LEASE=0 reach "$host" "$@" 2> >(quiet); }
+
+# host_sh [--patch FILE] ARGS...: one round trip. The host gets this checkout's host.sh (and the
+# patch) on stdin as a tar, then runs host.sh ARGS. reach does not always pass the remote exit
+# status back (the hop through cmux-lawrence answers 0), so the host prints it as the last line.
+host_sh() {
+  local stage out rc patch="" name=""
+  if [[ "${1:-}" == --patch ]]; then patch="$2"; shift 2; fi
+  stage="$(mktemp -d)"
+  mkdir -p "$stage/bin" "$stage/incoming"
+  cp "$here/host.sh" "$stage/bin/host.sh"
+  if [[ -n "$patch" ]]; then
+    name="incoming/$(shasum -a 256 "$patch" | cut -c1-16).patch"
+    cp "$patch" "$stage/$name"
+    set -- "$@" "ios-live/$name"
+  fi
+  local env=""
+  [[ "$slot_mode" == 0 ]] || env="IOS_LIVE_SLOTS_PER_HOST=$per_host ${slot:+IOS_LIVE_SLOT=$slot }${person:+IOS_LIVE_PERSON=$person }"
+  # The payload rides in the command itself when it is small (host.sh alone is about 10 KB gzipped and
+  # base64'd): the broker relay a lane VM reaches the Macs through carries no stdin. A big patch
+  # still goes on stdin.
+  local run="${env}bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r" b64
+  b64="$(COPYFILE_DISABLE=1 tar -C "$stage" -czf - . | base64 | tr -d '\n')"
+  if (( ${#b64} <= 200000 )); then
+    out="$(on_host "mkdir -p $remote_root && printf %s $b64 | perl -MMIME::Base64 -0777 -ne 'print decode_base64(\$_)' | tar -C $remote_root -xzf - && $run" </dev/null)" || true
+  else
+    out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && $run")" || true
+  fi
+  rm -rf "$stage"
+  rc="$(sed -n 's/^__ios_live_rc=\([0-9]*\)$/\1/p' <<<"$out" | tail -n 1)"
+  grep -v '^__ios_live_rc=' <<<"$out" || true
+  return "${rc:-70}"
+}
+
+# make_patch OUT: prints the base sha; OUT gets this checkout's change against it (binary diff).
+# The base is the merge base with the last-fetched origin/feat-cmux-next, so it is on origin; the
+# host fetches it when it lacks it. No fetch here: a fetch costs seconds on every edit.
+make_patch() {
+  local out="$1" top base idx
+  top="$(git rev-parse --show-toplevel)" || die "run from a cmux checkout"
+  base="$(git -C "$top" merge-base HEAD origin/feat-cmux-next)" || die "no merge base with origin/feat-cmux-next"
+  idx="$(mktemp)"
+  cp "$(git -C "$top" rev-parse --path-format=absolute --git-path index)" "$idx"
+  GIT_INDEX_FILE="$idx" git -C "$top" add -A -- cmux-next-ios scripts >/dev/null 2>&1 || true
+  GIT_INDEX_FILE="$idx" git -C "$top" diff --cached --binary "$base" >"$out"
+  rm -f "$idx"
+  echo "$base"
+}
+
+now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+# since T0: seconds since T0 (now's format), in perl as now is: bc is not on every client (a Linux host has none).
+since() { perl -MTime::HiRes=time -e 'printf "%.2f\n", time - $ARGV[0]' "$1"; }
+
+# lease take, slot mode: your own slot first (a renewal), then the first free slot on any host.
+slot_take() {
+  local minutes="${1:-20}" h n rc order=()
+  [[ -n "$host" ]] && order+=("$host")
+  for h in "${hosts[@]}"; do [[ "$h" == "$host" ]] || order+=("$h"); done
+  for h in "${order[@]}"; do
+    host="$h"; slot=""; rc=0
+    n="$(host_sh slot-take "$owner" "$minutes")" || rc=$?
+    n="$(tail -n 1 <<<"$n" | tr -d '[:space:]')"
+    if [[ "$rc" == 0 && "$n" =~ ^[0-9]+$ ]]; then
+      mkdir -p "$(dirname "$held_file")"
+      echo "$h $n" >"$held_file"
+      echo "$h/$n"; return 0
+    fi
+    [[ "$rc" == 3 ]] && echo "ios-live: $h: every slot is held" >&2 || echo "ios-live: $h did not answer (rc $rc)" >&2
+  done
+  die "no free slot on ${hosts[*]} (ios-live slots)"
+}
+
+# lease release, slot mode: back at origin/feat-cmux-next with no patch (erased first with --erase), then free.
+slot_release() {
+  need_slot
+  local ok=1
+  if [[ "${1:-}" == --erase ]]; then host_sh erase "$owner" || ok=0; fi
+  host_sh up "$owner" origin/feat-cmux-next >/dev/null || ok=0
+  [[ "$ok" == 1 ]] || echo "ios-live: $host/$slot did not come back clean; the next up rebuilds it" >&2
+  host_sh lease release "$owner" >/dev/null
+  rm -f "$held_file"
+  echo "released $host/$slot"
+}
+
+list_slots() {
+  local h free=0 total=0 line
+  for h in "${hosts[@]}"; do
+    host="$h"; slot=""
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[0-9]+$'\t' ]] || continue
+      total=$((total + 1)); [[ "$line" == *$'\t'free ]] && free=$((free + 1))
+      echo "$h/$line"
+    done < <(host_sh slots || echo "$h unreachable" >&2)
+  done
+  echo "free: $free of $total"
+}
+
+cmd="${1:-status}"; shift || true
+if [[ "$slot_mode" == 1 ]]; then
+  case "$cmd" in
+    person) [[ "${1:-}" == create ]] || die "ios-live person create NAME [HOST]"; shift; person_create "$@"; exit ;;
+    people) list_people; exit ;;
+  esac
+  if [[ -n "$person" ]]; then  # a person slot: no lease to take or release, no slot to hold
+    slot=""; host="$(person_host "$person")"
+    case "$cmd" in lease) host_sh lease "${1:-show}" "$owner"; exit ;; esac
+  fi
+fi
+if [[ "$slot_mode" == 1 && -z "$person" ]]; then
+  case "$cmd" in
+    lease)
+      case "${1:-show}" in
+        take) slot_take "${2:-20}"; exit ;;
+        release) slot_release "${2:-}"; exit ;;
+      esac ;;
+    slots) list_slots; exit ;;
+    ffi-sync|whoami|-h|--help|help) ;;
+    *) need_slot ;;
+  esac
+fi
+case "$cmd" in
+  status|log|tree|udid|window) host_sh "$cmd" "$@" ;;
+  shot)
+    out="${1:-ios-live.png}"
+    remote_shot="ios-live/shot.png"
+    [[ -z "$slot" ]] || remote_shot="ios-live/slots/$slot/shot.png"
+    [[ -z "$person" ]] || remote_shot="ios-live/people/$person/shot.png"
+    host_sh shot "$remote_shot" >/dev/null
+    rsync -q -e reach "$host:$remote_shot" "$out" 2> >(quiet)
+    echo "$out" ;;
+  slots) die "slots are off: IOS_LIVE_HOST is set and IOS_LIVE_HOSTS is not" ;;
+  lease)
+    sub="${1:-show}"
+    case "$sub" in show) host_sh lease show ;; *) host_sh lease "$sub" "$owner" "${2:-20}" ;; esac ;;
+  up) host_sh up "$owner" "${1:-origin/feat-cmux-next}" ;;
+  swap|swift)
+    t0="$(now)"
+    tmp="$(mktemp)"
+    base="$(make_patch "$tmp")"
+    host_sh --patch "$tmp" "$cmd" "$owner" "$base" || { rc=$?; rm -f "$tmp"; exit "$rc"; }
+    rm -f "$tmp"
+    echo "ios-live: $cmd end to end (diff, send, apply, redraw): $(since "$t0") s" ;;
+  undo|relaunch) host_sh "$cmd" "$owner" "$@" ;;
+  tap) host_sh tap "$owner" "${1:?x}" "${2:?y}" ;;
+  type) host_sh type "$owner" "${1:?text}" ;;
+  ffi-sync)  # to the one host, or in slot mode to every host (each slot's build reads the host's copy)
+    from="${1:?ffi-sync FROM_HOST}"
+    rel=cmux-next-ios/CmuxMobileKit
+    targets=("$host")
+    [[ "$slot_mode" == 0 ]] || targets=("${hosts[@]}")
+    for to in "${targets[@]}"; do
+      reach "$from" "tar -C ~/ios-live/src/$rel -cf - Frameworks/CmuxMobileLinkFFI.xcframework Sources/CmuxMobileLinkFFI" 2> >(quiet) \
+        | reach "$to" "rm -rf ~/ios-live/ffi && mkdir -p ~/ios-live/ffi && tar -C ~/ios-live/ffi -xf - && echo $from > ~/ios-live/ffi/synced" 2> >(quiet)
+      echo "ios-live: FFI copied from $from to $to"
+    done ;;
+  whoami) echo "$owner" ;;
+  -h|--help|help) awk 'NR > 1 && /^set -/ {exit} NR > 1' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command $cmd (ios-live help)" ;;
+esac

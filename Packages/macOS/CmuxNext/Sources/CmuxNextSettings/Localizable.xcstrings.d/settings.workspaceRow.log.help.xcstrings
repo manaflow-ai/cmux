@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceRow.log.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The newest line agents and scripts log: cmux workspace log append <text>."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントやスクリプトが記録した最新の行: cmux workspace log append <text>。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أحدث سطر يسجله الوكلاء والبرامج النصية: cmux workspace log append <text>."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Najnoviji red koji zapisuju agenti i skripte: cmux workspace log append <text>."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den nyeste linje, som agenter og scripts logger: cmux workspace log append <text>."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die neueste Zeile, die Agenten und Skripte protokollieren: cmux workspace log append <text>."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La línea más reciente que registran los agentes y scripts: cmux workspace log append <text>."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La dernière ligne journalisée par les agents et les scripts : cmux workspace log append <text>."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L'ultima riga registrata da agenti e script: cmux workspace log append <text>."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាត់ថ្មីបំផុតដែលភ្នាក់ងារ និងស្គ្រីបកត់ត្រា៖ cmux workspace log append <text>។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트와 스크립트가 기록한 최신 줄: cmux workspace log append <text>."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den nyeste linjen agenter og skript logger: cmux workspace log append <text>."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Najnowszy wiersz zapisany przez agentów i skrypty: cmux workspace log append <text>."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A linha mais recente que agentes e scripts registram: cmux workspace log append <text>."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Последняя строка, которую записали агенты и скрипты: cmux workspace log append <text>."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บรรทัดล่าสุดที่เอเจนต์และสคริปต์บันทึก: cmux workspace log append <text>"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanların ve betiklerin kaydettiği en yeni satır: cmux workspace log append <text>."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Найновіший рядок, який записали агенти й скрипти: cmux workspace log append <text>."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dòng mới nhất mà tác tử và script ghi lại: cmux workspace log append <text>."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理和脚本记录的最新一行：cmux workspace log append <text>。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理程式與指令碼記錄的最新一行：cmux workspace log append <text>。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

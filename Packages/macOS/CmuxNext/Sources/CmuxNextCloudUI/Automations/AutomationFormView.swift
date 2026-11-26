@@ -22,7 +22,7 @@ struct AutomationFormView: View {
 
                 field(strings.formName, problem: problems.contains(.nameMissing) ? strings.problemName : nil) {
                     TextField(strings.formName, text: binding.name).labelsHidden().textFieldStyle(.roundedBorder)
-                        .focused($nameFocused).onSubmit(save)
+                        .focusEffectDisabled().focused($nameFocused).onSubmit(save)
                 }
 
                 field(strings.formWhatToDo, problem: problems.contains(.taskMissing) ? strings.problemTask : nil) {
@@ -64,7 +64,7 @@ struct AutomationFormView: View {
                     HStack(alignment: .top, spacing: 16) {
                         field(strings.formFolder, problem: nil) {
                             TextField(strings.formFolderPlaceholder, text: binding.folder).labelsHidden()
-                                .textFieldStyle(.roundedBorder).frame(minWidth: 220).onSubmit(save)
+                                .textFieldStyle(.roundedBorder).focusEffectDisabled().frame(minWidth: 220).onSubmit(save)
                         }
                         field(strings.formTimeout, problem: nil) {
                             Stepper(value: binding.timeoutMinutes, in: 1...1440) {
@@ -142,7 +142,8 @@ private struct ScheduleEditor: View {
                 }
             case let .cron(expr):
                 TextField("0 9 * * 1-5", text: Binding(get: { expr }, set: { schedule = .cron($0) }))
-                    .labelsHidden().textFieldStyle(.roundedBorder).font(Font(Typography.system(.monospaced, size: TypeScale.body))).frame(width: 200)
+                    .labelsHidden().textFieldStyle(.roundedBorder).focusEffectDisabled()
+                    .font(Font(Typography.system(.monospaced, size: TypeScale.body))).frame(width: 200)
                 Text(strings.cronHelp).font(palette.caption).foregroundStyle(palette.tertiary)
             case .manual, .hourly, .unchanged:
                 EmptyView()

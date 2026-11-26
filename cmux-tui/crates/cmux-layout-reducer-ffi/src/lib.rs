@@ -13,6 +13,8 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
+//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
+//! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
@@ -25,11 +27,14 @@
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
+//! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
+//! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
 //! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
@@ -76,6 +81,8 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_handoff;
+mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
@@ -241,6 +248,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_automatic_plan" => {
+                use cmux_layout_reducer::automatic;
+                let request: automatic::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
                 let request: settle::Request =
@@ -276,6 +289,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_nav" => {
+                use cmux_layout_reducer::sidebar_nav;
+                let request: sidebar_nav::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_nav::respond(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_section_customization" => {
                 let request: cmux_layout_reducer::sidebar_section_customization::Request =
@@ -343,6 +362,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
                 b"{}".to_vec()
+            }
+            b"cloud_one_pane" => {
+                use cmux_cloud_start_core::one_pane;
+                let request: one_pane::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&serde_json::json!({ "shown": one_pane::shown(&request) }))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
@@ -468,6 +494,41 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 }))
                 .map_err(|_| ERR_INVALID)?
             }
+            // A spare machine's warm-home command, with the person's recent shapes read off this
+            // Mac's acpmux home (`acpmuxHome`), so the spare warms the harnesses and models they
+            // set up beside the default (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+            b"cloud_warm_home" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    #[serde(default)]
+                    acpmux_home: Option<String>,
+                    /// A number, as Swift's `JSONValue` sends one (tests; the clock when absent).
+                    #[serde(default)]
+                    now_ms: Option<f64>,
+                }
+                use cmux_cloud_start_core::spare_shapes;
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a non-negative f64 millisecond clock; `as u64` saturates past u64::MAX, which is the wanted bound"
+                )]
+                let now_ms = request.now_ms.map(|ms| ms.max(0.0) as u64).unwrap_or_else(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+                        .unwrap_or(0)
+                });
+                let switch = std::env::var(spare_shapes::SWITCH).ok();
+                let shapes = request.acpmux_home.as_deref().map_or_else(Vec::new, |home| {
+                    spare_shapes::read(std::path::Path::new(home), now_ms, switch.as_deref())
+                });
+                serde_json::to_vec(&serde_json::json!({
+                    "command": spare_shapes::warm_home_command(&shapes), "shapes": shapes,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_folder_too_broad" => {
                 #[derive(serde::Deserialize)]
                 struct Request {
@@ -534,6 +595,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
+            }
+            operation if cloud_handoff::handles(operation) => {
+                cloud_handoff::respond(operation, request)?
+            }
+            operation if cloud_hybrid::handles(operation) => {
+                cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_sequence::handles(operation) => {

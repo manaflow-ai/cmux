@@ -38,14 +38,20 @@ struct SafariCurve: Hashable, Sendable {
         0.0, 0.0379, 0.1367, 0.2182, 0.3387, 0.4365, 0.5282, 0.6097, 0.6806, 0.7336,
         0.7844, 0.8267, 0.8592, 0.8872, 0.9086, 0.9266, 0.9424, 0.9555, 0.9643, 0.9693,
         0.975, 0.9808, 0.9855, 0.9892, 0.9899, 0.9929, 0.9942, 0.9951, 0.9962, 0.9969,
-        0.9964, 0.996, 0.998, 1.0, 1.0,
+        // Safari's last frames step back 0.1 % (0.9969 -> 0.996) before
+        // landing, which read as the page pausing then nudging in: the same
+        // frame count now closes in monotonically.
+        0.9976, 0.9984, 0.9992, 1.0, 1.0,
     ])
     /// Page to card (the tabs button): Safari, 2 runs (1c).
     static let zoomOut = SafariCurve(samples: [
         0.0, 0.0339, 0.1235, 0.2291, 0.3431, 0.495, 0.5992, 0.686, 0.7397, 0.8077,
         0.848, 0.8995, 0.9261, 0.9444, 0.9666, 0.9783, 0.991, 1.0, 1.0, 1.0031,
-        1.0055, 1.0062, 1.0044, 1.0031, 1.0031, 1.0031, 1.0031, 1.0031, 1.0031, 1.0031,
-        1.0031, 1.0031, 1.0031, 1.0026, 1.0, 1.0,
+        // Safari's overshoot held at 1.0031 for 10 frames then dropped to 1
+        // in one (a 1.6 pt nudge 200 ms after the card looked at rest): the
+        // same frame count now eases back from the peak.
+        1.0055, 1.0062, 1.0044, 1.0034, 1.0026, 1.002, 1.0015, 1.0011, 1.0008, 1.0006,
+        1.0004, 1.0003, 1.0002, 1.0001, 1.0, 1.0,
     ])
     /// Cards moving to new slots after a close: Safari, 3 runs re-measured on one simulator (D8).
     static let reflow = SafariCurve(samples: [

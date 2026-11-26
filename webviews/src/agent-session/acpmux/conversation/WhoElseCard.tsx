@@ -18,6 +18,7 @@ import { pullLabel, type WhoElseCall, type WhoElseSession } from "./whoElseCalls
 import "./WhoElseCard.css";
 import { topicOnly, whatText } from "./whoElseCardModel";
 import { signed } from "../../../ui/Typography";
+import { intl } from "../../../ui/intl";
 
 /// Rows shown before "N more" opens the rest.
 const ROWS_SHOWN = 5;
@@ -31,16 +32,19 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
     () => setOpen(true),
   );
   const answer = call.answer;
+  // whole-list-ok: this tool call's own answer (the sessions acpmux named for it), not the app's session list
   const sessions = answer?.sessions ?? [];
   // Sessions acpmux left out of its answer (past its row cap) count in the line, but no row can
   // show them: "N more" opens only the rows the answer holds, and a note names the rest.
   const omitted = answer?.more ?? 0;
   const total = sessions.length + omitted;
+  // whole-list-ok: the answer's own few sessions (at most its row cap), read once per answer
+  const allTopicOnly = sessions.every(topicOnly);
   const line = call.pending
     ? t("whoElse.looking")
     : total === 0
       ? t("whoElse.none")
-      : omitted === 0 && sessions.every(topicOnly)
+      : omitted === 0 && allTopicOnly
         ? t(total === 1 ? "whoElse.oneSimilar" : "whoElse.manySimilar", { count: String(total) })
         : t(total === 1 ? "whoElse.one" : "whoElse.many", { count: String(total) });
   const shown = open ? sessions : sessions.slice(0, ROWS_SHOWN);
@@ -79,7 +83,7 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
       {answer && answer.unreached.length > 0 && (
         <div className="cv-who-else__note">
           {t("whoElse.unreached", {
-            hosts: new Intl.ListFormat(language, { type: "conjunction" }).format(answer.unreached),
+            hosts: intl.ListFormat(language, { type: "conjunction" }).format(answer.unreached),
           })}
         </div>
       )}

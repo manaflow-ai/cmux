@@ -124,6 +124,30 @@ describe("sshd trusts only the CA from the instance binding (LINK-FILES)", () =>
     expect(sshdListenProblems("LISTEN 0 4096 127.0.0.1:5432 0.0.0.0:*\n")).toEqual(["nothing listens on port 22"]);
   });
 
+  test("a running machine may also listen on its team private address, which the platform's carrier prepare adds", () => {
+    const withPrivate = `${GOOD}\nlistenaddress 10.8.0.7:22`;
+    // The baked image stays loopback only: without the option the runtime address is a problem.
+    expect(sshdPolicyProblems(withPrivate, "cmux")).toEqual(["listenaddress 10.8.0.7:22 is not loopback"]);
+    expect(sshdPolicyProblems(withPrivate, "cmux", { privateAddress: "10.8.0.7" })).toEqual([]);
+    expect(sshdPolicyProblems(GOOD, "cmux", { privateAddress: "10.8.0.7" })).toEqual([]);
+    // Only that address, only port 22, and never a wildcard.
+    expect(sshdPolicyProblems(`${GOOD}\nlistenaddress 10.8.0.8:22`, "cmux", { privateAddress: "10.8.0.7" })).toEqual(["listenaddress 10.8.0.8:22 is not loopback or 10.8.0.7:22"]);
+    expect(sshdPolicyProblems(`${GOOD}\nlistenaddress 10.8.0.7:2222`, "cmux", { privateAddress: "10.8.0.7" })).toEqual(["listenaddress 10.8.0.7:2222 is not loopback or 10.8.0.7:22"]);
+    expect(sshdPolicyProblems(GOOD.replace("listenaddress 127.0.0.1:22", "listenaddress 0.0.0.0:22"), "cmux", { privateAddress: "10.8.0.7" })).toContain("listenaddress 0.0.0.0:22 is not loopback or 10.8.0.7:22");
+    // Loopback stays: the link ssh service forwards to it.
+    const privateOnly = edit("listenaddress", "10.8.0.7:22").split("\n").filter((line) => !line.startsWith("listenaddress [::1]")).join("\n");
+    expect(sshdPolicyProblems(privateOnly, "cmux", { privateAddress: "10.8.0.7" })).toEqual(["listenaddress has no loopback address (the link ssh service needs it)"]);
+    expect(() => sshdPolicyProblems(GOOD, "cmux", { privateAddress: "10.8.0.7/16" })).toThrow();
+    expect(() => sshdListenProblems("", { privateAddress: "*" })).toThrow();
+
+    const ss = "LISTEN 0 128 127.0.0.1:22 0.0.0.0:*\nLISTEN 0 128 [::1]:22 [::]:*\nLISTEN 0 4096 10.8.0.7:22 0.0.0.0:*\n";
+    expect(sshdListenProblems(ss)).toEqual(["port 22 listens on 10.8.0.7:22"]);
+    expect(sshdListenProblems(ss, { privateAddress: "10.8.0.7" })).toEqual([]);
+    expect(sshdListenProblems(ss, { privateAddress: "10.8.0.9" })).toEqual(["port 22 listens on 10.8.0.7:22"]);
+    expect(sshdListenProblems("LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\n", { privateAddress: "10.8.0.7" })).toEqual(["port 22 listens on 0.0.0.0:22", "port 22 does not listen on loopback"]);
+    expect(sshdListenProblems("LISTEN 0 4096 10.8.0.7:22 0.0.0.0:*\n", { privateAddress: "10.8.0.7" })).toEqual(["port 22 does not listen on loopback"]);
+  });
+
   test("PAM records every certificate session after logind set the session id (last session line, exactly once)", () => {
     const ubuntu = ["@include common-auth", "account required pam_nologin.so", "@include common-account", "session required pam_loginuid.so", "@include common-session", "@include common-password"];
     expect(sshdPamProblems([...ubuntu, SSHD_PAM_LINE].join("\n"))).toEqual([]);

@@ -57,9 +57,17 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether photos and videos keep their location (Settings > Home,
     /// `home.attachments.keepLocation`; false strips it, the default).
     public var keepLocation: () -> Bool = { false }
+    /// The app's clipboard history for the + menu's Clipboard rows (`home.clipboardHistory`); nil: none.
+    public var clipboardHistory: HomeClipboardHistory?
+    /// Builds a + menu row from the app's registered action, when the host supplies one.
+    public var plusMenuRow: ((Int, Int, String) -> NSMenuItem?)?
+    var plusMenuItems: [[HomePlusMenuItem]] = []
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
+    /// Follows `app.language` (followLanguage).
+    // task-owner: this view; cancelled by stop(), ends at the first change after the view is gone
+    var languageWatch: Task<Void, Never>?
     /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
     let drop = HomeDropState()
     private(set) var stopped = false
@@ -230,6 +238,7 @@ public final class HomeNativeTranscriptView: NSView {
         noticeButton.action = #selector(noticeButtonClicked)
         addSubview(noticeButton)
         connectAttachments()
+        connectPlusMenu()
         connectVoice()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
@@ -253,6 +262,7 @@ public final class HomeNativeTranscriptView: NSView {
         followTextSize()
         followZoom()
         followBubbleStyle()
+        followLanguage()
         followChiefPet()
         followPresence()
         applyTheme()
@@ -282,6 +292,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        languageWatch?.cancel()
         closeAgentCard()
         voice.close()
         transcript.stop()

@@ -52,6 +52,11 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     /// equal ones skip the work.
     var placedClips: [CGRect?]?
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        ResizeBands.register(self) // the divider has priority over a scroller's knob under it
+    }
+
     private let line = CALayer()
     /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
@@ -258,8 +263,8 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
 
     /// A right-click anywhere in the handle's grab band opens its divider's menu, a hidden divider's too.
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard !isDragging, let contextMenu else { return super.menu(for: event) }
-        return contextMenu()
+        guard !isDragging, let contextMenu else { return NSMenu.withoutSystemItems(super.menu(for: event)) }
+        return NSMenu.withoutSystemItems(contextMenu())
     }
 
     override func flagsChanged(with event: NSEvent) {

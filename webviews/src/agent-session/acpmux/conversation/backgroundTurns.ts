@@ -17,6 +17,7 @@ import type { Folds } from "./viewFolds";
 import type { Translate } from "../i18n";
 import { backgroundReactionLook, reactsOnCall } from "./backgroundReaction.experiment";
 import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
+import { isQuietThought, isThought } from "./thoughts";
 
 /// The line of one background turn (direct.ts makes it at the turn's started record). Its rows are
 /// the rows an event between its started and ended record made (`inBackground`).
@@ -100,7 +101,7 @@ export function saysNothing(reply: string): boolean {
 export function isQuietReply(reply: string): boolean {
   const text = reply.trim();
   const lines = text.split("\n").filter((line) => line.trim()).length;
-  return lines <= 1 && [...text].length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
+  return lines <= 1 && Array.from(text).length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
 }
 /// acpmux's `SHORT_LINE`: the longest reply, in characters, that still reads as one short line.
 const QUIET_LINE = 160;
@@ -177,7 +178,7 @@ export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds)
 
 export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
-  const folding = foldedBackgroundIds(rows, expanded);
+  const folding = foldedWithoutWork(rows, 0, rows.length, foldedBackgroundIds(rows, expanded));
   const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
   return rows.filter((row) => {
     // A line that draws nothing still draws while open (Find opened it), so it can close again.
@@ -202,13 +203,69 @@ export function hiddenInBackground(row: AcpmuxRow, folded: ReadonlySet<string>):
   return row.kind === "assistant" || !backgroundTurnsInline(experimentArm(backgroundTurnLook));
 }
 
+/// Whether `row` draws work of its own inline (a call, a thought with words to read, any row that is
+/// not the agent's text): what a turn's "Worked for" folds over.
+/// What a row of a quiet background turn draws inline: "thought" (a thought that draws, which a
+/// "Worked for" folds), "call" (a tool call or any other row that is the turn's own content), or
+/// nothing (its reply, its line, its footer).
+const inlineWork = (row: AcpmuxRow): "thought" | "call" | undefined => {
+  if (row.kind === "activity") {
+    const items = row.items ?? [];
+    if (items.some((item) => item.tool !== undefined)) return "call";
+    return items.some((item) => isThought(item) && !isQuietThought(item)) ? "thought" : undefined;
+  }
+  return row.kind === "assistant" || row.kind === BACKGROUND_TURN || row.kind === "turnSummary" || row.kind === "typing"
+    ? undefined
+    : "call";
+};
+
+/// `folded` without the ended background turns in `rows[start..end)` whose only inline work is
+/// thought: such a turn draws a "Worked for" over its thought, and its answer always draws under it.
+/// Inline, a quiet turn hid its reply while its thought drew, so a turn of one thought and two
+/// sentences read as "Background task finished", "Worked for", then nothing, its answer nowhere
+/// (Leo, 2026-11-25: "this is extremely strange"). A quiet turn of calls keeps its calls as its
+/// content and its quiet reply hidden (backgroundTurnInline.test.ts), and one that only replied
+/// still draws nothing but its line. `folded` itself when nothing changes (no allocation on the
+/// common path).
+export function foldedWithoutWork(
+  rows: readonly AcpmuxRow[],
+  start: number,
+  end: number,
+  folded: ReadonlySet<string>,
+): ReadonlySet<string> {
+  if (folded.size === 0 || !backgroundTurnsInline(experimentArm(backgroundTurnLook))) return folded;
+  // Per ended turn whose line this stretch holds (a running turn's reply still waits for acpmux's
+  // word on whether it is quiet; a turn whose line is elsewhere keeps the line's disclosure): the
+  // most its rows draw inline, a call outranking a thought.
+  let work: Map<string, "thought" | "call" | undefined> | undefined;
+  for (let at = start; at < end; at += 1) {
+    const row = rows[at]!;
+    if (row.kind === BACKGROUND_TURN && row.background && !row.background.running && folded.has(row.background.id))
+      (work ??= new Map()).set(row.background.id, undefined);
+    const id = row.inBackground;
+    if (id === undefined || !work?.has(id) || work.get(id) === "call") continue;
+    const drawn = inlineWork(row);
+    if (drawn) work.set(id, drawn);
+  }
+  let out: Set<string> | undefined;
+  for (const [id, drawn] of work ?? []) {
+    if (drawn !== "thought") continue;
+    out ??= new Set(folded);
+    out.delete(id);
+  }
+  return out ?? folded;
+}
+
 /// The ids of the open background lines in `rows[start..end)`, which a cached turn compares.
 export function openBackgroundTurns(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   let open = "";
   for (let at = start; at < end; at += 1) {
     const row = rows[at]!;
-    if (row.kind === BACKGROUND_TURN && expanded.has(row.id)) open += `${row.id} `;
+    if (row.kind !== BACKGROUND_TURN) continue;
+    // Its own line, and the "Worked for" over its work once it ended (turns.ts `foldTailTurns`).
+    const worked = expanded.has(`worked-${row.id}`);
+    if (worked || expanded.has(row.id)) open += `${row.id}${worked ? "+" : ""} `;
   }
   return open;
 }
