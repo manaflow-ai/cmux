@@ -34,6 +34,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -332,7 +333,8 @@ def main():
     # 3. No build-ok hop: publish reads the build results itself.
     _check("build-ok" not in all_jobs, "no build-ok job between the build and publish")
     publish = all_jobs["publish"]
-    base = dict(owns, **{"__needs__": needs(publish), "needs.build-darwin-fallback.result": "skipped",
+    base = dict(owns, **{"__needs__": needs(publish), "needs.build-linux.result": "success",
+                         "needs.build-darwin-fallback.result": "skipped",
                          "needs.darwin-fallback-plan.result": "skipped"})
     for build, fallback, recovered, expected in (("success", "skipped", "", True), ("failure", "success", "false", True),
                                                  ("failure", "skipped", "true", True), ("failure", "failure", "false", False),
@@ -343,8 +345,30 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
-    # MUSL_BUILT_ONCE: the Linux targets build once, fat, in `build`; no second Linux build call exists.
-    _check("build-linux" not in all_jobs, "the musl targets build once, in build")
+    # MUSL_BUILT_ONCE: the Linux targets build once, fat, in build-linux; `build` builds only macOS.
+    # LINUX_CALL_FOR_CHANNEL: the early channel point needs build-linux, not the macOS legs.
+    calls = [n for n, j in all_jobs.items() if j.get("uses", "").endswith("cmux-tui-build-package.yml")]
+    linux_calls = [n for n in calls if "linux" in str(all_jobs[n].get("with", {}).get("target_set", ""))
+                   and "machine_channel" not in str(all_jobs[n].get("with", {}).get("target_set", ""))]
+    _check(linux_calls == ["build-linux"], f"the shipped musl targets build once, in build-linux ({linux_calls})")
+    _check(all_jobs["build-linux"]["with"]["lto"] == all_jobs["build"]["with"]["lto"],
+           "build-linux builds the shipped (fat) profile")
+    # MACHINE_CHANNEL_THIN: the channel's thin legs and points are cmux-machine-channel.yml's, outside the
+    # coalesce window (cmux#54889 waited 75 of 97 min for it); its points wait for those legs only.
+    _check(not {"build-machine-channel", "build-machine-channel-x86_64", "point-machine-channel-early",
+                "point-machine-channel-early-linux"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
+    channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
+    # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone, not the aarch64 one.
+    _check(needs(channel["jobs"]["point-x86_64"]) == ["build-x86_64"],
+           f"its x86_64 point waits for the thin x86_64 leg only ({needs(channel['jobs']['point-x86_64'])})")
+    _check(needs(channel["jobs"]["point-linux"]) == ["build-x86_64", "build-aarch64", "point-x86_64"],
+           f"its Linux point waits for both thin legs ({needs(channel['jobs']['point-linux'])})")
+    _check("coalesce" not in channel["jobs"] and channel["concurrency"]["cancel-in-progress"] is False,
+           "one run builds and one waits per ref, with no coalesce window")
+    for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
+        values = dict(base, **{"needs.build-linux.result": build_linux, "needs.build.result": "success"})
+        _check(evaluate(publish["if"], values) == expected,
+               f"publish with build-linux {build_linux}: {'runs' if expected else 'skipped'}")
 
     # 3b. FALLBACK_AFTER_TIMEOUT: the macOS fallback is planned after a build that its timeout cancelled
     # (2026-11-13, run 43346255778: the leg on an owned Mac ended `cancelled`, the plan read only `failure`,

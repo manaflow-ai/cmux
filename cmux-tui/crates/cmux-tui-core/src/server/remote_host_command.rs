@@ -4,7 +4,9 @@
 //!   Unix connection; the device list only for the verified app.
 //! - `remote-host-call {method, params}`: one host request (`status`,
 //!   `refresh`, `request`, `open_settings`, `restart`, `screen.share`,
-//!   `screen.access`, `screen.stop_session`, `computer_use.session`). Any
+//!   `screen.access`, `screen.stop_session`, `computer_use.session`,
+//!   `computer_use.preview`: where a live preview card sits and whether it
+//!   shows, kept by the daemon and never sent to the host). Any
 //!   local Unix connection may read, refresh, request a grant (macOS still
 //!   asks the person), restart a worker, and lower access (sharing off, a
 //!   viewer to None or Ask from more, a session stopped, an agent's Computer
@@ -193,6 +195,17 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
         }
         "status" | "refresh" | "request" | "open_settings" | "restart" | "screen.stop_session" => {}
         "computer_use.session" => computer_use_session(&caller, &params)?,
+        // The preview card's place lives in the daemon: it never reaches the host.
+        "computer_use.preview" => {
+            let event = host
+                .preview_place(&params)
+                .map_err(|message| RemoteRefused { code: "bad_request", message })?;
+            let sent = event.is_some();
+            if let Some(event) = event {
+                mux.emit(crate::MuxEvent::ComputerUsePreview(std::sync::Arc::new(event)));
+            }
+            return Ok(json!({"ok": true, "sent": sent}));
+        }
         "screen.share" => {
             let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| RemoteRefused {
                 code: "bad_request",

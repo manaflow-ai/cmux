@@ -134,6 +134,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: env.SELECTED == 'true'
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           workspaces: cmux-tui
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
@@ -185,8 +186,10 @@ jobs:
           fi
           probe=cloud-chat-replies-production
           if [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
+          home_chat_args=()
+          if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved); fi
           bun scripts/cmux-next/cloud-journey.ts --backend prod --agent "$AGENT" --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
-            --preclaim-login "$CMUX_TUI" --spare-wait 180
+            --preclaim-login "$CMUX_TUI" --spare-wait 180 "${home_chat_args[@]}"
           code=$?
           { echo "### Production, $AGENT, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"

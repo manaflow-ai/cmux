@@ -175,11 +175,15 @@ class Terminal:
         return done.stdout
 
     def start(self, root):
+        self.start_counter(root)
+
+    def start_counter(self, root):
+        """Opens a terminal tab and starts the counter in it; returns what `tab create terminal` printed."""
         self.socket = wait_path("/", lambda _: self.daemon_socket(root), 60)
         if not self.socket:
             raise SystemExit("no cmux-tui daemon of this tag runs")
         created = self.run("tab", "create", "terminal")
-        terms = re.findall(r'"(term_[A-Za-z0-9_-]+)"', created)
+        terms = re.findall(r'"(term_[0-9a-f]{32})"', created)
         if not terms:
             raise SystemExit(f"tab create terminal named no terminal: {created}")
         self.term = terms[0]
@@ -191,6 +195,7 @@ class Terminal:
         self.daemon_pids = [pid for pid, _, _ in daemons]
         self.daemon_ids = {(pid, start) for pid, _, start in daemons}
         self.log("terminal", self.term, "counter pid", self.pid, "daemons", self.daemon_pids)
+        return created
 
     def list_quietly(self):
         try:
@@ -237,6 +242,118 @@ class Terminal:
             "samples_during_swap": len(window), "max_gap_s": round(max(gaps), 3) if gaps else None,
             "last_sample_after_relaunch": bool(values and values[-1] > relaunched_unix),
         }
+
+
+class UnplacedTerminal(Terminal):
+    """A counter in a terminal with no tab that lives because a client holds an attach stream on it: an agent's
+    terminal as the app keeps it. The tab closes before the update and the terminal stays unplaced for longer than
+    the reap grace, so the daemon the update starts inherits it long overdue (2026-11-24: 18 of 18 such terminals
+    ended 3.5 s after the owner changed, before the app attached again). After the update a returning terminal's
+    client attaches again `return_delay` seconds after the new daemon appears; an abandoned one gets no client."""
+
+    def __init__(self, app, work, log, session, returns=True):
+        super().__init__(app, work, log, session)
+        self.returns = returns
+        self.streams = []  # the attach clients this run started, each a `cmux terminal <id> attach`
+        self.replacement = None
+        self.replacement_unix = None
+        self.returned_unix = None
+
+    def attach(self):
+        """One attach stream on the terminal: the CLI prints the stream's items until the daemon ends it."""
+        stream = subprocess.Popen([self.cli, "--jsonl", "--socket", self.socket, "terminal", self.term, "attach"],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.streams.append(stream)
+        return stream
+
+    def record(self):
+        """The terminal's `terminal list` row, or None when the daemon does not list it."""
+        try:
+            rows = json.loads(self.run("terminal", "list"))
+        except (SystemExit, ValueError, subprocess.TimeoutExpired):
+            return None
+        rows = rows if isinstance(rows, list) else rows.get("terminals") or []
+        return next((row for row in rows if row.get("id") == self.term), None)
+
+    def running_unplaced(self):
+        row = self.record()
+        return bool(row and not row.get("tab_ids") and row.get("lifecycle") != "exited" and alive(self.pid))
+
+    def start(self, root):
+        created = self.start_counter(root)
+        tabs = re.findall(r'"(tab_[0-9a-f]{32})"', created)
+        if not tabs:
+            raise SystemExit(f"tab create terminal named no tab: {created}")
+        stream = self.attach()
+        time.sleep(1.0)  # the attach is registered before the tab goes
+        if stream.poll() is not None:
+            raise SystemExit(f"terminal {self.term}: the attach stream ended at once ({stream.returncode})")
+        self.run("tab", tabs[0], "close")
+        if not self.running_unplaced():
+            raise SystemExit(f"terminal {self.term} did not stay running without a tab: {self.record()}")
+        self.log("unplaced terminal", self.term, "counter pid", self.pid, "returns", self.returns)
+
+    def last_sample(self):
+        values = self.samples()
+        return values[-1] if values else None
+
+    def follow_update(self, root, return_delay, timeout=600):
+        """From the click, on a thread: wait for the daemon the update starts, then attach again if this terminal's
+        client returns. The app attaches again within seconds of its relaunch; the harness must not wait for the
+        launch marks first."""
+        self.replacement = wait_path("/", lambda _: self.session_daemon(root, exclude=self.daemon_ids), timeout)
+        if not self.replacement:
+            return
+        self.replacement_unix = time.time()
+        self.socket = self.replacement[1]
+        if not self.returns:
+            return
+        time.sleep(return_delay)
+        self.attach()
+        self.returned_unix = time.time()
+
+    def check_unplaced(self, settle):
+        """`settle` seconds after the new daemon appeared: a returning terminal still runs the same process with
+        no tab; an abandoned one has ended."""
+        if self.replacement_unix:
+            left = self.replacement_unix + settle - time.time()
+            if left > 0:
+                time.sleep(left)
+        row = self.record() if self.replacement else None
+        pid_alive = bool(self.pid and alive(self.pid))
+        last = self.last_sample()
+        counting = False
+        if pid_alive and last:
+            time.sleep(0.5)
+            counting = (self.last_sample() or 0) > last
+        return {
+            "terminal": self.term, "returns": self.returns, "pid": self.pid, "pid_alive": pid_alive,
+            "same_process_counting": counting and self.process_pid() == self.pid,
+            "listed": bool(row), "lifecycle": row and row.get("lifecycle"), "tab_ids": row and row.get("tab_ids"),
+            "replacement_daemon_pid": self.replacement[0][0] if self.replacement else None,
+            "returned_after_s": round(self.returned_unix - self.replacement_unix, 3) if self.returned_unix else None,
+            # When the counter stopped, from the moment the harness saw the new daemon (None: it still counts).
+            "ended_after_s": None if counting or not (last and self.replacement_unix)
+                             else round(last - self.replacement_unix, 3),
+            "attach_alive": bool(self.streams and self.streams[-1].poll() is None),
+        }
+
+    def stop_streams(self):
+        for stream in self.streams:
+            if stream.poll() is None:
+                stream.terminate()  # an exact process this run started
+        for stream in self.streams:
+            try:
+                stream.wait(5)
+            except subprocess.TimeoutExpired:
+                stream.kill()
+
+
+def unplaced_survived(r):
+    """A returning terminal kept its process; an abandoned one ended."""
+    if r["returns"]:
+        return bool(r["pid_alive"] and r["same_process_counting"] and r["listed"] and r["replacement_daemon_pid"])
+    return not r["pid_alive"]
 
 
 class Agent:

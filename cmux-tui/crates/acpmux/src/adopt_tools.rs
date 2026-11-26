@@ -166,8 +166,13 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
         }
         _ => ("execute", first_line(&script)),
     };
-    let mut call =
-        json!({"kind": kind, "title": title, "rawInput": {"command": script, "cwd": cwd}});
+    let mut input = json!({"command": script, "cwd": cwd});
+    let description = s(item, "description").map(str::trim).filter(|d| !d.is_empty());
+    if let Some(description) = description {
+        input.set("description", json!(description));
+    }
+    let title = description.filter(|_| kind == "execute").unwrap_or(&title);
+    let mut call = json!({"kind": kind, "title": title, "rawInput": input});
     if kind != "execute"
         && let Some(path) = path
     {
@@ -424,7 +429,8 @@ fn codex_mcp(id: &str, item: &Value, at: Option<u64>) -> PastTool {
         || item.pointer("/result/isError").and_then(Value::as_bool) == Some(true);
     PastTool {
         id: id.to_owned(),
-        call: json!({"kind": "other", "title": format!("{server}: {tool}"), "rawInput": item.get("arguments")}),
+        call: json!({"kind": "other", "title": format!("{server}: {tool}"),
+            "rawInput": {"server": server, "tool": tool, "arguments": item.get("arguments")}}),
         done: json!({
             "status": if failed { "failed" } else { "completed" },
             "content": result_text(item.pointer("/result/content")),
@@ -598,6 +604,20 @@ mod tests {
         assert!(tool.call.get("locations").is_none());
         let plain = json!({"command": "cat a.md", "parsed_cmd": [{"type": "read", "name": "a.md", "path": "a.md"}]});
         assert_eq!(codex_command("c2", &plain, None).unwrap().call["title"], "Read a.md");
+    }
+
+    #[test]
+    fn pleasant_tool_labels_replay_codex_exec_and_mcp() {
+        let item =
+            json!({"command": ["sh", "-c", "ls -l"], "description": " List build artifacts "});
+        let exec = codex_command("c1", &item, None).unwrap();
+        assert_eq!(exec.call["title"], "List build artifacts");
+        assert_eq!(exec.call["rawInput"]["command"], "ls -l");
+        assert_eq!(exec.call["rawInput"]["description"], "List build artifacts");
+
+        let item = json!({"server": "repo", "tool": "search", "arguments": {"query": "TODO", "description": "Find follow-ups"}});
+        let mcp = codex_mcp("c2", &item, None);
+        assert_eq!(mcp.call["rawInput"], item);
     }
 
     fn edit(id: &str) -> Value {

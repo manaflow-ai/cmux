@@ -69,6 +69,11 @@ impl Hub {
                                     .map(|tag| tag.value.clone())
                             })
                             .flatten(),
+                        former_names: crate::mesh::heartbeat_former_names(
+                            &m.former_names,
+                            &m.succeeds,
+                        ),
+                        roles: crate::mesh::heartbeat_roles(&m.roles),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
@@ -94,6 +99,21 @@ impl Hub {
         self.resolve(target).is_err_and(|e| e.code == RpcError::not_found("").code)
             && self.remote_matches(target) == 0
             && self.peer_down_for(target).is_none()
+    }
+
+    /// Whether `target` is `HOST/KEY` on a machine only the mesh hub reaches: neither a peer of
+    /// this daemon nor this machine, with nothing here or on a peer naming it
+    /// ([`Self::mesh_may_route`]). A chat that moved there over the hub is one: the outbox follows
+    /// its move to `HOST/ID` (`server/outbox.rs` `follow_move`), and this daemon's own lookup of
+    /// that key can only say "no session HOST/ID on" this machine.
+    pub fn mesh_only_host(&self, target: &str) -> bool {
+        target.split_once('/').is_some_and(|(host, key)| {
+            !host.is_empty()
+                && !key.is_empty()
+                && self.peer(host).is_none()
+                && !is_own_host(host)
+                && !super::own_host::is_own_machine_name(host)
+        }) && self.mesh_may_route(target)
     }
 
     /// Whether a relayed message is for this daemon: refused when it names another host, or a

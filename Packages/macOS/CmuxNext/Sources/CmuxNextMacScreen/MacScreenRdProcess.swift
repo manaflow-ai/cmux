@@ -103,8 +103,7 @@ nonisolated final class MacScreenRdProcess: Sendable {
         try follow(stdout: stdout, stderr: stderr)
         let pid: pid_t
         do { pid = try spawn(stdin, stdout, stderr) } catch {
-            stdout.fileHandleForReading.readabilityHandler = nil
-            stderr.fileHandleForReading.readabilityHandler = nil
+            ChildOutputEnds.closeNow(pipes: [stdin, stdout, stderr])
             throw error
         }
         SignedHelperLaunch.reap(pid)
@@ -129,8 +128,20 @@ nonisolated final class MacScreenRdProcess: Sendable {
         process.standardError = stderr
         try follow(stdout: stdout, stderr: stderr)
         let continuation = continuation
-        process.terminationHandler = { _ in continuation.finish() }
-        try process.run()
+        let (outReader, errReader) = (stdout.fileHandleForReading, stderr.fileHandleForReading)
+        process.terminationHandler = { _ in
+            continuation.finish()
+            // `cmux rd` gone: after the drain grace both read ends close, end of file or not.
+            ChildOutputEnds.closeAfterExit(reading: [outReader, errReader])
+        }
+        do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
+            try process.run()
+        } catch {
+            process.terminationHandler = nil
+            ChildOutputEnds.closeNow(pipes: [stdin, stdout, stderr])
+            throw error
+        }
         state.withLock { state in
             state.process = process
             state.stdin = stdin.fileHandleForWriting
