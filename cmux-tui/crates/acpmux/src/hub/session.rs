@@ -551,6 +551,8 @@ pub struct Session {
     /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
     /// schedule no second end.
     pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
+    /// The running turn's prompt line until Claude Code starts it (`queued_turn.rs`).
+    pub(super) queued_prompt: StdMutex<super::queued_turn::QueuedPrompt>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
@@ -773,12 +775,12 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
-    /// Debug builds only: puts `fallback` in this chat's meta as a past capacity switch would
-    /// have left it, so a test can start from a chat already on its fallback (cmux#57784).
-    #[cfg(debug_assertions)]
+    /// Leaves this chat marked as on its capacity fallback, as a past switch did
+    /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot
+    /// reach `meta`.
     #[doc(hidden)]
-    pub fn set_capacity_fallback(&self, fallback: Option<crate::store::CapacityFallback>) {
-        self.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = fallback;
+    pub fn leave_on_capacity_fallback_for_tests(&self, fallback: crate::store::CapacityFallback) {
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = Some(fallback);
     }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
