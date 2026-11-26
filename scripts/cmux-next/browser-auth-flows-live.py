@@ -125,12 +125,29 @@ def debug_or_release(debug, release, params=None):
     return rpc(release, params) if "error" in reply else reply
 
 
+LAST = {}
+
+
 def popups():
-    return (debug_or_release("debug.popups", "browser.popups").get("panels") or [])
+    reply = debug_or_release("debug.popups", "browser.popups")
+    LAST["popups"] = reply
+    return reply.get("panels") or []
 
 
 def prompts_of_tab():
-    return (debug_or_release("debug.browser.prompts", "browser.prompts", {"tab": TAB} if TAB else None).get("prompts") or [])
+    reply = debug_or_release("debug.browser.prompts", "browser.prompts", {"tab": TAB} if TAB else None)
+    LAST["prompts"] = reply
+    return reply.get("prompts") or []
+
+
+def wait_prompts(read, seconds=8):
+    """`read()` until it lists something or `seconds` pass (a prompt can land after a Keychain read)."""
+    end = time.monotonic() + seconds
+    while True:
+        got = read()
+        if got or time.monotonic() >= end:
+            return got
+        time.sleep(0.5)
 
 
 def click(selector):
@@ -228,13 +245,15 @@ try:
             click("#go")
         else:
             nav(RP + "/cb?via=" + via + "&to=" + urllib.parse.quote("vscode://auth?code=1", safe=""), settle=1)
-        time.sleep(4)
+        time.sleep(1)
+        pending = wait_prompts((lambda: [p for p in popups() if p.get("prompts")]) if in_popup else prompts_of_tab)
         shown = [p for p in popups() if p.get("prompt_shown")] if in_popup else None
-        pending = [p for p in popups() if p.get("prompts")] if in_popup else prompts_of_tab()
         opened = rpc("debug.browser.external_opens").get("urls") or []
-        check(bool(pending) or bool(opened), f"{what}: asked or opened, not silent ({pending or opened})")
+        # The raw reply on a fail: an RPC error or a missing tab must not read as "no prompt".
+        raw = LAST.get("popups" if in_popup else "prompts")
+        check(bool(pending) or bool(opened), f"{what}: asked or opened, not silent ({pending or opened or raw})")
         if in_popup:
-            check(bool(shown), f"{what}: the popup window shows the question ({[p.get('prompts') for p in popups()]})")
+            check(bool(shown), f"{what}: the popup window shows the question ({LAST.get('popups')})")
 
     def c10():
         for via in ("js", "302"):
@@ -277,9 +296,9 @@ try:
         check(ev("location.pathname") == "/dlflow", "the opener stays on the login page after the popup's download")
 
     def c15():
-        nav(IDP + "/basic", settle=3)
-        asked = [p for p in prompts_of_tab() if "credentials" in p.get("kind", "").lower() or "auth" in p.get("kind", "").lower()]
-        check(bool(asked), f"a 401 Basic challenge asks for credentials ({prompts_of_tab()}, page: {ev('document.title')})")
+        nav(IDP + "/basic", settle=1)
+        asked = wait_prompts(lambda: [p for p in prompts_of_tab() if "credentials" in p.get("kind", "").lower() or "auth" in p.get("kind", "").lower()])
+        check(bool(asked), f"a 401 Basic challenge asks for credentials ({LAST.get('prompts')}, page: {ev('document.title')})")
         nav(f"http://user:pw@127.0.0.1:{opts.port}/basic", settle=3)
         check(ev("document.title") == "basic ok", f"user:pw in the URL answers the challenge (title {ev('document.title')})")
 
