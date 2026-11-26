@@ -3,6 +3,8 @@
 A long comment moved out of `.github/workflows/cmux-next.yml` (to keep it under GitHub's workflow file size limit,
 `tests/test_ci_workflow_file_size.py`) is its own file here, and the workflow keeps one line where it stood:
 `# Why: docs/ci/cmux-next-workflow-notes/<file>.md`.
+In the workflow the bare `# Why: <file>.md` names a file here too (as a bare `note-N` names a note in the frozen
+file), which keeps the 674 pointers short.
 
 Why a directory: the single file, [`../cmux-next-workflow-notes.md`](../cmux-next-workflow-notes.md), numbered its
 notes `## note-N` and took each new one at its end, so two open PRs both wrote the next number at the same line and

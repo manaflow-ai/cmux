@@ -18,7 +18,7 @@ pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
-/// Claude Code's switch for its TaskCreate and TaskUpdate tools in a `-p`
+/// Claude Code's switch for its to-do tools (TaskCreate, TaskUpdate) in a `-p`
 /// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
 const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 
@@ -81,6 +81,9 @@ pub(crate) async fn harness_command_ready(
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
 /// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
 pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+/// Where `lane-gh` finds its broker's socket (its default: the `ssh -R` forward's `broker.sock`).
+#[cfg(unix)]
+const LANE_GH_SOCKET_ENV: &str = "LANE_GH_SOCKET";
 
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
@@ -316,6 +319,15 @@ fn build_harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::person_tokens::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
+        // RFD 0060 Weft move 3 (`laneGhCarrier`, off by default): lane-gh over the carrier forward
+        // this daemon holds, while one of its owners is healthy; a profile's own value wins.
+        #[cfg(unix)]
+        if let Some(socket) = crate::cli::host_broker_forward::healthy_held_socket()
+            && !cmd.as_std().get_envs().any(|(k, _)| k == LANE_GH_SOCKET_ENV)
+            && !env.contains_key(LANE_GH_SOCKET_ENV)
+        {
+            cmd.env(LANE_GH_SOCKET_ENV, socket);
+        }
         // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
         // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
         if let Some(bin) = crate::cli_caller::own_bin() {
@@ -403,13 +415,11 @@ fn build_harness_command(
     if claude_code {
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        // Claude Code 2.1 offers its task tools (TaskCreate, TaskUpdate) in a
-        // `-p` session only when asked, and has no TodoWrite there: without
-        // them a chat keeps no list for the agent pane's checklist
-        // (claude_stdio/task_plan.rs). A value the profile or login set wins.
-        if get(TODO_TOOLS_ENV).is_none() {
-            cmd.env(TODO_TOOLS_ENV, "1");
-        }
+        // Claude Code 2.1 offers its to-do tools (TaskCreate, TaskUpdate) in a
+        // `-p` session only when asked, and has no TodoWrite there. cmux shows
+        // no agent to-do list (`todo_tools.rs`), so the switch is never on,
+        // whatever the profile, the login or the daemon's env set.
+        cmd.env_remove(TODO_TOOLS_ENV);
         // Claude Code's own cross-session messaging (ListAgents, SendMessage to other sessions,
         // its inbox socket) is off: its peer list is every Claude Code of the machine, whichever
         // daemon started it, and a message it holds shows nowhere; an agent here messages others
@@ -693,7 +703,6 @@ mod tests {
 
     use super::*;
 
-    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
     #[test]
@@ -712,6 +721,7 @@ mod tests {
         }
     }
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {

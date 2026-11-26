@@ -85,6 +85,10 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         driver.delegate = self
         driver.shouldBeginPan = { [weak self] pan in self?.shouldBegin(pan) ?? false }
         host.insertSubview(driver, at: 0)
+        // One finger scrolls the app; two fingers are the zoom's and the
+        // system's (UIScrollView's own pan takes any number by default; the
+        // pan this replaced in #55410 took one).
+        driver.panGestureRecognizer.maximumNumberOfTouches = 1
         host.addGestureRecognizer(driver.panGestureRecognizer)
         recenter()
         // A touch that becomes a drag is never also a tap.

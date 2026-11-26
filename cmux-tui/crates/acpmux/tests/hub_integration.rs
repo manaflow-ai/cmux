@@ -57,6 +57,8 @@ mod held_queue;
 mod held_rows;
 #[path = "hub_integration/inbox_digest.rs"]
 mod inbox_digest;
+#[path = "hub_integration/key_auth.rs"]
+mod key_auth;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
@@ -148,8 +150,6 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
-#[path = "hub_integration/task_list.rs"]
-mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]

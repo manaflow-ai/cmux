@@ -153,7 +153,7 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.dequeued(promptId: promptID))
         case .resumeQueue:
             emit(.queuePaused(false, reason: nil))
-        case .cancelSend:
+        case .cancelSend, .deleteSend, .retrySend:
             break
         case .answerElevation(let ask, _):
             emit(.elevationDecision(id: ask.id))
@@ -479,12 +479,8 @@ public final class MockAgentSession: AgentSessionSource {
             runFor: 380,
             finish: ACPToolCallUpdate(toolCallId: "s1", status: .completed, content: [.content(.text(S.searchOutput))])
         )
-        try await stream(S.planIntro, messageID: "m-intro")
-        var plan = S.plan
-        emit(.update(.plan(plan)))
+        try await stream(S.intro, messageID: "m-intro")
         try await pause(400)
-        plan[0].status = .inProgress
-        emit(.update(.plan(plan)))
         // Edits.
         try await tool(
             ACPToolCall(id: "e1", title: "Write TransportKind.swift", kind: .edit, status: .inProgress,
@@ -492,17 +488,11 @@ public final class MockAgentSession: AgentSessionSource {
             runFor: 600,
             finish: ACPToolCallUpdate(toolCallId: "e1", status: .completed, content: [.diff(path: S.kindPath, oldText: nil, newText: S.kindNew)])
         )
-        plan[0].status = .completed
-        plan[1].status = .inProgress
-        emit(.update(.plan(plan)))
         try await tool(
             ACPToolCall(id: "e2", title: "Edit LinkDialer.swift", kind: .edit, status: .inProgress, locations: [.init(path: S.dialerPath)]),
             runFor: 700,
             finish: ACPToolCallUpdate(toolCallId: "e2", status: .completed, content: [.diff(path: S.dialerPath, oldText: S.dialerOld, newText: S.dialerNew)])
         )
-        plan[1].status = .completed
-        plan[2].status = .inProgress
-        emit(.update(.plan(plan)))
         // Swift tests run (no permission needed).
         try await tool(
             ACPToolCall(id: "x1", title: "Run swift test", kind: .execute,
@@ -533,9 +523,6 @@ public final class MockAgentSession: AgentSessionSource {
         } else {
             emit(.update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "x2", status: .failed, content: [.content(.text("Denied by the person."))]))))
         }
-        plan[2].status = .completed
-        plan[3].status = .inProgress
-        emit(.update(.plan(plan)))
         // AskUserQuestion with two items.
         try await stream(allowed ? S.beforeQuestion : S.beforeQuestionDenied, messageID: "m-q")
         let question = S.question(session: summary.id)
@@ -550,8 +537,6 @@ public final class MockAgentSession: AgentSessionSource {
             finish: ACPToolCallUpdate(toolCallId: "e3", status: .completed,
                                       content: [.diff(path: S.settingsPath, oldText: S.settingsOld, newText: S.settingsNew(cellular: cellular))])
         )
-        plan[3].status = .completed
-        emit(.update(.plan(plan)))
         try await pause(300)
         try await stream(S.finalAnswer(cellular: cellular), messageID: "m-final")
     }
