@@ -53,12 +53,14 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     /// (`openTeamPicker`'s `cloudTeams`), each with its icon (a person for the person's own team, people for a shared
     /// one), the active one checked, so the team in effect reads as a choice (Leo, 2026-11-09).
     ///
-    /// `accountFirst` (`sidebar.profileMenu.style: "account"`): the menu becomes ``makeAccount(who:avatar:spec:)``'s.
+    /// `signInBackend` is what Sign In signs in to ("Signs in to cmux.com"): Sign In's second line where
+    /// the system draws one (macOS 14.4), else a line of its own under it.
+    /// `accountFirst` (`sidebar.profileMenu.style: "account"`): the menu becomes ``makeAccount(who:avatar:spec:signInBackend:)``'s.
     public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
-                               accountFirst: Bool = false) {
+                               signInBackend: String? = nil, accountFirst: Bool = false) {
         if accountFirst {
             menu.removeAllItems()
-            Self.takeRows(of: makeAccount(who: who, avatar: avatar, spec: spec)).forEach(menu.addItem)
+            Self.takeRows(of: makeAccount(who: who, avatar: avatar, spec: spec, signInBackend: signInBackend)).forEach(menu.addItem)
             return
         }
         defer { Self.keepOneTextColumn(menu) }
@@ -66,6 +68,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             // In Help's section, as the Codex menu's Log out; else a section of its own.
             if let last = menu.items.last, last.identifier?.rawValue != "profileMenu.help" { menu.addItem(.separator()) }
             menu.addItem(item)
+            if who == nil, let signInBackend { Self.addBackendLine(signInBackend, to: item, in: menu) }
         }
         guard let who, let name = who.first else { return }
         // The profile's own options move into who it is's submenu, under the teams: one account row.
@@ -85,7 +88,8 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     /// account may work in, the active one checked, a click switching to it (`teamRows`). Then Settings… and Usage,
     /// then Help ›, then Sign Out. Signed out, the first row is Accounts… and the menu ends with Sign In. The app
     /// rows (New Workspace, Extensions, History, Cloud, Check for Updates) stay in the app menu, the default.
-    public func makeAccount(who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
+    public func makeAccount(who: [String]?, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec(),
+                            signInBackend: String? = nil) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = true
         let person = row(spec.accounts)
@@ -95,16 +99,20 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             person.identifier = NSUserInterfaceItemIdentifier("profileMenu.person")
             if #available(macOS 14.4, *), who.count > 1 { person.subtitle = who[1] }
         }
+        let auth = authRow(signedIn: who != nil)
         let sections: [[NSMenuItem]] = [
             person.map { [$0] } ?? [],
             who == nil ? [] : teamRows(),
             [spec.settings, spec.usage].compactMap(availableRow),
             helpRow(spec.help).map { [$0] } ?? [],
-            authRow(signedIn: who != nil).map { [$0] } ?? [],
+            auth.map { [$0] } ?? [],
         ]
         for section in sections where !section.isEmpty {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             section.forEach(menu.addItem)
+        }
+        if who == nil, let signInBackend, let auth {
+            Self.addBackendLine(signInBackend, to: auth, in: menu)
         }
         Self.keepOneTextColumn(menu)
         return menu
@@ -123,6 +131,18 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     private func availableRow(_ spec: ProfileMenuSpec.Row) -> NSMenuItem? {
         guard registry.unavailableReason(for: spec.action) == nil else { return nil }
         return row(spec)
+    }
+
+    /// Sign In's backend line: its subtitle on macOS 14.4, else a disabled row under it.
+    private static func addBackendLine(_ line: String, to item: NSMenuItem, in menu: NSMenu) {
+        if #available(macOS 14.4, *) {
+            item.subtitle = line
+            return
+        }
+        let row = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+        row.isEnabled = false
+        row.identifier = NSUserInterfaceItemIdentifier("profileMenu.signInBackend")
+        menu.addItem(row)
     }
 
     /// Who is signed in: one row, the email as its second line where the system draws one (macOS 14.4), opening the
