@@ -749,6 +749,8 @@ import {
   isPersonQueuedRow,
   answerHeld,
 } from "./pane/sendHost";
+import { keepLeftoverChips, takeLeftoverChips } from "./composer/leftoverChips";
+import { stashTab } from "./composer/draftStash";
 import { postTyping, newChatDraft, postNewChatDraft, keptAttachments } from "./pane/draftHost";
 import { postScrollAnchor, fetchScrollAnchor } from "./pane/scrollAnchorHost";
 import {
@@ -6765,6 +6767,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const elsewhere = where.later.filter((entry) => !shownHere.includes(entry));
     newChatDraft.kept = [...newChatDraft.kept, ...elsewhere.map((entry) => entry.text).filter((part) => part.trim())];
+    // Their images stay with the tab beside those words, which the host keeps as text alone.
+    const tab = stashTab();
+    if (tab && elsewhere.length)
+      writes.push(
+        keepLeftoverChips(
+          keptAttachments,
+          tab,
+          elsewhere.flatMap((entry) => entry.attachments),
+        ),
+      );
     if (shownHere.length || elsewhere.length) writes.push(postNewChatDraft());
     await Promise.all(
       [...where.drafts].map(async ([chat, list]) => {
@@ -6781,14 +6793,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               Math.min(until, Date.now() + DRAFT_SETTLE_MS / 2),
             );
         const draft = (read ? read.draft : local) ?? "";
-        writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
         const chips = keptChips(list.flatMap((entry) => entry.attachments));
-        if (!chips.length) return;
-        // A closing page writes the shown chat's at once: it may be gone before a read answers.
-        const kept = shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat);
-        await keptAttachments
-          .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
-          .catch(() => undefined);
+        // The images first, then the words that name them: a prompt's text and its attachments are
+        // two stores here, and the text must never be in the draft while its images are not kept
+        // (the chat would send the words alone, and its images later on their own; Leo, 2026-11-25:
+        // "wait that message got split up and queued").
+        if (chips.length) {
+          // A closing page writes the shown chat's at once: it may be gone before a read answers.
+          const kept = shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat);
+          await keptAttachments
+            .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
+            .catch(() => undefined);
+        }
+        writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
       }),
     );
     // The text reaches acpmux and the host before this answers: a closing page's bridge goes once
@@ -6914,6 +6931,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pendingWake.current = undefined;
     }
     replayHeldForComposer(handle, heldBack, heldQuotes);
+    // A new chat's composer takes the images a hand-back left for its tab, with their words.
+    const leftTab = stashTab();
+    if (handle && leftTab && !sessionIdRef.current)
+      void takeLeftoverChips(keptAttachments, leftTab).then((chips) => {
+        if (chips.length) composerHandle.current?.restore("", chips);
+      });
     // Files another app sent before this composer was there (composer/externalAttach.ts).
     if (handle && externalWaiting.current)
       externalWaiting.current = !takeExternalInto(() => composerHandle.current, callNative);
