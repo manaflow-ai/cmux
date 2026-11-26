@@ -103,6 +103,6 @@
 }
 .cv-subsession__actions > .cv-sent-actions {
   height: auto;
-  margin-inline-start: calc(-1 * (var(--cv-footer-control-slot, 24px) - 16px) / 2);
+  margin-inline-start: calc(-1 * (var(--cv-footer-control-slot, 24px) - var(--ds-space-fixed-4)) / 2);
   opacity: 1;
 }

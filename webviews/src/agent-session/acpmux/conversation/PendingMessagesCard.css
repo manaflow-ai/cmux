@@ -21,7 +21,7 @@
   white-space: nowrap;
 }
 .cv-pending__body {
-  margin-inline-start: 24px;
+  margin-inline-start: var(--ds-space-fixed-5);
 }
 .cv-pending__sender-head {
   display: flex;

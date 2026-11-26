@@ -1,15 +1,15 @@
 .harness-tool-names {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 16px 24px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-5);
   color: var(--cv-text);
   font-family: var(--cv-font, var(--font-ui));
 }
 .harness-tool-names__harness + .harness-tool-names__harness {
-  margin-top: 12px;
+  margin-top: var(--ds-space-fixed-3);
 }
 .harness-tool-names__name {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
   color: var(--cv-text-muted);
   font-size: var(--text-caption);
 }

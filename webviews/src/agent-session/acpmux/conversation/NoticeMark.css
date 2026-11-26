@@ -61,7 +61,7 @@
 .cv-notice__tag {
   display: inline-block;
   margin-inline-end: var(--ds-space-1);
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 4px;
   font-size: 0.8em;
   font-weight: 600;
