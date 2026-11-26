@@ -100,6 +100,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod notification_rings;
 mod pane_focus;
 mod pane_placement;
 mod screen;
@@ -180,6 +181,7 @@ const MODULE_HANDLERS: &[(&str, Handles, Respond)] = &[
     ("cloud_move", cloud_move::handles, cloud_move::respond),
     ("cloud_sequence", cloud_sequence::handles, cloud_sequence::respond),
     ("cloud_task", cloud_task::handles, cloud_task::respond),
+    ("notification_rings", notification_rings::handles, notification_rings::respond),
     ("pane_focus", pane_focus::handles, |_, request| pane_focus::respond(request)),
     ("pane_placement", pane_placement::handles, pane_placement::respond),
     ("screen", screen::handles, screen::respond),
@@ -340,6 +342,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_row_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_drag_geometry" => {
+                use cmux_layout_reducer::sidebar_drag_geometry;
+                let request: sidebar_drag_geometry::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
