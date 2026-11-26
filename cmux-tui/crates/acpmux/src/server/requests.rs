@@ -3020,6 +3020,17 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Moves a chat from the place menu (`place_set.rs`): this machine's own clients only.
+        "_acpmux/place_set" | "_acpmux/place_undo" | "_acpmux/place_get"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/place_set, place_undo and place_get answer on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/place_set" => super::place_set::set(hub, &params).await,
+        "_acpmux/place_undo" => super::place_set::undo(hub, &params).await,
+        "_acpmux/place_get" => super::place_set::get(hub, &params).await,
         // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
         // place picker and chip, on the same sockets `_acpmux/place` answers on.
         "_acpmux/chat_place" | "_acpmux/chat_place_set"
@@ -3234,6 +3245,7 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
+        method::MUX_PAUSED_FILES => super::paused_files::handle(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
@@ -3389,6 +3401,7 @@ async fn dispatch_request_with_identity(
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
+        | method::MUX_AUTO_SESSION_MOVE
         | method::MUX_CHAT_MOVE
         | method::MUX_AUTO_SESSION_LEFTOVER
         | method::MUX_AUTO_SESSION_WAKE
@@ -3913,7 +3926,9 @@ async fn dispatch_request_with_identity(
             }
             match params.get("live") {
                 None | Some(Value::Null) => {}
-                Some(Value::Bool(live)) => hub.presence.set_live(*live),
+                Some(Value::Bool(live)) => {
+                    hub.presence.set_live(*live);
+                }
                 Some(_) => return Err(RpcError::invalid_params("live must be a boolean")),
             }
             Ok(json!({"live": hub.presence.is_live()}))
