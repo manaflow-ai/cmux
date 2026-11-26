@@ -235,6 +235,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previousGlass: Bool = PreviousGlassSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
+    /// `appearance.agentSignature`: each agent's dot glyph; off unless set to true.
+    public var agentSignature = AgentSignatureSetting.fallback
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
@@ -271,6 +273,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarPosition: TabBarPosition = ChromePlacementSetting.tabBarPositionDefault
     /// `appearance.paneBackgrounds`: one background for the window or one per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
+    /// Theme Flourishes (`appearance.accentGlow.*`, `.tabClose.*`, `.sidebarHeader.*`, `.paneArt.*`).
+    public var flourishes = ThemeFlourishes.none
+    /// `terminal.cursorStyle` and `terminal.cursorBlink`; unset keeps the Ghostty config's.
+    public var terminalCursor = TerminalCursorSetting()
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
@@ -490,6 +496,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentSignature = AgentSignatureSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
@@ -524,6 +531,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
         snapshot.paneBackgrounds = paneBackgrounds
         if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
+        snapshot.flourishes = ThemeFlourishSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.terminalCursor = TerminalCursorSetting.parse(root, diagnostics: &snapshot.diagnostics)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
