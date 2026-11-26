@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # CmuxMobileLinkFFI.xcframework for the `ios` job's steps (ci/steps.toml ios-kit and ios-phone-cells) on a pull
 # request: the build fleet's copy of the pull request head when it has the same FFI inputs as the merge commit, else
-# this Mac builds it with cmux-next-ios/rust/scripts/build-xcframework.sh as before. pr-pipeline.yml's
-# ios-ffi-fleet job submits the same fleet build (one request key per commit) while this job still waits for a Mac,
-# so the copy is usually ready when the step starts.
+# this Mac builds it with cmux-next-ios/rust/scripts/build-xcframework.sh as before. The request key is scoped to the
+# submitting runner, so this step's submit is the build it waits for (a head start from another runner was a second,
+# separate build: pr-pipeline.yml's ios-ffi-fleet gateway job did that until 2026-11-26 and is gone).
 #
 # The fleet's build passes only when the bindings it generates match the checked-in CmuxMobileLinkFFI.swift, and the
 # key (scripts/ci/ios_link_ffi_key.py) names those bindings, so a fleet copy has passed the drift check the Mac build
