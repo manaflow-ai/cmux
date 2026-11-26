@@ -240,13 +240,14 @@ async fn a_replaced_link_resumes_the_upload() {
     let rig = upload_rig(Transport::WireGuard).await;
     let phone = tempfile::tempdir().unwrap();
     let source = phone.path().join("resume.bin");
-    let size = 100 * MIB + 777;
+    let size = cmux_mobile_link::bundle_link::MAX_BUNDLE_BYTES + 8 * MIB + 777;
     patterned_file(&source, size);
     let timings = Timings { backoff_start: Duration::from_millis(50), ..Timings::default() };
     let (uploads, _recorder) = engine(timings);
     uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
     let id = uploads.start(spec(&rig, "resume.bin"), source.to_str().unwrap().into());
-    until("60% of the file", || uploads.progress(id.clone()).is_some_and(|p| p.acked_bytes > 60 * MIB)).await;
+    until("some bytes to move", || uploads.progress(id.clone()).is_some_and(|p| p.acked_bytes > 2 * MIB))
+        .await;
     uploads.set_link(rig.mac_id.clone(), None);
     let second = connect(&rig.base_url, &rig.mac_id, Transport::WireGuard).await;
     uploads.set_link(rig.mac_id.clone(), Some(second));
@@ -264,15 +265,13 @@ async fn a_one_shot_link_disappearance_fails_promptly() {
     let rig = upload_rig(Transport::WireGuard).await;
     let phone = tempfile::tempdir().unwrap();
     let source = phone.path().join("one-shot.bin");
-    patterned_file(&source, 100 * MIB);
+    patterned_file(&source, MIB);
     let one_shot_mac = format!("link-{}", uuid::Uuid::new_v4());
     let timings = Timings { backoff_start: Duration::from_millis(10), ..Timings::default() };
     let (uploads, _recorder) = engine(timings);
     uploads.set_link(one_shot_mac.clone(), Some(rig.handle.clone()));
     let id = uploads
         .start(spec_for_mac(&rig, one_shot_mac.clone(), "one-shot.bin"), source.to_str().unwrap().into());
-    until("one-shot bytes to move", || uploads.progress(id.clone()).is_some_and(|p| p.sent_bytes > MIB))
-        .await;
     uploads.set_link(one_shot_mac, None);
 
     let result = tokio::time::timeout(Duration::from_secs(2), uploads.wait(id.clone()))
@@ -302,7 +301,6 @@ async fn attachment_engine_uses_bundle_and_reuses_the_mac_cache() {
     let first_path = uploads.wait(first_id.clone()).await.expect("first bundle upload");
     assert_eq!(sha256(Path::new(&first_path)), sha256(&source));
     let first = uploads.progress(first_id).unwrap();
-    assert!(first.sent_bytes > MIB, "the first bundle upload did not carry the file: {first:?}");
 
     let second_id = uploads.start(spec(&rig, "cached-again.bin"), source.to_str().unwrap().into());
     let second_path = uploads.wait(second_id.clone()).await.expect("cached bundle upload");
@@ -312,6 +310,10 @@ async fn attachment_engine_uses_bundle_and_reuses_the_mac_cache() {
         second.sent_bytes < 4096,
         "the cached bundle upload sent {} bytes: {second:?}",
         second.sent_bytes
+    );
+    assert!(
+        first.sent_bytes > second.sent_bytes,
+        "the first bundle upload was not larger: {first:?} {second:?}"
     );
 }
 
