@@ -41,6 +41,14 @@
 //!   path to answer carries and a dead relay never strands a session.
 //!   [`Selector::on_opened`] says which path a dial opened, before any
 //!   probe measured it.
+//! - Regain (`regain_streak > 0`, off by default): a session that opened
+//!   direct keeps today's rule (any alive direct path wins at once), but a
+//!   held direct path that goes suspect while a relay answers hands the
+//!   session to that relay at once instead of spraying, and a direct path
+//!   the session left for a relay (suspect or dead) takes it back only
+//!   after `regain_streak` answers in a row, doubling per drop back (up to
+//!   8 times). On a weak link a path that answers one probe in two stays
+//!   on the relay instead of flapping between it and the direct path.
 
 use crate::medium::Medium;
 use crate::path::{PathClass, PathId, PathKind};
@@ -57,6 +65,10 @@ pub struct SelectorConfig {
     /// the session from a relay (doubling per drop back, see the rules
     /// above). 0 (the default): any alive direct path wins at once.
     pub upgrade_streak: u8,
+    /// Regain: consecutive answers a direct path the session left for a
+    /// relay needs before it takes the session back (doubling per further
+    /// drop back, see the rules above). 0 (the default): off.
+    pub regain_streak: u8,
 }
 
 impl Default for SelectorConfig {
@@ -67,6 +79,7 @@ impl Default for SelectorConfig {
             min_gain_us: 3_000,
             min_gain_percent: 10,
             upgrade_streak: 0,
+            regain_streak: 0,
         }
     }
 }
@@ -128,8 +141,8 @@ struct Path {
     better_streak: u8,
     /// Answers in a row since its last loss (relay-first's upgrade streak).
     answered: u8,
-    /// Times relay-first took the session from this direct path back to a
-    /// relay; each doubles the streak it needs to take it again.
+    /// Times relay-first or regain took the session from this direct path
+    /// back to a relay; each doubles the streak it needs to take it again.
     demotions: u8,
 }
 
@@ -173,6 +186,17 @@ impl Selector {
 
     pub fn path(&self, id: PathId) -> Option<PathView> {
         self.paths.iter().find(|path| path.view.id == id).map(|path| path.view)
+    }
+
+    /// An alive direct path that relay-first or regain still holds back
+    /// (short of its answer streak): callers probe it often so it earns
+    /// the session back in seconds, not at a standby's turn.
+    pub fn held_back(&self, id: PathId) -> bool {
+        self.paths.iter().find(|path| path.view.id == id).is_some_and(|path| {
+            path.view.state == PathState::Alive
+                && path.view.kind.class().is_direct()
+                && !self.qualified(path)
+        })
     }
 
     pub fn add_path(&mut self, id: PathId, kind: PathKind) -> Result<(), SelectorError> {
@@ -350,13 +374,44 @@ impl Selector {
         self.config.upgrade_streak > 0
     }
 
-    /// Whether `path` may take the session: always, unless relay-first holds
-    /// a direct path back until its answer streak (doubled per drop back).
+    fn regain(&self) -> bool {
+        self.config.regain_streak > 0
+    }
+
+    /// Whether `path` may take the session: always, unless relay-first or
+    /// regain holds a direct path back until its answer streak (doubled per
+    /// drop back).
     fn qualified(&self, path: &Path) -> bool {
-        !self.relay_first()
-            || !path.view.kind.class().is_direct()
-            || path.answered
-                >= self.config.upgrade_streak.saturating_mul(1 << path.demotions.min(3))
+        if !path.view.kind.class().is_direct() {
+            return true;
+        }
+        let first = if self.relay_first() {
+            self.config.upgrade_streak.saturating_mul(1 << path.demotions.min(3))
+        } else {
+            0
+        };
+        let regain = match path.demotions {
+            0 => 0,
+            drops => self.config.regain_streak.saturating_mul(1 << (drops - 1).min(3)),
+        };
+        path.answered >= first.max(regain)
+    }
+
+    /// Regain: the alive relay a suspect held direct path hands the
+    /// session to (the fastest one that answers).
+    fn relay_for_suspect(&self, held: &Path) -> Option<&Path> {
+        if !self.regain()
+            || held.view.state != PathState::Suspect
+            || !held.view.kind.class().is_direct()
+        {
+            return None;
+        }
+        self.paths
+            .iter()
+            .filter(|path| {
+                path.view.state == PathState::Alive && !path.view.kind.class().is_direct()
+            })
+            .min_by_key(|path| (path.view.rtt_us.unwrap_or(u64::MAX), path.view.id))
     }
 
     /// The best alive path that may take the session; under relay-first, a
@@ -430,6 +485,8 @@ impl Selector {
                     && matches!((best.view.rtt_us, held.view.rtt_us), (Some(new), Some(old)) if new > old);
                 if best.view.rank() < rank && !slower_than_held_relay {
                     Some(best.view.id)
+                } else if let Some(relay) = self.relay_for_suspect(held) {
+                    Some(relay.view.id)
                 } else if let Some(relay) = self.relay_takes_back(held) {
                     Some(relay.view.id)
                 } else if let Some(challenger) = challenger {
@@ -440,11 +497,11 @@ impl Selector {
             }
         };
         if to != chosen {
-            // Relay-first: a direct path the session left for a relay needs a
-            // longer streak (from zero) to take it again.
+            // Relay-first and regain: a direct path the session left for a
+            // relay needs a longer streak (from zero) to take it again.
             let to_relay =
                 to.and_then(|id| self.path(id)).is_some_and(|view| !view.kind.class().is_direct());
-            let relay_first = self.relay_first();
+            let relay_first = self.relay_first() || self.regain();
             self.held_id = to;
             for path in &mut self.paths {
                 path.better_streak = 0;

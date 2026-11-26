@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.cloudDiskBar.help" : {
+      "comment" : "Settings > Experiments: the Cloud Disk Bar taste prototype row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud machine cards show disk use as a bar split into system, project and caches."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعرض بطاقات أجهزة السحابة استخدام القرص كشريط مقسّم إلى النظام والمشروع وذاكرات التخزين المؤقت."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kartice mašina u oblaku prikazuju upotrebu diska kao traku podijeljenu na sistem, projekat i keš."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kort for skymaskiner viser diskforbrug som en bjælke opdelt i system, projekt og cache."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud-Maschinenkarten zeigen die Datenträgernutzung als Leiste, aufgeteilt in System, Projekt und Caches."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las tarjetas de máquinas en la nube muestran el uso del disco como una barra dividida en sistema, proyecto y cachés."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les cartes des machines cloud affichent l’utilisation du disque sous forme de barre répartie entre système, projet et caches."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le schede delle macchine cloud mostrano l’uso del disco come una barra divisa in sistema, progetto e cache."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドマシンのカードに、ディスク使用量をシステム、プロジェクト、キャッシュに分けたバーで表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កាតម៉ាស៊ីនពពកបង្ហាញការប្រើថាសជារបារ ដែលចែកជាប្រព័ន្ធ គម្រោង និងឃ្លាំងសម្ងាត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클라우드 머신 카드에 디스크 사용량을 시스템, 프로젝트, 캐시로 나눈 막대로 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kort for skymaskiner viser diskbruk som en stolpe delt i system, prosjekt og hurtigbuffer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Karty maszyn w chmurze pokazują użycie dysku jako pasek podzielony na system, projekt i pamięć podręczną."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os cartões das máquinas na nuvem mostram o uso do disco como uma barra dividida em sistema, projeto e caches."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Карточки облачных машин показывают использование диска полосой, разделённой на систему, проект и кэши."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การ์ดเครื่องคลาวด์แสดงการใช้ดิสก์เป็นแถบที่แบ่งเป็นระบบ โปรเจกต์ และแคช"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bulut makine kartları disk kullanımını sistem, proje ve önbellek olarak bölünmüş bir çubukla gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картки хмарних машин показують використання диска смугою, поділеною на систему, проєкт і кеші."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thẻ máy đám mây hiển thị dung lượng đĩa đã dùng dưới dạng thanh chia thành hệ thống, dự án và bộ nhớ đệm."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "云端机器卡片以条形显示磁盘用量，分为系统、项目和缓存。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "雲端機器卡片以長條顯示磁碟用量，分為系統、專案與快取。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -99,6 +99,14 @@ impl Translator {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
                     *self.session_id.lock().await = Some(s.to_owned());
                 }
+                // A durable cron this conversation made in an earlier process (`loops.rs`).
+                if let (Some(cwd), Some(s)) = (
+                    line.get("cwd").and_then(Value::as_str),
+                    line.get("session_id").and_then(Value::as_str),
+                ) && let Some(goal) = self.durable_loops(cwd, s).await
+                {
+                    out.push(upd(goal));
+                }
                 if let Some(m) = line.get("model").and_then(Value::as_str) {
                     *self.model.lock().await = m.to_owned();
                 }
@@ -132,7 +140,7 @@ impl Translator {
                 // commands are sent again, tagged, when that changes the list.
                 if let Some(skills) = line.get("skills").and_then(Value::as_array) {
                     *self.skills.lock().await =
-                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        Some(skills.iter().filter_map(Value::as_str).map(str::to_owned).collect());
                     if let Some(u) = self.commands_update(false).await {
                         out.push(upd(u));
                     }
@@ -271,22 +279,6 @@ impl Translator {
                         // A call of the chat's own that blocks its turn (`foreground_work.rs`).
                         if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
                             self.foreground_call(name, id, &input).await;
-                        }
-                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
-                        // draw it as a checklist.
-                        if name == "TodoWrite"
-                            && let Some(plan) = todo_plan(&input)
-                        {
-                            out.push(upd(plan));
-                        }
-                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
-                        // instead: each call lands on its result (`task_plan.rs`). The
-                        // list is the main session's; a subagent's tasks stay its own.
-                        if main_line
-                            && super::task_plan::TaskPlan::follows(name)
-                            && let Some(id) = c.get("id").and_then(Value::as_str)
-                        {
-                            self.task_plan.lock().await.call(name, id, &input);
                         }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84). A Monitor runs its
@@ -523,14 +515,6 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
-                        // A task call's result redraws the task list (`task_plan.rs`).
-                        if let Some(plan) = self.task_plan.lock().await.result(
-                            tool,
-                            is_err,
-                            line.get("tool_use_result"),
-                        ) {
-                            out.push(upd(plan));
-                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
@@ -966,6 +950,9 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
+                // alarm is off (`hub/cache_alarm.rs`).
+                let cache_misses = self.cache.take_turn_misses().to_json();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -995,8 +982,15 @@ impl Translator {
                         claude.set("carried", next.clone());
                     }
                     let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
-                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(misses) = cache_misses {
+                        hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
                     }
                     Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
@@ -1292,27 +1286,6 @@ impl Translator {
         }
         update
     }
-}
-
-/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
-/// (pending, in_progress or completed, as ACP names them). Nil for input
-/// that is not a todo list.
-fn todo_plan(input: &Value) -> Option<Value> {
-    let entries: Vec<Value> = input
-        .get("todos")?
-        .as_array()?
-        .iter()
-        .filter_map(|todo| {
-            let content = todo.get("content").and_then(Value::as_str)?;
-            let status = todo
-                .get("status")
-                .and_then(Value::as_str)
-                .filter(|status| matches!(*status, "in_progress" | "completed"))
-                .unwrap_or("pending");
-            Some(json!({"content": content, "status": status, "priority": "medium"}))
-        })
-        .collect();
-    Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
 
 /// A `compaction` update: a compaction of the chat's context `state`

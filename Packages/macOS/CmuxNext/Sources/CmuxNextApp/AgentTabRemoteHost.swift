@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
@@ -54,6 +55,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// A new Cloud chat's steps to its first token on the composer send's timeline (``CloudSendTimelines``, cmux#45953):
     /// its first prompt out, its start answered (with the machine's own phases) and its agent's first text.
     var cloudSendMark: (@Sendable (_ step: String, _ phases: [String: Int]?) -> Void)?
+    var chatNoted: RemoteAcpmuxWire.ChatNoted? // its tab and workspace take its title (cmux#55668), only from the person's own machine (``ownerLink``)
+    static func notesChats(of machine: String) -> RemoteAcpmuxWire.ChatNoted { { AgentTurnStateStore.shared.noteRemote($0, host: $1, machine: machine) } }
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
         try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
@@ -93,16 +96,15 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         let ask = AgentTabRemoteClient.trust(tab: tab, reconnect: reconnect, endpoint: endpoint, ownerLink: ownerLink)
         let machineLogin = AgentTabRemoteClient.machineLogin(tab: tab, reconnect: reconnect, endpoint: endpoint, ownerLink: ownerLink)
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, machineSignIn = cloudMachineID == nil] in
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, chatNoted, machineSignIn = cloudMachineID == nil] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository,
-                                        machineSignIn: machineSignIn)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository, machineSignIn: machineSignIn, chatNoted: mode == .attach ? chatNoted : nil, chatOwned: ownerLink.map { link -> RemoteAcpmuxWire.ChatOwned in { @Sendable in await link() != nil } })
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
-            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint, reconnect] in
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint, reconnect, chatNoted] in
                 RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine, cloudSendMark, restartsInStart = cloudMachineID == nil] cwd, harness, model in
                     let started: AgentTabRemoteStart.Started
                     do {
@@ -115,10 +117,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     cloudSendMark?("start", started.phases)
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
-                cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
-                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil,
-                machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } })
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
+                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil, machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } }, chatNoted: chatNoted, chatOwned: ownerLink.map { link -> RemoteAcpmuxWire.ChatOwned in { @Sendable in await link() != nil } })
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

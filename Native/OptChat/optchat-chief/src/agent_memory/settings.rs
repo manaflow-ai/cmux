@@ -1,8 +1,7 @@
 //! The `agents.memory.*` keys of the cmux settings file, read at each use so
 //! a change applies to the next call. The file and its JSONC dialect are
 //! cmux-config's (`location`, `jsonc`): `CMUX_NEXT_CONFIG_FILE`, else
-//! `~/.config/cmux/cmux-next.json`, else `~/.config/cmux/cmux.json`. The
-//! CLI and every agent session read the same keys here, so they build the
+//! `~/.config/cmux/cmux-next.json`. The CLI and every agent session read the same keys here, so they build the
 //! same index (a different source list would rebuild it on every switch).
 
 use std::ffi::OsString;
@@ -126,15 +125,7 @@ pub fn document_checked(home: &Path) -> Result<Option<Value>, String> {
         "HOME" => Some(OsString::from(home)),
         _ => crate::cli::env(name).map(OsString::from),
     };
-    let text = match read(&location::config_path_from(env))? {
-        Some(text) => Some(text),
-        // No override and no cmux-next.json yet: classic cmux.json.
-        None => match location::seed_path_from(env) {
-            Some(classic) => read(&classic)?,
-            None => None,
-        },
-    };
-    let Some(text) = text else {
+    let Some(text) = read(&location::config_path_from(env))? else {
         return Ok(None);
     };
     parse(&text).map(Some)

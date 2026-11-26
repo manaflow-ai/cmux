@@ -18,10 +18,11 @@
 //!    source through a [`TransferDial`] (the hub carrier's `TransferSource` circuit,
 //!    `transfer_service.rs`), and receives, writes and finishes it in process. Its answer is the
 //!    control's result: `{sessionId, cwd, branch?, commit?, timings}`, `timings` the freeze's split
-//!    on this side (`dialMs`, `pages`, `pageBytes`, `pagesMs`, `finishMs`). A repeat of a move that
+//!    on this side (`dialMs`, `pages`, `pageBytes`, `pagesMs`, `finishMs`, `via`). A repeat of a move that
 //!    landed answers the same chat and folder without a second import (and no `timings`).
 //!    A pre-copied move (`transfer_hub_precopy.rs`) stages the history here before the freeze, and
-//!    its `move` names the `stageId`.
+//!    its `move` names the `stageId`; its control goes over the stage's circuit when the target
+//!    parked it (`transfer_park.rs`), else as op `move`.
 //! 4. The client commits the move on the source with `movedTo {host, via: "hub", ...}`, or aborts
 //!    it on a refusal. A move whose client goes away is ended by the source's watch, which asks
 //!    the target with op `move_forget` (`transfer_watch.rs`).
@@ -74,9 +75,25 @@ const MANIFEST_PAGE: u64 = 1 << 20;
 const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(25);
 /// How long the source's watch waits for a `move_forget` answer.
 const FORGET_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a move's answer waits for the heartbeat that lists the chat it moved here.
+// timeout: past this the move answers unlisted (the next timed heartbeat lists it); a move never
+// fails on it.
+const MOVED_LISTED_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub(super) fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
+}
+
+/// The target's refusal of a move, in its words: the client gives the chat back.
+pub(super) fn refused(why: &str) -> RpcError {
+    pull_error("refused", format!("the target refused the move: {why}"))
+        .with_data(json!({"refused": true, "detail": why}))
+}
+
+/// No answer from `daemon` to its `op`: the move stays frozen, its watch ends it.
+pub(super) fn unanswered(daemon: &str, op: &str) -> RpcError {
+    pull_error("unanswered", format!("{daemon} did not answer the {op} in time"))
+        .with_data(json!({"reason": "mesh.move_unanswered", "unknown": true}))
 }
 
 /// The `manifestPull` reference of a manifest written to `dir` for transfer `transfer_id`: the
@@ -324,6 +341,18 @@ impl Hub {
         source_host: Option<&str>,
         body: &Value,
     ) -> Result<Value, RpcError> {
+        self.transfer_pull_on(source, source_host, body, None).await
+    }
+
+    /// [`Self::transfer_pull`] over `circuit`, a circuit to `source` already open (a stage's,
+    /// parked for its move, `transfer_park.rs`), or over one it dials when None.
+    pub(super) async fn transfer_pull_on(
+        self: &Arc<Self>,
+        source: &str,
+        source_host: Option<&str>,
+        body: &Value,
+        circuit: Option<&mut dyn PageSource>,
+    ) -> Result<Value, RpcError> {
         let text = |k: &str| body.get(k).and_then(Value::as_str).unwrap_or("");
         // Inline (version 1), or pulled from the source once the circuit is open (version 2).
         let pull = body.get("manifestPull").filter(|p| p.is_object());
@@ -375,14 +404,20 @@ impl Hub {
         let guard_value = json!({"control": "peer", "roots": roots});
         let guard = Guard::parse(&guard_value).await?;
         let cwd = self.pull_folder(&guard, body.get("folder")).await?;
-        let dial = self.transfer_dial().ok_or_else(|| {
-            pull_error("no_route", "this daemon has no hub carrier to the source")
-        })?;
-        // The freeze's split, in the answer: the circuit's open (relay and handshake), the pages
-        // (one round trip each) and the import.
-        let dialing = std::time::Instant::now();
-        let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
-        let dial_ms = dialing.elapsed().as_millis() as u64;
+        // The freeze's split, in the answer: the circuit's open (relay and handshake; none for
+        // a parked one), the pages (one round trip each) and the import.
+        let mut dialed: Box<dyn PageSource>;
+        let (pages, dial_ms, via): (&mut dyn PageSource, u64, &str) = match circuit {
+            Some(circuit) => (circuit, 0, "circuit"),
+            None => {
+                let dial = self.transfer_dial().ok_or_else(|| {
+                    pull_error("no_route", "this daemon has no hub carrier to the source")
+                })?;
+                let dialing = std::time::Instant::now();
+                dialed = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
+                (&mut *dialed, dialing.elapsed().as_millis() as u64, "hub")
+            }
+        };
         let paging = std::time::Instant::now();
         let manifest = match (inline, pull) {
             (Some(manifest), _) => manifest.clone(),
@@ -416,15 +451,32 @@ impl Hub {
         let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
         let finish_ms = finishing.elapsed().as_millis() as u64;
+        // Listed in the hub's address book before the source hears the move landed, so
+        // `HOST/NAME` resolves on the source the moment its move ends (no 30 s heartbeat lag).
+        let listing = std::time::Instant::now();
+        let listed = self.list_on_mesh_now(MOVED_LISTED_WAIT).await;
+        let listed_ms = listing.elapsed().as_millis() as u64;
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
         moved.set(
             "timings",
             json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
-                   "pagesMs": pages_ms, "finishMs": finish_ms}),
+                   "pagesMs": pages_ms, "finishMs": finish_ms, "via": via,
+                   "listedMs": listed.then_some(listed_ms)}),
         );
         Ok(answer(moved))
+    }
+
+    /// A mesh heartbeat now, listing this daemon's sessions, waited for at most `within`:
+    /// false when no mesh relay runs here. The hub routes `HOST/NAME` only to a session a
+    /// heartbeat listed (`mesh.unknown_recipient` otherwise), so a chat moved in through it is
+    /// listed before the move answers, as a start through it is (`server/mesh_relay.rs`).
+    pub(crate) async fn list_on_mesh_now(&self, within: std::time::Duration) -> bool {
+        let beat = self.mesh_beat.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        let Some(beat) = beat else { return false };
+        beat.now(within).await;
+        true
     }
 
     /// Every file `manifest` lists, read page by page from the source's `transfer_id` and
@@ -552,8 +604,7 @@ impl Hub {
             receipt =
                 mesh.answer(&receipt.message_id, left.min(ANSWER_WAIT)).await.map_err(hub_error)?;
         }
-        Err(pull_error("unanswered", format!("{daemon} did not answer the {op} in time"))
-            .with_data(json!({"reason": "mesh.move_unanswered", "unknown": true})))
+        Err(unanswered(daemon, op))
     }
 
     /// The source's watch asks the hub target `daemon` to give the move up: whether the chat
@@ -623,6 +674,16 @@ impl Hub {
                 body.set(key, json!(v));
             }
         }
+        super::transfer_watch::note_activity(&dir, None);
+        // A pre-copied move whose target parked its stage's circuit goes over that circuit, its
+        // manifest inline up to a frame (`transfer_park.rs`); else over the hub.
+        if let Some(stage_id) = params.get("stageId").and_then(Value::as_str)
+            && body.to_string().len() <= MAX_FRAME / 2
+            && let Some(answered) =
+                self.move_over_circuit(&daemon, stage_id, body.clone(), MOVE_WAIT).await
+        {
+            return answered;
+        }
         // A manifest past one hub message goes by reference: the target pulls it.
         let inline_bytes = body.to_string().len();
         let pulled = inline_bytes > MAX_BODY;
@@ -642,7 +703,6 @@ impl Hub {
                 .with_data(json!({"refused": true, "reason": "transfer.size"})));
             }
         }
-        super::transfer_watch::note_activity(&dir, None);
         let op = crate::mesh_relay_config::MOVE_OP;
         let key = format!("move-{transfer_id}");
         // The target's name for the too-old refusal: the client's, else its hub id.
@@ -657,10 +717,7 @@ impl Hub {
             Err(why) => Err(pulled
                 .then(|| too_old(&why, &host, inline_bytes))
                 .flatten()
-                .unwrap_or_else(|| {
-                    pull_error("refused", format!("the target refused the move: {why}"))
-                        .with_data(json!({"refused": true, "detail": why}))
-                })),
+                .unwrap_or_else(|| refused(&why))),
         }
     }
 

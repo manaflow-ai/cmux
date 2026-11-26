@@ -350,16 +350,17 @@ pub fn report<'a>(
     let mut unpriced: HashSet<String> = HashSet::new();
     let mut sessions = Vec::new();
     for (id, helper, requests) in transcripts {
-        let inside = |at: usize| (since_ms..until_ms).contains(&requests[at].at_ms);
+        let inside = |at: usize| {
+            requests.get(at).is_some_and(|request| (since_ms..until_ms).contains(&request.at_ms))
+        };
         let mut session = SessionRow { session_id: id, helper, ..Default::default() };
         let mut by_cause: BTreeMap<Cause, u64> = BTreeMap::new();
         let mut counted = HashSet::new();
         for (at, cause, tokens) in classify(requests, helper) {
-            if !inside(at) {
+            let Some(request) = requests.get(at).filter(|_| inside(at)) else {
                 continue;
-            }
+            };
             counted.insert(at);
-            let request = &requests[at];
             let row = causes.entry(cause).or_insert_with(|| CauseRow {
                 cause,
                 avoidable: cause.avoidable(),

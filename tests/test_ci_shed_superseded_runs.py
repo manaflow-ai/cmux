@@ -273,14 +273,25 @@ class WorkflowTests(unittest.TestCase):
 
     def test_runs_on_owned_label_never_blacksmith_or_hosted(self):
         runs_on = self.job["runs-on"]
-        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}")
+        self.assertEqual(runs_on, "cmux-gcp-pr-control-jit-x64")  # CI_CONTROL_RUNNER's label, as a literal (cmux#53974)
+        self.assertNotIn("vars.", runs_on)
         for bad in ("blacksmith", "ubuntu-", "RUNNER_POOLS", "LINUX_RUNNER", "cmux-fleet-linux"):
             self.assertNotIn(bad, runs_on)
 
     def test_token_scope_and_serialized_sweeps(self):
         self.assertEqual(self.doc["permissions"], {})
         self.assertEqual(self.job["permissions"], {"actions": "write", "contents": "read"})
+        self.assertEqual(self.job["environment"], {"name": "ci-bot", "deployment": False})
         self.assertEqual(self.doc["concurrency"]["cancel-in-progress"], False)
+
+    def test_shed_uses_app_token_with_workflow_fallback(self):
+        mint = next(step for step in self.job["steps"] if step.get("id") == "cmux-bot-token")
+        self.assertEqual(mint["if"], "vars.CMUX_BOT_APP_ID != ''")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual(mint["with"]["permission-actions"], "write")
+        self.assertEqual(mint["with"]["permission-contents"], "read")
+        cancel = next(step for step in self.job["steps"] if step.get("name") == "Cancel queued runs nobody will read")
+        self.assertEqual(cancel["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
 
 if __name__ == "__main__":

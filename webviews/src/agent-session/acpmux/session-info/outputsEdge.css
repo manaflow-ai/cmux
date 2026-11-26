@@ -20,6 +20,7 @@
   pointer-events: none;
   opacity: 0;
   background: color-mix(in srgb, var(--glass-surface, var(--agent-page-bg)) calc(var(--cmux-scroll-edge-opacity) * 100%), transparent);
+  /* one-material-allow: a masked scroll-edge fade band (#26720), not a glass surface */
   -webkit-backdrop-filter: blur(var(--cmux-scroll-edge-blur));
   backdrop-filter: blur(var(--cmux-scroll-edge-blur));
 }

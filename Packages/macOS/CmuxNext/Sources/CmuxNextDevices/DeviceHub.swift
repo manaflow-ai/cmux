@@ -72,6 +72,9 @@ public final class DeviceHub {
     /// The relay secret store (the Keychain): every call off the main actor, one at a time.
     @ObservationIgnored let vault: RelaySecretVault
     @ObservationIgnored let platform: DevicePlatform
+    /// What registration names this Mac and this install by (``DeviceIdentity/machineKey``, the bundle id); nil omits it.
+    @ObservationIgnored let machineKey: String?
+    @ObservationIgnored let appId: String?
     @ObservationIgnored let now: @Sendable () -> Date
     /// Makes a new identity when the hub refuses this one (`device_removed`, `device_key_mismatch`).
     @ObservationIgnored let renewIdentity: (@Sendable () throws -> DeviceIdentity)?
@@ -92,13 +95,16 @@ public final class DeviceHub {
     @ObservationIgnored private var generation = 0
 
     public init(client: DeviceHubClient, socket: DeviceHubSocket? = nil, secrets: any RelaySecretStore, deviceName: String,
-                platform: DevicePlatform = .macos, renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
+                platform: DevicePlatform = .macos, machineKey: String? = nil, appId: String? = nil,
+                renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
         self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client))
         vault = RelaySecretVault(store: secrets)
         self.deviceName = deviceName
         self.platform = platform
+        self.machineKey = machineKey
+        self.appId = appId
         self.renewIdentity = renewIdentity
         self.now = now
     }
@@ -112,6 +118,7 @@ public final class DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens, buildSpace: buildSpace),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain), deviceName: deviceName,
+                         machineKey: DeviceIdentity.machineKey, appId: bundleIdentifier,
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) })
     }
 
@@ -139,7 +146,8 @@ public final class DeviceHub {
     var deviceList: DeviceList {
         let key = DeviceListKey(thisID: identity.id, name: deviceName, devices: devices)
         if let cached = deviceListCache, cached.key == key { return cached.list }
-        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform, devices: devices)
+        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform,
+                                   thisMachineID: thisDevice?.machineId, devices: devices)
         deviceListCache = (key, list)
         return list
     }
@@ -166,7 +174,7 @@ public final class DeviceHub {
         var registered: HubDevice?
         do {
             do {
-                if ownsDevice { registered = try await client.registerDevice(name: deviceName, platform: platform) }
+                if ownsDevice { registered = try await client.registerDevice(name: deviceName, platform: platform, machineKey: machineKey, appId: appId) }
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -174,7 +182,7 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                registered = try await client.registerDevice(name: deviceName, platform: platform)
+                registered = try await client.registerDevice(name: deviceName, platform: platform, machineKey: machineKey, appId: appId)
             }
             guard run == generation else { return }
             // The hub's own answer for this device: This Mac draws from it before the list arrives (the sharing
@@ -195,6 +203,9 @@ public final class DeviceHub {
                 await hub.hub?.handle(event)
             }
         }
+        // The list over HTTP now, not only once the socket connects: a socket that never connects
+        // left This Mac undrawn and the page at "Loading your devices…" (CMUX-13, as the shared hub does).
+        await refreshDevices()
     }
 
     /// Signed out: closes the socket and forgets the account and every record.
@@ -372,7 +383,8 @@ public final class DeviceHub {
             devices = value
             devicesListed = true
             devicesListError = nil
-            logger.info("device hub list read: \(value.count, privacy: .public) devices")
+            let listsThis = value.contains { $0.id == identity.id }
+            logger.info("device hub list read: \(value.count, privacy: .public) devices, this device listed: \(listsThis, privacy: .public)")
             forgetPermissions(notListedIn: Set(value.map(\.id)))
         } catch {
             guard run == generation else { return }

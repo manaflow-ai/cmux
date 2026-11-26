@@ -154,6 +154,7 @@ async fn route(cloud: &FakeAutoCloud, call: &Call) -> CloudResult<(u16, Vec<u8>)
         Kind::Get => session(cloud.get(id).await?),
         Kind::Lease => json(&cloud.lease(id, &body(call)?).await?),
         Kind::Release => session(cloud.release(id, &body(call)?).await?),
+        Kind::Give => session(cloud.give(id, &body(call)?).await?),
         Kind::EventsAppend => {
             json(&EventsAppended { last_seq: cloud.append_events(id, &body(call)?).await? })
         }

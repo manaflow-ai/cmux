@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.idleInstallQuiet.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How long you must be idle before a nightly installs."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المدة التي يجب أن تبقى فيها خاملًا قبل تثبيت إصدار nightly."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koliko dugo morate biti neaktivni prije nego što se nightly instalira."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor længe du skal være inaktiv, før en nightly installeres."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie lange du inaktiv sein musst, bevor sich ein Nightly installiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuánto tiempo debes estar inactivo antes de que se instale una nightly."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Durée d'inactivité requise avant qu'une nightly s'installe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Per quanto tempo devi restare inattivo prima che si installi una nightly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nightly がインストールされる前に、操作していない必要がある時間。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រយៈពេលដែលអ្នកត្រូវតែនៅទំនេរ មុនពេលកំណែ nightly ដំឡើង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nightly가 설치되기 전에 사용하지 않아야 하는 시간입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor lenge du må være inaktiv før en nightly installeres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak długo musisz być bezczynny, zanim wersja nightly się zainstaluje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Por quanto tempo você deve ficar ocioso antes que uma nightly se instale."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сколько вы должны бездействовать, прежде чем nightly-сборка установится."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ระยะเวลาที่คุณต้องไม่ได้ใช้งาน ก่อนที่ nightly จะติดตั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir nightly yüklenmeden önce ne kadar süre boşta kalmanız gerektiği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скільки часу ви маєте бездіяти, перш ніж nightly-збірка встановиться."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bạn phải không hoạt động trong bao lâu trước khi bản nightly cài đặt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nightly 安装前你需要保持空闲的时长。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nightly 安裝前你需要保持閒置的時長。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
