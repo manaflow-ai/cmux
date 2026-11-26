@@ -619,12 +619,16 @@ jobs:
           # One transient clone failure dropped every before clip of a tour:
           # run 45837430593 (job 139976029698) lost ghostty-next's clone to
           # "curl 18" and "early EOF", so 3 highlights sharing before tree
-          # 8f9660c2 got no app. Try 3 times, 30 s apart (an intentional
-          # bounded delay before retrying a network fetch).
+          # 8f9660c2 got no app; after the first failure every retry hit a dead
+          # local proxy (127.0.0.1:18434) in 0 ms. So each submodule whose pin
+          # the head checkout or the fleet's submodule mirrors already hold is
+          # read from there over file:// (no network); the rest go to their URL.
+          # Try 3 times, 30 s apart (an intentional bounded delay before
+          # retrying a network fetch).
           submodules() {  # TREE
             local try
             for try in 1 2 3; do
-              git -C "$1" submodule update --init --recursive && return 0
+              "$GITHUB_WORKSPACE/scripts/cmux-next/media/submodules-from-local.sh" "$1" "$GITHUB_WORKSPACE/.git" && return 0
               [ "$try" = 3 ] || sleep "${MEDIA_SUBMODULE_RETRY_SECONDS:-30}"
             done
             return 1
@@ -869,12 +873,16 @@ jobs:
           # One transient clone failure dropped every before clip of a tour:
           # run 45837430593 (job 139976029698) lost ghostty-next's clone to
           # "curl 18" and "early EOF", so 3 highlights sharing before tree
-          # 8f9660c2 got no app. Try 3 times, 30 s apart (an intentional
-          # bounded delay before retrying a network fetch).
+          # 8f9660c2 got no app; after the first failure every retry hit a dead
+          # local proxy (127.0.0.1:18434) in 0 ms. So each submodule whose pin
+          # the head checkout or the fleet's submodule mirrors already hold is
+          # read from there over file:// (no network); the rest go to their URL.
+          # Try 3 times, 30 s apart (an intentional bounded delay before
+          # retrying a network fetch).
           submodules() {  # TREE
             local try
             for try in 1 2 3; do
-              git -C "$1" submodule update --init --recursive && return 0
+              "$GITHUB_WORKSPACE/scripts/cmux-next/media/submodules-from-local.sh" "$1" "$GITHUB_WORKSPACE/.git" && return 0
               [ "$try" = 3 ] || sleep "${MEDIA_SUBMODULE_RETRY_SECONDS:-30}"
             done
             return 1

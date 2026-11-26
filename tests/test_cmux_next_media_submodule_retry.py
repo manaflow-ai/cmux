@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-media.yml"
 
 FAKE_GIT = """#!/usr/bin/env bash
-here="$(dirname "$0")"
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 n=$(( $(cat "$here/calls" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$here/calls"
 [ "$n" -gt "$(cat "$here/fails")" ] || { echo "error: RPC failed; curl 18" >&2; exit 1; }
@@ -64,8 +64,12 @@ class SubmoduleRetryTest(unittest.TestCase):
             (bin_ / "git").write_text(FAKE_GIT)
             (bin_ / "git").chmod(0o755)
             (bin_ / "fails").write_text(str(fails))
+            # Each try runs submodules-from-local.sh from the workspace: stand in the fake git for it.
+            ws = bin_ / "ws"
+            (ws / "scripts/cmux-next/media").mkdir(parents=True)
+            (ws / "scripts/cmux-next/media/submodules-from-local.sh").symlink_to(bin_ / "git")
             script = function(run) + '\nsubmodules /tree\n'
-            env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}",
+            env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "GITHUB_WORKSPACE": str(ws),
                    "MEDIA_SUBMODULE_RETRY_SECONDS": "0"}
             p = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
             return p.returncode, int((bin_ / "calls").read_text())
