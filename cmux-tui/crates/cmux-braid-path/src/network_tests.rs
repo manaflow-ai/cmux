@@ -11,8 +11,11 @@ fn the_same_network_reads_the_same_and_another_reads_differently() {
     let office = Fingerprint::of(Some(Ipv4Addr::new(10, 0, 4, 7)), None).unwrap();
     assert_ne!(home, office);
     // The value is kept on disk: it must not change between builds.
-    assert_eq!(home.to_hex().len(), 16);
-    assert_eq!(home.to_hex(), Fingerprint::of(Some(Ipv4Addr::new(192, 168, 1, 23)), None).unwrap().to_string());
+    assert_eq!(home.to_hex(), "968c245c868e138e");
+    assert_eq!(
+        home.to_hex(),
+        Fingerprint::of(Some(Ipv4Addr::new(192, 168, 1, 23)), None).unwrap().to_string()
+    );
 }
 
 #[test]

@@ -9,8 +9,9 @@
 //!   "at":<ms>,"networks":{"<network fingerprint, hex>":{"route":...,"at":...}}}}}`. The top
 //! level is the latest winner on any network; `networks` keeps the winner per network
 //! (RFD 0164 B2, `cmux_braid_path::Fingerprint`), so the route that won at home comes first
-//! again at home after a day at the office. Files from before B2 read as a latest only. The route is kept as a hash: a route URL can carry a capability in its
-//! path or query, and only "is this candidate the one that worked" is ever asked of it.
+//! again at home after a day at the office. Files from before B2 read as a latest only. The
+//! route is kept as a hash: a route URL can carry a capability in its path or query, and only
+//! "is this candidate the one that worked" is ever asked of it.
 //!
 //! A remembered route that is not among the candidates, or older than [`STALE_AFTER`], is
 //! ignored. One that fails is forgotten at once, so a stale memory costs at most one attempt.

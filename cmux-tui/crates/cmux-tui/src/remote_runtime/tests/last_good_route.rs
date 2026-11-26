@@ -641,18 +641,15 @@ fn a_failure_on_one_network_keeps_the_other_networks_winner() {
 
     // A file written before B2.
     let path = state.path().join(route_last_good::FILE_NAME);
-    let old = LastGoodRoute::open_on(None, Some(DAEMON), None).unwrap();
-    drop(old);
     let hash = {
         let memory = LastGoodRoute::open_on(Some(state.path()), Some([9; 32]), None).unwrap();
         memory.connected(&routes[0].endpoint);
         let file: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         file["daemons"][&"09".repeat(32)]["route"].as_str().unwrap().to_owned()
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
     let text = serde_json::json!({"version": 1, "daemons": {
         "07".repeat(32): {"route": hash, "at": now, "connectMs": 12}
     }});
