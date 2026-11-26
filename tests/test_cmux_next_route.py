@@ -627,7 +627,7 @@ class PullRequestTiers(unittest.TestCase):
             # Never on a feat-cmux-next PR (not even full-ci): other bases only.
             "swift-test": "github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
             # Dev-build only on a feat-cmux-next PR: the label branch of the clause.
-            "cmux-scheme-compile": "contains(github.event.pull_request.labels.*.name, 'dev-build')",
+            "cmux-scheme-compile": "contains(needs.path_route.outputs.labels, ',dev-build,')",
             # Push only.
             "release-compile-fast": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
             "fast-tier-rerun-placement": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
