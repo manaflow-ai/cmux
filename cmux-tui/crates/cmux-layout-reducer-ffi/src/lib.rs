@@ -38,6 +38,8 @@
 //! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
 //! ticket, signaling frames, follow mode's focus producer, viewer demand, the
 //! cursor shape delivery);
+//! `vnc_*`: the VNC client's rules for Packages/Shared/CmuxVNC (`cmux-vnc`:
+//! addresses, keysyms, security choice, version, authentication responses);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -114,6 +116,7 @@ pub mod tab_drag;
 mod tab_groups;
 mod tab_strip;
 pub mod typed;
+mod vnc;
 pub mod window_close_selection;
 mod window_rules;
 use sidebar_mirror::Mirror;
@@ -649,6 +652,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
+            operation if vnc::handles(operation) => vnc::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
