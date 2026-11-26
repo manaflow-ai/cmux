@@ -919,7 +919,7 @@ impl Hub {
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
         // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
         // also have ended by now; a permission asked again), it stands. Else the status loaded from
-        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // disk is replaced as a turn's end does (`turns/finish.rs` `finish_turn`): `waiting` while
         // something still asks the person, `ready` otherwise, read under the permissions lock
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
