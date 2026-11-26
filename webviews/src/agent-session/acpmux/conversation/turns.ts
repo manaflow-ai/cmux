@@ -1719,7 +1719,7 @@ const LIVE_SLOT: Partial<AcpmuxRow> = { below: true };
 /// accomodating for the working and the thinking already"). Its line under it reads only "Thinking", as the
 /// headed live turn's does. None where the running turn would draw no header (`livesUnderHeader`).
 function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, expanded: Folds): AcpmuxRow[] {
-  if (experimentArm(liveTurnClock) !== "top" || !sentByPerson(sent)) return [];
+  if (experimentArm(liveTurnClock) !== "top" || !headsOwnTurn(sent)) return [];
   line.untimed = true;
   const header: AcpmuxRow = { id: turnHeaderId(sent.id), version: 1, at: sent.at, kind: WORKED, turnPhase: "running" };
   if (experimentArm(liveTurnWork) === "folded") header.foldOpen = expanded.has(turnHeaderId(sent.id));
@@ -2460,7 +2460,7 @@ function shapeTurn(
       first &&
       segments.length === 1 &&
       style.conclusion &&
-      sentByPerson(user) &&
+      headsOwnTurn(user) &&
       summary.status === "completed" &&
       body.some((row) => row.kind === "assistant") &&
       steerDialogue.size === 0 &&
@@ -3607,7 +3607,7 @@ function livesUnderHeader(
   // first call) or going at the end moves what is under it (Leo, 2026-11-22: "accounting for space for the
   // worked for/working heading should always be there anyways so it disappearing means there's multiple
   // problems"). Its end draws the "Worked for" in the same place (shapedTurn `holdsHeader`).
-  return foldsPrompt || sentByPerson(user) || worked;
+  return foldsPrompt || headsOwnTurn(user) || worked;
 }
 
 /// A turn's header (`shapeLiveTurn`, `shapeTurn`), keyed by the turn's prompt: its "Working for"
@@ -3825,6 +3825,12 @@ export const compactPrompt = (row: AcpmuxRow) =>
 /// message, a task's result or harness bookkeeping.
 const sentByPerson = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
+
+/// The person's own prompt that holds its turn's "Working for" from the send (`sentHeader`, `livesUnderHeader`,
+/// `holdsHeader`). Not a /compact: its turn compacts first and its header goes under a steer sent while it
+/// compacts (`compactedSteer`, #57527), so a header held over the /compact would land above that steer and
+/// then move under it.
+const headsOwnTurn = (row: AcpmuxRow) => sentByPerson(row) && !compactPrompt(row);
 
 /// The pane's own row for a steer the person sent into the running turn, before acpmux's record of it.
 const sentSteer = (row: AcpmuxRow) =>
