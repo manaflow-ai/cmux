@@ -2367,6 +2367,11 @@ jobs:
   # A post-merge batch run on the base tip (inputs.sha is the run's own commit, every job) records as a push did;
   # a bisect probe (an older commit, or one job) never does.
   webviews-test-history:
+    # The R2 write credentials for the base-log save below: only a feat-cmux-next run enters next-cache-writer
+    # (deployment branches feat-cmux-next only), which writes only NEXT's own bucket; elsewhere it saves nothing.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}

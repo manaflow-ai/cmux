@@ -43,6 +43,11 @@ path = "tests/test_nightly_cmux_tui_resolve.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_component_fallbacks.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_component_fallbacks.py"
+
+[[test]]
 path = "tests/test_nightly_dedicated_mini.py"
 lane = "linux-guard"
 
@@ -64,6 +69,11 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that 
 path = "tests/test_nightly_deltas_yield.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that build-nightly-deltas waits for a quiet nightly-next loop before the keyed job asks for the signer Mac, and skips deltas the live feed has passed; run python3 tests/test_nightly_deltas_yield.py yourself after changing the yield script or the three delta jobs (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_early_webviews.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_early_webviews.py"
 
 [[test]]
 path = "tests/test_nightly_fallback_covers.py"
