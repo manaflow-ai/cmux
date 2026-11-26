@@ -34,6 +34,10 @@ public final class LiveCoordinator {
     public internal(set) var banner: ConnectionBannerState?
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
+    /// When the presence socket last went down, until its next hello (``presenceReturned``).
+    private var presenceLostAt: ContinuousClock.Instant?
+    /// When the last network path change redialed the links.
+    private var lastPathNudge: ContinuousClock.Instant?
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
     /// user the first time; Allow then signs with the approval key.
@@ -387,19 +391,21 @@ public final class LiveCoordinator {
     /// rebuilt on `session` now (its store reads the session's source), and the message goes as
     /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
     private func unboundStart(_ owner: MacSession, summary: AgentSessionSummary, key: String) -> UnboundAgentSource.Start {
-        { [weak self, weak owner] (text: String, attachments: [AgentAttachment]) async throws in
+        { [weak self, weak owner] (_: String, _: [AgentAttachment]) async throws in
             guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
             let session = try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness)
-            self.sendFirst(text, attachments: attachments, session: session, summary: summary, key: key)
+            self.bindFirst(session: session, summary: summary, key: key)
         }
     }
 
-    private func sendFirst(_ text: String, attachments: [AgentAttachment], session: String,
-                           summary: AgentSessionSummary, key: String) {
+    func bindFirst(session: String, summary: AgentSessionSummary, key: String,
+                   directory: AgentSessionDirectory = .shared) {
         boundHere[key] = session
         sourcedSessions[key] = nil
-        AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
-        AgentSessionDirectory.shared.store(for: summary).send(prompt: text, attachments: attachments)
+        directory.invalidate(id: summary.id, macID: summary.macID)
+        // Rebuilding adopts the first message under its original prompt id. Sending its text
+        // again here would mint another id and make the Mac execute the same message twice.
+        _ = directory.store(for: summary)
     }
 
     /// A tab's new chat source: a loading one keeps the earlier loading source's held prompts; a
@@ -489,6 +495,7 @@ public final class LiveCoordinator {
             log.info("network changed: \(path, privacy: .public)")
             incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
+            lastPathNudge = instants.now()
             presence?.kick()
             discovery.wake()
             guard let teamID = registeredTeamID else { return }
@@ -500,6 +507,26 @@ public final class LiveCoordinator {
             }
         }
     }
+
+    /// The presence socket's hello after an outage proves the cmux service is reachable
+    /// again: every waiting or dialing link dials now, not at the end of its backoff step
+    /// or a dial still hanging on the dead path. This is the Wi-Fi-back signal when iOS
+    /// reports no path change (the radio stayed "satisfied" through an elevator). A kick's
+    /// own reconnect (down a moment) and a path change just handled do not count.
+    private func presenceReturned() {
+        guard let lostAt = presenceLostAt else { return }
+        presenceLostAt = nil
+        let now = instants.now()
+        guard now - lostAt >= Self.presenceOutageMin else { return }
+        if let nudged = lastPathNudge, now - nudged < Self.presenceOutageMin { return }
+        log.info("presence back after an outage: links redial")
+        ConnectTimeline.shared.mark("presence_back")
+        if store.isOffline { store.isOffline = false }
+        for session in sessions.values { session.link.send(.networkChanged) }
+    }
+
+    /// Presence down at least this long before its return redials the links.
+    static let presenceOutageMin: Duration = .seconds(3)
 
     // MARK: Warm start
 
@@ -838,7 +865,10 @@ public final class LiveCoordinator {
         guard store.activeTeamID == teamID else { return }
         switch update {
         case .connected(let connected):
+            let was = presenceConnected
             presenceConnected = connected
+            if was && !connected { presenceLostAt = instants.now() }
+            if connected && !was { presenceReturned() }
         case .snapshot(let macs):
             applyMacs(macs, teamID: teamID, askedAt: removedMacs.mark)
         case .mac(let mac) where mac.removed == true:

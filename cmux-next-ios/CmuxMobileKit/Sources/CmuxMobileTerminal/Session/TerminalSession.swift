@@ -70,12 +70,11 @@ public enum TerminalConnectionState: Sendable, Equatable {
     private static func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
 
     /// The quiet line by the composer once an outage has lasted
-    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
-    /// transport error ("daemon channel closed").
+    /// `QuietStatusGate.threshold`. Connecting and reattaching stay silent;
+    /// offline and failed states use plain words, never transport errors.
     public var quietLine: String? {
         switch self {
-        case .connecting(let mac): return "Connecting to \(Self.named(mac))…"
-        case .reattaching(let mac): return "Reconnecting to \(Self.named(mac))…"
+        case .connecting, .reattaching: return nil
         case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
