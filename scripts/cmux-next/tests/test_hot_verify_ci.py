@@ -591,7 +591,7 @@ class Workflow(unittest.TestCase):
         # nightly copy; at the merge commit the tree is published and the engine plans from its first parent. The
         # closed event plans and dispatches that look once, and only when the PR has no receipt yet.
         text = WORKFLOW.read_text()
-        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed", text)
         self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
         self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
         # The plan job's last step dispatches the look (the hand-off was its own job until 2026-11-23).
@@ -727,6 +727,9 @@ class Workflow(unittest.TestCase):
         feed = "<rss><channel>" + item(10, APP) + item(12, OTHER, "cmux-next-dev") + item(11, HEAD) + "</channel></rss>"
         self.assertEqual(hv.nightly_commit(feed), HEAD)
         self.assertEqual(hv.nightly_commit("<rss/>"), "")
+        # The writer (publish-nightly-next-r2.py add_source) binds cmux: inline on the tag itself.
+        inline = feed.replace("<cmux:sourceCommit>", '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">')
+        self.assertEqual(hv.nightly_commit(inline), HEAD)
         plan = "\n".join(self.job_block("plan"))
         self.assertIn('"$tool" nightly-commit', plan)
         self.assertIn('${base[@]+"${base[@]}"}', plan)
@@ -751,8 +754,8 @@ class Workflow(unittest.TestCase):
 
     def test_the_plan_fetch_tries_a_stalled_transport_again(self) -> None:
         lines = WORKFLOW.read_text().splitlines()
-        start = next(i for i, line in enumerate(lines) if line.strip() == "fetch() {")
-        body = textwrap.dedent("\n".join(lines[start:start + 9]))
+        start = next(i for i, line in enumerate(lines) if line.strip() == "fetch_retry() {")
+        body = textwrap.dedent("\n".join(lines[start:start + 8]))
         scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-fetch-retry-")))
         (scratch / "git").write_text(f'#!/bin/bash\nn=$(cat {scratch}/n 2>/dev/null || echo 0); echo $((n+1)) > {scratch}/n\n'
                                      '[[ $n -ge 2 ]]\n')
@@ -760,11 +763,11 @@ class Workflow(unittest.TestCase):
         (scratch / "sleep").write_text("#!/bin/bash\n")
         (scratch / "sleep").chmod(0o755)
         env = {**os.environ, "PATH": f"{scratch}:{os.environ['PATH']}"}
-        done = subprocess.run(["bash", "-c", body + "\nfetch 5 origin x"], env=env, capture_output=True, text=True)
+        done = subprocess.run(["bash", "-c", body + "\nfetch_retry 5 origin x"], env=env, capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual((scratch / "n").read_text().strip(), "3")
         (scratch / "n").write_text("-9")
-        done = subprocess.run(["bash", "-c", body + "\nfetch 5 origin x"], env=env, capture_output=True, text=True)
+        done = subprocess.run(["bash", "-c", body + "\nfetch_retry 5 origin x"], env=env, capture_output=True, text=True)
         self.assertNotEqual(done.returncode, 0)
         self.assertEqual((scratch / "n").read_text().strip(), "-6")
 
@@ -945,6 +948,19 @@ class PullRequestRead(unittest.TestCase):
         target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
         self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
         self.assertIn("permission-pull-requests: read", target)
+
+    # 2026-11-25: every web and rust layer went red on github.token's spent hour ("API rate limit exceeded for
+    # installation", jobs 139099457954 and 139101072630).
+    def test_web_layer_dispatch_moves_to_the_spare_when_rate_limited(self) -> None:
+        web = WORKFLOW.read_text().split("\n  web:", 1)[1].split("\n  rust:", 1)[0]
+        self.assertIn("- name: Mint the dispatch's spare token", web)
+        self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", web)
+        self.assertIn('tokens+=("$GH_TOKEN_SPARE")', web)
+
+    def test_rust_layer_reads_the_pull_request_only_when_it_will_dispatch(self) -> None:
+        rust = WORKFLOW.read_text().split("\n  rust:", 1)[1].split("\n  request:", 1)[0]
+        ask = rust.split("- name: Ask for the head's tree when it is not published", 1)[1]
+        self.assertLess(ask.index('if [[ "${LOOK_DISPATCH:-}" != 1 ]]'), ask.index("gh api"))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { useLiveSummary, useLiveSummaryValue } from "./liveSummary";
 import { acpmuxPerf } from "./perf";
+import { KeyHint } from "../../ui/KeyHint";
 import React, {
   useCallback,
   useContext,
@@ -38,7 +39,6 @@ import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
@@ -147,6 +147,7 @@ import {
   modelFamily,
   reasoningChoices,
   effortTakes,
+  hintIsKey,
 } from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -1126,12 +1127,27 @@ export function ComposerPickers({
     awaiting &&
     modes.length === 0 &&
     ((profileModes?.modeless ?? chipCatalogEntry?.modeless) === true || (chipCatalogEntry !== undefined && !someModes));
+  // A harness whose modes acpmux knows only from its harness row (`reported`: its startup probe, or
+  // a chat of it this daemon ran, such as Antigravity's) and where acpmux sets no start mode (it has
+  // no full-access mode, start_mode.rs): a new chat starts in the harness's own start mode, which
+  // the chip names.
+  const reportedRows = chipCatalogEntry?.reportedModes ?? [];
+  // Only once acpmux answered that it sets none (`null`): before its answer the "Mode" placeholder
+  // holds the place, so a start mode acpmux does set never renames the chip.
+  const ownStartRow =
+    asksStart && startAnswer === null
+      ? reportedRows.find((row) => row.id === chipCatalogEntry?.ownStartMode)
+      : undefined;
+  const ownStart: KeptStartMode | undefined = ownStartRow
+    ? { modeId: ownStartRow.id, ...(ownStartRow.name ? { name: ownStartRow.name } : {}) }
+    : undefined;
   const startMode: KeptStartMode | undefined =
     (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     (modeless
       ? undefined
       : (startAnswer ??
         (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
+        ownStart ??
         (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined)));
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
@@ -1140,7 +1156,7 @@ export function ComposerPickers({
     cloudDefaultMenu ??
     modeMenu ??
     harnessModeMenu(undefined, chipHarness, [
-      ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
+      ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? reportedRows).map((choice) => choice.id),
       ...(startMode && !startMode.borrowed ? [startMode.modeId] : []),
     ]);
   // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
@@ -1181,7 +1197,10 @@ export function ComposerPickers({
         summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
         chipHarness,
       );
-    const profileModes = cloudDefaultMenu ? [] : (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []);
+    // This pane's last session of the harness, else what its harness row reports (`reported`).
+    const profileModes = cloudDefaultMenu
+      ? []
+      : (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? reportedRows);
     const rows: readonly { id: string; name?: string; description?: string }[] =
       profileModes.length > 0 ? profileModes : (menu?.rows ?? []);
     const known = shownModes(
@@ -1452,7 +1471,7 @@ export function ComposerPickers({
         // the model chip, with no menu and no chevron. Before acpmux answers, nothing shows.
         harnessesListed &&
         onAddAgent && (
-          <span className="acpmux-picker acpmux-model">
+          <span className="acpmux-picker acpmux-model" data-chip-icon="off">
             <button type="button" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
               <span className="acpmux-model-name">{t("composer.addHarness")}</span>
             </button>
@@ -2174,7 +2193,7 @@ export function ContextRing({
       >
         {/* Known usage shows this card in place of the ring's tooltip, so the card names the key
             (Show Context Usage) where the tooltip would: top right, in the secondary ink. */}
-        {ringShortcut && <span className="ui-tooltip-hint acpmux-context-card-hint">{ringShortcut}</span>}
+        {ringShortcut && <KeyHint keys={ringShortcut} className="ui-tooltip-hint acpmux-context-card-hint" />}
         {planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
@@ -2292,6 +2311,7 @@ export function Picker({
   onOpen,
   resizeId,
   returnHint = false,
+  side = "top",
 }: {
   label: string;
   className: string;
@@ -2308,6 +2328,8 @@ export function Picker({
   resizeId?: string;
   /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
   returnHint?: boolean;
+  /// Where the menu opens: over the button (a composer's bar at the bottom of its pane), or under it (New Tab's +).
+  side?: "top" | "bottom";
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2359,7 +2381,7 @@ export function Picker({
         </MenuButton>
         <MenuPopup
           label={heading ?? label}
-          side="top"
+          side={side}
           align={align}
           // Pointer closes return to the opener (the prompt). If an action deliberately focuses a
           // different field, Menu's focusAfterClose detects that and leaves it there; keeping the
@@ -2475,13 +2497,18 @@ const PickerMenuItem = memo(function PickerMenuItem({
           </span>
         )}
       </span>
-      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {choice.hint &&
+        (hintIsKey(choice.hint) ? (
+          <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
+        ) : (
+          <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
+        ))}
       {returnHint && choice.verb && (
         // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
         // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
         <span className="acpmux-menu-return" aria-hidden="true">
           <span className="acpmux-menu-return-verb">{choice.verb}</span>
-          <Keycap>↩</Keycap>
+          <KeyHint keys="↩" />
         </span>
       )}
       {current && <CheckIcon />}
@@ -2640,7 +2667,7 @@ export const CheckIcon = () => (
 );
 export const PlusIcon = () => (
   <Icon>
-    <path d="M8 2.75v10.5M2.75 8h10.5" />
+    <path d="M8 1.9v12.2M1.9 8h12.2" />
   </Icon>
 );
 /** The folder menu's Use path row: the folder chip's own folder outline. */
@@ -2688,8 +2715,8 @@ export const AtIcon = () => (
 );
 export const MicIcon = () => (
   <Icon>
-    <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
-    <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
+    <rect x="5.7" y="1.9" width="4.6" height="7.6" rx="2.3" />
+    <path d="M3.5 7.4a4.5 4.5 0 0 0 9 0M8 11.9v2.2" />
   </Icon>
 );
 export const SlashIcon = () => (
@@ -2800,6 +2827,7 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
             : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
+            // retry-prompt-ok: runs the harness's install (and its sign-in) again, a command with side effects.
             { label: t("picker.tryAgain"), run: retryHarnessSetup },
             ...(docsUrl
               ? [
