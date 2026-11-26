@@ -32,7 +32,7 @@ extension LayoutRootView {
     /// spring moves anything (its frame's one pass owns the presentation) or under Reduce Motion.
     /// - Returns: Whether the event's input landed now.
     func applyInputAtEvent() -> Bool { // perf-hot: 4ms motion-frame (each divider drag event that lands)
-        guard Self.inputLandsAtEvent, isLive, window != nil, driver.isAttached, !context.reduceMotion,
+        guard context.inputLandsAtEvent, isLive, window != nil, driver.isAttached, !context.reduceMotion,
               !context.inputLandedSinceTick,
               screenViews.values.contains(where: { $0.activeDrag?.waiting == true }),
               !screenViews.values.contains(where: \.hasMotion) else { return false }
