@@ -659,7 +659,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
@@ -699,6 +701,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Set up pinned Rust
+        timeout-minutes: 8
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
@@ -2409,11 +2412,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # The R2 write credentials (cmux-ci-cache-next) enter only on feat-cmux-next, through next-cache-writer
-    # (deployment branch feat-cmux-next only); the caller passes them only there (cache-receipts guard).
-    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
-    env:
-      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - name: Checkout the history helper
         id: history-checkout
