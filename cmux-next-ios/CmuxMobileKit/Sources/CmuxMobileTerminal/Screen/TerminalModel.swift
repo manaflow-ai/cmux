@@ -731,6 +731,16 @@ public final class TerminalModel {
         }
     }
 
+    /// The card's picture as last drawn, once the off-main render in flight (if any) lands: kept
+    /// as the tab's last-known picture when the person leaves the tab or the app goes to the
+    /// background (`TabCardSnapshots`). The page's snapshot once it drew the Mac's output, else
+    /// the frame the tab was restored with: never a page from before the first attach (as
+    /// `frameToKeep`). Nothing is rendered here.
+    public func cardPictureToKeep() async -> UIImage? {
+        await cardRender?.value
+        return drewLiveOutput ? snapshot : restoredFrame
+    }
+
     /// The last off-main card render (tests await it).
     @ObservationIgnored private(set) var cardRender: Task<Void, Never>?
     @ObservationIgnored private var cardRenders = 0

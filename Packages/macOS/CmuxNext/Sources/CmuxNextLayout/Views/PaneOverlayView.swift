@@ -74,6 +74,7 @@ final class PaneOverlayView: NSView {
             guard showsContentFrame != oldValue else { return }
             for layer in [border, ring, glowClip, focusFlash] { layer.isHidden = !showsContentFrame }
             wallpaperRim.suppressed = !showsContentFrame
+            accentGlowLayer?.isHidden = !showsContentFrame
         }
     }
     /// This pane was the focused one at the last update.
@@ -89,6 +90,10 @@ final class PaneOverlayView: NSView {
     /// (``setShape(padding:cornerRadius:bands:wholeCard:clip:)``).
     private var wholeCard = false
     private var focusRing = FocusRingSettings()
+    /// The theme's glow around the focused pane (`appearance.accentGlow.*`), `PaneOverlayView+AccentGlow`.
+    var accentGlow: ThemeFlourishes.Glow?
+    /// Its layer, made only once a theme sets a glow (none otherwise).
+    var accentGlowLayer: CALayer?
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
     /// The attention ring glows (`notifications.attention.ringStyle` glow), `PaneOverlayView+Glow`.
@@ -257,6 +262,7 @@ final class PaneOverlayView: NSView {
             sublayer.cornerRadius = ringRadius
             sublayer.maskedCorners = ringCorners
         }
+        layoutAccentGlow(rect: rect, radius: ringRadius)
         dimLayer.frame = padded
         // The dim covers the whole padded rect. A whole card rounds all four
         // of its corners; any other pane only the corners the content area
@@ -336,7 +342,8 @@ final class PaneOverlayView: NSView {
         if layer.mask !== mask { layer.mask = mask }
     }
 
-    func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
+    func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings,
+                accentGlow: ThemeFlourishes.Glow? = nil, ringAlphaOverride: CGFloat? = nil,
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
                 readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         self.dimFill = dimFill
@@ -345,11 +352,12 @@ final class PaneOverlayView: NSView {
         attentionAgentChat = mark?.agentChat ?? attentionMark?.agentChat ?? attentionAgentChat
         let attentionSettings = attentionSettings.surface(agentChat: attentionAgentChat)
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
-            || borderStyle.width != self.borderStyle.width
+            || borderStyle.width != self.borderStyle.width || accentGlow != self.accentGlow
         let showsBorder = borderStyle.shows
         let glowChanged = attentionSettings.ringStyle != self.attentionSettings.ringStyle
         self.borderStyle = borderStyle
         self.focusRing = focusRing
+        self.accentGlow = accentGlow
         self.ringAlphaOverride = ringAlphaOverride
         self.attentionSettings = attentionSettings
         if shapeChanged { layoutLayers() }
@@ -385,6 +393,7 @@ final class PaneOverlayView: NSView {
         Motion.feedback.transaction(animated ? .focus : nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
         }
+        applyAccentGlowOpacity(shows: (showsRing || focused) && accentGlow != nil, animated: animated)
         Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
         if Self.flashesFocus(wasFocused: isFocusedPane, focused: focused, requested: flashesFocus, ringShows: style != .none) {
             Motion.feedback.set(focusFlash, "opacity", to: Float(0), fade: .focusFlash, from: Float(1))
@@ -396,16 +405,6 @@ final class PaneOverlayView: NSView {
         applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
     }
-
-    /// Whether the ring flashes on this pane: focus just arrived, the screen asked for the flash
-    /// (`ScreenContentView.requestsFocusFlash`, which also needs motion allowed) and no ring
-    /// already marks it.
-    static func flashesFocus(wasFocused: Bool, focused: Bool, requested: Bool, ringShows: Bool) -> Bool {
-        requested && focused && !wasFocused && !ringShows
-    }
-
-    /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
-    static let flashMinimumWidth: CGFloat = 2
 
     /// Reads the highlight look and applies a Debug Settings change once,
     /// without replaying the ring's animation (no polling).
@@ -492,6 +491,7 @@ final class PaneOverlayView: NSView {
             attention.borderColor = attentionColor.cgColor
             attention.shadowColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
+            applyAccentGlowColor()
             // In glass windows the root backdrop owns the ground. An opaque
             // inactive-pane veil would hide the painting and reintroduce the
             // History/terminal mismatch; paneFill is clear in that mode.
