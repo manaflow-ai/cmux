@@ -178,6 +178,10 @@
       "kind": "publish",
       "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
     },
+    "cmux-machine-channel-thin.yml": {
+      "kind": "publish",
+      "why": "builds the Cloud machine channel's thin x86_64 cmux-tui on each feat-cmux-next push and points the channel at it; a deploy of a landed tree, no verdict about a change"
+    },
     "cmux-rd-windows.yml": {
       "kind": "check",
       "why": "cmux-rd Windows build on the base only: Leo cut its advisory pull request run on 2026-11-24 (#54661, goal ci-runner-min-per-day-50k); a red shows on base"
