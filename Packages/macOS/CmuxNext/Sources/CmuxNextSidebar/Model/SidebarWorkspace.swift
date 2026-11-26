@@ -137,6 +137,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
+    /// The acpmux session of the row's agent chat (``AgentSessionRef/session`` of the tab the row names as its
+    /// agent); nil for a row with no agent chat, or a new chat with no session yet. `appearance.agentSignature`
+    /// draws its dot glyph from it (``SidebarAgentSignatures``).
+    public var agentSessionID: String?
     /// The name given to that agent's session (acpmux `displayName`, "Mango") and the one it had before
     /// (the newest of `formerNames`): the hover card's agent line says who it is ("Mango — fka claude-sr2").
     public var agentDisplayName: String?
