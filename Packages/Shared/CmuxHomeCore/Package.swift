@@ -33,13 +33,13 @@ let package = Package(
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"), .swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).
         .target(
             name: "CmuxHomeCoreTestSupport",
             path: "Tests/CmuxHomeCoreTestSupport",
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"), .swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CmuxHomeCoreTests",
@@ -51,7 +51,7 @@ let package = Package(
             ],
             // MessagePreviewTests reads it by path, as the Rust port's tests do: not a bundle resource.
             exclude: ["MessagePreviewCases.json"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"), .swiftLanguageMode(.v6)]
         ),
     ]
 )
