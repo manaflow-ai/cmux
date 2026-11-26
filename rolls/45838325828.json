@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45838325828",
+  "recorded_at": "2026-11-26T14:43:37Z",
+  "reason": "image inputs changed in 671e17750bc342a8991c813f08ff405f98df29c2..a510d72b01050444c67f3b0de89dd86a78c4589b",
+  "dry_run": false,
+  "cmux_tui": "6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7",
+  "fixes": [
+    {
+      "sha": "a510d72b01050444c67f3b0de89dd86a78c4589b",
+      "mergedAt": "2026-11-26T14:22:07Z",
+      "subject": "cmux-vm image-roll-settle: a roll whose production deploy never ran is deployed again, not rolled back (#58649)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-26T14:43:37Z",
+    "snapshot_id": "sh-0b7997274cb24f2288b9d0e579cbd01a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45838325828): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "191d7ccde9cfd5515f39204adedab7d65f9248b4",
+    "image": "cloud-native-auto-6fde033d-45838325828-1",
+    "revision": "ci-45838325828-1",
+    "at": "2026-11-26T14:43:37Z"
+  },
+  "rolled_back": false
+}
