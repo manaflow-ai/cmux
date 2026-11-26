@@ -451,12 +451,12 @@ fold_hosts
 manifest_has() {
   python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
 }
-# install_companion <artifact prefix> <installed name>: the slices --arch needs
+# install_companion <artifact prefix> <installed name> [optional]: the slices --arch needs
 # (both for universal, lipo'd like the client), sha256-verified by fetch_slice.
 # An arm64 install needs no x86_64 slice: off main, cmux-tui-artifacts.yml
 # publishes aarch64-apple-darwin only.
 install_companion() {
-  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch has
+  local prefix="$1" name="$2" optional="${3:-0}" dest="$DEST_DIR/$2" binary arm x64 arch has
   case "$ARCH" in
     arm64) manifest_has "$prefix-aarch64-apple-darwin" && has=1 || has=0 ;;
     x86_64) manifest_has "$prefix-x86_64-apple-darwin" && has=1 || has=0 ;;
@@ -464,11 +464,12 @@ install_companion() {
   esac
   if [[ "$has" != 1 ]]; then
     rm -f "$dest"
-    # --require-companions (the nightly bundle): a companion the build lacks is an
-    # error, so an app without bin/cmux-app-host (every apps/ext call answers
-    # apps.unavailable) never publishes. Nightly 4334303488301 shipped none of the
-    # six when this was only the note below.
-    if (( REQUIRE_COMPANIONS )); then
+    # --require-companions (the nightly bundle): required companions the build
+    # lacks are an error, so an app without bin/cmux-app-host (every apps/ext
+    # call answers apps.unavailable) never publishes. The login-time pre-read
+    # is optional for compatibility with older manifests, though: those builds
+    # legitimately install without bin/cmux-launch-preread.
+    if (( REQUIRE_COMPANIONS && !optional )); then
       echo "error: cmux-tui ${COMMIT:0:10} publishes no $name for $ARCH, so the app would ship without bin/$name (--require-companions)" >&2
       exit 1
     fi
@@ -504,7 +505,7 @@ is_folded cmux-app-host || install_companion cmux-tui-app-host cmux-app-host
 install_companion cmux-tui-cloud-server cmux-cloud
 install_companion cmux-tui-host cmux-tui-host
 install_companion cmux-tui-holder cmux-holder
-install_companion cmux-tui-launch-preread cmux-launch-preread
+install_companion cmux-tui-launch-preread cmux-launch-preread 1
 if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
   is_folded cmux-browser-host || install_companion cmux-tui-browser-host cmux-browser-host
 else
