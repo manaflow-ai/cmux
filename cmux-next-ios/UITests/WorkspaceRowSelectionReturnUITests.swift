@@ -29,7 +29,8 @@ final class WorkspaceRowSelectionReturnUITests: XCTestCase {
 
             // Back button.
             open(app, "ws-cmux", look: look, step: "2-open")
-            let back = app.navigationBars.buttons.firstMatch
+            // The top bar's own Back (identifier chevron.left), not a UINavigationBar button.
+            let back = app.buttons["Back"].firstMatch
             XCTAssertTrue(back.waitForExistence(timeout: 5), "\(look): no Back button")
             back.tap()
             expectNoSelection(app, look: look, step: "3-after-back")
