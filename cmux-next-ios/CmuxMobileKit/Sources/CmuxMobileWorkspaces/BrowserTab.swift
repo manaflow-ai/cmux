@@ -49,6 +49,12 @@ public final class BrowserTabModel: BrowserTabState {
     @ObservationIgnored var loopbackIsOpen: (@MainActor (URL) -> Bool)?
     /// The Mac's last refusal of a forwarded port ("Nothing is listening on port 3000 on this Mac.").
     @ObservationIgnored var loopbackRefusal: (@MainActor (URL) -> String?)?
+    /// Reads an HTML file on the tab's Mac (`file:///…/report.html`) over the link (nil:
+    /// such a page is the Mac's only).
+    @ObservationIgnored var readMacHTML: (@MainActor (URL) async throws -> String)?
+    /// The Mac file this page shows (its address bar reads it, not `about:blank`).
+    @ObservationIgnored private(set) var macFile: URL?
+    @ObservationIgnored private var macFileRead: Task<Void, Never>?
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
@@ -96,6 +102,13 @@ public final class BrowserTabModel: BrowserTabState {
     /// shows why instead.
     public func load(_ target: URL) {
         let reach = PhoneReach(target)
+        macFileRead?.cancel()
+        macFileRead = nil
+        if guardian != nil, BrowserPagePlacement.isMacHTMLFile(target), let read = readMacHTML {
+            loadMacFile(target, read: read)
+            return
+        }
+        macFile = nil
         if guardian != nil, reach == .macOnly {
             refuse(target)
             return
@@ -112,6 +125,35 @@ public final class BrowserTabModel: BrowserTabState {
         url = target
         urlChanged?(target)
         webView.load(URLRequest(url: target))
+    }
+
+    /// An HTML file on the Mac: its bytes come over the link and load here as a page
+    /// (relative images and scripts beside it stay on the Mac; a self-contained report shows whole).
+    private func loadMacFile(_ target: URL, read: @escaping @MainActor (URL) async throws -> String) {
+        problem = nil
+        macFile = target
+        url = target
+        urlChanged?(target)
+        isLoading = true
+        progress = 0.1
+        // task-owner: this tab's one Mac file read; the next load cancels it
+        macFileRead = Task { [weak self] in
+            do {
+                let html = try await read(target)
+                guard let self, !Task.isCancelled, self.macFile == target else { return }
+                self.webView.loadHTMLString(html, baseURL: nil)
+            } catch is CancellationError {
+            } catch {
+                guard let self, !Task.isCancelled, self.macFile == target else { return }
+                self.isLoading = false
+                self.progress = 1
+                let name = target.lastPathComponent
+                let reason = error is MacHTMLUnavailable ? "" : UserFacingError.message(error, fallback: "")
+                self.refuse(target, detail: reason.isEmpty
+                    ? String(localized: "This iPhone couldn't read \(name) from the Mac. The mirrored page can show it.")
+                    : String(localized: "This iPhone couldn't read \(name) from the Mac: \(reason) The mirrored page can show it."))
+            }
+        }
     }
 
     func refuse(_ target: URL, detail: String? = nil) {
@@ -150,6 +192,11 @@ public final class BrowserTabModel: BrowserTabState {
             // A card keeps the address that failed in the bar (as Safari does); WebKit
             // puts its own back on the last page that loaded.
             guard let value, model.problem == nil else { return }
+            // A Mac file's page loads as a string (`about:blank`): the bar keeps the file.
+            if value.absoluteString == "about:blank", let file = model.macFile {
+                model.url = file
+                return
+            }
             model.url = value
             model.urlChanged?(value)
         }
@@ -181,10 +228,19 @@ public final class BrowserTabModel: BrowserTabState {
     }
     public func reloadOrStop() {
         if isLoading {
+            if let read = macFileRead {
+                read.cancel()
+                macFileRead = nil
+                isLoading = false
+                progress = 1
+            }
             webView.stopLoading()
         } else if let problem {
             // Try Again: the failed address, not the last page that loaded.
             load(problem.url)
+        } else if let file = macFile, webView.url?.absoluteString == "about:blank" {
+            // Reload a Mac file: read it again (the agent may have rewritten it).
+            load(file)
         } else {
             _ = webView.reload()
         }
@@ -282,6 +338,13 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
                     decisionHandler(.cancel)
                 }
             }
+            return
+        }
+        // A link to another HTML file on the Mac: read over the link like the first one.
+        if reach == .macOnly, BrowserPagePlacement.isMacHTMLFile(target), let model, model.readMacHTML != nil {
+            decisionHandler(.cancel)
+            model.personNavigated?()
+            model.load(target)
             return
         }
         if reach == .macOnly || reach == .macLoopback {
