@@ -384,7 +384,10 @@ STALE_LOCK_HINT = "--locked was passed"
 # Swift emits the first actionable compiler diagnostic before it finishes the
 # remaining files. The build has no useful work after that diagnostic and can
 # otherwise keep a Mac runner busy for tens of minutes.
-SWIFT_COMPILER_ERROR = re.compile(r"\b(?:fatal\s+)?error:", re.IGNORECASE)
+# Only a diagnostic's own head counts: `path:line:col: error:` or a line that starts
+# `error:`. A warning's source excerpt (` 446 |  func f(_ error: Error)`) holds the same
+# word, and matching it there stopped a clean CmuxNext build (seed run 45854893499).
+SWIFT_COMPILER_ERROR = re.compile(r"^(?:[^\s|][^|]*?:\d+(?::\d+)?: )?(?:fatal\s+)?error: ", re.IGNORECASE)
 
 
 def stale_lock_explained(root, refusals):
