@@ -6346,7 +6346,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const m = await waitMachine(api, created.id, (x) => x.status === "paused", idlePauseDeadlineMs(policyS, POST_CHAT_HOLD_S)).catch(async (error) => {
           // A pause that never came: name what held the machine (the idle clock's start, the report's open sessions and
           // workload), so the failure says why instead of only "still running" (two walks on 2026-11-24 could not tell).
-          throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}`);
+          // The workload names a held port but not its owner: list the guest's listeners with their processes, read
+          // after the wait so it cannot itself hold the clock (11-26: every staging walk machine held one ephemeral
+          // loopback port, RFD 0144).
+          const ss = await exec("ss -ltnpH 2>&1 | head -20", 30_000).catch((e) => ({ code: -1, stdout: String((e as Error).message ?? e), stderr: "" }));
+          const listeners = ss.stdout.trim().split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).join(" | ").slice(0, 1200);
+          throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}; listeners ${listeners || `none (exit ${ss.code})`}`);
         });
         const took = Math.round((Date.now() - idleSet) / 1000);
         return { value: m, detail: idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set` };
