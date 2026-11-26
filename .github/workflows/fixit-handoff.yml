@@ -80,7 +80,7 @@ jobs:
   land:
     needs: find
     if: ${{ vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && needs.find.outputs.culprit != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}
     timeout-minutes: 15
     environment: ci-routing-agent
     permissions:

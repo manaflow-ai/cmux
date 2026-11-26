@@ -187,9 +187,12 @@ TRUSTED_RUNNER_EXPRESSION = (
 # leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
 PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
 REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+# Jobs that hold a secret, an App key or a signing key lead with the secret label the same way
+# (tests/test_ci_secret_jobs_secret_jit.py).
+SECRET_FIRST_OPERAND = "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || "
 TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
     TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
-    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND, SECRET_FIRST_OPERAND)))
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
 # The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its

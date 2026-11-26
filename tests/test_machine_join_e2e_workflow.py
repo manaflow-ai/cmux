@@ -32,6 +32,8 @@ SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
 RUNS_ON = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+    # It holds secrets, so it leads with the one-job secret JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+    "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || "
     "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
     "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
 )
