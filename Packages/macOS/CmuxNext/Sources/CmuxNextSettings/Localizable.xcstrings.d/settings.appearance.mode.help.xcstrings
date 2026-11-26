@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.mode.help" : {
+      "comment" : "Settings > Appearance > Appearance help.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فاتح أو داكن أو مطابقة النظام لاتباع macOS. تتبعه أيضًا الطرفيات التي تستخدم زوج سمات فاتحة/داكنة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svijetlo, Tamno ili Prati sistem da slijedi macOS. Terminali s parom svijetle/tamne teme također ga slijede."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lyst, Mørkt eller Følg systemet for at følge macOS. Terminaler med et lyst/mørkt temapar følger også med."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hell, Dunkel oder Wie System, um macOS zu folgen. Terminals mit einem Hell/Dunkel-Themenpaar folgen ebenfalls."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claro, Oscuro o Igual que el sistema para seguir a macOS. Los terminales con un par de temas claro/oscuro también lo siguen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Clair, Sombre ou Comme le système pour suivre macOS. Les terminaux avec une paire de thèmes clair/sombre suivent aussi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiaro, Scuro o Come il sistema per seguire macOS. Anche i terminali con una coppia di temi chiaro/scuro lo seguono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ライト、ダーク、またはmacOSに合わせます。ライト/ダークのテーマペアを使うターミナルも追従します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្លឺ ងងឹត ឬតាមប្រព័ន្ធ ដើម្បីធ្វើតាម macOS។ ទែមីណាល់ដែលមានគូស្បែកភ្លឺ/ងងឹត ក៏ធ្វើតាមដែរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "라이트, 다크 또는 시스템과 일치를 선택해 macOS를 따릅니다. 라이트/다크 테마 쌍을 쓰는 터미널도 따라갑니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lyst, Mørkt eller Følg systemet for å følge macOS. Terminaler med et lyst/mørkt temapar følger også med."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jasny, Ciemny lub Zgodnie z systemem, aby podążać za macOS. Terminale z parą jasnego/ciemnego motywu też podążają."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Clara, Escura ou Igual ao sistema para seguir o macOS. Terminais com um par de temas claro/escuro também seguem."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Светлое, Тёмное или Как в системе, чтобы следовать macOS. Терминалы с парой светлой/тёмной темы тоже следуют."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สว่าง มืด หรือตามระบบเพื่อทำตาม macOS เทอร์มินัลที่ใช้คู่ธีมสว่าง/มืดก็ทำตามด้วย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS'u izlemek için Açık, Koyu veya Sistemle Aynı. Açık/koyu tema çifti kullanan terminaller de izler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Світлий, Темний або Як у системі, щоб слідувати macOS. Термінали з парою світлої/темної теми теж слідують."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sáng, Tối hoặc Theo hệ thống để theo macOS. Terminal dùng cặp chủ đề sáng/tối cũng theo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "浅色、深色，或跟随系统以与 macOS 一致。使用浅色/深色主题对的终端也会跟随。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "淺色、深色，或跟隨系統以與 macOS 一致。使用淺色/深色主題組合的終端機也會跟隨。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
