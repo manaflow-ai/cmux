@@ -93,6 +93,8 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
           box: box.getBoundingClientRect().height,
           row: row.getBoundingClientRect().height,
           oneLine: parseFloat(text.lineHeight) + parseFloat(inset.paddingTop) + parseFloat(inset.paddingBottom),
+          // The card's bar under the field: the grid's second row (screen.css, --uc-bar-h).
+          bar: parseFloat(getComputedStyle(row).gridTemplateRows.split(" ")[1] ?? "0"),
           send: !!row.querySelector(".nt-send"),
         };
       });
@@ -101,12 +103,13 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
         `new-tab-empty-one-line ${engine}: box ${sizes.box}px, row ${sizes.row}px, one line ${sizes.oneLine}px`,
       );
       expect(sizes.value).toBe("");
-      // The fixture is the split this checks: its chips are in the quiet row under the box.
+      // The fixture is the split this checks: its chips are in the card's bar.
       expect(sizes.split).toBe(true);
-      // Send ends the field's row, and the box is that one row.
+      // The card is the field's one line and the bar under it, which holds Send.
       expect(sizes.send).toBe(true);
+      expect(sizes.bar).toBeGreaterThan(0);
       expect(Math.abs(sizes.box - sizes.row)).toBeLessThanOrEqual(1);
-      expect(Math.abs(sizes.row - sizes.oneLine)).toBeLessThanOrEqual(1);
+      expect(Math.abs(sizes.row - sizes.oneLine - sizes.bar)).toBeLessThanOrEqual(1);
     });
 
     for (const surface of [
