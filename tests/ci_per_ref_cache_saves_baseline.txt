@@ -2,6 +2,8 @@
 # tests/test_ci_no_run_scoped_cache_keys.py's per-ref rule (2026-11-18). Each saves a copy per ref that
 # only that ref reads again. Shrink this list (limit the save to a feat-cmux-next push); never grow it.
 backend.yml: test: Save the API Worker green marker (cache)
+ci-web.yml: agent-pane-real-acpmux: Save the agent pane green marker
+ci-web.yml: react-apps-check: Save the green marker (cache)
 ci-web.yml: webviews-test-durations: Save the duration manifest
 cmux-next-degenerate-lab.yml: lab: Save tonight's marker
 cmux-next-perf-budgets.yml: blacksmith-mac: Save the warm cache

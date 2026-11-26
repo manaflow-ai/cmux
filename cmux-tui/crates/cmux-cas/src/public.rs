@@ -324,6 +324,8 @@ impl PublicIndex {
 fn unpack(archive: &[u8], strip: usize) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
     let xz = archive.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0]);
     if xz {
+        // cmux_process: the xz child ends with this call (spawn-owner ratchet); the feeder is a scoped
+        // thread, joined before the scope returns.
         let mut child = cmux_process::Command::new("xz")
             .args(["-dc"])
             .stdin(cmux_process::Stdio::piped())
