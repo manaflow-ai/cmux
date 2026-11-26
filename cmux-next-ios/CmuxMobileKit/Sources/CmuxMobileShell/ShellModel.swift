@@ -65,6 +65,9 @@ final class ShellModel {
                 lastWorkspace.save(id)
                 if lastWorkspaceID != id { lastWorkspaceID = id }
             }
+            // Cleared when the path empties (the user is back on the list), unlike `lastWorkspaceID`.
+            let selected = LastOpenRestore.listSelection(openWorkspaceIDs: workspacesPath.map { store.resolvedWorkspaceID($0.id) })
+            if selectedWorkspaceID != selected { selectedWorkspaceID = selected }
             updateInteractiveOpen()
             updateShownMacs()
         }
@@ -154,6 +157,9 @@ final class ShellModel {
     @ObservationIgnored let lastWorkspace: LastWorkspaceMemory
     /// The same id, observed: the list's mark follows it the moment a visit saves it.
     private(set) var lastWorkspaceID: String?
+    /// The workspace open from the list right now: the list's selected row. Nil once the user is back on
+    /// the list, so the row's fill does not linger after a return (`LastOpenRestore.listSelection`).
+    private(set) var selectedWorkspaceID: String?
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.

@@ -24,6 +24,19 @@ import Testing
         #expect(LastOpenRestore.listTarget(savedWorkspaceID: nil, workspaces: workspaces) == nil)
     }
 
+    /// The list's selected row is the workspace open from it, and none once the user is back on the
+    /// list: the rounded fill must not stay on the last tapped row after a return (a back tap or a
+    /// swipe back empties the path). The remembered visit is kept apart (the launch scroll).
+    @Test func listSelectionClearsWhenTheUserReturnsToTheList() {
+        #expect(LastOpenRestore.listSelection(openWorkspaceIDs: ["ws-cmux"]) == "ws-cmux")
+        // A page pushed inside the workspace keeps the list's row the one tapped.
+        #expect(LastOpenRestore.listSelection(openWorkspaceIDs: ["ws-cmux", "ws-new"]) == "ws-cmux")
+        // Back on the list.
+        #expect(LastOpenRestore.listSelection(openWorkspaceIDs: []) == nil)
+        // The visit is still remembered for the launch scroll, but that is not a selection.
+        #expect(LastOpenRestore.listTarget(savedWorkspaceID: "ws-cmux", workspaces: workspaces) == "ws-cmux")
+    }
+
     @Test func reopensTheWorkspaceOnTheSavedTab() {
         let saved = LastOpenLocation(rootTab: "workspaces", workspaceID: "ws-cmux", macID: "mac-studio", tabID: "t-zsh")
         #expect(LastOpenRestore.decide(saved: saved, workspaces: workspaces, macPhase: live)

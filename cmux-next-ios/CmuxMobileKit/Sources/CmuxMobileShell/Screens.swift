@@ -148,7 +148,8 @@ struct WorkspacesScreen: View {
                 },
                 filter: shell.macFilter,
                 macPanelShown: { shown in if shell.workspacesMacPanelShown != shown { shell.workspacesMacPanelShown = shown } },
-                rememberedWorkspaceID: shell.lastWorkspaceID
+                rememberedWorkspaceID: shell.lastWorkspaceID,
+                selectedWorkspaceID: shell.selectedWorkspaceID
             ) { workspace in
                 // Two-pane: a workspace replaces the open one beside the list instead of stacking on it.
                 if layout.twoPane { shell.workspacesPath = [workspace] } else { shell.workspacesPath.append(workspace) }

@@ -106,6 +106,11 @@ final class WorkspacesListControl {
     func reveal(_ itemID: String) {
         controller?.reveal(itemID)
     }
+
+    /// The item's press fill, held a moment, then faded (no scroll).
+    func flash(_ itemID: String) {
+        controller?.flash(itemID)
+    }
 }
 
 /// The Workspaces list (SPEC 11.1) as a UIKit collection view: a plain list
@@ -608,20 +613,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     /// The item in the middle of the list, then a press fill that fades on its cell.
     func reveal(_ itemID: String) {
         guard let collectionView, let indexPath = dataSource?.indexPath(for: itemID) else { return }
-        let flash = { [weak collectionView] in
-            guard let cell = collectionView?.cellForItem(at: indexPath) else { return }
-            let fill = UIView(frame: cell.bounds)
-            fill.backgroundColor = theme.colors.fillPressed.uiColor
-            fill.isUserInteractionEnabled = false
-            fill.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            fill.accessibilityIdentifier = "workspaces.revealed"
-            cell.addSubview(fill)
-            // A fade, not motion: kept under Reduce Motion too. The fill holds a moment first.
-            UIView.animate(withDuration: 1.2, delay: 0.4, options: [.curveEaseOut], animations: { fill.alpha = 0 }) { _ in
-                fill.removeFromSuperview()
-            }
-            UIAccessibility.post(notification: .layoutChanged, argument: cell)
-        }
+        let flash = { [weak self] in self?.flash(itemID, announce: true) }
         // Reduce Motion: the list jumps there.
         guard !UIAccessibility.isReduceMotionEnabled else {
             collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
@@ -635,6 +627,24 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         }
         animator.addCompletion { _ in flash() }
         animator.startAnimation()
+    }
+
+    /// A press fill on the item's cell that holds a moment, then fades. `announce` moves
+    /// VoiceOver to the cell (Reveal in List asks for it; the launch's quiet mark does not).
+    func flash(_ itemID: String, announce: Bool = false) {
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: itemID),
+              let cell = collectionView.cellForItem(at: indexPath) else { return }
+        let fill = UIView(frame: cell.bounds)
+        fill.backgroundColor = theme.colors.fillPressed.uiColor
+        fill.isUserInteractionEnabled = false
+        fill.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        fill.accessibilityIdentifier = "workspaces.revealed"
+        cell.addSubview(fill)
+        // A fade, not motion: kept under Reduce Motion too. The fill holds a moment first.
+        UIView.animate(withDuration: 1.2, delay: 0.4, options: [.curveEaseOut], animations: { fill.alpha = 0 }) { _ in
+            fill.removeFromSuperview()
+        }
+        if announce { UIAccessibility.post(notification: .layoutChanged, argument: cell) }
     }
 
     func scrollTo(_ itemID: String, atTop: Bool, animated: Bool, completion: (() -> Void)?) {

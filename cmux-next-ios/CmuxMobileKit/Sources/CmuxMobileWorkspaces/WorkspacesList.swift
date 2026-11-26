@@ -27,8 +27,10 @@ public struct WorkspacesList: View {
     let creator: WorkspaceCreator
     /// Pushes a workspace (the new one, right after a tap).
     let open: (Workspace) -> Void
-    /// The last workspace visited, kept when the user backs out to this list.
+    /// The last workspace visited, kept when the user backs out to this list: the launch scroll's target.
     let rememberedWorkspaceID: String?
+    /// The workspace open from this list right now (its row draws selected); nil once back on the list.
+    let selectedWorkspaceID: String?
     /// The signed-in account, for "sign in as …" in the empty state.
     var accountEmail: String?
     /// Links a Mac (live only): a Mac whose list the phone does not have.
@@ -109,13 +111,14 @@ public struct WorkspacesList: View {
                 refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(), macPanelShown: ((Bool) -> Void)? = nil,
-                rememberedWorkspaceID: String? = nil,
+                rememberedWorkspaceID: String? = nil, selectedWorkspaceID: String? = nil,
                 open: @escaping (Workspace) -> Void) {
         self.macPanelShown = macPanelShown
         self.store = store
         self.creator = creator
         self.accountEmail = accountEmail
         self.rememberedWorkspaceID = rememberedWorkspaceID
+        self.selectedWorkspaceID = selectedWorkspaceID
         self.reconnect = reconnect
         self.linking = linking
         self.refresh = refresh
@@ -488,7 +491,9 @@ public struct WorkspacesList: View {
         Task { @MainActor in
             await Task.yield()
             guard isShown else { return }
-            listControl.scrollTo(WorkspacesListModel.rowID(workspaceID), atTop: true, animated: false)
+            let rowID = WorkspacesListModel.rowID(workspaceID)
+            // Where you were: the row flashes once and fades, not a fill that stays on.
+            listControl.scrollTo(rowID, atTop: true, animated: false) { listControl.flash(rowID) }
         }
     }
 
@@ -516,7 +521,7 @@ public struct WorkspacesList: View {
         /// listed Mac's groups as it lists them (a group made or deleted on the Mac), in Mac order only.
         var groupsRevision: Int
         var macGroups: [String: [MacWorkspaceGroup]]
-        var rememberedWorkspaceID: String?
+        var selectedWorkspaceID: String?
     }
 
     /// Sections and items for the collection, built once per change of their input.
@@ -536,7 +541,7 @@ public struct WorkspacesList: View {
                                    recoveryMacID: scopedMac.flatMap { showsRecovery($0) ? $0.id : nil },
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
                                    groupsRevision: creator.groupsRevision, macGroups: macGroups,
-                                   rememberedWorkspaceID: rememberedWorkspaceID)
+                                   selectedWorkspaceID: selectedWorkspaceID)
         return listMemo.value(input) { buildListModel(inbox, input) }
     }
 
@@ -558,7 +563,7 @@ public struct WorkspacesList: View {
             list.map { ws in
                 let mac = rights[ws.macID] ?? .none
                 return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending,
-                                                                        tracks: tracks, isRemembered: ws.id == input.rememberedWorkspaceID)))
+                                                                        tracks: tracks, isSelected: ws.id == input.selectedWorkspaceID)))
             }
         }
         if let id = input.recoveryMacID, !input.searching { add("recovery", [("recovery.\(id)", .recovery(id))]) }
@@ -701,7 +706,7 @@ public struct WorkspacesList: View {
     /// worked out once per pass: the same answers as `canManage`, `canArrange`
     /// and `canDuplicate` for this workspace.
     private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String], rights: WorkspaceCreator.MacRights,
-                          pending: Set<String>, tracks: Bool, isRemembered: Bool) -> WorkspaceRowModel {
+                          pending: Set<String>, tracks: Bool, isSelected: Bool) -> WorkspaceRowModel {
         let status = inbox.status(ws)
         let macName = names[ws.macID]
         let canManage = status != .offline && !pending.contains(ws.id) && rights.manage
@@ -714,7 +719,7 @@ public struct WorkspacesList: View {
                                  compact: compactList,
                                  glows: WorkspaceRow.glows(status: status, look: attentionMark, seenAt: store.seenAt[ws.id],
                                                            lastActivityAt: ws.lastActivityAt),
-                                 isRemembered: isRemembered)
+                                 isSelected: isSelected)
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -1187,8 +1192,9 @@ struct WorkspaceRowModel: Equatable {
     var compact = false
     /// Settings → Needs You Look is Glow and the row waits unseen (`WorkspaceRow.glows`).
     var glows = false
-    /// The workspace last visited before returning to this list.
-    var isRemembered = false
+    /// The workspace open from this list right now (pushed, or beside the list in two panes). False once
+    /// the user is back on the list: the fill fades as the list returns instead of staying on.
+    var isSelected = false
 }
 
 /// One Workspaces row and what it carries: the tap, the press fill, the
@@ -1211,8 +1217,10 @@ struct WorkspaceListRow: View, Equatable {
                 .background {
                     RoundedRectangle(cornerRadius: theme.metrics.selectedRowRadius, style: .continuous)
                         .fill(theme.colors.fillSelected)
-                        .opacity(model.isRemembered ? 1 : 0)
+                        .opacity(model.isSelected ? 1 : 0)
                         .padding(.horizontal, -theme.metrics.selectedRowInset)
+                        // A fade, not motion: kept under Reduce Motion too (UIKit's deselect on return).
+                        .animation(.easeOut(duration: 0.35), value: model.isSelected)
                 }
         }
         // Not the List's cell highlight: it stuck on as a gray pill while a
@@ -1222,7 +1230,7 @@ struct WorkspaceListRow: View, Equatable {
         .layoutShiftTracked("workspace.\(ws.id)")
         // Last-known rows (live mode) draw at full strength and open while the Mac answers on this link:
         // no dim while the phone reattaches (Leo, 2026-11-24: "the entire thing is somehow grayed out").
-        .accessibilityAddTraits(model.isRemembered ? .isSelected : [])
+        .accessibilityAddTraits(model.isSelected ? .isSelected : [])
         .onAppear {
             #if DEBUG
             // The list rig's seeded rows, not the mock ones shown before it seeds (LaunchTTIUITests).

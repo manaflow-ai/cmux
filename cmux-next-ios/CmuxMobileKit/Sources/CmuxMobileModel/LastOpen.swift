@@ -57,6 +57,16 @@ public enum LastOpenRestore {
         return savedWorkspaceID
     }
 
+    /// The row the Workspaces list draws selected (its rounded fill and the "selected" trait): the
+    /// workspace the list opened, while it is open (pushed over the list, or beside it in two panes).
+    /// Back on the list there is none, as a UIKit list clears its selection when its page comes back:
+    /// the last visit is still remembered (``listTarget(savedWorkspaceID:workspaces:)``, the launch
+    /// scroll) but is not a selection, or its fill stays on the row after the user returns.
+    /// `openWorkspaceIDs` is the Workspaces navigation path, resolved ids, oldest first.
+    public static func listSelection(openWorkspaceIDs: [String]) -> String? {
+        openWorkspaceIDs.first
+    }
+
     /// The Mac's own list (or its absence) is known: a missing workspace is gone.
     static func isSettled(_ phase: MacDataMachine.Phase) -> Bool {
         switch phase {
