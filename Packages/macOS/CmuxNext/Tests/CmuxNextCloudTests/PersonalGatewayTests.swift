@@ -66,6 +66,30 @@ struct PersonalGatewayTests {
         #expect(await wait.value == false)
     }
 
+    private static let refused = #"{"event":"offline","reason":"refused"}"#
+
+    /// The Cloud service refuses the gateway twice and the child keeps running to ask again on its own backoff: the
+    /// start's wait ends at the second refusal, with no deadline passing (the clock is never advanced), and the next
+    /// start does not wait at all. The child is not replaced: its own count of refusals goes on.
+    @Test func aRefusedGatewayEndsTheWaitWithoutItsDeadline() async {
+        let children = Children([[Self.refused, Self.refused]])
+        let gateway = make(children)
+        gateway.start()
+        #expect(await gateway.ensureOnline(within: .seconds(10)) == false)
+        #expect(gateway.state == .offline("refused"))
+        #expect(await gateway.ensureOnline(within: .seconds(10)) == false)
+        #expect(children.live.count == 1)
+    }
+
+    /// One refusal (a deploy's 5xx, say) is not the answer yet: the wait rides through to the child's next ask.
+    @Test func oneRefusalBeforeTheGatewayConnectsStillAnswersOnline() async {
+        let children = Children([[Self.refused, #"{"event":"online"}"#]])
+        let gateway = make(children)
+        gateway.start()
+        #expect(await gateway.ensureOnline(within: .seconds(10)))
+        #expect(gateway.state == .online)
+    }
+
     /// A chat its own connection or the organization's key serves never uses this Mac's gateway: its start waits for
     /// none, even when the gateway cannot come up (the production probe's starts sat out the whole 10 s deadline).
     @Test func aStartServedElsewhereWaitsForNoGateway() async {

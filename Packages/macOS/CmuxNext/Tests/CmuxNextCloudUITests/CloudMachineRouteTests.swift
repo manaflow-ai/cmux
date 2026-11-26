@@ -9,6 +9,13 @@ import Testing
         CloudMachineRoute(exec: { _, _ in CloudExecResult(exitCode: 0, stdout: stdout, stderr: "") })
     }
 
+    @Test func aWarmCommandOnlyMarksAnAcceptedReadyAgentAsReady() async {
+        #expect(await Self.machine(printing: #"{"accepted":true,"state":"ready"}"#).warmHome())
+        for reply in [#"{"accepted":false,"state":"ready"}"#, #"{"accepted":true,"state":"warming"}"#, ""] {
+            #expect(await Self.machine(printing: reply).warmHome() == false)
+        }
+    }
+
     /// DEV 36050-cloud-multiplayer: a new machine whose image software has no model-route report (it prints
     /// nothing) and that the app's update does not change refused every Cloud start.
     @Test func aMachineWithNoReportStartsOnItsImagesSoftware() async {
@@ -238,6 +245,36 @@ import Testing
         try await machine.prepare(family: "claude", ahead: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])) { await updated.add() }
         #expect(await ran.count == 0)
         #expect(await updated.count == 0)
+    }
+
+    /// 2026-11-25: a chat that carries its own connection never uses the machine's model route, yet with no report read
+    /// ahead its start ran the report's command (1.9 to 2.5 s). On a running machine that serves the start no command
+    /// runs and nothing is updated, whatever the machine would have printed. Every other start is still checked: no
+    /// connection of the chat's own, a machine whose record does not read running (the check's exec starts it), or a
+    /// daemon that cannot take the connection (updated, as before).
+    @Test func aChatOnItsOwnConnectionReadsNoRouteOnARunningMachine() async throws {
+        let ran = UpdateCount(), updated = UpdateCount(), now = Self.unrouted()
+        let machine = CloudMachineRoute(exec: { _, _ in
+            await ran.add()
+            return CloudExecResult(exitCode: 0, stdout: now, stderr: "")
+        })
+        try await machine.prepare(carriesConnection: true, family: "claude", runs: true) { await updated.add() }
+        #expect(await ran.count == 0, "the route's command ran for a chat that does not use the route")
+        #expect(await updated.count == 0)
+        // Not running: read on the machine, as before.
+        try await machine.prepare(carriesConnection: true, family: "claude") { await updated.add() }
+        #expect(await ran.count == 1)
+        // No connection of the chat's own (the organization's key, a gateway, nothing): the route is what it uses.
+        await #expect(throws: CloudMachineRoute.NeedsConnection.self) {
+            try await machine.prepare(family: "claude", runs: true) { await updated.add() }
+        }
+        #expect(await ran.count == 2)
+        #expect(await updated.count == 0)
+        // A daemon that cannot take the connection is not skipped: it is updated.
+        await #expect(throws: CloudMoveFailure.self) {
+            try await machine.prepare(serves: { false }, carriesConnection: true, family: "codex", runs: true) { await updated.add() }
+        }
+        #expect(await updated.count == 1)
     }
 
     /// A report read ahead never refuses a start, and never starts one it cannot vouch for: one that says the chat does

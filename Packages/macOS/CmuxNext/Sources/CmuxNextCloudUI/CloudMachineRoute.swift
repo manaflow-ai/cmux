@@ -150,11 +150,24 @@ public struct CloudMachineRoute: Sendable {
     /// on the machine now (1.9 to 2.5 s of every start, 2026-11-21). Any other one is read again, so a refusal is always
     /// the machine's answer now. The app does not see a restart it did not make: an agent service that went down since
     /// the read ends the start at the chat's own start instead of here.
+    ///
+    /// `runs`: the machine's record reads running with no change pending. With `carriesConnection`, on a machine that
+    /// `serves` the start (its daemon takes the launch's credential), the report is not read at all: no answer it gives
+    /// changes where that chat's model calls go (the launch's credential, every other removed), and the command was 1.9
+    /// to 2.5 s of each such start with no report read ahead (43 ms with one; 2026-11-25). Only this Mac's own connection
+    /// (``CloudSetup/Choice/connection(id:family:)``) is one: the organization's key and a team's gateway are served
+    /// through the machine's edge, the route this check reads, so they are checked as before. A machine whose record does
+    /// not read running is checked too: the check's exec is what starts it (cmux#47638). As with a report read ahead, an
+    /// agent service that is down ends the start at the chat's own start instead of here.
     public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil, ahead: String? = nil,
-                        _ update: @escaping @Sendable () async -> Void) async throws {
+                        runs: Bool = false, _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
         var checked: (verdict: Verdict, agent: Agent?)?
         if await serves() {
+            if carriesConnection, runs {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) serves this start and the chat carries its own connection; its model route is not read")
+                return
+            }
             if let ahead {
                 let route = await Self.judged(ahead, family: family)
                 if Self.startsAhead(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
@@ -329,7 +342,7 @@ public struct CloudMachineRoute: Sendable {
         return (verdict, await agentReading(stdout, family: family))
     }
 
-    /// The machine's report now, for a later start's check (``prepare(serves:carriesConnection:family:ahead:_:)``): the
+    /// The machine's report now, for a later start's check (``prepare(serves:carriesConnection:family:ahead:runs:_:)``): the
     /// command's output when it holds a report (``isReport(_:)``) that says its agent service runs, else nil (the
     /// command failed, the machine does not run, its software predates the report, or its agent service is down:
     /// nothing a start could go on by). Never starts the machine, whatever start this route was made with.
@@ -361,12 +374,18 @@ public struct CloudMachineRoute: Sendable {
     public func warmHome(acpmuxHome: String? = nil) async -> Bool {
         let command = CloudStartCore().call("cloud_warm_home", WarmHomeRequest(acpmuxHome: acpmuxHome), as: WarmHomeReply.self)?
             .command ?? Self.warmHomeCommand
-        guard let stdout = try? await plain(command, Self.timeoutMs).stdout else { return false }
-        return Self.warmHomeReady(stdout)
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+        guard let stdout = try? await plain(command, Self.timeoutMs).stdout else {
+            logger.info("cloud spare \(machineID ?? "", privacy: .public): home warm did not run (its command failed or the machine does not run)")
+            return false
+        }
+        let ready = await Self.warmHomeReady(stdout)
+        logger.info("cloud spare \(machineID ?? "", privacy: .public): home agent ready: \(ready, privacy: .public)")
+        return ready
     }
 
     /// Whether `stdout` is the warm-home answer of an agent that is ready.
-    nonisolated static func warmHomeReady(_ stdout: String) -> Bool {
+    @concurrent nonisolated static func warmHomeReady(_ stdout: String) async -> Bool {
         guard let data = stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
               let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         return answer["accepted"] as? Bool == true && answer["state"] as? String == "ready"

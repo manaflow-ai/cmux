@@ -53,6 +53,10 @@ public final class PersonalGateway {
     /// A Cloud service that refuses the gateway (no grant yet, an older backend) is asked again rarely.
     private var refusedRelaunch = Backoff(initial: .seconds(60), maximum: .seconds(600))
     private var lastStop: String?
+    /// The current child's refusals in a row. At ``settledRefusals`` the Cloud service's answer is taken as no for now:
+    /// one refusal can be a deploy's 5xx, which the child's next ask (1 s later) rides through.
+    private var refusals = 0
+    private static let settledRefusals = 2
     private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private static let logLimit = 32
 
@@ -100,6 +104,10 @@ public final class PersonalGateway {
             relaunch.reset()
             lastStop = nil
             if child == nil { spawn() }
+        } else if state == .offline("refused"), refusals >= Self.settledRefusals {
+            // Refused, and its child still asks on its own backoff: waiting for that held a Cloud chat's first prompt
+            // for the whole `deadline`. The child is left to it, so its fifth refusal still ends in the rare relaunch.
+            return false
         }
         // Refused at its last connect: asking again now is the restart above; waiting would only delay the turn.
         if lastStop == "refused", state != .starting { return false }
@@ -120,6 +128,7 @@ public final class PersonalGateway {
     private func spawn() {
         generation += 1
         let mine = generation
+        refusals = 0
         set(.starting)
         // task-owner: PersonalGateway.spawn: one child's life; stop() fences it by generation.
         Task { [weak self] in
@@ -146,10 +155,12 @@ public final class PersonalGateway {
         switch event {
         case "online":
             lastStop = nil
+            refusals = 0
             relaunch.reset()
             refusedRelaunch.reset()
             set(.online)
         case "offline":
+            refusals = reason == "refused" ? refusals + 1 : 0
             set(.offline(reason ?? "disconnected"))
         case "stopped":
             lastStop = reason
@@ -167,6 +178,7 @@ public final class PersonalGateway {
         // A stop no restart fixes (a bad API origin, a protocol this CLI does not speak): a Cloud chat start tries again.
         if lastStop == "ended" { set(.unavailable); return }
         let refused = lastStop == "refused"
+        if refused { refusals = max(refusals, Self.settledRefusals) } // it stopped on the refusal: settled
         set(.offline(refused ? "refused" : "exited"))
         let delay = refused ? refusedRelaunch.next() : relaunch.next()
         // task-owner: PersonalGateway.ended: one relaunch per exit after a growing delay; stop() and ensureOnline cancel it.
@@ -181,7 +193,10 @@ public final class PersonalGateway {
 
     private func set(_ new: State) {
         state = new
-        guard new == .online || new == .stopped || new == .replaced || new == .unavailable else { return }
+        // A settled refusal is the Cloud service's answer: a wait that sat out its deadline behind it held a Cloud
+        // chat's first prompt for 10 s (the child's fifth refusal, which stops it, comes after 15 s of its backoff).
+        let refused = new == .offline("refused") && refusals >= Self.settledRefusals
+        guard new == .online || new == .stopped || new == .replaced || new == .unavailable || refused else { return }
         for id in Array(waiters.keys) { finishWait(id, online: new == .online) }
     }
 

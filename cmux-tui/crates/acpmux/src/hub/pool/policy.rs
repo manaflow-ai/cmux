@@ -236,7 +236,9 @@ impl<T> Pool<T> {
     /// that cwd) and push the key's idle deadline to `now + idle`. A remote
     /// key is refused: nothing starts.
     pub fn want(&mut self, role: Role, key: PoolKey, now: Duration) -> Wanted<T> {
-        if key.origin == Origin::Remote {
+        if key.origin == Origin::Remote
+            || (role == Role::Spare && self.reserved_under_another_key(&key))
+        {
             return Wanted::default();
         }
         let mut evicted = Vec::new();
@@ -560,6 +562,14 @@ impl<T> Pool<T> {
         self.entries
             .iter()
             .any(|e| e.spare && e.key.origin == Origin::Local && e.key.harness == harness)
+    }
+
+    /// Whether the slot `key` would take (its folder, harness and preset) holds the reserved
+    /// home chat's entry under another key. A spare wanted there would end that entry (`want`:
+    /// a new key for an occupied slot), and the home chat the reserve was made for would start
+    /// cold; the caller leaves the reserved entry (`spare.rs`).
+    pub fn reserved_under_another_key(&self, key: &PoolKey) -> bool {
+        self.entries.iter().any(|e| e.reserved && &e.key != key && e.key.same_slot(key))
     }
 
     /// Spares holding nothing (a start failed, or a dead one was removed): their keys, to start again.

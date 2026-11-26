@@ -277,7 +277,15 @@ impl Hub {
                 .await
             {
                 Ok(spec) if &spec.key == reserved => {}
+                // The reserved entry's own harness in another shape (another model, or no
+                // credential where the reserve names one): wanted, it would end the reserved
+                // entry, whose agent the home chat takes (`Pool::reserved_under_another_key`).
+                // Before, the reserve then answered `state: none` beside a ready spare.
                 Ok(spec) => {
+                    let kept = lock(&self.pool.pool).reserved_under_another_key(&spec.key);
+                    if kept {
+                        continue;
+                    }
                     tracing::info!(%harness, "a personal spare starts in the reserved home folder");
                     wanted.push(spec.key.clone());
                     self.pool_want(Role::Spare, spec).await;

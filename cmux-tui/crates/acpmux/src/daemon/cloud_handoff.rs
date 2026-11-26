@@ -27,6 +27,10 @@
 //! reports nothing more; a closed hand-off gets no more reports. A closed
 //! session reports nothing until it reopens.
 //!
+//! Turn 1 is the exception to "no hand-off": a new chat's first prompt names it before the
+//! owner's app has made the hand-off (the page no longer waits for that, [`FIRST_TURN`]), so its
+//! newest report waits and is sent again ([`UNMADE_AFTER`]) until the hand-off is there.
+//!
 //! A turn that failed on an error acpmux retries by itself (`hub/auto_resume.rs`:
 //! a connection cut, no capacity; a first send a revoked token failed) is not reported failed yet: its continuation
 //! (`<prompt id>~resume-<n>`, naming the same turn) goes on with it. It is
@@ -102,6 +106,16 @@ const LATER: [Duration; 4] = [
     Duration::from_secs(600),
     Duration::from_secs(1800),
 ];
+/// The turn a session's hand-off is made at. The page sends a new chat's first prompt under it
+/// without waiting for the owner's app to make the hand-off (webviews `cloudHandoffTurn.ts`
+/// `FIRST_HANDOFF_TURN`: the wait was 1.1 to 2.3 s of each Cloud start, 2026-11-25), so this
+/// turn's reports may come before its hand-off is there.
+const FIRST_TURN: u64 = 1;
+/// A report of [`FIRST_TURN`] the store had no hand-off for is sent again after these waits (the
+/// app makes one in about 1.8 s; a slow one is still met at 14 s), then given up: a session nobody
+/// handed off costs four reports, once.
+const UNMADE_AFTER: [Duration; 3] =
+    [Duration::from_secs(1), Duration::from_secs(3), Duration::from_secs(10)];
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -560,6 +574,19 @@ struct Track {
     /// The newest turn whose end was reported here (sent, or waiting in `later`): a late retry
     /// decision for it or an older turn never replaces that end (hand-off turns only grow).
     ended: Option<u64>,
+    /// The newest report of [`FIRST_TURN`] the store had no hand-off for yet.
+    unmade: Option<Unmade>,
+}
+
+/// A report of [`FIRST_TURN`] waiting for its hand-off to be made ([`UNMADE_AFTER`]). One a
+/// session: a later report of the turn replaces it, and the turn's next begin drops it.
+#[derive(Debug, Clone)]
+struct Unmade {
+    status: &'static str,
+    note: Option<String>,
+    /// Tries made after the first.
+    tries: usize,
+    at: tokio::time::Instant,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -764,7 +791,16 @@ impl<I: Io> Reporter<I> {
         if let Some(track) = self.tracks.get_mut(session) {
             track.ended = track.ended.max(Some(turn));
         }
-        if self.report(session, turn, status, note.clone()).await == Outcome::Unsent {
+        let answer = self.report(session, turn, status, note.clone()).await;
+        if matches!(answer, Outcome::NotFound | Outcome::Unsent)
+            && self.hold_unmade(session, turn, status, &note)
+        {
+            return;
+        }
+        if let Some(track) = self.tracks.get_mut(session) {
+            track.unmade = None;
+        }
+        if answer == Outcome::Unsent {
             self.send_later(
                 session,
                 Later { turn, status, note, tries: 0, at: tokio::time::Instant::now() },
@@ -805,7 +841,8 @@ impl<I: Io> Reporter<I> {
             Now::Retrying { until, .. } => Some(until),
             _ => None,
         });
-        let due = retrying.chain(self.later.values().map(|l| l.at)).min()?;
+        let unmade = self.tracks.values().filter_map(|t| t.unmade.as_ref().map(|u| u.at));
+        let due = retrying.chain(unmade).chain(self.later.values().map(|l| l.at)).min()?;
         Some(match self.silent_until {
             Some(quiet) if quiet > due => quiet,
             _ => due,
@@ -846,6 +883,75 @@ impl<I: Io> Reporter<I> {
                 self.send_later(&session, Later { tries: later.tries + 1, ..later });
             }
         }
+        let unmade =
+            self.tracks.iter().filter(|(_, t)| t.unmade.as_ref().is_some_and(|u| u.at <= now));
+        let unmade: Vec<String> = unmade.map(|(id, _)| id.clone()).collect();
+        for session in unmade {
+            if self.silent() {
+                return;
+            }
+            self.send_unmade(&session).await;
+            if self.closed.contains(&session) {
+                self.drop_settled_track(&session);
+            }
+        }
+    }
+
+    /// Keeps `status` as the report of [`FIRST_TURN`] to send again once its hand-off is made,
+    /// when the store had none for it and the turn's begin still waits for one. Else false: the
+    /// session has no hand-off, as before.
+    fn hold_unmade(
+        &mut self,
+        session: &str,
+        turn: u64,
+        status: &'static str,
+        note: &Option<String>,
+    ) -> bool {
+        let Some(track) = self.tracks.get_mut(session) else { return false };
+        let Some(unmade) = track.unmade.as_mut().filter(|_| turn == FIRST_TURN) else {
+            return false;
+        };
+        unmade.status = status;
+        unmade.note.clone_from(note);
+        // `report` marked the turn refused: not while its hand-off may still be made.
+        track.refused = track.refused.filter(|refused| *refused != turn);
+        true
+    }
+
+    /// Sends the waiting report of [`FIRST_TURN`] again: taken once the hand-off is made, tried
+    /// again while there is none ([`UNMADE_AFTER`]), then given up.
+    async fn send_unmade(&mut self, session: &str) {
+        let Some(unmade) = self.tracks.get_mut(session).and_then(|t| t.unmade.take()) else {
+            return;
+        };
+        if self.handoff_closed.contains(session) {
+            return;
+        }
+        let answer = self.report(session, FIRST_TURN, unmade.status, unmade.note.clone()).await;
+        let Some(track) = self.tracks.get_mut(session) else { return };
+        match answer {
+            Outcome::Accepted => {
+                if track.now == (Now::Reporting { turn: FIRST_TURN, last: None }) {
+                    track.now = Now::Reporting { turn: FIRST_TURN, last: Some(unmade.status) };
+                }
+            }
+            Outcome::NotFound | Outcome::Unsent => {
+                track.refused = track.refused.filter(|refused| *refused != FIRST_TURN);
+                if let Some(wait) = UNMADE_AFTER.get(unmade.tries + 1) {
+                    let at = tokio::time::Instant::now() + *wait;
+                    track.unmade = Some(Unmade { tries: unmade.tries + 1, at, ..unmade });
+                } else if answer == Outcome::Unsent && matches!(unmade.status, "done" | "failed") {
+                    // An end the agent never took is sent again as any other end is (`LATER`).
+                    let at = tokio::time::Instant::now();
+                    let Unmade { status, note, .. } = unmade;
+                    self.send_later(
+                        session,
+                        Later { turn: FIRST_TURN, status, note, tries: 0, at },
+                    );
+                }
+            }
+            Outcome::Refused | Outcome::Closed => {}
+        }
     }
 
     /// The agent did not answer lately and is left alone ([`SILENT_FOR`]).
@@ -863,12 +969,13 @@ impl<I: Io> Reporter<I> {
     /// until it reopens.
     async fn close(&mut self, session: &str) {
         self.closed.insert(session);
-        let Some(track) = self.tracks.remove(session) else { return };
         if self.handoff_closed.contains(session) {
+            self.tracks.remove(session);
             return;
         }
+        let Some(track) = self.tracks.get_mut(session) else { return };
         let closed = || Some("The session was closed before the turn finished.".to_owned());
-        let ended = match track.now {
+        let ended = match std::mem::take(&mut track.now) {
             Now::Reporting { turn, last } if !matches!(last, Some("done" | "failed")) => {
                 Some((turn, closed()))
             }
@@ -877,6 +984,14 @@ impl<I: Io> Reporter<I> {
         };
         if let Some((turn, note)) = ended {
             self.finish(session, turn, "failed", note).await;
+        }
+        // Closing fences new events, but an end still waiting for the hand-off must reach it.
+        self.drop_settled_track(session);
+    }
+
+    fn drop_settled_track(&mut self, session: &str) {
+        if self.tracks.get(session).is_some_and(|t| t.unmade.is_none()) {
+            self.tracks.remove(session);
         }
     }
 
@@ -889,7 +1004,7 @@ impl<I: Io> Reporter<I> {
         let quiet: Vec<String> = self
             .tracks
             .iter()
-            .filter(|(_, t)| t.now == Now::Quiet)
+            .filter(|(_, t)| t.now == Now::Quiet && t.unmade.is_none())
             .map(|(id, _)| id.clone())
             .take(self.tracks.len() / 4 + 1)
             .collect();
@@ -900,11 +1015,38 @@ impl<I: Io> Reporter<I> {
 
     /// A turn began: reported on the turn its prompt names, or not at all.
     async fn begin(&mut self, session: &str, turn: Option<u64>) {
+        // Another prompt's report of the first turn no longer waits when this begin names a turn:
+        // it is the newer. A begin that names none (a prompt queued behind the first turn) keeps
+        // that turn's waiting end, or the store never hears the turn ran and names it for ever.
+        if let Some(track) = self.tracks.get_mut(session) {
+            let ended =
+                track.unmade.as_ref().is_some_and(|u| matches!(u.status, "done" | "failed"));
+            if turn.is_some() || !ended {
+                track.unmade = None;
+            }
+        }
         let answer = match turn {
             Some(turn) => Some((turn, self.report(session, turn, "running", None).await)),
             None => None,
         };
         let Some(track) = self.tracks.get_mut(session) else { return };
+        // The first turn's prompt may come before its hand-off is made (`FIRST_TURN`): the turn is
+        // followed, and its newest report sent again, instead of never being reported.
+        let unmade = matches!(answer, Some((FIRST_TURN, Outcome::NotFound | Outcome::Unsent)));
+        if unmade {
+            let at = tokio::time::Instant::now() + UNMADE_AFTER[0];
+            track.unmade = Some(Unmade { status: "running", note: None, tries: 0, at });
+        }
+        // A turn refused before (no hand-off then) that the store takes now, or may yet take,
+        // reports its end: else a hand-off made late would stay `running`.
+        if let Some((turn, Outcome::Accepted)) = answer
+            && track.refused == Some(turn)
+        {
+            track.refused = None;
+        }
+        if unmade {
+            track.refused = None;
+        }
         // A new attempt of the newest ended turn, one the store may have taken: its end is to
         // come again. A stale begin (refused) or one of an older turn reopens nothing.
         if let Some((turn, Outcome::Accepted | Outcome::Unsent)) = answer
@@ -916,6 +1058,7 @@ impl<I: Io> Reporter<I> {
             Some((turn, Outcome::Accepted)) => Now::Reporting { turn, last: Some("running") },
             // The store did not answer: the turn's later reports still go to its turn.
             Some((turn, Outcome::Unsent)) => Now::Reporting { turn, last: None },
+            Some((turn, Outcome::NotFound)) if unmade => Now::Reporting { turn, last: None },
             _ => Now::Quiet,
         };
     }
@@ -951,8 +1094,17 @@ impl<I: Io> Reporter<I> {
         status: &'static str,
         note: Option<String>,
     ) {
-        let answer = self.report(session, turn, status, note).await;
+        let answer = self.report(session, turn, status, note.clone()).await;
+        // If delivery is uncertain, keep the latest status and note for the pending retry.
+        if matches!(answer, Outcome::NotFound | Outcome::Unsent)
+            && self.hold_unmade(session, turn, status, &note)
+        {
+            return self.set_now(session, Now::Reporting { turn, last: None });
+        }
         let Some(track) = self.tracks.get_mut(session) else { return };
+        if answer != Outcome::Unsent {
+            track.unmade = None;
+        }
         match answer {
             Outcome::Accepted => track.now = Now::Reporting { turn, last: Some(status) },
             // It may have reached the store: its status is not known, so the next step reports.

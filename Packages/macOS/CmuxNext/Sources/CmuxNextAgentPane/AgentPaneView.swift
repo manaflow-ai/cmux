@@ -378,7 +378,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
-        model.paneShown = { [weak self] in self.map { $0.window != nil && !$0.isHidden } ?? false }
+        model.paneShown = { [weak self] in self?.showsInAPane ?? false } // not the New Tab spare parked off screen: its lease at open took the one warm machine from the tab the person types in
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in

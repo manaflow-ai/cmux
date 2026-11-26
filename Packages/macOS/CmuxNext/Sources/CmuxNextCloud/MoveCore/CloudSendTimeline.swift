@@ -121,7 +121,7 @@ public final class CloudSendTimelines: Sendable {
         guard let timeline = timeline(machine: machine, tab: tab) else { return }
         timeline.setMachine(phases)
         guard let line = timeline.mark(step) else { return }
-        Self.logger.info("\(line, privacy: .public)")
+        Self.logger.notice("\(line, privacy: .public)") // kept in the log store: an info line is gone by the time a slow start is looked at
         bound.withLock { bound in bound.removeAll { $0.timeline === timeline } }
     }
 

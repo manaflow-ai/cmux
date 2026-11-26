@@ -237,7 +237,13 @@ import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { parseSessionIcon } from "../shared/harnessIcons";
 import { liveModes, permissionModes } from "./permissionModes";
-import { handoffPromptId, namesHandoffTurn, TURN_WAIT_MS } from "./cloudHandoffTurn";
+import {
+  FIRST_HANDOFF_TURN,
+  FIRST_HANDOFF_TURN_CAPABILITY,
+  handoffPromptId,
+  namesHandoffTurn,
+  TURN_WAIT_MS,
+} from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
 import { bridgedWatch, terminalWatch } from "./watchBannerModel";
@@ -12304,6 +12310,9 @@ export class AcpmuxDirectClient {
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
   /// (the machine's reports go on their own time), and another prompt never names it.
   private handoffTurnsSent = new Map<string, number>();
+  /// The claim of a started chat's first prompt, made before its ask answered (sendNow): that ask
+  /// gives the claim back when it names no turn, unless another prompt claimed a turn since.
+  private handoffPresumed = new Map<string, object>();
   /// A New Tab start suspended for Trust settles when its selection or client goes away.
   private cancelTrustStart?: () => void;
 
@@ -12743,6 +12752,8 @@ export class AcpmuxDirectClient {
     if (this.handoffTurn && !steersIn && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
       const generation = this.selectionGeneration;
       let named: number | undefined;
+      /// Set when this prompt names its turn ahead of the ask's answer (`handoffPresumed`).
+      let presumed: object | undefined;
       const asking = this.handoffAsks.get(sessionId);
       if (asking?.generation === generation) await asking.ask;
       else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
@@ -12759,15 +12770,40 @@ export class AcpmuxDirectClient {
           ask: early ? early.then(({ turn, took }) => turn ?? (again(took) ? ask() : undefined)) : ask(),
         };
         this.handoffAsks.set(sessionId, entry);
-        let turn: number | undefined;
-        try {
-          turn = await entry.ask;
-        } finally {
+        const asked = () => {
           if (this.handoffAsks.get(sessionId) === entry) this.handoffAsks.delete(sessionId);
+        };
+        if (early && !this.handoffTurnsSent.has(sessionId) && this.capabilities?.has(FIRST_HANDOFF_TURN_CAPABILITY)) {
+          // The first prompt of the chat this send just started does not wait for the ask: a new
+          // session's hand-off can only be made at `FIRST_HANDOFF_TURN`, so the prompt names that turn
+          // now and the ask goes on beside it. The wait was 1.1 to 2.3 s of every Cloud start between
+          // the attach and `session/prompt` (the ask alone 1.8 s; a CLI start sends in 0.26 s,
+          // 2026-11-25). acpmux reports that turn once the hand-off is there (`cloud_handoff.rs`
+          // `Unmade`). An ask that names no turn gives the claim back, so the next prompt that
+          // starts a turn names the turn the app opens then; with no hand-off the reports go nowhere,
+          // as an unnamed prompt's do.
+          named = FIRST_HANDOFF_TURN;
+          presumed = {};
+          const mine = presumed;
+          const answered = (turn: number | undefined) => {
+            asked();
+            if (this.handoffPresumed.get(sessionId) !== mine) return;
+            this.handoffPresumed.delete(sessionId);
+            if (turn === undefined && this.handoffTurnsSent.get(sessionId) === FIRST_HANDOFF_TURN)
+              this.handoffTurnsSent.delete(sessionId);
+          };
+          void entry.ask.then(answered, () => answered(undefined));
+        } else {
+          let turn: number | undefined;
+          try {
+            turn = await entry.ask;
+          } finally {
+            asked();
+          }
+          // A turn this page already sent a prompt under is that prompt's, even while the store has not
+          // heard it run yet; a turn the app opened after the wait ran out is named (nothing ran under it).
+          if (turn !== undefined && turn > (this.handoffTurnsSent.get(sessionId) ?? 0)) named = turn;
         }
-        // A turn this page already sent a prompt under is that prompt's, even while the store has not
-        // heard it run yet; a turn the app opened after the wait ran out is named (nothing ran under it).
-        if (turn !== undefined && turn > (this.handoffTurnsSent.get(sessionId) ?? 0)) named = turn;
       }
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId)
         throw new Error(translate("error.notOpen"));
@@ -12775,6 +12811,9 @@ export class AcpmuxDirectClient {
       if (named !== undefined) {
         claim = { turn: named, before: this.handoffTurnsSent.get(sessionId) };
         this.handoffTurnsSent.set(sessionId, named);
+        // Only the newest claim made ahead of its ask is given back by that ask.
+        if (presumed) this.handoffPresumed.set(sessionId, presumed);
+        else this.handoffPresumed.delete(sessionId);
         promptId = handoffPromptId(named, promptId);
       }
     }

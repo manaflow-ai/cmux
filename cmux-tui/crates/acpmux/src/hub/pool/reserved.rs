@@ -13,8 +13,29 @@
 //! a warm agent too: production app-chat probes on the 11-24 nightly paid `session_new` 3.6 to
 //! 10.4 s on a second chat (52 s once) against 0.8 to 1.6 s warm.
 //!
-//! A chat that names a model connection (a credential in its key), or runs with
-//! `CMUX_AGENT_DISPLAYS=per-workspace` (the workspace id is in the key), misses and starts cold.
+//! The reserved agent starts as the home chat it waits for will start, or that chat misses it and
+//! pays the boot after Send (`session_new` 2.6 s on a warm spare machine, 4.7 to 38 s on a fresh
+//! one, 2026-11-25). Three things decide that beyond the folder:
+//!
+//! - The owner's Cloud credential ([`Hub::reserve_home_warm_on`]). A chat on the person's own
+//!   model connection sends its credential with `session/new`, and the key's auth fingerprint
+//!   hashes the credentialed spawn env: an agent reserved with none never matched such a chat,
+//!   and a credential cannot be given to a harness that is already up (it reads it from its env
+//!   as it starts). A reserve that names the credential starts the agent on it, so only a
+//!   `session/new` with that same credential takes it; another credential, or none, misses, as
+//!   for a hinted entry (cmux#45953). The credential is in memory and in that agent's own env
+//!   only, as a chat's is. A ChatGPT plan token is left out: it is refreshed before a start, so
+//!   the start's token is another one and never matches.
+//! - The model. The default harness's own shape in `shapes` (the model this person's newest
+//!   chat on it ran) is the reserved agent's model, not a second entry: one folder holds one
+//!   entry per harness (`policy.rs` `same_slot`), so a spare of that harness wanted beside the
+//!   reserved entry ended it, and the reserve then answered `state: none` with an agent ready.
+//! - The refill warms the next folder as the chat that took this one started: its model and its
+//!   credential.
+//!
+//! No spare of another key takes the reserved entry's place (`Pool::reserved_under_another_key`).
+//! A chat that runs with `CMUX_AGENT_DISPLAYS=per-workspace` (the workspace id is in the key)
+//! misses and starts cold.
 //!
 //! Personal spares (ask-30d56720f6; on by default, off with `ACPMUX_SPARE_PERSONAL=0`): the
 //! default harness and model is only one person's pick. With the switch on, a reserve also
@@ -172,20 +193,28 @@ impl Hub {
     /// ran out). Local, trusted callers only (the handler checks).
     /// `shapes`: the harnesses and models the person set up, warmed beside it when personal
     /// spares are on (the module doc).
-    pub async fn reserve_home_warm(
+    /// `credential`: the owner's Cloud credential a person's home chats launch on, as
+    /// `session/new` carries it: the reserved agent starts on it, and only a `session/new` with
+    /// that same credential takes it (the module doc). The caller admits it as a start's is
+    /// admitted (`agent_credentials::admit`: this machine's own socket, never an agent's
+    /// connection).
+    pub async fn reserve_home_warm_on(
         self: &Arc<Self>,
         wait: bool,
         shapes: Vec<HomeShape>,
+        credential: Option<crate::agent_credentials::AgentCredential>,
     ) -> Result<Value, RpcError> {
-        self.reserve_home_warm_after(None, wait, shapes).await
+        let like = PrewarmShape { credential, ..PrewarmShape::default() };
+        self.reserve_home_warm_after(None, wait, shapes, like).await
     }
 
     /// A home chat just took the reserved entry for `taken`: reserve the next folder and warm it,
-    /// in the background.
-    pub(super) fn refill_reserved_home(&self, taken: PathBuf) {
+    /// in the background, as that chat started (`like`: its model and its credential), since the
+    /// next home chat of this person most likely starts the same way.
+    pub(super) fn refill_reserved_home(&self, taken: PathBuf, like: PrewarmShape) {
         let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
         self.scope.spawn_named("pool-reserve-refill", async move {
-            match hub.reserve_home_warm_after(Some(taken), false, Vec::new()).await {
+            match hub.reserve_home_warm_after(Some(taken), false, Vec::new(), like).await {
                 Ok(answer) => tracing::info!(%answer, "the next home chat's folder is reserved"),
                 Err(error) => {
                     tracing::info!(?error, "the next home chat's folder was not reserved")
@@ -194,13 +223,18 @@ impl Hub {
         });
     }
 
-    /// [`reserve_home_warm`](Self::reserve_home_warm); `taken`: the folder a chat just took,
+    /// [`reserve_home_warm_on`](Self::reserve_home_warm_on); `taken`: the folder a chat just took,
     /// never warmed again (its ticket still names it when the chat came without taking it).
+    /// `like`: the model and credential the home chat this waits for will name (the module doc).
+    /// Every way it warms nothing answers `{accepted: false, reason}`, never an error: the
+    /// `warm-home` verb prints an answer only, so an error left the app with empty output and
+    /// no reason to log.
     async fn reserve_home_warm_after(
         self: &Arc<Self>,
         taken: Option<PathBuf>,
         wait: bool,
         shapes: Vec<HomeShape>,
+        like: PrewarmShape,
     ) -> Result<Value, RpcError> {
         if crate::launch_policy::agent_launch_disabled() {
             return Ok(
@@ -218,22 +252,49 @@ impl Hub {
             return Ok(json!({"accepted": false, "reason": "this machine has no home folder"}));
         };
         let at = home.clone();
-        let folder = tokio::task::spawn_blocking(move || ensure_folder_serial(&at))
-            .await
-            .ok()
-            .flatten()
-            .ok_or_else(|| {
-                RpcError::invalid_params("the reserved chat folder could not be made")
-            })?;
+        let Some(folder) =
+            tokio::task::spawn_blocking(move || ensure_folder_serial(&at)).await.ok().flatten()
+        else {
+            return Ok(json!({"accepted": false,
+                "reason": "the reserved chat folder could not be made"}));
+        };
         if taken.as_ref() == Some(&folder) {
             return Ok(json!({"accepted": false,
                 "reason": "the reserved folder's ticket still names the folder a chat took"}));
         }
         self.wait_startup().await;
-        // The default harness and model, as a home chat's `session/new` with no pick takes them.
-        let spec =
-            self.pool_spec_in(None, None, folder.clone(), None, &PrewarmShape::default()).await?;
+        let like = PrewarmShape {
+            model: like.model,
+            // The reserved entry is keyed before its chat (and so its workspace) exists.
+            workspace_id: None,
+            // A ChatGPT plan token is refreshed before a start: the start's is another one.
+            credential: like.credential.filter(|c| !c.is_chatgpt_plan()),
+        };
+        // The default harness, as a home chat's `session/new` takes it, on `like`.
+        let spec = match self.pool_spec_in(None, None, folder.clone(), None, &like).await {
+            Ok(spec) => spec,
+            Err(error) => return Ok(json!({"accepted": false, "reason": error.message})),
+        };
+        // The person's own shape of that harness names the model their chat will ask for: the
+        // reserved agent starts on it, since the folder holds one entry of the harness.
+        let picked = (like.model.is_none() && crate::config::spare_personal_enabled())
+            .then(|| {
+                shapes
+                    .iter()
+                    .find(|s| s.harness == spec.key.harness && s.preset.is_none())
+                    .and_then(|s| s.model.clone())
+            })
+            .flatten();
+        let spec = match picked {
+            Some(model) => {
+                let like = PrewarmShape { model: Some(model), ..like.clone() };
+                self.pool_spec_in(None, None, folder.clone(), None, &like).await.unwrap_or(spec)
+            }
+            None => spec,
+        };
         let key = spec.key.clone();
+        // Whether it launches on the credential (one of the harness's own family; never a value).
+        let on_credential = spec.spawn.env.contains_key(crate::agent_credentials::MARKER);
         self.pool_want(Role::Reserved, spec).await;
         let personal = if crate::config::spare_personal_enabled() {
             self.spare_home_shapes(&home, &folder, &key, shapes).await
@@ -257,11 +318,32 @@ impl Hub {
             .zip(&states)
             .map(|(k, s)| json!({"harness": k.harness, "state": s}))
             .collect();
-        let mut answer = json!({"accepted": true, "state": state, "cwd": key.cwd});
-        if !spares.is_empty() {
-            answer["spares"] = Value::Array(spares);
+        let mut answer = serde_json::Map::from_iter([
+            ("accepted".to_owned(), json!(true)),
+            ("state".to_owned(), json!(state)),
+            ("cwd".to_owned(), json!(key.cwd)),
+            ("harness".to_owned(), json!(key.harness)),
+            ("credential".to_owned(), json!(on_credential)),
+        ]);
+        if let Some(model) = &key.model {
+            answer.insert("model".to_owned(), json!(model));
         }
-        Ok(answer)
+        // Why no agent is there or coming, for the app's log (`CloudMachineRoute.warmHome`).
+        match state {
+            "none" => {
+                answer.insert("reason".to_owned(), json!(
+                    "the pool did not keep the entry (it is off or stopping, the shape is over the memory cap, or another start in the folder replaced it)"
+                ));
+            }
+            "empty" => {
+                answer.insert("reason".to_owned(), json!("the agent did not start"));
+            }
+            _ => {}
+        }
+        if !spares.is_empty() {
+            answer.insert("spares".to_owned(), Value::Array(spares));
+        }
+        Ok(Value::Object(answer))
     }
 
     /// The state of the entry for `key`: `ready`, `warming`, `empty` or `none`.

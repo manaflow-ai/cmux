@@ -289,7 +289,7 @@ struct CloudStartChat {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user), account = origin.account, start = try start.sizedForRepository(services.agentTabs.pageChats.gitHub?.sizes) // its size from the repos list
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         report(.init(name: "machine"))
-        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, harness = start.harness, model = start.model, account = start.account] in await setup.choose(harness: harness, model: model, account: account).servedWithoutMacGateway } // as the folder start does: a no-folder chat on this Mac's gateway sent its first prompt with no wait for it, and one replaced or unavailable was never started again (`inference.gateway_offline`)
         let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) } }
         return try await services.cloud.startGate.holding(machine.machineID, entered: true) { try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
@@ -299,7 +299,7 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            return try await open(start, from: origin, on: machine, cwd: cwd, tabKey: plan.tabKey)
+            return try await open(start, from: origin, on: machine, cwd: cwd, tabKey: plan.tabKey, gateway: PersonalGateway.turnNeedsIt(credential: origin.connection) ? gateway : nil)
         } }
     }
 }

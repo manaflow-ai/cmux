@@ -145,8 +145,8 @@ public final class AgentPaneModel {
     @ObservationIgnored private var cloudReservationsLeft: Set<String> = []
     /// ``AgentPaneCloudLeaseOnOpenFlag``: a composer that opens on Cloud leases its machine with no gesture.
     @ObservationIgnored public var cloudLeaseOnOpen = AgentPaneCloudLeaseOnOpenFlag.current.enabled
-    /// Whether the pane is in a window and not hidden (the view sets it): a pooled spare page, which nobody
-    /// sees, never leases a machine at open.
+    /// Whether a person may see the pane (the view sets it, ``AgentPaneView/showsInAPane``): a pooled spare page,
+    /// which waits in its window parked off screen, never leases a machine at open.
     @ObservationIgnored public var paneShown: @MainActor () -> Bool = { false }
     /// This New Tab page took its one no-gesture lease (``takeCloudOpenLease(_:)``); a new page gets another.
     @ObservationIgnored private var cloudOpenLeaseSpent = false

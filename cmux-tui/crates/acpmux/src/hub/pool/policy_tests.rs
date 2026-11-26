@@ -188,6 +188,37 @@ fn a_reserved_entry_neither_moves_nor_is_moved_by_a_spare() {
     assert_eq!(cwds(&pool), vec!["/chats/r1", "/b"]);
 }
 
+/// A spare of the reserved entry's harness in its folder, on another model or without the
+/// credential the reserve named, is a new key for an occupied slot: wanted, it ended the reserved
+/// entry, and the home chat the reserve was made for started cold. The pool says so first.
+#[test]
+fn the_reserved_entrys_slot_is_told_from_a_spare_of_another_key() {
+    let mut pool = Pool::new(IDLE);
+    let r = key("/chats/r1", "claude");
+    let now = Duration::from_secs(1);
+    let generation = pool.want(Role::Reserved, r.clone(), now).start.unwrap();
+    assert!(pool.complete(&r, generation, "reserved", now).is_none());
+    let mut other_model = r.clone();
+    other_model.model = Some("claude-opus-5-5".into());
+    let mut other_login = r.clone();
+    other_login.auth = "another".into();
+    assert!(pool.reserved_under_another_key(&other_model));
+    assert!(pool.reserved_under_another_key(&other_login));
+    assert!(!pool.reserved_under_another_key(&r), "its own key is the entry itself");
+    assert!(!pool.reserved_under_another_key(&key("/chats/r1", "codex")), "another harness");
+    assert!(!pool.reserved_under_another_key(&key("/b", "claude")), "another folder");
+    // A spare may finish resolving its shape after the reservation was installed.
+    // The pool must reject it at mutation time, even without a caller-side check.
+    for key in [other_model.clone(), other_login] {
+        let attempt = pool.want(Role::Spare, key, now);
+        assert!(attempt.evicted.is_empty());
+        assert!(attempt.start.is_none());
+    }
+    assert!(matches!(pool.take(&r), Take::Ready("reserved")));
+    pool.end_reserved(&r);
+    assert!(!pool.reserved_under_another_key(&other_model));
+}
+
 #[test]
 fn a_taken_reserved_entry_is_reserved_no_more_and_leaves_room_for_the_next_folder() {
     let mut pool = Pool::new(IDLE);

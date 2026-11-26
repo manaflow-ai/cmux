@@ -2097,3 +2097,149 @@ async fn a_pooled_claude_taken_under_a_name_runs_under_it_and_follows_a_rename()
     );
     let _ = std::fs::remove_file(&renamed);
 }
+
+/// A proven daemon whose default harness is a stand-in Claude Code (`fakeb`), as a Cloud
+/// machine's is Claude Code: the reserved home chat's agent is the default harness's
+/// (`hub/pool/reserved.rs`).
+async fn claude_home_daemon(tag: &str) -> (Daemon, Rpc) {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fakeb =
+        json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude]});
+    let daemon = Daemon::with_fakeb_proven(tag, &fakeb);
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({
+            "harnesses": {"fake": profile("a"), "fakeb": fakeb},
+            "defaultHarness": "fakeb",
+            "permissionPolicy": "approve-all",
+            "pool": {"debounceMs": 0},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // The daemon's HOME, where the reserve makes `chats/`.
+    std::fs::create_dir_all(daemon_env::home(&daemon.home)).unwrap();
+    let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
+    rpc.call("_acpmux/reload_config", json!({})).await;
+    (daemon, rpc)
+}
+
+/// The chat takes the reserved folder as cmux-tui-core's `owner_cloud_cwd` does: the ticket is
+/// renamed, so the refill reserves another folder.
+fn take_reserved_ticket(daemon: &Daemon, n: u32) {
+    let chats = daemon_env::home(&daemon.home).join("chats");
+    std::fs::rename(chats.join(".reserved"), chats.join(format!(".taken-{n}"))).unwrap();
+}
+
+/// Test polling: the folder of a ready reserved entry that is not `taken` (the refill's).
+async fn wait_reserved_ready(rpc: &mut Rpc, taken: &[&str]) -> String {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        let ready = status["pool"]["entries"].as_array().unwrap().iter().find_map(|e| {
+            let reserved = e["roles"].as_array().is_some_and(|r| r.iter().any(|r| r == "reserved"));
+            let cwd = e["cwd"].as_str()?;
+            (reserved && e["state"] == "ready" && !taken.contains(&cwd)).then(|| cwd.to_owned())
+        });
+        if let Some(cwd) = ready {
+            return cwd;
+        }
+        assert!(Instant::now() < deadline, "no reserved home agent became ready: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A home chat's `session/new` as cmux-tui-core sends it (`start_and_bind`): the reserved
+/// folder, the agent, the tab's workspace, and the model or credential the chat names.
+fn home_start(cwd: &str, model: Option<&str>, token: Option<&str>) -> Value {
+    let mut acpmux =
+        json!({"harness": "fakeb", "workspaceId": "0193a5c2-7d1e-7a10-8f00-5b1c2d3e4f50"});
+    if let Some(model) = model {
+        acpmux["model"] = json!(model);
+    }
+    if let Some(token) = token {
+        acpmux["credentials"] = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}});
+    }
+    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": acpmux}})
+}
+
+async fn start_home_chat(rpc: &mut Rpc, start: Value) -> String {
+    rpc.call("session/new", start).await["sessionId"].as_str().expect("session id").to_owned()
+}
+
+/// A Cloud machine's first home chat takes the agent reserved before it existed, and so does the
+/// next one. With no pick it is the default harness on its start model. With the person's own
+/// shape of that harness (`shapes`), the reserved agent runs that shape's model: before, it was
+/// warmed on the machine's default only, the chat that named the person's model missed it, and
+/// the refill forgot the model again, so every such chat paid the agent's boot after Send.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_home_chat_takes_the_reserved_agent_on_the_model_the_person_uses() {
+    let (daemon, mut rpc) = claude_home_daemon("resv").await;
+    // No pick: the default harness, and a start that names no model takes it.
+    let warmed = rpc.call("_acpmux/prewarm", json!({"reserveHome": true, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    assert_eq!(warmed["state"], "ready", "{warmed}");
+    assert_eq!(warmed["harness"], "fakeb", "{warmed}");
+    assert_eq!(warmed["credential"], false, "{warmed}");
+    let first = warmed["cwd"].as_str().unwrap().to_owned();
+    take_reserved_ticket(&daemon, 1);
+    let chat = start_home_chat(&mut rpc, home_start(&first, None, None)).await;
+    assert!(taken(&daemon, &chat), "the first home chat took the reserved agent");
+
+    // The person's shape of the default harness: the reserved agent starts on its model, in
+    // the folder the refill reserved.
+    wait_reserved_ready(&mut rpc, &[&first]).await;
+    let shapes = json!([{"harness": "fakeb", "model": "claude-haiku-5-5"}]);
+    let warmed = rpc
+        .call("_acpmux/prewarm", json!({"reserveHome": true, "wait": true, "shapes": shapes}))
+        .await;
+    assert_eq!(warmed["state"], "ready", "{warmed}");
+    assert_eq!(warmed["model"], "claude-haiku-5-5", "{warmed}");
+    let second = warmed["cwd"].as_str().unwrap().to_owned();
+    assert_ne!(second, first);
+    take_reserved_ticket(&daemon, 2);
+    let chat = start_home_chat(&mut rpc, home_start(&second, Some("claude-haiku-5-5"), None)).await;
+    assert!(taken(&daemon, &chat), "a chat on the person's model took the reserved agent");
+
+    // The refill is warmed as that chat started: the next chat on the model takes it too.
+    let third = wait_reserved_ready(&mut rpc, &[&first, &second]).await;
+    take_reserved_ticket(&daemon, 3);
+    let chat = start_home_chat(&mut rpc, home_start(&third, Some("claude-haiku-5-5"), None)).await;
+    assert!(taken(&daemon, &chat), "the next chat on the person's model took the refill");
+}
+
+/// A home chat on the person's own model connection carries its credential, and the key hashes
+/// the credentialed spawn: the reserved agent, warmed with none, never matched it, so the common
+/// Cloud chat paid the whole boot after Send. A reserve that names the credential starts the
+/// agent on it; only a start with that same credential takes it, and the refill keeps it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_credentialed_home_chat_takes_the_agent_reserved_on_its_credential_only() {
+    let (daemon, mut rpc) = claude_home_daemon("resvc").await;
+    let owner = "sk-ant-oat01-owner-a";
+    let reserve = json!({"reserveHome": true, "wait": true,
+        "credentials": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": owner}}});
+    let warmed = rpc.call("_acpmux/prewarm", reserve).await;
+    assert_eq!(warmed["state"], "ready", "{warmed}");
+    assert_eq!(warmed["credential"], true, "the reserved agent launches on it: {warmed}");
+    let first = warmed["cwd"].as_str().unwrap().to_owned();
+    take_reserved_ticket(&daemon, 1);
+
+    // Another person's credential: never handed the agent, which stays for its own.
+    let other =
+        start_home_chat(&mut rpc, home_start(&first, None, Some("sk-ant-oat01-owner-b"))).await;
+    assert!(!taken(&daemon, &other), "a start on another credential took the reserved agent");
+    let chat = start_home_chat(&mut rpc, home_start(&first, None, Some(owner))).await;
+    assert!(taken(&daemon, &chat), "the chat on the reserve's credential took the agent");
+
+    // The refill launches on the chat's credential: the next chat takes it, and a start with no
+    // credential (the machine's own route) never runs on it.
+    let second = wait_reserved_ready(&mut rpc, &[&first]).await;
+    take_reserved_ticket(&daemon, 2);
+    let chat = start_home_chat(&mut rpc, home_start(&second, None, Some(owner))).await;
+    assert!(taken(&daemon, &chat), "the next credentialed chat took the refill");
+    let third = wait_reserved_ready(&mut rpc, &[&first, &second]).await;
+    take_reserved_ticket(&daemon, 3);
+    let plain = start_home_chat(&mut rpc, home_start(&third, None, None)).await;
+    assert!(!taken(&daemon, &plain), "a start with no credential took a credentialed agent");
+}

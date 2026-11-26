@@ -435,12 +435,198 @@ async fn a_turn_the_store_finished_is_not_reported_again() {
 async fn a_session_with_no_hand_off_sends_one_report_a_turn() {
     let (mut r, fake) = reporter();
     fake.answer([not_found(), not_found()]);
-    for turn in 1..=2 {
+    for turn in 2..=3 {
         r.step(S, began(turn)).await;
         r.step(S, Step::Asks(None)).await;
         r.step(S, Step::Ended(End::Completed(None), Some(turn))).await;
     }
-    assert_eq!(fake.take(), [s(1, "running", None), s(2, "running", None)]);
+    assert_eq!(fake.take(), [s(2, "running", None), s(3, "running", None)]);
+}
+
+// A new chat's first prompt names turn 1 before the owner's app has made the hand-off (the page no
+// longer waits 1.1 to 2.3 s for it): the turn's reports wait for the hand-off instead of being lost.
+
+#[tokio::test(start_paused = true)]
+async fn a_first_turn_begun_before_its_hand_off_is_made_reports_running_once_it_is() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found()]);
+    let begun = tokio::time::Instant::now();
+    r.step(S, began(1)).await;
+    assert_eq!(fake.take(), [s(1, "running", None)]);
+    assert_eq!(r.next_deadline(), Some(begun + UNMADE_AFTER[0]));
+    // Not before its wait.
+    r.expire().await;
+    assert!(fake.take().is_empty());
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([not_found()]);
+    r.expire().await;
+    tokio::time::advance(UNMADE_AFTER[1]).await;
+    fake.answer([ok(1, "running")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "running", None)]);
+    assert_eq!(r.next_deadline(), None);
+    // The turn is followed as one whose begin the store took: once each, on its turn.
+    fake.answer([ok(1, "needs-you"), ok(1, "running"), ok(1, "done")]);
+    r.step(S, Step::Asks(Some("Permission: Write".to_owned()))).await;
+    r.step(S, Step::Runs).await;
+    r.step(S, done(1, "Done.")).await;
+    assert_eq!(
+        fake.take(),
+        [
+            s(1, "needs-you", Some("Permission: Write")),
+            s(1, "running", None),
+            s(1, "done", Some("Done."))
+        ]
+    );
+    r.expire().await;
+    assert!(fake.take().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_first_turn_retries_the_permission_request_that_could_not_be_sent() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found()]);
+    r.step(S, began(1)).await;
+    fake.0.lock().unwrap().absent = true;
+    r.step(S, Step::Asks(Some("Permission: Write".to_owned()))).await;
+    fake.0.lock().unwrap().absent = false;
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "needs-you")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "needs-you", Some("Permission: Write"))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unanswered_first_begin_keeps_the_end_until_the_hand_off_exists() {
+    let (mut r, fake) = reporter();
+    fake.0.lock().unwrap().absent = true;
+    r.step(S, began(1)).await;
+    fake.0.lock().unwrap().absent = false;
+    fake.answer([not_found()]);
+    r.step(S, done(1, "Done.")).await;
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Done.")), s(1, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn closing_before_hand_off_creation_preserves_the_first_turn_end() {
+    for finished in [false, true] {
+        let (mut r, fake) = reporter();
+        fake.answer([not_found(), not_found()]);
+        r.step(S, began(1)).await;
+        if finished {
+            r.step(S, done(1, "Done.")).await;
+        }
+        r.step(S, Step::Closed).await;
+        fake.take();
+        let (status, note) = if finished {
+            ("done", "Done.")
+        } else {
+            ("failed", "The session was closed before the turn finished.")
+        };
+        tokio::time::advance(UNMADE_AFTER[0]).await;
+        fake.answer([ok(1, status)]);
+        r.expire().await;
+        assert_eq!(fake.take(), [s(1, status, Some(note))]);
+        assert_eq!(r.next_deadline(), None);
+        assert!(!r.tracks.contains_key(S));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_first_turn_that_ends_before_its_hand_off_is_made_reports_its_end_once() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found(), not_found(), not_found()]);
+    r.step(S, began(1)).await;
+    r.step(S, Step::Asks(None)).await;
+    r.step(S, done(1, "Done.")).await;
+    assert_eq!(
+        fake.take(),
+        [s(1, "running", None), s(1, "needs-you", None), s(1, "done", Some("Done."))]
+    );
+    // Only the newest report waits: the end, never the running or needs-you before it.
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+    tokio::time::advance(LATER[0]).await;
+    r.expire().await;
+    assert!(fake.take().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_first_turn_whose_hand_off_is_made_mid_turn_reports_from_its_next_step() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found(), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    // The end is taken (the hand-off is there now), so the waiting `running` is not sent after it.
+    r.step(S, done(1, "Done.")).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_first_turn_nobody_handed_off_is_given_up_and_a_later_prompt_of_it_still_reports() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found()]);
+    r.step(S, began(1)).await;
+    for wait in UNMADE_AFTER {
+        tokio::time::advance(wait).await;
+        fake.answer([not_found()]);
+        r.expire().await;
+    }
+    assert_eq!(fake.take().len(), 4);
+    assert_eq!(r.next_deadline(), None);
+    // Its end is tried once and, with no hand-off still, dropped.
+    fake.answer([not_found()]);
+    r.step(S, done(1, "Done.")).await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+    // The app made the hand-off for the chat's next prompt, which names turn 1 again (the page
+    // gave its claim back): that prompt's begin and end both report, never left `running`.
+    fake.answer([ok(1, "running"), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "Again.")).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", Some("Again."))]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_waiting_first_turn_report_is_dropped_by_the_next_prompts_begin() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found(), not_found(), ok(1, "running")]);
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "First.")).await;
+    // Another prompt names the turn before the first one's end was taken: that end is not sent
+    // over the running turn.
+    r.step(S, began(1)).await;
+    fake.take();
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    r.expire().await;
+    assert!(fake.take().is_empty());
+    assert_eq!(r.next_deadline(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_waiting_first_turn_end_outlasts_a_queued_prompts_unnamed_begin() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found(), not_found()]);
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "First.")).await;
+    fake.take();
+    // A prompt queued behind the first turn begins and names no turn: the first turn's end still
+    // waits, or the store never hears that turn ran.
+    r.step(S, Step::Began(None)).await;
+    assert!(fake.take().is_empty());
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("First."))]);
+    assert_eq!(r.next_deadline(), None);
 }
 
 #[tokio::test]

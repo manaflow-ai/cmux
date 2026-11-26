@@ -653,6 +653,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
+    // A hand-off's first turn reported before the hand-off is made is held and sent again, not
+    // dropped (`daemon/cloud_handoff.rs` `Unmade`): a page names that turn without asking first.
+    // It rides a prompt's id (`handoff-1-…`).
+    Capability { id: "cloud-handoff-first-turn-v1", wire: &[method::SESSION_PROMPT] },
 ];
 
 /// The capabilities of this build, including the local stream listener.
