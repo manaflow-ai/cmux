@@ -84,11 +84,11 @@ function AccountsBody() {
           </output>
         )}
       </section>
+      <GitHubAccountsCard />
       <AccountSignInSection />
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
-      <GitHubAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>

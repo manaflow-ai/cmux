@@ -1,17 +1,22 @@
 import { useState } from "react";
 import { Button } from "../../../ui/Button";
 import { SignInButton } from "../../../ui/SignInButton";
+import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
 import { useSettingsState, useStore } from "../context";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { terminalSignIn, useSettingsSignIn } from "./useSettingsSignIn";
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
 export function GitHubAccountsCard() {
   const github = useSettingsState().accounts?.github;
   const store = useStore();
+  const cliSignIn = useSettingsSignIn();
   const [confirming, setConfirming] = useState<string | null>(null);
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
   const fade = useLoadFade(Boolean(github));
   if (!github) return null;
+  const cliLabel = github.cliSignIn ?? "Use GitHub CLI";
+  const cliDetail = github.cliSignInDetail ?? "Optional personal login for gh and git.";
   return (
     <section
       className={fade ? `group ${LOAD_FADE_CLASS}` : "group"}
@@ -46,6 +51,30 @@ export function GitHubAccountsCard() {
                 {github.refresh}
               </Button>
             </div>
+            <p className="row-help">{cliDetail}</p>
+            <div className="accounts-buttons">
+              <Button
+                className="button"
+                variant="ghost"
+                data-github-action="cli-sign-in"
+                disabled={github.busy || Boolean(cliSignIn.running)}
+                onClick={() =>
+                  cliSignIn.begin("github", null, () => void store.runHarnesses(terminalSignIn("github", null)))
+                }
+              >
+                {cliLabel}
+              </Button>
+            </div>
+            {cliSignIn.running && (
+              <div className="accounts-body">
+                <DeviceSignInCard
+                  family={cliSignIn.running.family}
+                  view={cliSignIn.running.view}
+                  look="inline"
+                  {...cliSignIn.card}
+                />
+              </div>
+            )}
           </div>
         </div>
         {github.connections.map((connection) => (

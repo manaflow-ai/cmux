@@ -5,6 +5,7 @@ import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import type { GitHubConnectionState } from "./ops";
 import { installDom } from "./testDom";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -50,6 +51,30 @@ test("signed out, the GitHub card offers Sign In instead of Connect GitHub", asy
   expect(again.querySelector('[data-action="sign-in"]')).toBeNull();
   expect(again.querySelector('[data-github-action="connect"]')).not.toBeNull();
   signedIn.unmount();
+});
+
+test("the App connection leads and the personal CLI login stays an explicit option", async () => {
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = {
+        ...provider.accounts,
+        github: { ...github, signIn: null, canConnect: true, cliSignIn: "Use GitHub CLI" },
+        signInAccounts: [...ACCOUNT_LISTS.oneEach],
+      };
+    },
+  });
+  const appCard = page.container.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+  const signInSection = page.container.querySelector<HTMLElement>('[data-card="account-sign-in"]')!;
+  expect(appCard.compareDocumentPosition(signInSection) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  expect(signInSection.querySelector('[data-sign-in-add="github"]')).toBeNull();
+  const cli = appCard.querySelector<HTMLButtonElement>('[data-github-action="cli-sign-in"]')!;
+  expect(cli.textContent).toBe("Use GitHub CLI");
+  await act(async () => cli.click());
+  await settle();
+  expect(page.provider.accountRuns.at(-1)).toMatchObject({ action: "signInFinish" });
+  expect(appCard.querySelector(".signin")).not.toBeNull();
+  page.unmount();
 });
 
 // #46018: a connected GitHub in Settings can be disconnected and reconfigured (its installation's page
