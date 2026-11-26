@@ -383,7 +383,7 @@ body {
    about a quarter lower, a resize step about a fifth). Layout and style containment only:
    nothing is clipped or skipped, so comment markers, find and scrolling read real boxes. A
    contained block's children's margins no longer collapse through it, so a top-level list takes
-   its items' margins itself and its first and last items (down five list levels) drop theirs:
+   its items' margins itself and its first and last items (at any depth) drop theirs:
    the spacing is what it was without containment. A blockquote's children have margins of every
    kind, so it stays uncontained. */
 .md-prose > :not(blockquote) {
@@ -396,29 +396,15 @@ body {
   margin-bottom: max(var(--cmux-md-paragraph-spacing), var(--cmux-md-list-spacing));
 }
 
-.md-prose > :is(ul, ol) > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child,
-.md-prose > :is(ul, ol) > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child > :first-child {
+/* An element whose margin collapsed out through the list's top or bottom edge without containment:
+   it starts (ends) its parent, and so does each ancestor up to the top-level list, at any depth.
+   "No ancestor inside the list that is not first (last)" says that without one selector per
+   level, which left the deepest item's margin inside the list from six levels down. */
+.md-prose > :is(ul, ol) :first-child:not(.md-prose > :is(ul, ol) :not(:first-child) *) {
   margin-top: 0;
 }
 
-.md-prose > :is(ul, ol) > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child,
-.md-prose > :is(ul, ol) > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child > :last-child {
+.md-prose > :is(ul, ol) :last-child:not(.md-prose > :is(ul, ol) :not(:last-child) *) {
   margin-bottom: 0;
 }
 
