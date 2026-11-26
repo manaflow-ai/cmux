@@ -28,7 +28,8 @@ struct CloudAPIClientPlanRequiredTests {
                                                          upgradeURL: URL(string: "https://cmux.com/pricing"))) {
             try await api.setupDesktop("vm_aaaaaaaaaaaaaaaaaaaa")
         }
-        let request = try #require(try JSONSerialization.jsonObject(with: try #require(seen.withLock { $0 })) as? [String: Any])
+        let body = try #require(seen.withLock { $0 })
+        let request = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(request["call"] as? String == "machine.setup_desktop")
         #expect(request["auth"] as? String == "owner")
         #expect(request["credential"] as? String == "access")
