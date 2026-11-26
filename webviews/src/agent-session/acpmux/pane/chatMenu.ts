@@ -88,6 +88,13 @@ export type ChatMenuDeps = {
   turnActions: TurnActions;
 };
 
+/// Whether chatMenuItems has rows whatever else the chat's state is: a tab's chat always has
+/// Rename and Pin, and Quick Chat's has Delete once it has a session. Only Quick Chat before its
+/// session may have none, and then the header reads the rows to draw "..." disabled.
+export function chatMenuHasRows(quick: boolean, sessionId: string | undefined): boolean {
+  return !quick || !!sessionId;
+}
+
 /// The header's "..." menu for the pane's chat (AcpmuxPane's `chatMenu`).
 export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
   const {
