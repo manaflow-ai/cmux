@@ -3,9 +3,9 @@
 import { callNative } from "../callNative";
 import { nextDrawnRow, prevDrawnRow, rowEdge, type AcpmuxRow } from "../model";
 import { rowOpenState } from "../conversation/rowOpenState";
-import { bookRevision } from "./bookRevision";
+import { bookEdition, bookRevision } from "./bookRevision";
 
-export type RowHeightKey = { id: number; rev: number; width: number; signature: string };
+export type RowHeightKey = { id: number; rev: number; edition: number; width: number; signature: string };
 export type MeasuredRow = RowHeightKey & { height: number };
 const BATCH = 256;
 
@@ -33,11 +33,13 @@ export function heightKey(
   if (!row || row.streaming || row.steer === "waiting" || (row.kind !== "user" && row.kind !== "assistant")) return;
   const match = /^row-(\d+)$/.exec(row.id);
   const rev = bookRevision(row);
-  if (!match || rev === undefined) return;
+  const edition = bookEdition(row);
+  if (!match || rev === undefined || edition === undefined) return;
   const edge = rowEdge(row, nextDrawnRow(rows, index), prevDrawnRow(rows, index));
   return {
     id: Number(match[1]),
     rev,
+    edition,
     width: Math.round(width * 64),
     signature: JSON.stringify([layout, row.kind, row.at, row.text?.length, edge, rowOpenState(sessionId, row)]),
   };

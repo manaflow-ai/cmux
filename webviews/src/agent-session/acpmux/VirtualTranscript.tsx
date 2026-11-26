@@ -2659,7 +2659,7 @@ function TranscriptView({
         reportDrawn(
           row.id,
           row.version,
-          observedHeight ?? drawnHeightOf(target),
+          drawnHeightOf(target, observedHeight),
           keepsReplyRoom(row, nextDrawnRow(shown, index)),
           statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
           collapsingRow(target),
@@ -2843,7 +2843,9 @@ function TranscriptView({
                 const box = entry.borderBoxSize?.[0];
                 if (!box || !box.inlineSize) continue;
                 const target = entry.target as HTMLElement;
-                reportRow(target, box.blockSize);
+                const height = drawnHeightOf(target, box.blockSize);
+                if (height === undefined) continue;
+                reportRow(target, height);
                 if (!heightSid) continue;
                 const id = target.dataset.rowId;
                 if (!id) continue;
@@ -2859,7 +2861,7 @@ function TranscriptView({
                 const shown = rowsRef.current;
                 if (shown[index]?.id !== id) continue;
                 const key = heightKey(shown, index, sessionId, heightLayout, rowWidthRef.current);
-                if (key) measured.push({ ...key, height: box.blockSize });
+                if (key) measured.push({ ...key, height });
               }
               if (heightSid && measured.length) writeHeights(heightSid, measured);
             } else measure();
