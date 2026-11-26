@@ -827,6 +827,18 @@ impl Daemon {
         // The daemon logs to its stdout (`log_sink.rs`): both go to a file in the scratch folder,
         // off the home, so a full home (the disk leg) still leaves its log readable.
         let stdout = stderr.try_clone().unwrap();
+        // A `dhat-heap` build's heap by allocation site (`heap_profile.rs`), written when the
+        // daemon stops, into `ACPMUX_DURESS_DHAT_DIR` (one file per daemon started).
+        if let Some(dir) = std::env::var_os("ACPMUX_DURESS_DHAT_DIR") {
+            static N: AtomicU64 = AtomicU64::new(0);
+            let _ = std::fs::create_dir_all(&dir);
+            let file = PathBuf::from(dir).join(format!(
+                "dhat-{}-{}.json",
+                std::process::id(),
+                N.fetch_add(1, Ordering::SeqCst)
+            ));
+            cmd.env(acpmux::heap_profile::OUT_ENV, file);
+        }
         cmd.args(["daemon", "run", "--log", "info,acpmux::hub::desktop_bridge=debug"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
@@ -909,7 +921,9 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         // SAFETY: the pid is this bench's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        if self.child.wait_timeout(Duration::from_secs(20)).ok().flatten().is_none() {
+        // A heap profile is written on the way out, which takes longer than a plain stop.
+        let stop = if std::env::var_os("ACPMUX_DURESS_DHAT_DIR").is_some() { 600 } else { 20 };
+        if self.child.wait_timeout(Duration::from_secs(stop)).ok().flatten().is_none() {
             let _ = self.child.kill();
             let _ = self.child.wait_timeout(Duration::from_secs(5));
         }
@@ -2356,8 +2370,21 @@ fn bigchat_drivers(
         Box::new(move || {
             let (mut rpc, mut s) = (None, Samples::default());
             let (mut last, mut max_ms, mut max_dropped) = (Value::Null, 0f64, 0u64);
+            // What every connection's outbound queue held together, at its most, and the
+            // status's queues row then (`server/queue_gauge.rs`).
+            let (mut held_max, mut conns_max, mut queues_at_max) = (0u64, 0u64, Value::Null);
             while Instant::now() < until {
                 if let Some(v) = timed_call(&mut rpc, &sock, &mut s, "_acpmux/status", json!({})) {
+                    let queues = &v["gauges"]["queues"];
+                    let held = queues["heldBytes"].as_u64().unwrap_or(0);
+                    conns_max = conns_max.max(queues["connections"].as_u64().unwrap_or(0));
+                    if held >= held_max {
+                        held_max = held;
+                        queues_at_max = queues.clone();
+                        if let Some(rows) = queues_at_max.get_mut("largest") {
+                            *rows = json!(rows.as_array().map_or(0, Vec::len));
+                        }
+                    }
                     let fanout = v["gauges"]["recordWrites"]["fanout"].clone();
                     max_ms = max_ms.max(fanout["maxMs"].as_f64().unwrap_or(0.0));
                     max_dropped = max_dropped.max(fanout["dropped"].as_u64().unwrap_or(0));
@@ -2368,7 +2395,8 @@ fn bigchat_drivers(
                 std::thread::sleep(Duration::from_secs(2));
             }
             json!({"status": s.json(), "fanoutLast": last, "fanoutMaxMs": max_ms,
-                   "fanoutDroppedMax": max_dropped})
+                   "fanoutDroppedMax": max_dropped, "queuesHeldMaxBytes": held_max,
+                   "queuesConnectionsMax": conns_max, "queuesAtMax": queues_at_max})
         }),
     ));
     threads
