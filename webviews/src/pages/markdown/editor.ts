@@ -36,7 +36,8 @@ import {
   type LinkBubbleSlot,
   type LinkHost,
 } from "./linkEditing";
-import { findHeading } from "./links";
+import { frontmatterRows, frontmatterTable } from "./frontmatter";
+import { findHeading, headingTargets, type HeadingTarget } from "./links";
 import { githubReferences } from "../../githubReferences";
 import { LinkOverlays } from "./overlays";
 import {
@@ -141,6 +142,8 @@ export interface MarkdownEditorOptions {
   overlays?: LinkOverlays;
   /** After each load: whether the document has a runnable shell block (the toolbar's Run all). */
   onRunnable?(runnable: boolean): void;
+  /** The document's headings (the outline rail), once a frame when they changed. */
+  onOutline?(headings: readonly HeadingTarget[]): void;
 }
 
 /** The languages a diagram node view renders. */
@@ -400,7 +403,8 @@ export class MarkdownEditor {
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(loadingGuardPlugin(() => this.slicing !== null))
       .use(codeHighlightPlugin(host))
-      .use(commentMarkersPlugin());
+      .use(commentMarkersPlugin())
+      .use(docChangePlugin((doc) => this.outlineChanged(doc)));
     if (host.links)
       editor
         .use(brokenLinkPlugin(host.links))
@@ -504,6 +508,37 @@ export class MarkdownEditor {
     if (!(dom instanceof Element)) return false;
     this.scrollTo(dom);
     return true;
+  }
+
+  private outlineDoc: ProseNode | null = null;
+  private outlineFrame = 0;
+  private outline: readonly HeadingTarget[] = [];
+
+  /** A changed document: its headings go to `onOutline` on the next frame, when they differ. */
+  private outlineChanged(doc: ProseNode): void {
+    if (!this.options.onOutline) return;
+    this.outlineDoc = doc;
+    if (this.outlineFrame) return;
+    this.outlineFrame = requestAnimationFrame(() => {
+      this.outlineFrame = 0;
+      const doc = this.outlineDoc;
+      if (!doc) return;
+      const next = headingTargets(doc);
+      const same =
+        next.length === this.outline.length &&
+        next.every((heading, index) => {
+          const was = this.outline[index]!;
+          return heading.slug === was.slug && heading.level === was.level && heading.pos === was.pos;
+        });
+      this.outline = next;
+      if (!same) this.options.onOutline?.(next);
+    });
+  }
+
+  /** The element a heading of the current document draws as (`onOutline`'s `pos`). */
+  headingElement(pos: number): HTMLElement | null {
+    const dom = this.view?.nodeDOM(pos);
+    return dom instanceof HTMLElement ? dom : null;
   }
 
   /** Re-checks broken-link marks (the host answered). */
@@ -947,6 +982,8 @@ export class MarkdownEditor {
 
   async destroy(): Promise<void> {
     this.cancelSlices();
+    if (this.outlineFrame) cancelAnimationFrame(this.outlineFrame);
+    this.outlineFrame = 0;
     await this.editor?.destroy();
     this.editor = null;
     this.view = null;
@@ -1123,6 +1160,23 @@ function isUserEdit(tr: Transaction): boolean {
     !tr.getMeta(LOAD_META) &&
     !tr.getMeta("appendedTransaction") &&
     tr.getMeta("addToHistory") !== false
+  );
+}
+
+/** Calls `changed` with the document when the view is made and after every change to it. */
+function docChangePlugin(changed: (doc: ProseNode) => void) {
+  return $prose(
+    () =>
+      new Plugin({
+        view(view) {
+          changed(view.state.doc);
+          return {
+            update(next, previous) {
+              if (next.state.doc !== previous.doc) changed(next.state.doc);
+            },
+          };
+        },
+      }),
   );
 }
 
@@ -1527,6 +1581,7 @@ class RawBlockView {
   }
 
   private renderPreview(node: ProseNode): void {
+    if (node.attrs.kind === "frontmatter") return this.renderFrontmatter(node);
     if (node.attrs.kind !== "html") return;
     const html = node.textContent;
     if (html === this.html) return;
@@ -1534,6 +1589,16 @@ class RawBlockView {
     const fragment = this.host.htmlPreview?.(html);
     this.preview.replaceChildren(...(fragment ? [fragment] : []));
     this.dom.classList.toggle("md-raw-has-preview", !!fragment && this.preview.childNodes.length > 0);
+  }
+
+  /** Front matter as a key and value table over its folded source (frontmatter.ts); a view only. */
+  private renderFrontmatter(node: ProseNode): void {
+    const text = node.textContent;
+    if (text === this.html) return;
+    this.html = text;
+    const rows = frontmatterRows(text);
+    this.preview.replaceChildren(...(rows ? [frontmatterTable(rows)] : []));
+    this.dom.classList.toggle("md-raw-has-preview", !!rows);
   }
 
   update(node: ProseNode): boolean {

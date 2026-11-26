@@ -5,8 +5,8 @@ import Foundation
 /// ``CloudAppOpFailure``; origin `user` is sent only where the daemon allows it (the verified app
 /// connection), never upgraded here.
 public struct CloudAppOpRunner: Sendable {
-    /// A start waits for a paused machine.
-    static let timeout: Duration = .seconds(120)
+    /// A start waits for a paused machine; an approved create is retried with its key for as long (`CloudMachineCreateFlow`).
+    public static let timeout: Duration = .seconds(120)
     let connection: @Sendable () async -> DaemonConnection?
 
     public init(connection: @escaping @Sendable () async -> DaemonConnection?) {
@@ -23,8 +23,8 @@ public struct CloudAppOpRunner: Sendable {
                                          origin: origin == .user && allowed ? .user : .script)
             do {
                 return try await connection.request(request, timeout: Self.timeout).value
-            } catch DaemonError.command(_, let message, let code, let details, _) {
-                throw CloudAppOpFailure(code: code ?? "", message: message, details: details)
+            } catch DaemonError.command(_, let message, let code, let details, let retryable) {
+                throw CloudAppOpFailure(code: code ?? "", message: message, details: details, retryable: retryable ?? false)
             }
         }
     }

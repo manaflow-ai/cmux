@@ -45,6 +45,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
     func view(_ visible: Bool) async throws
+    /// The person's attention state and last on-screen sequence when supported by the owning
+    /// daemon (`agent-session-attention-v1`). The default keeps older clients visible-only.
+    func view(_ visible: Bool, attending: Bool?, seenSeq: UInt64?) async throws
     /// The person's model, mode and option picks for the chat (`agent-session-settings-v1`):
     /// acpmux's `session/set_model`, `session/set_mode` and `session/set_config_option` on that
     /// machine, answered as acpmux answers them (a config option answers `{configOptions}`).
@@ -96,6 +99,9 @@ extension AgentSessionRemoteClient {
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
     public func typing(_ on: Bool) async throws {}
     public func view(_ visible: Bool) async throws {}
+    public func view(_ visible: Bool, attending: Bool?, seenSeq: UInt64?) async throws {
+        try await view(visible)
+    }
     /// A daemon without `agent-session-settings-v1` changes nothing: the pick says so.
     public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
@@ -143,16 +149,20 @@ public nonisolated struct AgentSessionPage: Sendable, Equatable {
     public var beforeSeq: UInt64?
     public var limit: Int?
     public var kinds: [String]?
+    /// The page's byte budget (the pane's `maxBytes`), sent where the daemon serves
+    /// `agent-session-page-bytes-v1`; nil leaves acpmux's default.
+    public var maxBytes: Int?
     /// The page's `_acpmux/watch` read: the wire answers it as a sessions list, so the page never
     /// gets its records. Never sent to the daemon.
     public var listing: Bool
 
     public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil,
-                listing: Bool = false) {
+                maxBytes: Int? = nil, listing: Bool = false) {
         self.afterSeq = afterSeq
         self.beforeSeq = beforeSeq
         self.limit = limit
         self.kinds = kinds
+        self.maxBytes = maxBytes
         self.listing = listing
     }
 }

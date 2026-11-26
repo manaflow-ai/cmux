@@ -185,4 +185,31 @@ import Testing
         #expect(remembered == 0)
         try? FileManager.default.removeItem(atPath: path)
     }
+
+    /// With the app quit, cmux Remote serves the person's own device (the hub's `ownerKind: user`) as the
+    /// app's host does: no local consent refuses it, and no consent change stops it. Others still need it.
+    @Test(arguments: [nil, "team", "shared"] as [String?])
+    func ownDeviceTicketsSkipTheLocalConsent(other: String?) throws {
+        func ticket(_ ownerKind: String?, scope: SessionScope) throws -> SessionTicket {
+            SessionTicket(sessionId: "s1", ticket: "jws", signalURL: try #require(URL(string: "wss://hub.example/ws")), ice: [],
+                          peer: .init(id: "viewer", name: "Viewer", signingKey: "key"), role: .host, scope: scope, ownerKind: ownerKind)
+        }
+        // A worker that has not heard the app's consent yet refuses everything (ScreenSharingState.permits).
+        let refuses: (SessionScope) -> Bool = { ScreenSharingState().permits($0) }
+        let viewOnly: (SessionScope) -> Bool = { $0 == .view }
+        for scope in [SessionScope.view, .full] {
+            #expect(HostSessions.admits(try ticket("user", scope: scope), permits: refuses))
+            #expect(!HostSessions.admits(try ticket(other, scope: scope), permits: refuses))
+        }
+        #expect(!HostSessions.admits(try ticket(other, scope: .full), permits: viewOnly))
+        #expect(HostSessions.admits(try ticket(other, scope: .view), permits: viewOnly))
+
+        let own = HostSessions.Session(id: "s1", viewerID: "viewer", viewerName: "Viewer", scope: .full, ownAccount: true, connected: true)
+        var shared = own
+        shared.ownAccount = false
+        #expect(!HostSessions.consentStops(own, permits: refuses))
+        #expect(HostSessions.consentStops(shared, permits: refuses))
+        #expect(HostSessions.consentStops(shared, permits: viewOnly))
+        #expect(!HostSessions.consentStops(shared, permits: { _ in true }))
+    }
 }

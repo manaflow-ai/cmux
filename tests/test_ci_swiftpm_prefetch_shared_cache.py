@@ -17,8 +17,8 @@ import re
 import sys
 import tempfile
 import threading
-import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,10 +52,21 @@ class SeedsTheSharedCache(unittest.TestCase):
             package.mkdir()
             (package / "Package.swift").write_text("// swift-tools-version:5.9\n")
             downloads = []
+            waiting = []
+            both_waiting = threading.Event()
+            real_say = PREFETCH.say
+
+            def say(message: str) -> None:
+                real_say(message)
+                if message.startswith("waiting for another job's seed"):
+                    waiting.append(message)
+                    if len(waiting) == 2:
+                        both_waiting.set()
 
             def download(url: str, destination: Path) -> None:
                 downloads.append(url)
-                time.sleep(0.3)  # long enough for the other job to arrive mid-download
+                # Held mid-download until the other two jobs wait on the seed lock.
+                self.assertTrue(both_waiting.wait(30), "the other jobs never waited on the seed lock")
                 destination.write_bytes(BODY)
 
             def collect(*_args, **_kwargs):
@@ -64,10 +75,12 @@ class SeedsTheSharedCache(unittest.TestCase):
             missed = []
             jobs = [threading.Thread(target=lambda: missed.append(
                 PREFETCH.seed([package], store, cache, download=download, collect=collect))) for _ in range(3)]
-            for job in jobs:
-                job.start()
-            for job in jobs:
-                job.join()
+            with mock.patch.object(PREFETCH, "say", side_effect=say):
+                for job in jobs:
+                    job.start()
+                for job in jobs:
+                    job.join()
+            self.assertTrue(both_waiting.is_set(), "the other jobs never waited on the seed lock")
             self.assertEqual(missed, [0, 0, 0])
             self.assertEqual(downloads, [URL], "each artifact downloads once for jobs seeding together")
             entry = cache / PREFETCH.swiftpm_cache_key(URL)
@@ -91,16 +104,28 @@ class SeedsTheSharedCache(unittest.TestCase):
             self.assertEqual(entry.read_bytes(), BODY)
 
     def test_a_held_lock_is_waited_for_then_passed(self) -> None:
+        # The wait runs on a fake clock: each 1 s retry sleep moves it, so the test counts the retries the
+        # 3 s wait allows instead of timing them on a busy runner.
+        class FakeTime:
+            def __init__(self) -> None:
+                self.now, self.sleeps = 0.0, []
+
+            def monotonic(self) -> float:
+                return self.now
+
+            def sleep(self, seconds: float) -> None:
+                self.sleeps.append(seconds)
+                self.now += seconds
+
         with tempfile.TemporaryDirectory() as tmp:
             store = Path(tmp)
             import fcntl
-            with open(store / PREFETCH.SEED_LOCK, "a") as held:
+            fake = FakeTime()
+            with open(store / PREFETCH.SEED_LOCK, "a") as held, mock.patch.object(PREFETCH, "time", fake):
                 fcntl.flock(held, fcntl.LOCK_EX)
-                started = time.monotonic()
-                with PREFETCH.seed_lock(store, wait=1.0):
-                    waited = time.monotonic() - started
-            self.assertGreaterEqual(waited, 1.0)
-            self.assertLess(waited, 5.0)
+                with PREFETCH.seed_lock(store, wait=3.0):
+                    passed_at = list(fake.sleeps)
+            self.assertEqual(passed_at, [1, 1, 1], "it retried each second for the whole wait, then went on without")
 
 
 class EveryOwnedMacKeepStepSeeds(unittest.TestCase):

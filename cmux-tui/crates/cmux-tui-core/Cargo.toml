@@ -16,13 +16,22 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+# What a Cloud machine state frame means (machine_state_push.rs, apps-machine-state-watch).
+cmux-cloud-machine.workspace = true
+cmux-presence.workspace = true
+cmux-egress.workspace = true
+cmux-build-space.workspace = true
 cmux-json.workspace = true
+# Names a crash sidecar's backtrace in a stripped release binary.
+cmux-panic-log.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
 # The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
 cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
+# Cmd-F over the whole retained history (server/cmd_terminal_find.rs).
+cmux-terminal-find.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 # The tab a pane selects after a close (close_focus::tab), the app's own rule.
@@ -33,14 +42,17 @@ cmux-bookmarks-ops = { workspace = true }
 cmux-unix-socket.workspace = true
 cmux-url-input.workspace = true
 cmux-pty.workspace = true
+cmux-terminal-host-protocol.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
 # cmux Remote's stop intent: a person's Quit never respawns (remote_host/unix.rs, F17).
 cmux-supervise-core.workspace = true
 cmux-flow-trace.workspace = true
+cmux-interactivity.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
+cmux-tag-cache.workspace = true
 cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
 # Another browser's files for the app's browser import (resource_router/browser_import.rs).
@@ -48,6 +60,10 @@ cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
+# The person's saved prompts (`apps.composer.list`), in the format `cmux agent-config commands` writes.
+cmux-agent-customize.workspace = true
+# The Computer Use policy and wire types (the engine only; the worker is the cmux-tui binary).
+cmux-computer-use.workspace = true
 cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
@@ -67,7 +83,10 @@ cmux-terminal-sizing.workspace = true
 cmux-device-kind.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
-serde_json.workspace = true
+# float_roundtrip, unbounded_depth: the cached session snapshot keeps its public values as JSON text
+# and each read parses them back to the same values, at any depth (resource_api/committed_snapshot.rs
+# `CompactJson`). cmux-layout-reducer already turns both on for this build.
+serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
 uuid.workspace = true
 toml.workspace = true
 anyhow.workspace = true
@@ -78,6 +97,8 @@ regex.workspace = true
 jsonschema.workspace = true
 flate2.workspace = true
 zstd.workspace = true
+# The JSON catalogs compiled in compressed (src/packed_catalogs.rs).
+cmux-embed.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
@@ -91,6 +112,8 @@ fs4.workspace = true
 sha2.workspace = true
 # cmux Remote's verified copy outside the app (`remote_host/macos.rs`).
 cmux-signed-bundle.workspace = true
+# A store package's `STORE.sig`, checked against the store keys (`apps/store_trust.rs`).
+cmux-signed-envelope.workspace = true
 socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true
@@ -100,16 +123,26 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
+cmux-output-paint.workspace = true
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
 cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# Signs the test store packages (`apps/store_trust_tests.rs`).
+ring.workspace = true
+# The worker's control channel in-process, for the Computer Use supervisor's tests.
+cmux-computer-use = { workspace = true, features = ["server"] }
 
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# Idle terminal-host links wait on one shared poller, not a thread each (surface/idle_links.rs).
+mio.workspace = true
+# Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
+cmux-projection.workspace = true
 # The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
 acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-list-types = { path = "../acpmux-list-types" }
@@ -118,10 +151,17 @@ cmux-cloud-api.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+# The Forum page's hosted forum (server/forum_routed.rs): the /v1/forum client and its times.
+cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
+time.workspace = true
 # The link share bridge's room socket (agent_session_share_room.rs), the
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
+# already links for `cmux customize use pr:N`, and git installs: the archive of a repository at a
+# commit (apps/git_source.rs).
+tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
@@ -149,5 +189,6 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Kernel",
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
+    "Win32_System_RemoteDesktop",
     "Win32_System_Threading",
 ] }

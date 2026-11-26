@@ -1,7 +1,7 @@
 //! The cases of Swift `ThemeFileTests` (CmuxNextSettingsTests), so both
 //! readers agree, and the render round trip.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -25,6 +25,19 @@ fn at<'a>(root: &'a Value, dotted: &str) -> Option<&'a Value> {
 
 fn none() -> BTreeSet<String> {
     BTreeSet::new()
+}
+
+/// A theme written for an older cmux: a key that was removed is left out
+/// with a notice, not refused as unknown (schemas/settings/retired-keys.json).
+#[test]
+fn a_theme_file_names_a_removed_key_and_still_reads_clean() {
+    let file =
+        overlay(r##"{ "appearance.tabBarBackground": "#000000", "appearance.borders": "none" }"##);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.borders".to_string()]);
+    assert_eq!(file.notices.len(), 1);
+    assert_eq!(file.notices[0].from, "appearance.tabBarBackground");
+    assert_eq!(file.notices[0].kind, crate::migrations::NoticeKind::Removed);
 }
 
 #[test]
@@ -185,6 +198,163 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// The sidebar's rows are part of a look: density, text size, status icons,
+/// grouping and the row's own elements, so one file restyles the sidebar. A
+/// per-kind row override and what the sidebar holds (chats) stay out.
+#[test]
+fn a_theme_file_sets_how_the_sidebar_rows_draw() {
+    let file = overlay(
+        r#"{
+          "sidebar.density": "compact", "sidebar.textSize": "large", "sidebar.detailedStatusIcons": true,
+          "sidebar.showColors": false, "sidebar.groupBy": "none", "workspaceColors.indicatorStyle": "dot",
+          "sidebar.workspaceRow.icon": false, "sidebar.workspaceRow.working": true,
+          "sidebar.workspaceRow.secondLineOrder": ["branch"],
+          "sidebar.workspaceRow.agent.icon": true, "sidebar.showChats": false
+        }"#,
+    );
+    assert_eq!(
+        file.keys(),
+        [
+            "sidebar.density",
+            "sidebar.detailedStatusIcons",
+            "sidebar.groupBy",
+            "sidebar.showColors",
+            "sidebar.textSize",
+            "sidebar.workspaceRow.icon",
+            "sidebar.workspaceRow.secondLineOrder",
+            "sidebar.workspaceRow.working",
+            "workspaceColors.indicatorStyle",
+        ]
+    );
+    let mut refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    refused.sort();
+    assert_eq!(refused, ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"]);
+}
+
+/// The shipped Minimal sessions file sets every key it writes, each to the
+/// value it writes, with no refusal: read through the same reader the app's
+/// copy uses, applied over an empty root, every value reads back.
+#[test]
+fn the_minimal_sessions_file_applies_every_value_it_writes() {
+    let text = shipped("minimal-sessions").expect("minimal-sessions ships");
+    let file = ThemeFile::read(
+        "minimal-sessions",
+        Some(Ok(text)),
+        &json!({}),
+        None,
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.is_loaded);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let Value::Object(written) = crate::jsonc::parse(text).expect("the file is JSONC") else {
+        panic!("the file is no object");
+    };
+    let written: Vec<(&String, &Value)> =
+        written.iter().filter(|(key, _)| !RESERVED_KEYS.contains(&key.as_str())).collect();
+    // It restyles the sidebar as a whole: every row element, the status and the grouping.
+    assert!(written.len() >= 20, "the file writes only {} keys", written.len());
+    let mut keys: Vec<String> = written.iter().map(|(key, _)| (*key).clone()).collect();
+    keys.sort();
+    assert_eq!(file.keys(), keys, "every key it writes is taken, none twice");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &written {
+        assert_eq!(at(&root, key), Some(*value), "{key}");
+    }
+    // The ones that make it a minimal session list.
+    assert_eq!(at(&root, "sidebar.workspaceRow.statusPlacement"), Some(&json!("leading")));
+    assert_eq!(at(&root, "appearance.statusIndicator.iconSet"), Some(&json!("symbols")));
+    assert_eq!(at(&root, "sidebar.workspaceRow.icon"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.density"), Some(&json!("compact")));
+    // A managed key keeps the managed value.
+    let managed: BTreeSet<String> = ["sidebar.workspaceRow".to_string()].into();
+    let kept = file.applied(&json!({"sidebar": {"workspaceRow": {"icon": true}}}), &managed);
+    assert_eq!(at(&kept, "sidebar.workspaceRow.icon"), Some(&json!(true)));
+    assert_eq!(at(&kept, "sidebar.workspaceRow.statusPlacement"), None);
+}
+
+/// A theme file of 5,000 keys, nearly all junk (per-kind row overrides, row
+/// names no schema has, keys of no setting), still loads: every junk key is
+/// refused by name, the valid ones apply, and nothing else is taken.
+#[test]
+fn a_theme_file_of_five_thousand_junk_keys_still_applies_its_valid_ones() {
+    let valid: [(&str, Value); 6] = [
+        ("sidebar.density", json!("compact")),
+        ("sidebar.groupBy", json!("none")),
+        ("sidebar.workspaceRow.statusPlacement", json!("leading")),
+        ("sidebar.workspaceRow.icon", json!(false)),
+        ("sidebar.showColors", json!(false)),
+        ("appearance.statusIndicator.iconSet", json!("symbols")),
+    ];
+    let kinds = ["terminal", "agent", "browser", "mixed"];
+    let mut junk: Vec<String> = Vec::new();
+    for index in 0..(5_000 - valid.len()) {
+        junk.push(match index % 3 {
+            0 => format!("sidebar.workspaceRow.{}.j{index}", kinds[index % kinds.len()]),
+            1 => format!("sidebar.workspaceRow.j{index}"),
+            _ => format!("nope.j{index}"),
+        });
+    }
+    let mut members: Vec<String> = junk.iter().map(|key| format!("  \"{key}\": true")).collect();
+    for (offset, (key, value)) in valid.iter().enumerate() {
+        // Spread the valid keys through the junk.
+        members.insert(offset * 800, format!("  \"{key}\": {value}"));
+    }
+    let text = format!("{{\n{}\n}}", members.join(",\n"));
+    assert!(text.len() <= MAXIMUM_BYTES, "{} bytes", text.len());
+    let started = std::time::Instant::now();
+    let file = overlay(&text);
+    let elapsed = started.elapsed();
+    assert!(file.is_loaded);
+    let mut want: Vec<String> = valid.iter().map(|(key, _)| (*key).to_string()).collect();
+    want.sort();
+    assert_eq!(file.keys(), want);
+    let refused: BTreeSet<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    for key in &junk {
+        assert!(refused.contains(key.as_str()), "{key} was not refused");
+    }
+    for (key, _) in &valid {
+        assert!(!refused.contains(key), "{key} was refused");
+    }
+    assert_eq!(file.diagnostics.len(), junk.len(), "one refusal per junk key");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &valid {
+        assert_eq!(at(&root, key), Some(value), "{key}");
+    }
+    // Each refusal looks up its line in the text: keep that from going quadratic.
+    assert!(elapsed.as_secs_f64() < 5.0, "reading 5,000 keys took {elapsed:?}");
+}
+
+/// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
+/// deeper too. prob likewise the session info and the top right buttons as
+/// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
+/// buttons, and carries its own density (the app reads it), which the
+/// schema checks.
+#[test]
+fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
+    let file = overlay(
+        r#"{ "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false, "agentPane.display.sessionInfo.placement": "overlay", "density": { "basedOn": "compact", "tokens": { "tabCornerRadius": 2 } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.sessionInfo.placement",
+            "sidebar.showSearchButton",
+            "tabs.toolbarButtons",
+            "window.titlebarButtons"
+        ]
+    );
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator
+            .is_valid(&json!({"density": {"basedOn": "cozy", "tokens": {"sidebarWidth": 250}}}))
+    );
+    assert!(!validator.is_valid(&json!({"density": {"basedOn": "huge"}})));
+    assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
@@ -228,7 +398,19 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] {
+    for look in [
+        "harbor",
+        "classic-desktop",
+        "phosphor",
+        "claude-desktop",
+        "charcoal",
+        "teal",
+        "moss",
+        "meadow",
+        "lily-pond",
+        "minimal-sessions",
+        "miku",
+    ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
@@ -243,6 +425,12 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         );
         assert!(file.is_loaded, "{name}");
         assert!(file.diagnostics.is_empty(), "{name}: {:?}", file.diagnostics);
+        // A look that names a terminal theme takes the window with it, over the person's own
+        // App Theme (else a dark look sits in a light window).
+        let value = crate::jsonc::parse(&text).expect("jsonc");
+        if value.get("appearance.theme").is_some() {
+            assert_eq!(value["appearance.appTheme"], json!("followTerminal"), "{name}");
+        }
     }
 }
 
@@ -405,4 +593,406 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
+/// subtle edge, 30 pt rows, an 8 pt hover corner, muted shortcuts and section labels, thin
+/// separators, flush submenus, a muted second line, the usage popover's strong header and thicker
+/// track): every `appearance.menu.*` and `appearance.popover.*` key is a look a theme file sets.
+/// The look packs copy this fragment.
+const CLAUDE_MENU_FRAGMENT: &str = r##"{
+  "appearance.menu.cornerRadius": 12,
+  "appearance.menu.borderOpacity": 0.1,
+  "appearance.menu.shadow": "standard",
+  "appearance.menu.fill": "#2b2b2b",
+  "appearance.menu.padding": 8,
+  "appearance.menu.highlightRadius": 8,
+  "appearance.menu.rowHeight": 30,
+  "appearance.menu.shortcuts": "muted",
+  "appearance.menu.sectionLabel": "muted",
+  "appearance.menu.separator": "subtle",
+  "appearance.menu.destructiveInk": "standard",
+  "appearance.menu.submenu": "flush",
+  "appearance.menu.subtitle": "muted",
+  "appearance.popover.padding": 12,
+  "appearance.popover.header": "strong",
+  "appearance.popover.progressHeight": 6,
+  "appearance.popover.progressFill": "standard"
+}"##;
+
+#[test]
+fn a_theme_file_sets_the_menu_and_popover_look() {
+    let file = overlay(CLAUDE_MENU_FRAGMENT);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys().len(), 17, "{:?}", file.keys());
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.menu.cornerRadius"), Some(&json!(12)));
+    assert_eq!(at(&root, "appearance.menu.fill"), Some(&json!("#2b2b2b")));
+    assert_eq!(at(&root, "appearance.menu.submenu"), Some(&json!("flush")));
+    assert_eq!(at(&root, "appearance.popover.progressHeight"), Some(&json!(6)));
+    // Nested, as cmux-next.json writes it, reads the same.
+    let nested = overlay(r#"{ "appearance": { "menu": { "rowHeight": 28, "shadow": "none" } } }"#);
+    assert!(nested.diagnostics.is_empty(), "{:?}", nested.diagnostics);
+    assert_eq!(nested.keys(), vec!["appearance.menu.rowHeight", "appearance.menu.shadow"]);
+}
+
+/// The schema rows refuse what the app cannot draw, as `cmux settings set` does: a choice the menu
+/// does not know, a size past its range, a fill that is no color.
+#[test]
+fn a_theme_file_menu_look_refuses_bad_values() {
+    let file = overlay(
+        r#"{ "appearance.menu.shadow": "huge", "appearance.menu.rowHeight": 90, "appearance.menu.fill": 3, "appearance.menu.cornerRadius": 10 }"#,
+    );
+    assert_eq!(file.keys(), vec!["appearance.menu.cornerRadius"]);
+    let shadow = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.menu.shadow")
+        .expect("shadow refused");
+    assert!(shadow.message.starts_with("expected one of"), "{}", shadow.message);
+    let height = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.menu.rowHeight")
+        .expect("row height refused");
+    assert!(height.message.starts_with("expected a number from 18 to 40"), "{}", height.message);
+    assert!(file.diagnostics.iter().any(|d| d.path == "appearance.menu.fill"));
+}
+
+/// Unset menu keys are today's look: a theme file without them adds none, so the app and the pages
+/// draw exactly what they drew.
+#[test]
+fn a_theme_file_without_menu_keys_sets_none() {
+    let file = overlay(r#"{ "appearance.accent": "blue" }"#);
+    assert!(
+        file.keys()
+            .iter()
+            .all(|key| !key.starts_with("appearance.menu.")
+                && !key.starts_with("appearance.popover."))
+    );
+}
+
+/// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
+/// and its tokens apply, and a tokens object with an unknown token is refused with its key.
+#[test]
+fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
+    let file = overlay(
+        r#"{ "agentPane.display.transcriptLook": "studio",
+             "agentPane.display.transcriptTokens": { "userMessage.radius": 20, "timestamps": "always" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "agentPane.display.transcriptLook"), Some(&json!("studio")));
+    assert_eq!(
+        at(&root, "agentPane.display.transcriptTokens"),
+        Some(&json!({"userMessage.radius": 20, "timestamps": "always"}))
+    );
+    let bad = overlay(r#"{ "agentPane.display.transcriptTokens": { "avatar": "on" } }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
+}
+
+#[test]
+fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_themes_folder() {
+    let folder = Path::new("/tmp/cmux-config/themes");
+    let text = r#"{
+        "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
+        "agentPane.display.font.proseFamily": "Pack Serif",
+        "agentPane.display.code.family": "Pack Mono",
+        "agentPane.display.code.scale": 0.8,
+        "agentPane.display.font.faces": {
+            "Pack Sans": "file:../fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }
+    }"#;
+    let file = ThemeFile::read(
+        "pack",
+        Some(Ok(text)),
+        &json!({}),
+        Some(folder),
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.code.family",
+            "agentPane.display.code.scale",
+            "agentPane.display.font.faces",
+            "agentPane.display.font.proseFamily",
+            "agentPane.display.font.uiFamily",
+        ]
+    );
+    let applied = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&applied, "agentPane.display.font.faces"),
+        Some(&json!({
+            "Pack Sans": "file:/tmp/cmux-config/fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }))
+    );
+    // Missing files: the check names each face; the read never stats them.
+    let faces = file.face_diagnostics();
+    assert_eq!(
+        faces.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        [
+            "agentPane.display.font.faces.Pack Sans",
+            "agentPane.display.font.faces.Pack Serif:italic"
+        ]
+    );
+    assert!(faces[0].display().starts_with("themes/pack.json: "), "{}", faces[0].display());
+}
+
+#[test]
+fn a_theme_file_still_refuses_chat_keys_that_are_no_look() {
+    let file =
+        overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);
+    assert_eq!(file.keys(), ["agentPane.display.font.size"]);
+    assert_eq!(
+        file.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["agentPane.display.minimap"]
+    );
+}
+
+/// #44894: a key the person changed in Settings while the theme file sets it
+/// (`appearance.themeFileExceptions`) keeps the person's value; the file still
+/// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.
+#[test]
+fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
+    use crate::managed::{FixedManagedReader, ManagedPreferences};
+    use crate::owner::ConfigStore;
+
+    let dir = std::env::temp_dir().join(format!("cmux-theme-exceptions-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("themes")).expect("dir");
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(
+        &settings,
+        r#"{ "ui": { "reducedBackgrounds": false },
+             "appearance": { "themeFile": "tokyo", "backgroundOpacity": 0.6,
+                             "themeFileExceptions": ["appearance.backgroundOpacity", "ui.reducedBackgrounds"] } }"#,
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("themes/tokyo.json"),
+        r#"{ "ui.reducedBackgrounds": true, "appearance.backgroundOpacity": 0.85, "appearance.accent": "blue" }"#,
+    )
+    .expect("write");
+    let store = ConfigStore::open(
+        settings,
+        None,
+        None,
+        Box::new(FixedManagedReader(ManagedPreferences::default())),
+    );
+    let root = store.state().effective().root.clone();
+    assert_eq!(at(&root, "appearance.backgroundOpacity"), Some(&json!(0.6)));
+    assert_eq!(at(&root, "ui.reducedBackgrounds"), Some(&json!(false)));
+    assert_eq!(at(&root, "appearance.accent"), Some(&json!("blue")));
+    // A theme file never sets the list itself.
+    let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
+    assert!(file.keys().is_empty(), "{:?}", file.keys());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_theme_file_picks_slot_variants_and_drops_unknown_ones() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "slots": {
+    "chat.thinkingIndicator": "counting-dots",
+    "chat.jumpToBottom": "no-such-variant",
+    "chat.nope": "default",
+    "chat.jumpToBottom ": 3
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    assert_eq!(
+        file.slots,
+        BTreeMap::from([("chat.thinkingIndicator".to_string(), "counting-dots".to_string())])
+    );
+    // `slots` is no setting: the look still applies and `slots` is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        refused,
+        vec!["slots.chat.jumpToBottom", "slots.chat.jumpToBottom ", "slots.chat.nope"]
+    );
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    let variant = &file.diagnostics[0];
+    assert_eq!(variant.line, Some(5), "{variant:?}");
+    assert!(variant.message.contains("nudge"), "{}", variant.message);
+    assert!(
+        file.diagnostics[2].message.contains("no such slot"),
+        "{}",
+        file.diagnostics[2].message
+    );
+}
+
+#[test]
+fn a_theme_file_slots_value_that_is_no_object_is_refused() {
+    for text in [r#"{ "slots": "pulse" }"#, r#"{ "slots": ["pulse"] }"#, r#"{ "slots": null }"#] {
+        let file = overlay(text);
+        assert!(file.slots.is_empty(), "{text}");
+        assert_eq!(file.diagnostics.len(), 1, "{text}: {:?}", file.diagnostics);
+        assert_eq!(file.diagnostics[0].path, "slots");
+        assert_eq!(file.diagnostics[0].kind, ThemeDiagnosticKind::InvalidValue);
+    }
+    let file = overlay(r#"{ "slots": {} }"#);
+    assert!(file.slots.is_empty() && file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert!(overlay(r#"{ "appearance.accent": "blue" }"#).slots.is_empty());
+}
+
+#[test]
+fn every_shipped_slot_has_its_variants_and_the_theme_schema_names_them() {
+    let known = slots::known();
+    assert!(
+        known.iter().any(|(id, variants)| id == "chat.thinkingIndicator"
+            && variants.iter().any(|v| v == "default"))
+    );
+    assert!(known.iter().all(|(_, variants)| !variants.is_empty()));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["slots"]["properties"]["chat.jumpToBottom"]["enum"];
+    assert!(property.as_array().is_some_and(|v| v.contains(&json!("nudge"))), "{property}");
+}
+
+/// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
+/// (`theme_file::two_tone`), and a value outside the list is refused.
+#[test]
+fn a_theme_file_sets_the_two_tone_toggle() {
+    let row =
+        Schema::embedded().row(two_tone::SETTING_KEY).expect("the schema has appearance.twoTone");
+    assert!(is_look(row));
+    let file = overlay(r#"{ "appearance": { "twoTone": "inkSakura" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, two_tone::SETTING_KEY), Some(&json!("inkSakura")));
+    let refused = overlay(r#"{ "appearance.twoTone": "neon" }"#);
+    assert_eq!(refused.diagnostics.len(), 1, "{:?}", refused.diagnostics);
+}
+
+/// `appearance.cornerFlush` (Leo, 2026-11-18: the gooey look "we have as a
+/// toggle maybe"): a theme file picks the corner treatment and keeps it; a
+/// value that is no corner is refused with the choices.
+#[test]
+fn a_theme_file_keeps_the_corner_treatment() {
+    let row = Schema::embedded().row("appearance.cornerFlush").expect("the cornerFlush row");
+    assert!(is_look(row), "appearance.cornerFlush is a look setting");
+    assert_eq!(row.default, Some(json!("flush")), "no goo by default");
+    let file = overlay(r#"{ "appearance": { "cornerFlush": "flush-goo" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.cornerFlush"]);
+    let root = file.applied(&json!({"appearance": {"cornerFlush": "off"}}), &none());
+    assert_eq!(at(&root, "appearance.cornerFlush"), Some(&json!("flush-goo")));
+    let bad = overlay(r#"{ "appearance.cornerFlush": "goo" }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
+        && d.message.starts_with("expected one of")));
+}
+
+/// `appearance.tabShape` (block, rounded) is a look a theme file sets (the gooey look is `appearance.cornerFlush`); any other value is refused by the
+/// schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_tab_shape() {
+    for shape in ["block", "rounded"] {
+        let file = overlay(&format!(r#"{{ "appearance.tabShape": "{shape}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{shape}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.tabShape"), Some(&json!(shape)));
+    }
+    // "gooey" is the corner treatment's `flush-goo`, not a tab shape.
+    let wobbly = overlay(r#"{ "appearance.tabShape": "gooey" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused =
+        wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
+#[test]
+fn a_theme_file_motion_block_is_read_clamped_and_checked_against_the_tokens() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "motion": {
+    "presets": { "drawer": { "duration": 0.32, "bounce": 0.1 }, "smooth": { "duration": 0.2 } },
+    "springs": { "move": { "duration": 0.2 }, "appear": { "duration": 0.01, "bounce": 5 }, "wobble": { "duration": 0.2 } },
+    "fades": { "fadeIn": 0.16, "hoverOut": 0.12, "glow": 0.2 }
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    // `motion` is no setting: the look still applies and the block is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let motion = &file.motion;
+    assert_eq!(motion.presets.keys().collect::<Vec<_>>(), ["drawer"]);
+    assert_eq!(motion.presets["drawer"].damping_fraction(), 0.9);
+    assert_eq!(motion.springs["move"].response(), 0.2);
+    let appear = motion.springs["appear"];
+    assert_eq!(appear.duration, cmux_app_host::motion::TIME_RANGE.0);
+    assert_eq!(appear.bounce, cmux_app_host::motion_profile::BOUNCE_RANGE.1);
+    assert!(!motion.springs.contains_key("wobble"));
+    assert_eq!(motion.fades.get("fadeIn"), Some(&0.16));
+    assert_eq!(
+        motion.fades.get("hoverOut"),
+        Some(&0.12),
+        "a design-token fade cmux-motion does not use"
+    );
+    assert!(!motion.fades.contains_key("glow"));
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(refused, ["motion.presets.smooth", "motion.springs.wobble", "motion.fades.glow"]);
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    assert!(file.diagnostics[1].message.contains("move"), "{}", file.diagnostics[1].message);
+    assert_eq!(file.diagnostics[1].line, Some(5), "{:?}", file.diagnostics[1]);
+}
+
+#[test]
+fn no_motion_block_leaves_every_default() {
+    for text in [r#"{ "appearance.accent": "blue" }"#, r#"{ "motion": {} }"#, "{}"] {
+        let file = overlay(text);
+        assert!(file.motion.is_empty(), "{text}");
+        assert!(file.diagnostics.is_empty(), "{text}: {:?}", file.diagnostics);
+    }
+    // The look a file without the block applies is the look it applied before the block existed.
+    let plain = overlay(r#"{ "appearance.accent": "blue" }"#);
+    let with =
+        overlay(r#"{ "appearance.accent": "blue", "motion": { "fades": { "fadeIn": 0.2 } } }"#);
+    assert_eq!(plain.applied(&json!({}), &none()), with.applied(&json!({}), &none()));
+    let bad = overlay(r#"{ "motion": "bouncy" }"#);
+    assert!(bad.motion.is_empty());
+    assert_eq!(bad.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), ["motion"]);
+}
+
+#[test]
+fn a_motion_edit_reloads_and_a_half_saved_file_keeps_the_last_good_motion() {
+    let schema = Schema::embedded();
+    let domains = Domains::default();
+    let first = r#"{ "motion": { "fades": { "fadeIn": 0.16 } } }"#;
+    assert_eq!(overlay(first).motion.fades.get("fadeIn"), Some(&0.16));
+    let edited = overlay(r#"{ "motion": { "fades": { "fadeIn": 0.3 } } }"#);
+    assert_eq!(edited.motion.fades.get("fadeIn"), Some(&0.3));
+    let broken = overlay("{ \"motion\": { \"fades\": ");
+    assert!(broken.is_unparsable && broken.motion.is_empty());
+    let kept = broken.or_last_good(Some(first), &json!({}), None, schema, &domains);
+    assert_eq!(kept.motion.fades.get("fadeIn"), Some(&0.16));
+}
+
+#[test]
+fn the_theme_schema_names_the_motion_block_and_every_design_token() {
+    let (springs, fades) = motion::known();
+    assert!(springs.iter().any(|name| name == "move") && fades.iter().any(|name| name == "fadeIn"));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["motion"]["properties"];
+    for name in springs {
+        let bounce = &property["springs"]["properties"][name]["properties"]["bounce"]["maximum"];
+        assert_eq!(bounce, &json!(cmux_app_host::motion_profile::BOUNCE_RANGE.1), "{name}");
+    }
+    for name in fades {
+        assert!(property["fades"]["properties"][name].is_object(), "{name}");
+    }
+    assert_eq!(
+        property["presets"]["additionalProperties"]["properties"]["duration"]["maximum"],
+        json!(cmux_app_host::motion::TIME_RANGE.1)
+    );
 }

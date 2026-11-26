@@ -16,6 +16,12 @@ pub(crate) struct CloudServices {
     pub(crate) feed: OnceLock<crate::feed_client::FeedClient>,
     /// How `feed.reports.reply` reaches acpmux, installed by the binary.
     pub(crate) feed_reply: OnceLock<crate::feed_client::ReplySender>,
+    /// The Cloud machines' state sockets (`apps-machine-state-watch`).
+    #[cfg(unix)]
+    pub(crate) machine_state: crate::server::machine_state_push::MachineStatePush,
+    /// The Forum page's hosted forum (server/forum_routed.rs), set up on the first `forum.*` op.
+    #[cfg(unix)]
+    pub(crate) forum: OnceLock<crate::server::forum_routed::ForumOwner>,
 }
 
 impl Mux {

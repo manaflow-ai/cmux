@@ -956,10 +956,12 @@ class Stall(unittest.TestCase):
         for key in ("hosted_jobs", "hosted_runner"):
             self.assertNotIn(f"outputs.{key}", text)
         jobs = yaml.safe_load(text)["jobs"]
-        # The fast tier and the canary keep their own budget: no cold hosted build needs 45 minutes.
+        # The fast tier and the canary keep their own budget. The fast tier's is 120: a cold owned-mini
+        # CmuxNext build-tests build at 3 cores ran 51.5 min of a 58-min job, and its time scales with the
+        # core grant (docs/ci/cmux-next-workflow-notes.md#note-39).
         # (Five while it only reports its build-fleet client's verdict: GatewayRunsOnlyTheFleetClient.)
         fast = jobs["fast-tier"]["timeout-minutes"]
-        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 20)
+        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 120)
         canary = jobs["swift-canary"]["timeout-minutes"]
         self.assertEqual(evaluate(canary, {"needs": {"swift-canary-fleet": {"outputs": {"verdict": ""}}}}), 20)
         self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
@@ -1600,14 +1602,16 @@ class Wiring(unittest.TestCase):
         fasts = (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
                  ("failure", "unavailable"))
         placed = ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "}, {"retry": SMALL})
+        # Read once: runs_on_of and env_of re-resolve the job's expressions (20-100 ms), and the sweep below makes
+        # 7,500 cases; read per case it ran past 30 minutes.
+        runs_on, runner_env = runs_on_of(job), env_of(job)["CMUX_NEXT_RUNNER"]
         for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
                 self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
             context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
-            label = evaluate(runs_on_of(job), context)
+            label = evaluate(runs_on, context)
             if config == "owned" and attempt in ("1", "2"):
                 seen[event].add(tuple(label) if isinstance(label, list) else label)
-            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(env_of(job)["CMUX_NEXT_RUNNER"],
-                                                                                   context))):
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(runner_env, context))):
                 if not self.off_the_nightly_runner(value):
                     failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
                                     f"fast={fast} outputs={outputs}")
@@ -1657,18 +1661,22 @@ class Wiring(unittest.TestCase):
             context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native}}
             return set(evaluate(expression, context).split())
 
-        self.assertEqual(runs(), set(CASCADED))
-        self.assertEqual(runs(native="false"), set(CASCADED) - {"release-compile"})
-        # A same-repository pull request runs its routed canary with no label (#22303); the two heavy
-        # compiles need full-ci again, except a member's dev-build scheme compile (its dogfood app).
-        self.assertEqual(runs(labels=()), {"fast-tier", "swift-canary"})
-        self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
+        # A pull request's fast tier and Swift canary are pr-pipeline.yml's `mac` job (ci/steps.toml, note-556):
+        # the placement names them only off the pull request path. The two heavy compiles need full-ci,
+        # except a member's dev-build scheme compile (its dogfood app).
+        heavy = set(CASCADED) - {"fast-tier", "swift-canary"}
+        self.assertEqual(runs(), heavy)
+        self.assertEqual(runs(native="false"), heavy - {"release-compile"})
+        self.assertEqual(runs(labels=()), set())
+        self.assertEqual(runs(labels=(), canary="false", scheme="false"), set())
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), heavy)
         # The fast lane's label is a preference the placement takes only while it is idle
-        # (side_lane_placement.fast_route()), so the fast tier is always a cascade candidate.
-        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), set(CASCADED))
+        # (side_lane_placement.fast_route()), so on a push the fast tier is always a cascade candidate.
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile", "release-compile"})
-        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier", "swift-canary"})
-        self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "swift-canary", "cmux-scheme-compile"})
+        self.assertEqual(runs("push", labels=(), fast_lane="glaeda-fast-std-xcode-26.6", canary="false"),
+                         {"fast-tier", "cmux-scheme-compile", "release-compile"})
+        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), set())
+        self.assertEqual(runs(labels=("dev-build",)), {"cmux-scheme-compile"})
         # A same-tree dispatch asking for the scheme tier has no path routing output.
         self.assertEqual(runs("workflow_dispatch", labels=(), canary="", scheme="", native="",
                               inputs={"same_tree_sha": "a" * 40, "same_tree_state": "ready",
@@ -1756,7 +1764,11 @@ class Wiring(unittest.TestCase):
                 context["github"].update(base_ref="feat-cmux-next")
                 context["needs"].update(path_route={"outputs": {"macos": "true", "fast_tier": "true"}},
                                          **{"push-head-preflight": {"outputs": {"current": "true"}}})
-                self.assertTrue(evaluate(self.jobs["fast-tier"]["if"].replace("!cancelled()", "true"), context))
+                condition = self.jobs["fast-tier"]["if"].replace("!cancelled()", "true")
+                # A pull request's fast tier is pr-pipeline.yml's `mac` job (note-556); the push keeps this one.
+                self.assertFalse(evaluate(condition, context))
+                context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
+                self.assertTrue(evaluate(condition, context))
 
     def test_display_jobs_keep_push_routes_and_take_allocated_pr_overflow(self):
         for name in GUI_JOBS:
@@ -2594,11 +2606,18 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cloud-rd-link-readback.yml readback: runs-on[0]",
         "cloud-chat-proof.yml proof-staging: runs-on[0]",
         "cloud-chat-proof.yml proof-prod: runs-on[0]",
+        # The staging agent account signs in on an ephemeral VM (#49943), as cloud-rd-link-readback.
+        "cmux-next-pair-e2e-vm.yml pair-e2e: runs-on[0]",
         "cmux-next-dev-daily.yml sign: runs-on[0]",
         "cmux-next-dev-daily.yml sign-blacksmith: runs-on[0]",
         "cmux-next-dev-daily.yml verify: runs-on[0]",
         "cmux-tui-team-signed.yml sign: runs-on[0]",
+        # #47936: build-helper runs the commit's code where no signing identity is in reach; sign-helper signs it.
+        "cmux-tui-team-signed.yml build-helper: runs-on[0]",
+        "cmux-tui-team-signed.yml sign-helper: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
+        # #50338: the App Store keys in the release environment, as ios-appstore-upload.
+        "ios-internal-submit.yml submit: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",
@@ -2609,9 +2628,6 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "machine-vault-e2e.yml e2e: runs-on[0]",
         "release.yml build-sign-notarize: runs-on[0]",
         "release.yml build-sign-notarize-blacksmith: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml verify-shipped: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml repair: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml repair-blacksmith: runs-on[0]",
         "resume-nightly-notarization.yml resume: runs-on[0]",
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
@@ -2704,7 +2720,7 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
                         context["inputs"].update(runner=requested, platform="macos")
                         context["needs"] = {"resolve-ref": {"outputs": {"trusted_ref": trusted}}}
                         self.assertEqual(evaluate(runs_on_of(job), context),
-                                         SIDE if trusted == "true" else SMALL)
+                                         "cmux-mac" if trusted == "true" else SMALL)
 
     def test_the_incident_rerun_takes_the_owned_label(self):
         """Run 43590543702's attempt 3: a bot re-run with attempt 1's placement carried, CI_PR_POOL_OWNED on."""
@@ -2729,6 +2745,34 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         self.assertTrue(any(on.jobs.values()))
         self.assertEqual(placement.gui_overflow(env(CI_BLACKSMITH_MACOS=""), live, waiting, None), "")
         self.assertEqual(placement.gui_overflow(env(CI_BLACKSMITH_MACOS="on"), live, waiting, None), SMALL)
+
+    def test_a_fleet_client_job_no_idle_mini_took_spills_to_the_fleet_while_off(self):
+        # 2026-11-23 09-11Z: with Blacksmith macOS off the fast tier queued 46 to 65 min on the side label (all
+        # its slots busy) while the gateway had idle runners: place() never listed it for its fleet client.
+        live, waiting = {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}
+        values = {"CI_BLACKSMITH_MACOS": "", "FLEET_CLIENT_JOBS": "fast-tier"}
+        spilled = cascade.place(env(**values), (), live, waiting, saturated=True)
+        self.assertEqual(spilled.fleet_jobs, ("fast-tier",))
+        self.assertEqual({label: jobs for label, jobs in spilled.jobs.items() if jobs}, {})
+        self.assertIn("reserved for the fleet gateway", spilled.why)
+        self.assertIn(cascade.FLEET_SPILL_SWITCH, spilled.why)
+        # An idle mini took it, the runners were unread, or the off switch is `0`: it stays on its owned label.
+        self.assertEqual(cascade.place(env(**values), ("fast-tier",), live, waiting, saturated=True).fleet_jobs, ())
+        self.assertEqual(cascade.place(env(**values), (), live, waiting, saturated=False).fleet_jobs, ())
+        off = cascade.place(env(**values, CI_FAST_TIER_FLEET_SPILL="0"), (), live, waiting, saturated=True)
+        self.assertEqual(off.fleet_jobs, ())
+        # Only FLEET_CLIENT_JOBS spill, and with Blacksmith on the cascade places as before.
+        self.assertEqual(cascade.place(env(CI_BLACKSMITH_MACOS=""), (), live, waiting, saturated=True).fleet_jobs, ())
+        on = cascade.place(env(**{**values, "CI_BLACKSMITH_MACOS": "on"}), (), live, waiting, saturated=True)
+        self.assertNotIn("fleet gateway (vars.", on.why)
+
+    def test_the_spill_switch_reaches_macos_placement(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+        steps = workflow["jobs"]["macos-placement"]["steps"]
+        envs = [step.get("env") or {} for step in steps if "FLEET_CLIENT_JOBS" in (step.get("env") or {})]
+        self.assertTrue(envs)
+        for step_env in envs:
+            self.assertEqual(step_env.get(cascade.FLEET_SPILL_SWITCH), "${{ vars.CI_FAST_TIER_FLEET_SPILL }}")
 
     def test_the_read_deadline_route_is_owned_while_off(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2850,7 +2894,7 @@ RESCUE = cascade.PR_RESCUE
 CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
 # The workflows that must read pr-rescue as off: nightly, promote, signing and release.
 RESCUE_IGNORED = ("nightly.yml", "nightly-sign.yml", "nightly-next-train.yml", "nightly-next-canary.yml",
-                  "nightly-next-launch-smoke.yml", "nightly-next-cua-signed-host.yml", "stable-next.yml",
+                  "nightly-next-launch-smoke.yml", "stable-next.yml",
                   "signing-keychain-macos.yml", "app-ffi-release.yml", "release.yml")
 SWITCH_READ = re.compile(r"vars\.CI_BLACKSMITH_MACOS(?!\s*\}\})")
 SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")

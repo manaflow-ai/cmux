@@ -28,13 +28,25 @@ public import AppKit
     ///   - avatar: The signed-in account's picture, nil for none.
     ///   - commands: Runs the chat and Computer Use rows; nil leaves them disabled.
     ///   - chatImage: A chat row's harness mark (the sidebar's), nil for none.
+    ///   - extensionRows: Installed extensions' status items placed in the menu bar (`cmux.status/1`,
+    ///     `placement: menuBar`), each a drawn scene: first, above a separator. None adds nothing.
     public func fill(_ menu: NSMenu, state: MenuBarMenuState, avatar: NSImage? = nil, commands: MenuBarCommandTarget? = nil,
-                     chatImage: (MenuBarMenuState.Chat) -> NSImage? = { _ in nil }) {
+                     chatImage: (MenuBarMenuState.Chat) -> NSImage? = { _ in nil }, extensionRows: [NSView] = []) {
         menu.removeAllItems()
         menu.autoenablesItems = true
+        for view in extensionRows {
+            let row = NSMenuItem()
+            row.view = view
+            row.identifier = Self.extensionRow
+            menu.addItem(row)
+        }
+        if !extensionRows.isEmpty { menu.addItem(.separator()) }
         add(spec.items(for: state, isBound: { registry.action(for: $0) != nil }), to: menu, state: state, avatar: avatar,
             commands: commands, chatImage: chatImage)
     }
+
+    /// An extension status item's row (``fill(_:state:avatar:commands:chatImage:extensionRows:)``).
+    public static let extensionRow = NSUserInterfaceItemIdentifier("cmux.menuBar.extensionStatus")
 
     private func add(_ items: [MenuBarMenuSpec.Item], to menu: NSMenu, state: MenuBarMenuState, avatar: NSImage?,
                      commands: MenuBarCommandTarget?, chatImage: (MenuBarMenuState.Chat) -> NSImage?) {
@@ -51,6 +63,13 @@ public import AppKit
             case .command(let command, let title, let symbol):
                 let row = commands?.item(command, title: title) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")
                 row.image = Self.symbol(symbol, label: title)
+                if case .openChat = command {} else { row.indentationLevel = 1 }
+                menu.addItem(row)
+            case .sessionAction(let id, let session, let title, let symbol):
+                guard let row = registry.makeArgumentMenuItem(for: id, arguments: ["session": .string(session)], title: title) else { continue }
+                row.image = Self.symbol(symbol, label: title)
+                row.keyEquivalent = ""
+                row.indentationLevel = 1
                 menu.addItem(row)
             case .computerUse(let app, let bundleID, let items):
                 let row = NSMenuItem(title: MenuBarMenuSpec.text("menu.menuBar.computerUse", "Computer Use"), action: nil, keyEquivalent: "")
@@ -133,7 +152,7 @@ public import AppKit
 }
 
 /// Runs the menu bar's per-session rows (``MenuBarMenuSpec/Command``): a chat to open, a Computer
-/// Use session to take over or hand back. The menu's owner keeps it (a row's target is weak).
+/// Use session to resume or whose cursor to show. The menu's owner keeps it (a row's target is weak).
 @MainActor public final class MenuBarCommandTarget: NSObject {
     private let run: @MainActor (MenuBarMenuSpec.Command) -> Void
 

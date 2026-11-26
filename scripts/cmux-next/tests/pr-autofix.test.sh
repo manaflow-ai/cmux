@@ -28,6 +28,12 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift 
   [[ "$(area "$path")" == true ]] || fail "a change to $path must regenerate the action exports"
 done
 [[ "$(area webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac export job"
+settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
+for path in schemas/settings/source/sidebar.json schemas/settings/generator/sidebar.json schemas/settings/retired-keys.json \
+  scripts/cmux-next/autofix-areas.sh; do
+  [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
+done
+[[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac settings export"
 [[ "$(bash "$AREAS" --all | sed -n 's/^actions=//p')" == true ]] || fail "--all must include the action exports"
 capabilities() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^capabilities=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
@@ -52,7 +58,7 @@ locks() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^locks=//p'; }
 [[ "$(locks cmux-tui/crates/x/src/lib.rs)" == false ]] || fail "a Rust source change alone must not run the lock repair"
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigSnapshot.swift \
-  Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings schemas/settings/settings-schema.json; do
+  Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/settings.demo.title.xcstrings schemas/settings/settings-schema.json; do
   [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
 done
 [[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not regenerate the settings exports"

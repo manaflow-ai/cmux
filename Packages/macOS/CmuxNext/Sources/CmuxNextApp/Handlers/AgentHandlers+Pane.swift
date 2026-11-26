@@ -32,7 +32,7 @@ extension AgentHandlers {
             if let pane { open(pane) }
             return
         case .overTopPage?:
-            if !openChatWorkspaceOverTopPage(invocation, context: context, seed: seed) { context.refuse(MiscHandlerStrings.noPane) }
+            if !openChatWorkspace(invocation, context: context, seed: AgentPaneSeedSource(seed)) { context.refuse(MiscHandlerStrings.noPane) }
             return
         case .refuse?, nil:
             return context.refuse(MiscHandlerStrings.noPane)
@@ -99,7 +99,7 @@ extension AgentHandlers {
         case .pending: .pending
         }
         let targetLocal = invocation.target.map { AgentChatPlacement.resolve($0, services: context.services)?.daemon.isLocal == true } ?? false
-        let facts = WindowRules.ChatHostFacts(route: route, ready: destination.isReady, cancelled: Task.isCancelled,
+        let facts = WindowRules.ChatHostFacts(route: route, ready: destination.opens, cancelled: Task.isCancelled,
                                               targeted: invocation.target != nil, targetLocal: targetLocal,
                                               activeLocal: context.services.activeDaemon.isLocal)
         guard let plan = WindowRules().chatHostPlan(facts) else {
@@ -245,20 +245,18 @@ extension AgentHandlers {
         return true
     }
 
-    /// A new workspace in the active window with the chat as its only tab, when that window shows
-    /// a top page: the workspace under the page stays parked, and its panes never mount for a
-    /// chat to open in. False when the daemon cannot hold a chat.
-    private static func openChatWorkspaceOverTopPage(_ invocation: ActionInvocation, context: AppActionContext,
-                                                     seed: AgentPaneSeed) -> Bool {
+    /// A new workspace in the active window with the chat as its only tab, when that window shows a top page (its panes never mount for a
+    /// chat), or for a person's New Cloud Chat (`cloud`, cmux#45947): this Mac's, its row the Cloud chat's from the click, taken on its machine.
+    static func openChatWorkspace(_ invocation: ActionInvocation, context: AppActionContext, seed source: AgentPaneSeedSource, cloud: Bool = false) -> Bool {
         let services = context.services
-        let daemon = services.activeDaemon
-        guard let window = context.activeWindow, services.agentTabs.canHost(on: daemon) else { return false }
-        let windowID = window.state.id
+        let daemon = cloud ? services.machines.local : services.activeDaemon
+        guard let windowID = context.activeWindow?.state.id, services.agentTabs.canHost(on: daemon) else { return false }
         context.registry.track(Task { @MainActor in
+            let seed = await source.peek() ?? AgentPaneSeed()
             var spawn = WorkspaceSpawn(cwd: seed.cwd)
             spawn.firstChat = seed
             do {
-                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
+                let id = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID); if cloud { services.cloudStartTitles.beginWorkspace(id) }
                 return nil
             } catch {
                 daemon.logger.error("agent chat workspace over a top page failed: \(String(describing: error), privacy: .public)")

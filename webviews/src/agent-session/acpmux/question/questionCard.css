@@ -10,7 +10,8 @@
   min-width: 0;
   padding: 4px;
 }
-.acpmux-question-row {
+.acpmux-question-row,
+.acpmux-question-row-sizer {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -59,7 +60,7 @@
   border: 0;
   border-radius: var(--ds-radius-control);
   outline: none;
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge);
   color: var(--agent-text);
   font: inherit;
@@ -86,7 +87,8 @@
   padding: 4px 12px 12px;
 }
 /* A yes-or-no ask (model.ts consentChoice), as ChatGPT's consent card draws it: the question with
-   one muted line of what Allow does under it, then its two buttons with their keys, Allow filled. */
+   one muted line of what Allow does under it, then its two buttons, Allow filled (esc and Return
+   still answer; the card draws no keycaps). */
 .acpmux-question-scope {
   display: block;
   padding-top: 4px;
@@ -106,22 +108,40 @@
   gap: 8px;
 }
 
-/* Choice and free-text asks sit above the composer as one card. Consent and preview cards keep
-   their existing layout; the same reducer and reply path still own every choice and key. */
-.acpmux-question-ask[data-prompt-card] {
+/* Every pending ask is one card (Lucas, 2026-11-24; lab outputs/2026-11-23-needs-input). It draws on
+   one 8 px inset: the card's padding is the controls' inset, and its corner is the controls' radius
+   plus that inset, so every inner corner is concentric with it. Text sits 16 px from the edge (the
+   inset plus a row's padding). Header: the question mark icon and "Needs your input" in muted words
+   (no dot or ring), the pager and close. Then the question as the title, numbered rows (checkboxes
+   when it takes several answers; a hairline-free list, the highlight a soft fill), the preview beside
+   them, and a last row as tall as an option row: the custom answer, Skip and Send. A consent has no
+   header line: its question is the title and Deny and Allow end the card. Folded, it is a pill. */
+.acpmux-question-ask:not([data-folded]) {
+  --acpmux-question-inset: var(--ds-space-2);
   align-self: stretch;
   align-items: stretch;
   gap: 0;
-  padding: var(--ds-space-4);
-  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
-  border-radius: var(--ds-radius-xl);
+  padding: var(--acpmux-question-inset);
+  border-radius: calc(var(--ds-radius-control) + var(--acpmux-question-inset));
   background: var(--acpmux-question-bg);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge);
 }
-.acpmux-question-ask[data-prompt-card][data-folded] {
-  padding: 0;
-  border: 0;
-  background: transparent;
+/* The folded card: one quiet pill in the inset fill, the icon, the words and a chevron. */
+.acpmux-question-ask[data-folded] .acpmux-question-status { color: var(--agent-text); }
+.acpmux-question-ask[data-folded] .acpmux-question-status-pill {
+  height: var(--ds-control-compact);
+  padding: 0 calc(var(--ds-space-1) + var(--grid-half-step)) 0 calc(var(--ds-space-2) + var(--grid-half-step));
+  background: var(--ds-surface-inset);
+  line-height: var(--ds-control-compact);
 }
+.acpmux-question-ask[data-folded] .acpmux-question-status:hover .acpmux-question-status-pill {
+  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+}
+.acpmux-question-ask[data-folded] .acpmux-question-status-pill > svg:first-child { color: var(--agent-muted); }
+.acpmux-question-ask[data-folded] .acpmux-question-status:focus-visible .acpmux-question-status-pill {
+  outline-color: color-mix(in srgb, var(--agent-text) 40%, transparent);
+}
+
 .acpmux-question-bar,
 .acpmux-question-bar > span {
   display: flex;
@@ -130,116 +150,206 @@
 }
 .acpmux-question-bar {
   justify-content: space-between;
-  min-height: var(--ds-control-compact);
+  min-height: var(--ds-control-row);
+  padding-left: var(--ds-space-2);
   color: var(--agent-muted);
-  font-size: var(--text-content);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
+.acpmux-question-bar > span { min-width: 0; }
 .acpmux-question-bar > span > svg { flex: none; }
-.acpmux-question-ask[data-prompt-card] .acpmux-question {
+/* With the button's own classes: `.ui-button.ui-btn` (ui/controls.css) sets the foreground colour,
+   and a rule of two classes lost to it, so the × showed at full contrast beside the muted pager. */
+.acpmux-question-bar .ui-dismiss.ui-button.ui-btn {
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-muted);
+}
+.acpmux-question-bar .ui-dismiss.ui-button.ui-btn:hover { color: var(--agent-text); }
+.acpmux-question-ask fieldset.acpmux-question {
   overflow: visible;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-head {
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-4) 0 var(--ds-space-2);
+.acpmux-question-ask .acpmux-question-head {
+  float: none;
+  padding: var(--grid-half-step) var(--ds-space-2) var(--ds-space-2);
   border: 0;
   background: transparent;
 }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-prompt {
+.acpmux-question-ask[data-consent] .acpmux-question-head { padding-top: var(--ds-space-2); }
+.acpmux-question-ask :is(.acpmux-question-prompt, .acpmux-question-prompt-sizer) {
   font-size: var(--text-content);
-  line-height: var(--text-content--line-height);
+  line-height: calc(20 / 14);
+  letter-spacing: normal;
+  text-wrap: pretty;
 }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-tabs { padding-inline: 0; }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-rows { padding: var(--ds-space-1) 0; }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-row {
+.acpmux-question-ask .acpmux-question-scope {
+  padding-top: var(--grid-half-step);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-question-ask .acpmux-question-body {
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: var(--ds-space-3);
-  padding-inline: var(--ds-space-2);
-  font-size: var(--text-content);
+  gap: var(--ds-space-2);
 }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-label { line-height: var(--text-content--line-height); }
+.acpmux-question-ask .acpmux-question-body[data-preview] { padding-right: 0; }
+.acpmux-question-ask .acpmux-question-rows {
+  gap: var(--grid-half-step);
+  padding: 0;
+}
+/* A row: the mark and the tail on its centre line, the label and its detail tight under each other. */
+.acpmux-question-ask :is(.acpmux-question-row, .acpmux-question-row-sizer) {
+  align-items: center;
+  gap: calc(var(--ds-space-2) + var(--grid-half-step));
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+}
+.acpmux-question-ask .acpmux-question-row:hover {
+  background-color: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.acpmux-question-ask .acpmux-question-row:is([data-highlighted], :focus-visible) {
+  background-color: var(--acpmux-question-highlight);
+}
+.acpmux-question-ask .acpmux-question-text { gap: 0; }
+.acpmux-question-ask .acpmux-question-label { line-height: var(--text-body--line-height); }
+.acpmux-question-ask .acpmux-question-preview {
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.acpmux-question-ask .acpmux-question-preview-label { padding-top: var(--grid-half-step); }
+.acpmux-question-ask .acpmux-question-body[data-preview-layout=below] .acpmux-question-preview { margin: var(--ds-space-2) 0 0; }
+.acpmux-question-ask .acpmux-question-preview[data-inline] { margin: 0 0 0 calc(var(--ds-control-icon) + var(--ds-space-2) * 2 + var(--grid-half-step)); }
+/* The number square: a filled 20 px tile in the inset fill, its corner the control radius less the
+   row's inset half (concentric with the row). Highlighted it firms up; chosen it is the text colour. */
 .acpmux-question-number {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ds-control-compact);
-  height: var(--ds-control-compact);
-  align-self: center;
-  line-height: 1;
+  display: inline-grid;
+  place-items: center;
+  width: var(--acpmux-question-tile, var(--ds-control-icon));
+  height: var(--acpmux-question-tile, var(--ds-control-icon));
   box-sizing: border-box;
-  border: 1px solid var(--acpmux-question-edge);
-  border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  border-radius: calc(var(--ds-radius-control) - var(--ds-space-1));
+  background: var(--ds-surface-inset);
   color: var(--agent-muted);
-  font-size: var(--text-detail);
+  font-size: var(--text-caption);
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.acpmux-question-number[data-chosen] {
-  border-color: var(--agent-text);
-  background: var(--agent-text);
-  color: var(--acpmux-question-bg);
+.acpmux-question-row[data-highlighted] .acpmux-question-number:not([data-chosen]) {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  color: var(--agent-text);
 }
+.acpmux-question-number[data-chosen] {
+  background: var(--agent-text);
+  color: var(--acpmux-base);
+}
+/* Several answers: a 16 px checkbox in the number's 20 px room, so the text column does not move. */
+.acpmux-question-ask .acpmux-question-mark[data-multi] {
+  width: calc(var(--ds-icon-16) * var(--acpmux-question-scale));
+  height: calc(var(--ds-icon-16) * var(--acpmux-question-scale));
+  margin: calc(var(--grid-half-step) * var(--acpmux-question-scale));
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 35%, transparent);
+}
+.acpmux-question-ask .acpmux-question-row:hover .acpmux-question-mark[data-multi]:not([data-chosen]) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 55%, transparent);
+}
+.acpmux-question-ask .acpmux-question-mark[data-multi][data-chosen] {
+  background: var(--agent-text);
+  box-shadow: none;
+  color: var(--acpmux-base);
+}
+
+/* The last row: as tall as an option row, the hairline centred in the 8 px gap above it. With no
+   options (a free-text ask) it follows the title with no hairline. */
 .acpmux-question-footer {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--ds-space-2);
-  padding-top: var(--ds-space-2);
+  gap: 0 calc(var(--ds-space-2) + var(--grid-half-step));
+  min-height: calc(var(--ds-control-primary) + var(--ds-space-1));
+  margin-top: var(--ds-space-2);
+  padding-left: var(--ds-space-2);
 }
+.acpmux-question-footer::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--ds-space-1));
+  left: var(--ds-space-2);
+  right: var(--ds-space-2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+}
+.acpmux-question-footer[data-bare] { margin-top: 0; }
+.acpmux-question-footer[data-bare]::before { display: none; }
 .acpmux-question-footer > .acpmux-question-row {
   flex: 1 1 180px;
   width: auto;
-  min-height: calc(var(--ds-control-primary) + var(--ds-space-2));
+  min-height: calc(var(--ds-control-primary) + var(--ds-space-1));
+  padding: 0;
+  border-radius: 0;
   color: var(--agent-muted);
 }
-.acpmux-question-footer .acpmux-question-other > svg,
-.acpmux-question-footer .acpmux-question-other-choice > svg {
-  flex: none;
-  margin-top: calc((var(--text-content--line-height) - 16px) / 2);
-}
-.acpmux-question-footer .acpmux-question-actions {
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  margin-inline-start: auto;
-  padding: 0;
-}
-.acpmux-question-footer .acpmux-question-hint { flex: 1 0 100%; white-space: normal; }
-.acpmux-question-footer :is(.acpmux-question-skip, .acpmux-question-submit) {
-  min-height: var(--ds-control-primary);
-  padding-inline: var(--ds-space-3);
-  border-radius: calc(var(--ds-control-primary) / 2);
-  font-size: var(--text-content);
-}
-.acpmux-question-footer .acpmux-question-skip {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--acpmux-question-edge);
-}
-.acpmux-question-ask[data-prompt-card] .acpmux-question-footer .acpmux-question-actions :is(.acpmux-keycap, .acpmux-question-keys) { display: none; }
+.acpmux-question-footer > .acpmux-question-other-room { flex: 1 1 180px; }
+.acpmux-question-footer > .acpmux-question-row:is(:hover, [data-highlighted], :focus-visible) { background: transparent; }
+.acpmux-question-footer > .acpmux-question-row:is([data-highlighted], :focus-visible) { color: var(--agent-text); }
 .acpmux-question-footer .acpmux-question-other :is(input, textarea) {
   margin: 0;
   padding: 0;
   background: transparent;
   box-shadow: none;
-  font-size: inherit;
-  line-height: var(--text-content--line-height);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
-.acpmux-question-footer .acpmux-question-other:focus-within {
-  background-color: var(--acpmux-question-hover);
+.acpmux-question-footer .acpmux-question-other :is(input, textarea):focus-visible { box-shadow: none; }
+.acpmux-question-footer .acpmux-question-other { color: var(--agent-text); }
+/* The typed answer has the keyboard: its pencil square firms up, as a highlighted row's number. */
+.acpmux-question-footer:focus-within .acpmux-question-number[data-edit] {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   color: var(--agent-text);
 }
+.acpmux-question-footer .acpmux-question-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  margin-inline-start: auto;
+  padding: 0;
+}
+/* Skip quiet, Send filled: 28 px, the control radius, no keycaps (the keys still work). */
+.acpmux-question-ask :is(.acpmux-question-skip, .acpmux-question-submit) {
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  font-size: var(--text-body);
+}
+.acpmux-question-ask .acpmux-question-skip {
+  background: transparent;
+  color: var(--agent-muted);
+}
+.acpmux-question-ask .acpmux-question-skip:hover:not(:disabled) {
+  background: var(--acpmux-question-hover);
+  color: var(--agent-text);
+}
+.acpmux-question-ask .acpmux-question-actions :is(.acpmux-keycap, .acpmux-question-keys) { display: none; }
+.acpmux-question-ask[data-consent] .acpmux-question-actions { padding: 0; }
+.acpmux-question-ask .acpmux-question-error { padding: var(--ds-space-2) var(--ds-space-2) 0; }
 
 .acpmux-question-bar-actions,
 .acpmux-question-navigation {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1);
+  gap: var(--grid-half-step);
 }
-.acpmux-question-bar-actions { gap: var(--ds-space-2); }
 .acpmux-question-position {
-  min-width: 5ch;
+  min-width: 4.5ch;
   text-align: center;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
@@ -248,8 +358,8 @@
   display: grid;
   place-items: center;
   flex: none;
-  width: var(--ds-control-compact);
-  height: var(--ds-control-compact);
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-control);
@@ -260,3 +370,81 @@
 .acpmux-question-nav-button:hover:not(:disabled) { background: var(--acpmux-question-hover); color: var(--agent-text); }
 .acpmux-question-nav-button:active:not(:disabled) { background: var(--acpmux-question-highlight); }
 .acpmux-question-nav-button:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+
+/* One icon set at every density and text size (#56534): every glyph on the card is the pack's
+   (icons/Icon.tsx), so they share its stroke, on the icon scale (icons/iconSize.ts): 14 for the mark
+   inline with "Needs your input", 12 for the chevrons, the ×, the pencil and the arrow. They, and the
+   number square they sit in, grow with --cmux-interface-scale as the card's words and the transcript's
+   own glyphs do (conversation.css --cv-action-glyph), instead of staying at their pixel size while the
+   text around them grows. All muted, the text colour under the pointer. */
+:is(.acpmux-question-ask, .acpmux-next-step) {
+  --acpmux-question-scale: var(--cmux-interface-scale, 1);
+  --acpmux-question-mark-glyph: calc(var(--ds-icon-14) * var(--acpmux-question-scale));
+  --acpmux-question-glyph: calc(var(--ds-icon-12) * var(--acpmux-question-scale));
+  --acpmux-question-tile: calc(var(--ds-control-icon) * var(--acpmux-question-scale));
+}
+:is(.acpmux-question-bar > span, .acpmux-question-status-pill) > svg:first-child {
+  width: var(--acpmux-question-mark-glyph);
+  height: var(--acpmux-question-mark-glyph);
+}
+:is(.acpmux-question-nav-button, .acpmux-question-bar .ui-dismiss, .acpmux-question-number) > svg,
+.acpmux-question-status-pill > svg.acpmux-question-status-chevron,
+svg.acpmux-next-step__arrow {
+  width: var(--acpmux-question-glyph);
+  height: var(--acpmux-question-glyph);
+}
+.acpmux-question-nav-button[data-step="previous"] > svg { transform: scaleX(-1); }
+
+/* An ask of several questions keeps one size while it pages (#56534): QuestionCard lays the other
+   questions' titles and rows in the shown one's grid cells, hidden and inert, so the title and the
+   rows each take the tallest question's room. The rows start on one line on every page, and the last
+   row and its buttons stay where they are. */
+.acpmux-question-pages {
+  display: grid;
+  min-width: 0;
+}
+.acpmux-question-head > .acpmux-question-pages { flex: 1; }
+.acpmux-question-pages > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.acpmux-question-pages > [aria-hidden="true"] { visibility: hidden; }
+.acpmux-question-prompt-sizer {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-regular);
+  overflow-wrap: anywhere;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+/* Next and Send hold one width, the wider word's, so Skip beside them never moves. */
+.acpmux-question-swap {
+  display: inline-grid;
+  justify-items: center;
+}
+.acpmux-question-swap > * { grid-area: 1 / 1; }
+.acpmux-question-swap > [aria-hidden="true"] { visibility: hidden; }
+/* What Send still waits for, one line in the bar before the pager that steps to it: cut short rather
+   than wrapped, and the first to give way in a narrow card; then "Needs your input" is cut, and the
+   pager and the × never leave the bar.
+   The actions' box is flattened so the hint, the pager and the × are the bar's own items: a box around
+   them took the hint's whole line as its least width, so a long hint ("Answer Migration, Platforms,
+   and Flag to submit") pushed the × out of the card in a real pane (dev build of #56570). The gaps are
+   the ones the box drew: 8 px after the label, 6 px before the pager, 2 px before the ×. */
+.acpmux-question-bar { column-gap: var(--grid-half-step); }
+.acpmux-question-bar-actions { display: contents; }
+.acpmux-question-bar > span:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-question-bar-actions > :first-child { margin-left: calc(var(--ds-space-2) - var(--grid-half-step)); }
+.acpmux-question-bar-actions > :not(.acpmux-question-hint) { flex: none; }
+.acpmux-question-bar .acpmux-question-hint {
+  flex: 0 100000 auto;
+  min-width: 0;
+  margin-right: var(--ds-space-1);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}

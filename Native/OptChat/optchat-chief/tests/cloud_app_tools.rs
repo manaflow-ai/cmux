@@ -261,6 +261,9 @@ fn a_chief_turn_keeps_coordinator_tools_but_not_background_tasks() {
         "acpmux_info",
         "acpmux_inbox_read",
         "acpmux_inbox_reply",
+        "acpmux_watch_add",
+        "acpmux_watch_ls",
+        "acpmux_watch_rm",
     ];
     let gone = [
         "acpmux_bg_start",

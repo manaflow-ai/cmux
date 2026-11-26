@@ -44,9 +44,48 @@
 // again, and so does a trackpad pinch (the visual viewport's resize and scroll), since each box is sent
 // where it shows on the zoomed screen (ui/visualViewportBox.ts). Nothing runs while no marked surface is
 // mounted, and the App's answer is the only other work.
-import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
+//
+// One glass, never two (Leo, 2026-11-21: "did we/did lucad figure out how to get rid of the double
+// glassed thing on certain menus and whatnot"). A drawn surface can still keep the page's own glass
+// (glass.css HOST GLASS): one over the composer, which takes no in-place blur, so its tint must hide the
+// composer's text (data-glass-keeps-underlay), and a cover surface with nothing under it to blur in
+// place (no data-glass-over). The App's glass went on being drawn under that page glass: two tints, two
+// rims and two shadows, the menus opened from the composer most of all. Such a surface is not reported
+// while it keeps the page's glass (`keepsPageGlass`), and it is withdrawn in the task it starts to. It
+// keeps the page's glass (HOST_GLASS_OWN_ATTRIBUTE) until the App answers a report that has it, so the
+// swap to the App's never shows its content on no glass.
+//
+// One glass per place (Leo, 2026-11-22: "our shitty multi layer glass + web view. we need to properly do
+// that once and for all"). The rule above kept one surface from having two glasses; two surfaces could
+// still each have the App's, one over the other (a hover card, a menu or a tooltip over Session Info, a
+// tooltip over a menu), and the App's glasses all lie under the page: two native glasses stacked, their
+// tints, rims and shadows added up. No report has two boxes that overlap (`stackedHostGlass`): the
+// lowest surface keeps the App's glass, and each surface over it keeps the page's own from its first
+// frame, exactly as one over the composer does. It is decided in the reporter, for every marked
+// surface, so a new surface needs no rule of its own.
+//
+// One coordinate conversion, and it is the page's (Leo, 2026-11-20: "we have glass project / i add
+// background / it refract / boom done"; cmux#42413 switched host glass off for this drift). A box is
+// in CSS px; the App needs view points, and CSS px times the page zoom is points. The App used to
+// multiply by the zoom it had set (Interface Scale times Agent Chat Zoom), but Chromium applies a new
+// zoom over another channel than the page's reports (PageChromiumDocumentScripts.pageZoomScript), and
+// a popover whose CSS box a zoom leaves as it was (anchored top-left) sent the same report again,
+// which both sides drop as unchanged: the App's glass kept the old zoom's frame while the content drew
+// at the new one, apart from it and larger or smaller. So every report carries the zoom its boxes were
+// measured at (`hostGlassPageZoom`, the zoom the page renders at, published on `<html>` before the
+// frame paints), a zoom change alone sends a new report, and the App places each box with that zoom
+// and never its own (AgentPaneView+HostGlass.swift hostGlassFrame).
+import { pageDrawsHover } from "../hoverLook";
+import { GLASS_ATTRIBUTE, GLASS_OFF, LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
-import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
+import { INTERFACE_SCALE_EVENT } from "../interfaceScale";
+import {
+  attachSeeThroughBlur,
+  type CoveredCandidates,
+  type SeeThroughOptions,
+  KEEPS_UNDERLAY_ATTRIBUTE,
+  OVER_ATTRIBUTE,
+} from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
 const SEE_THROUGH_ATTRIBUTE = "data-cmux-see-through";
@@ -59,19 +98,38 @@ export const HOST_GLASS_DRAWN_ATTRIBUTE = "data-host-glass-drawn";
 /** On a surface: the page under it blurs in place once the App draws its glass (the reporter's `cover`).
  * A surface that blurs what it covers itself (Session Info, a hover card given `under`) leaves it off. */
 export const HOST_GLASS_COVER_ATTRIBUTE = "data-host-glass-cover";
+/** On a drawn surface that keeps the page's own glass (`keepsPageGlass`), until the App answers a report
+ * that has it: glass.css keeps the page's glass on it, so it never shows on no glass while the App's
+ * comes. */
+export const HOST_GLASS_OWN_ATTRIBUTE = "data-host-glass-own";
 /** On `<html>` while the App draws host glass: glass.css hides a marked surface until it is drawn. */
 export const HOST_GLASS_ROOT_ATTRIBUTE = "data-host-glass-on";
+/** On `<html>`: `all` when the page asks for the App's glass in WebKit too, not only in Chromium. WebKit's
+ * own backdrop does reach the window glass, but it is a CSS blur, not the App's Liquid Glass: only the
+ * App's own material matches a native surface beside it to the pixel (the Liquid Glass Parity
+ * playground, `debug.glass_parity`). glass.css draws a drawn surface's veil in either engine then. */
+export const HOST_GLASS_ENGINES_ATTRIBUTE = "data-host-glass-engines";
 /** On a surface while it closes (Base UI sets it for the close fade): it leaves the App's glass. */
 export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 
-export type HostGlassLevel = "popover" | "menu" | "chip";
-const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
+/** The glass levels a surface may ask for. `chrome` is docked glass (the tab strip's, a drag ghost's):
+ * only the Liquid Glass Parity playground asks for it; the agent pane draws no docked glass and refuses it. */
+export type HostGlassLevel = "popover" | "menu" | "chip" | "chrome";
+const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip", "chrome"]);
+
+/** On a surface: the native role whose glass the App draws when it is not its level's own (a dialog's
+ * neutral glass, `sheet`, as CmuxDialogCardSurface draws a native dialog card; a toast's, `toast`). */
+export const HOST_GLASS_ROLE_ATTRIBUTE = "data-host-glass-role";
+export type HostGlassRole = "sheet" | "toast";
+const ROLES: ReadonlySet<string> = new Set<HostGlassRole>(["sheet", "toast"]);
 
 /** One surface's box in the page's viewport (CSS px, where it shows under a pinch zoom), its corner
  * radius and its own opacity (a fade). */
 export type HostGlassSurface = {
   id: string;
   level: HostGlassLevel;
+  /** The role's glass instead of the level's (HOST_GLASS_ROLE_ATTRIBUTE); absent for the level's own. */
+  role?: HostGlassRole;
   left: number;
   top: number;
   right: number;
@@ -87,20 +145,40 @@ export const HOST_GLASS_DEADLINE_MS = 50;
 /** Frames a new surface's content shows before its box goes to the App: Chromium's frames reach the
  * screen this many frames after the App's own commits. */
 export const HOST_GLASS_HOLD_FRAMES = 2;
+/** Frames a report at a new page zoom waits before it goes to the App, for the same reason: the App
+ * moved its glass at once while the page's frame at that zoom reached the screen two or three frames
+ * later, so the glass led the menu and showed a stray rim at the new box (33 to 50 ms in 3 of 6 zoom
+ * changes with the model picker open, measured on a NIGHTLY). The page keeps measuring through the hold
+ * and sends what it measures when it ends. */
+export const HOST_GLASS_ZOOM_HOLD_FRAMES = HOST_GLASS_HOLD_FRAMES;
 /** Unchanged frames before the follow loop stops. */
 const STABLE_FRAMES = 3;
 
 const SELECTOR = `[${HOST_GLASS_ATTRIBUTE}]`;
+
+/** The page zoom this page renders at now: view points per CSS px, 1 with none to read. The App
+ * writes it to `--cmux-ui-scale` on `<html>` (Chromium: `devicePixelRatio` over the backing scale, in
+ * the resize that applies a zoom, before it paints; WebKit: the page zoom it set). */
+export function hostGlassPageZoom(doc: Document): number {
+  const root = doc.documentElement;
+  let text = root.style.getPropertyValue("--cmux-ui-scale");
+  if (!text) text = doc.defaultView?.getComputedStyle(root).getPropertyValue("--cmux-ui-scale") ?? "";
+  const zoom = Number.parseFloat(text);
+  return Number.isFinite(zoom) && zoom > 0 ? Math.round(zoom * 10_000) / 10_000 : 1;
+}
 const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
- * backdrop already takes in the window glass), outside the lens and the live background (whose
- * canvases cover what is under the page) and Reduce Transparency (every glass is opaque there). */
+ * backdrop already takes in the window glass; a page that sets HOST_GLASS_ENGINES_ATTRIBUTE `all` gets
+ * it in WebKit too), outside the lens and the live background (whose
+ * canvases cover what is under the page), Reduce Transparency and Liquid Glass off (every glass is
+ * opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;
   if (root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE)) return false;
-  if (root.hasAttribute("data-reduce-transparency")) return false;
+  if (root.hasAttribute("data-reduce-transparency") || root.getAttribute(GLASS_ATTRIBUTE) === GLASS_OFF) return false;
+  if (root.getAttribute(HOST_GLASS_ENGINES_ATTRIBUTE) === "all") return true;
   const css = doc.defaultView?.CSS;
   return !(css?.supports?.("-webkit-backdrop-filter", "none") ?? true);
 }
@@ -120,9 +198,11 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
   const scale = visualViewportScale(view);
   const radius = (Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0) * scale;
   const opacity = Number.parseFloat(style?.opacity ?? "1");
+  const role = element.getAttribute(HOST_GLASS_ROLE_ATTRIBUTE) ?? "";
   return {
     id,
     level: level as HostGlassLevel,
+    ...(ROLES.has(role) && { role: role as HostGlassRole }),
     left: round(box.left),
     top: round(box.top),
     right: round(box.right),
@@ -132,9 +212,74 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
   };
 }
 
+/** Whether a drawn surface keeps the page's own glass (glass.css HOST GLASS, the same test): one over
+ * the composer (data-glass-keeps-underlay), or a cover surface with nothing under it blurred in place
+ * (no data-glass-over). The App draws no glass under it then: the two would be a double glass. */
+export function keepsPageGlass(element: Element): boolean {
+  if (element.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)) return true;
+  return element.hasAttribute(HOST_GLASS_COVER_ATTRIBUTE) && !element.hasAttribute(OVER_ATTRIBUTE);
+}
+
+/** How far (CSS px, on both axes) two surfaces' boxes may share before one counts as over the other: a
+ * submenu beside its menu or a card flush against Session Info meets it along an edge, a rounding apart. */
+export const HOST_GLASS_SEAM = 1;
+
+type Box = Pick<HostGlassSurface, "left" | "top" | "right" | "bottom">;
+const stacks = (a: Box, b: Box) =>
+  Math.min(a.right, b.right) - Math.max(a.left, b.left) > HOST_GLASS_SEAM &&
+  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > HOST_GLASS_SEAM;
+
+/** Which of two overlapping surfaces paints over the other. One that holds the other is under it.
+ * Else the page's hit test at the middle of what they share names the upper one when it reaches both
+ * (a popup portaled anywhere in the page still paints over what it covers). With either one out of its
+ * reach (a tooltip takes no pointer) or no hit test to ask (a test page), the later one in the document
+ * is the upper: a popup is portaled after what it covers. */
+function upper(a: Element, b: Element): Element {
+  if (a.contains(b)) return b;
+  if (b.contains(a)) return a;
+  const [boxA, boxB] = [a.getBoundingClientRect(), b.getBoundingClientRect()];
+  const x = (Math.max(boxA.left, boxB.left) + Math.min(boxA.right, boxB.right)) / 2;
+  const y = (Math.max(boxA.top, boxB.top) + Math.min(boxA.bottom, boxB.bottom)) / 2;
+  const hits = a.ownerDocument.elementsFromPoint?.(x, y) ?? [];
+  const atA = hits.findIndex((hit) => a.contains(hit));
+  const atB = hits.findIndex((hit) => b.contains(hit));
+  if (atA >= 0 && atB >= 0) return atA < atB ? a : b;
+  return a.compareDocumentPosition(b) & 4 /* DOCUMENT_POSITION_FOLLOWING */ ? b : a;
+}
+
+/** The surfaces that lie over another surface the App draws glass under (Leo, 2026-11-22: "our shitty
+ * multi layer glass + web view. we need to properly do that once and for all"). The App's glasses all
+ * sit under the page, one per reported box, so two boxes that overlap were two native glasses on top
+ * of each other, whichever surfaces they were: a hover card, a menu or a tooltip over Session Info, a
+ * tooltip over a menu, a popover over a card. One glass per place: the lowest surface keeps the App's
+ * glass and each one over it keeps the page's own, as one over the composer does (`keepsPageGlass`).
+ * A surface over one that itself keeps the page's glass has no App glass under it there, so it takes
+ * the App's. */
+export function stackedHostGlass(candidates: readonly { element: Element; box: Box }[]): Set<Element> {
+  // For each surface, the ones it paints over.
+  const under = new Map<Element, Element[]>(candidates.map(({ element }) => [element, []]));
+  for (let i = 0; i < candidates.length; i += 1)
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      const [a, b] = [candidates[i]!, candidates[j]!];
+      if (!stacks(a.box, b.box)) continue;
+      const top = upper(a.element, b.element);
+      under.get(top)!.push(top === a.element ? b.element : a.element);
+    }
+  // Settled from the bottom up: a surface is decided once every surface under it is.
+  const stacked = new Set<Element>();
+  const decided = new Set<Element>();
+  for (let left = candidates.length; left > 0; left -= 1)
+    for (const { element } of candidates) {
+      if (decided.has(element) || !under.get(element)!.every((below) => decided.has(below))) continue;
+      if (under.get(element)!.some((below) => !stacked.has(below))) stacked.add(element);
+      decided.add(element);
+    }
+  return stacked;
+}
+
 /**
  * Keeps the App told where the page's marked surfaces are (`post`, whose promise settles once the App
- * drew that report), and marks each surface drawn when it has. A refused report means the App draws no
+ * drew that report; `zoom` is the page zoom its boxes were measured at, `hostGlassPageZoom`), and marks each surface drawn when it has. A refused report means the App draws no
  * host glass: every surface keeps the page's own glass and the reports end. Returns the stop, which
  * sends an empty list if the last report was not.
  */
@@ -143,7 +288,7 @@ export type HostGlassCover = { candidates: CoveredCandidates; options?: SeeThrou
 
 export function reportHostGlass(
   doc: Document,
-  post: (surfaces: HostGlassSurface[]) => Promise<unknown>,
+  post: (surfaces: HostGlassSurface[], zoom: number) => Promise<unknown>,
   cover?: HostGlassCover,
 ): () => void {
   const view = doc.defaultView;
@@ -179,6 +324,11 @@ export function reportHostGlass(
   const reported = new WeakSet<Element>();
   let stable = 0;
   let sent = "[]";
+  // The zoom the last report was measured at: a zoom change alone reports again.
+  let sentZoom = 1;
+  // A report at a zoom the App has not placed yet, held since frame `zoomHeldAt` (NaN: none held).
+  let heldZoom = Number.NaN;
+  let zoomHeldAt = 0;
   let live = true;
 
   // The deadline stays armed while a surface is marked "1" before the App answered (adopt): only an
@@ -186,8 +336,10 @@ export function reportHostGlass(
   const mark = (element: Element, drawn: "0" | "1") => {
     if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) !== drawn)
       element.setAttribute(HOST_GLASS_DRAWN_ATTRIBUTE, drawn);
-    if (drawn === "0") unblur(element);
-    else if (
+    if (drawn === "0") {
+      unblur(element);
+      element.removeAttribute(HOST_GLASS_OWN_ATTRIBUTE);
+    } else if (
       cover &&
       !blurs.has(element) &&
       element.hasAttribute(HOST_GLASS_COVER_ATTRIBUTE) &&
@@ -203,6 +355,10 @@ export function reportHostGlass(
   const answered = new WeakSet<Element>();
   // Surfaces closing (data-ending-style): never reported, on the page's glass until they go.
   const leaving = new WeakSet<Element>();
+  // Surfaces over another surface's App glass at the last measure (stackedHostGlass): never reported.
+  let stacked: ReadonlySet<Element> = new Set();
+  /** Whether the surface shows the page's own glass and no App glass: `keepsPageGlass`, or stacked. */
+  const ownsGlass = (element: Element) => keepsPageGlass(element) || stacked.has(element);
   const forget = (element: Element) => {
     timedOut.delete(element);
     answered.delete(element);
@@ -216,6 +372,7 @@ export function reportHostGlass(
     ids.delete(element);
     resize?.unobserve(element);
     element.removeAttribute(HOST_GLASS_DRAWN_ATTRIBUTE);
+    element.removeAttribute(HOST_GLASS_OWN_ATTRIBUTE);
     watchStyles();
   };
   const end = () => {
@@ -224,11 +381,26 @@ export function reportHostGlass(
     root.removeAttribute(HOST_GLASS_ROOT_ATTRIBUTE);
     for (const element of ids.keys()) mark(element, "0");
   };
-  const send = (surfaces: HostGlassSurface[], elements: Element[]) => {
+  const send = (surfaces: HostGlassSurface[], elements: Element[], zoom: number) => {
     const text = JSON.stringify(surfaces);
-    if (text === sent) return;
+    if (text === sent && (zoom === sentZoom || surfaces.length === 0)) {
+      heldZoom = Number.NaN;
+      return;
+    }
+    // A new zoom moves the App's glass once the page's frame at that zoom is on screen, not before
+    // (HOST_GLASS_ZOOM_HOLD_FRAMES). Nothing on the App's glass yet (an empty last report) has nothing
+    // to lead, and a withdrawal never waits.
+    if (zoom !== sentZoom && sent !== "[]" && surfaces.length > 0) {
+      if (zoom !== heldZoom) {
+        heldZoom = zoom;
+        zoomHeldAt = paints;
+      }
+      if (paints - zoomHeldAt < HOST_GLASS_ZOOM_HOLD_FRAMES) return;
+    }
+    heldZoom = Number.NaN;
     sent = text;
-    post(surfaces).then(() => {
+    sentZoom = zoom;
+    post(surfaces, zoom).then(() => {
       // An answer that comes after host glass stopped applying (Reduce Transparency, a live
       // background) draws nothing. An answer to an earlier report still draws: a surface whose box
       // changes every frame (a scroll, a fade) is never answered for its latest report in time.
@@ -238,6 +410,8 @@ export function reportHostGlass(
         if (ids.has(element) && element.isConnected && !fellBack(element) && !leaving.has(element)) {
           answered.add(element);
           mark(element, "1");
+          // The App's glass is under it again: the page's own glass goes (unless it keeps it again now).
+          if (!ownsGlass(element)) element.removeAttribute(HOST_GLASS_OWN_ATTRIBUTE);
         }
     }, end);
   };
@@ -267,9 +441,24 @@ export function reportHostGlass(
   };
   const measure = (): string => {
     const applies = live && hostGlassApplies(doc);
+    // Read with the boxes, in the same frame: the zoom they are in.
+    const zoom = hostGlassPageZoom(doc);
     root.toggleAttribute(HOST_GLASS_ROOT_ATTRIBUTE, applies);
     const surfaces: HostGlassSurface[] = [];
     const elements: Element[] = [];
+    // Every surface that would have the App's glass under it now, and of those the ones over another:
+    // found before any is reported or held, so one that mounts over Session Info is on the page's glass
+    // in its first frame and the two glasses never paint together.
+    const boxes = new Map<Element, HostGlassSurface>();
+    if (applies)
+      for (const [element, id] of ids) {
+        if (!element.isConnected || !element.hasAttribute(HOST_GLASS_ATTRIBUTE)) continue;
+        if (element.hasAttribute(HOST_GLASS_ENDING_ATTRIBUTE) || pageDrawsHover(element)) continue;
+        if (fellBack(element) || keepsPageGlass(element)) continue;
+        const box = hostGlassSurface(element, id);
+        if (box) boxes.set(element, box);
+      }
+    stacked = stackedHostGlass([...boxes].map(([element, box]) => ({ element, box })));
     for (const [element, id] of ids) {
       if (!element.isConnected || !element.hasAttribute(HOST_GLASS_ATTRIBUTE)) {
         forget(element);
@@ -278,6 +467,13 @@ export function reportHostGlass(
       // A closing surface fades out on the page's glass, and is not reported: its App glass is gone.
       if (closing(element)) {
         // Not held either: one that opens again holds again, content first.
+        firstShown.delete(element);
+        if (live) mark(element, "0");
+        continue;
+      }
+      // A restyled tooltip or hover card (experiments.hoverLook) paints its own glass every frame, not
+      // only when it mounts: no App glass under it, or the two draw a double glass.
+      if (pageDrawsHover(element)) {
         firstShown.delete(element);
         if (live) mark(element, "0");
         continue;
@@ -292,8 +488,19 @@ export function reportHostGlass(
         // Its content shows from its first frame (marked at adopt); the App hears of it once that
         // content has been on screen for the hold, and its deadline starts then.
         mark(element, "1");
+        // Over another surface's App glass: the page's own glass from this frame on, before the hold
+        // (glass.css keeps the page's glass on data-host-glass-own).
+        if (stacked.has(element)) element.setAttribute(HOST_GLASS_OWN_ATTRIBUTE, "");
         if (!firstShown.has(element)) firstShown.set(element, paints);
         if (!reported.has(element) && paints - firstShown.get(element)! < HOST_GLASS_HOLD_FRAMES) continue;
+        // It keeps the page's own glass (over the composer, nothing under it to blur, or over another
+        // surface's App glass): no App glass under it, or the two draw a double glass. It holds the
+        // page's glass until the App answers a report that has it, so the swap to the App's never shows
+        // its content on no glass.
+        if (ownsGlass(element)) {
+          element.setAttribute(HOST_GLASS_OWN_ATTRIBUTE, "");
+          continue;
+        }
         surfaces.push(surface);
         elements.push(element);
         if (!reported.has(element)) {
@@ -306,18 +513,21 @@ export function reportHostGlass(
         if (!applies && live) mark(element, "0");
       }
     }
-    if (live) send(surfaces, elements);
-    return sent;
+    if (live) send(surfaces, elements, zoom);
+    return `${sentZoom} ${sent}`;
   };
   let last = "";
-  const holding = () => [...ids.keys()].some((element) => firstShown.has(element) && !reported.has(element));
+  // One that keeps the page's glass waits for no report: it is not held (no frame loop while it stays).
+  const holding = () =>
+    [...ids.keys()].some((element) => firstShown.has(element) && !reported.has(element) && !ownsGlass(element));
   const tick = () => {
     frame = 0;
     paints += 1;
     const key = measure();
     stable = key === last ? stable + 1 : 0;
     last = key;
-    if (ids.size > 0 && (stable < STABLE_FRAMES || holding())) frame = view.requestAnimationFrame(tick);
+    if (ids.size > 0 && (stable < STABLE_FRAMES || holding() || !Number.isNaN(heldZoom)))
+      frame = view.requestAnimationFrame(tick);
   };
   function kick() {
     stable = 0;
@@ -329,6 +539,11 @@ export function reportHostGlass(
     resize?.observe(element);
     watchStyles();
     if (!live) {
+      mark(element, "0");
+      return;
+    }
+    // The restyled tooltips and hover cards (experiments.hoverLook) paint their own glass.
+    if (pageDrawsHover(element)) {
       mark(element, "0");
       return;
     }
@@ -374,8 +589,18 @@ export function reportHostGlass(
     let changed = false;
     let gone = false;
     let ending = false;
+    let withdraw = false;
     for (const record of records) {
       if (record.type === "attributes") {
+        // A drawn surface started to keep the page's own glass (it reached the composer): its App glass
+        // is withdrawn in this task, before a frame paints the two together.
+        if (record.attributeName === KEEPS_UNDERLAY_ATTRIBUTE || record.attributeName === OVER_ATTRIBUTE) {
+          const element = record.target as Element;
+          if (!ids.has(element)) continue;
+          if (keepsPageGlass(element)) withdraw = true;
+          changed = true;
+          continue;
+        }
         // The page's look changed (see-through, the lens, the live background, Reduce Transparency), or a surface was
         // marked or unmarked in place, or started or stopped closing.
         const element = record.target as Element;
@@ -398,7 +623,7 @@ export function reportHostGlass(
     // page paints the frame without its content.
     if (gone && [...ids.keys()].some((element) => !element.isConnected)) measure();
     // A surface that starts to close leaves the App's glass and its blur now, as its fade starts.
-    else if (ending) measure();
+    else if (ending || withdraw) measure();
     if (changed) kick();
   });
   observer.observe(root, {
@@ -411,7 +636,10 @@ export function reportHostGlass(
       LENS_ATTRIBUTE,
       LIVE_BACKGROUND_ATTRIBUTE,
       "data-reduce-transparency",
+      GLASS_ATTRIBUTE,
       HOST_GLASS_ENDING_ATTRIBUTE,
+      KEEPS_UNDERLAY_ATTRIBUTE,
+      OVER_ATTRIBUTE,
     ],
   });
   // A popup is placed by its positioner's inline style, rewritten on scroll; a fade is a transition.
@@ -420,6 +648,8 @@ export function reportHostGlass(
   };
   view.addEventListener("scroll", follow, { capture: true, passive: true });
   view.addEventListener("resize", follow);
+  // A page zoom or an Interface Scale change (the App's scale script ends with this event).
+  view.addEventListener(INTERFACE_SCALE_EVENT, follow);
   // A trackpad pinch zooms and pans the visual viewport with no layout change: the boxes move on screen.
   view.visualViewport?.addEventListener("resize", follow);
   view.visualViewport?.addEventListener("scroll", follow);
@@ -435,6 +665,7 @@ export function reportHostGlass(
     restyled.disconnect();
     view.removeEventListener("scroll", follow, { capture: true });
     view.removeEventListener("resize", follow);
+    view.removeEventListener(INTERFACE_SCALE_EVENT, follow);
     view.visualViewport?.removeEventListener("resize", follow);
     view.visualViewport?.removeEventListener("scroll", follow);
     doc.removeEventListener("transitionrun", follow, true);
@@ -445,7 +676,7 @@ export function reportHostGlass(
     for (const element of ids.keys()) forget(element);
     restyled.disconnect();
     root.removeAttribute(HOST_GLASS_ROOT_ATTRIBUTE);
-    if (live && sent !== "[]") void post([]).catch(() => undefined);
+    if (live && sent !== "[]") void post([], sentZoom).catch(() => undefined);
     live = false;
   };
 }

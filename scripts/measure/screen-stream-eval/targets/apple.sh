@@ -420,8 +420,9 @@ PY
   window-view)
     seconds=$1; snapshot=$2; go=$3; raw=$4
     [[ "$seconds" =~ ^[0-9]+$ ]] || { echo "apple-$mode: window seconds must be a whole number" >&2; exit 2; }
-    begin_view $((seconds + 120))
+    # A previous repeat's GO and receipts go first, so no refusal below (begin_view's included) leaves them.
     rm -f "$go" "$raw.readiness.json" "$raw.readiness-observer.json"
+    begin_view $((seconds + 120))
     connect || exit 1
     verify_scene_ready "$raw" || exit 1
     # Only a fresh nonce from the requested source in this exact selected

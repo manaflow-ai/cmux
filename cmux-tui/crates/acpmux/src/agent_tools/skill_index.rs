@@ -13,8 +13,10 @@ use crate::agent_guidance::UserSkill;
 /// Skills about one MCP server's tools, and that server: a session without the server is not
 /// told about the skill (a Linux or Cloud chat has no computer use; a chat without
 /// `cmux-secrets` has no `request_elevation`).
-const SKILL_SERVERS: &[(&str, &str)] =
-    &[("cmux-cua", crate::cua_v2::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
+const SKILL_SERVERS: &[(&str, &str)] = &[
+    ("cmux-computer-use", crate::computer_use::mcp::SERVER_NAME),
+    ("cmux-sudo", crate::secret_mcp::SERVER_NAME),
+];
 
 /// Not indexed: `cmux-chat`'s rules are `AGENT_GUIDANCE` itself, already in the same block.
 const NOT_INDEXED: &[&str] = &["cmux-chat"];
@@ -79,7 +81,7 @@ mod tests {
         let full = AgentTools {
             servers: vec![
                 server("cmux"),
-                server(crate::cua_v2::SERVER_NAME),
+                server(crate::computer_use::mcp::SERVER_NAME),
                 server(crate::secret_mcp::SERVER_NAME),
             ],
             plugin_dir: Some(plugin.clone()),
@@ -92,11 +94,13 @@ mod tests {
             names(&full),
             [
                 "cmux-browser",
-                "cmux-cua",
+                "cmux-computer-use",
                 "cmux-customization",
                 "cmux-live",
+                "cmux-ui-preview",
                 "cmux-rich-output",
                 "acpmux",
+                "cmux-quota",
                 "cmux-sudo"
             ]
         );
@@ -108,8 +112,16 @@ mod tests {
         let bare = AgentTools { servers: vec![server("cmux")], ..full.clone() };
         assert_eq!(
             names(&bare),
-            ["cmux-browser", "cmux-customization", "cmux-live", "cmux-rich-output", "acpmux"],
-            "no computer use or secrets server, no cmux-cua or cmux-sudo"
+            [
+                "cmux-browser",
+                "cmux-customization",
+                "cmux-live",
+                "cmux-ui-preview",
+                "cmux-rich-output",
+                "acpmux",
+                "cmux-quota"
+            ],
+            "no computer use or secrets server, no cmux-computer-use or cmux-sudo"
         );
         assert!(AgentTools { plugin_dir: None, ..full }.skill_index().is_empty());
     }

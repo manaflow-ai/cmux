@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import IrohLib
 import OSLog
 
@@ -30,3 +31,4 @@ public final class CmxIrohRelayDiagnosticObserver: RelayConnectionDiagnosticCall
     }
 
 }
+#endif

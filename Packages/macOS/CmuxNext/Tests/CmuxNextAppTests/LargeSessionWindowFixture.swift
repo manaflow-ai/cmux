@@ -7,7 +7,7 @@ import Testing
 /// A session of a ``SessionFixtureSize`` as a store fixture in a whole window. `large` (the default) is the session of
 /// plans/cmux-next/main-thread-scheduling.md 1.5: 60 workspaces x 6 tabs = 360 tabs; each workspace has one screen with
 /// one pane of 3 terminals, 1 agent chat, 1 Chromium page and 1 WebKit page; the 5 agent terminals are the first
-/// terminal of workspaces 1, 13, 25, 37 and 49. `real` is the person's session: 826 workspaces, 858 panes, 1600 tabs,
+/// terminal of workspaces 1, 13, 25, 37 and 49. `real` is a session of real use: 826 workspaces, 858 panes, 1600 tabs,
 /// 798 terminals, 170 agent terminals (the mix rule is ``SessionFixtureSize/shape(_:)``). The window holds every
 /// workspace and shows the last one, so every agent terminal is hidden.
 ///
