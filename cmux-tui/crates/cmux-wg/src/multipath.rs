@@ -482,18 +482,16 @@ impl Multipath {
         let mut len = 0;
         for slot in shared.slots.iter().filter(|slot| !slot.failed && slot.id != current) {
             let Some(view) = shared.selector.path(slot.id) else { continue };
-            if len == MAX_PICK {
-                break;
-            }
-            views[len] = ClassView {
+            let Some(entry) = views.get_mut(len) else { break };
+            *entry = ClassView {
                 id: slot.id,
                 alive: view.state == PathState::Alive,
                 rtt: view.rtt_us.map(std::time::Duration::from_micros),
                 capacity: None,
             };
-            len += 1;
+            len = len.saturating_add(1);
         }
-        paths_for(Class::Input, &views[..len]).first()
+        paths_for(Class::Input, views.get(..len).unwrap_or_default()).first()
     }
 }
 
