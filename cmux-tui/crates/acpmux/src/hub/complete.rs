@@ -210,7 +210,15 @@ impl Hub {
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
         let reply = self
-            .complete_with(&name, &profile, recipe, req, deadline, chat, ModelFallback::HarnessDefault)
+            .complete_with(
+                &name,
+                &profile,
+                recipe,
+                req,
+                deadline,
+                chat,
+                ModelFallback::HarnessDefault,
+            )
             .await;
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
@@ -261,8 +269,7 @@ impl Hub {
         fallback: ModelFallback,
     ) -> Result<String, CompleteError> {
         let (name, profile) = self.completion_harness(Some(&chat.meta.harness)).await?;
-        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(chat), fallback)
-            .await
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(chat), fallback).await
     }
 
     async fn complete_own_on(
