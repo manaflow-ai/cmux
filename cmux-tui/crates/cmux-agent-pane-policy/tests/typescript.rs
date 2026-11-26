@@ -125,6 +125,11 @@ fn the_allowlist_is_what_the_page_sends() {
     // turn's Retry (subagents/retryState.ts `RETRY_METHOD`, sent through direct.ts `retry`).
     sent.extend(quoted_after(&read(&dir, "multiplayer/presenceClient.ts"), "this.send("));
     sent.insert(constant(&read(&dir, "subagents/retryState.ts"), "RETRY_METHOD"));
+    // A request direct.ts writes on the socket itself (`const method = "..."`, then
+    // `JSON.stringify({ jsonrpc, id, method, params })`): `_acpmux/request_state`, `_acpmux/peers`.
+    sent.extend(quoted_after(&direct, "const method ="));
+    // The action trace's status ask and span upload (actionTrace.ts, cmux#55505).
+    sent.extend(quoted_after(&read(&dir, "actionTrace.ts"), "this.request("));
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");

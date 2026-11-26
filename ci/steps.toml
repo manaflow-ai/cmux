@@ -2123,6 +2123,36 @@ export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
 cargo bench --profile gate -p acpmux --bench icount --locked -- check
 '''
 
+# cmux-agent-pane-policy's own tests: no pull request job ran them (cmux-tui.yml is dispatch only, cmux-tui-spec.yml
+# tests acpmux, the daemon step filters to cmux_next_), so its check corpus went stale under #49717 and its page and
+# Swift parity tests went red when the page's sources moved (#50833). The tests read the page's acpmux sources, the
+# Mac pane's method tables, acpmux's trust gate and the build-identity vectors: each is an input.
+[step.agent-pane-policy-tests]
+job = "linux"
+timeout = 900
+title = "Agent pane policy tests"
+about = "cmux-agent-pane-policy's tests pass: the check corpus, the C ABI, and the page's and the Mac pane's parity with policy.json"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/acpmux/src/server/trust_gate.rs",
+  "webviews/src/agent-session/acpmux/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/**",
+  "schemas/build-identity/vectors.json",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+]
+ignore = ["**/*.md"]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+cargo test --locked -p cmux-agent-pane-policy --no-fail-fast
+'''
+
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
 # tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
