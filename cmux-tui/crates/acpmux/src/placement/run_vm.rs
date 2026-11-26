@@ -409,9 +409,9 @@ fn write_row(row: &Row) {
     }
     let path = rows_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = crate::home_fs::create_dirs(dir);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
 }
@@ -422,6 +422,20 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
     let machine = sub_fork::this_machine();
     let class = goes(run_vms_on(), machine.as_deref(), command);
     let (Some(machine), Some(class)) = (machine, class) else { return run_here(command).await };
+    // The fork backend (cmux-cloud-api) is unix-only: elsewhere every command runs here.
+    #[cfg(not(unix))]
+    {
+        let _ = (machine, class);
+        eprintln!("[run-vm] ran here: Cloud forks need a unix build of acpmux");
+        return run_here(command).await;
+    }
+    #[cfg(unix)]
+    on_cloud(command, machine, class).await
+}
+
+/// `main` once the command goes to a run VM: fork this machine on cmux Cloud and run it there.
+#[cfg(unix)]
+async fn on_cloud(command: &str, machine: String, class: &'static str) -> anyhow::Result<i32> {
     let machines = match sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok()) {
         Ok(m) => Arc::new(m),
         Err(e) => {
@@ -491,6 +505,7 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     Ok(exit_code(status))
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "run_vm_tests.rs"]
 mod tests;

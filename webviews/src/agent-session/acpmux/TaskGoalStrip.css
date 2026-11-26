@@ -178,9 +178,8 @@
   width: var(--acpmux-goal-lead-box);
   height: var(--acpmux-goal-line);
 }
-/* The mark is the plan's mark size (the hat's --acpmux-tray-mark: the header glyph's ink, 12 px at
-   Default) at every density: a ring round a dot, the ring alone while paused (the person, 2026-11-24:
-   the card's and the plan's icons the same size on the + axis). */
+/* The mark is the header glyph's ink size (12 px at Default) at every density: a ring round a dot,
+   the ring alone while paused (the person, 2026-11-24: the hat's icons the same size on the + axis). */
 .acpmux-goal[data-look] .acpmux-goal-mark > span {
   box-sizing: border-box;
   width: var(--acpmux-goal-mark-size);
