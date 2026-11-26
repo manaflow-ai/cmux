@@ -161,6 +161,27 @@ struct ImportCardDeckTests {
         #expect(done.primary?.action == .start && done.primary?.title == "Import Again")
     }
 
+    /// The AutoCloud card counts projects, asks through its own preview (Review), and once done
+    /// says how many moved and offers nothing to run again.
+    @Test func autoCloudCardReviewsThenSaysHowManyMoved() throws {
+        let finding = ImportFinding(id: "cloud.moveThisMac", kind: .autoCloud, name: ImportSuggestionStrings.moveToAutoCloud, count: 4)
+        let card = try #require(Self.deck([finding]).cards().first)
+        #expect(card.kind == .autoCloud && card.state == .ready && card.title == "Move This Mac to AutoCloud")
+        #expect(card.primary?.action == .start && card.primary?.title == ImportSuggestionStrings.review)
+        #expect(card.facts == ImportSuggestionStrings.checkouts(4))
+        #expect(card.benefit == ImportSuggestionStrings.autoCloud)
+        #expect(card.secondary.map(\.action) == [.dismiss])
+        #expect(!ImportSourceKind.autoCloud.startReadsAnotherApp)
+
+        var job = ImportJob(finding: finding, now: Self.now)
+        job.importedClassic(4, now: Self.now)
+        var ledger = ImportJobLedger()
+        ledger.put(job)
+        let done = try #require(Self.deck([finding], jobs: ledger).cards().first)
+        #expect(done.state == .done && done.status == ImportSuggestionStrings.movedProjects(4) && done.primary == nil)
+        #expect(Self.deck([], jobs: ledger).cards().first?.title == "AutoCloud")
+    }
+
     @Test func aResumedClassicJobStartsAtZeroProgress() {
         var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
         job.progressed(0.6, now: Self.now)

@@ -228,7 +228,7 @@ public nonisolated struct ImportScanner: Sendable {
         var checkouts = 0
         for root in Self.checkoutRoots {
             let folder = home.appending(path: root, directoryHint: .isDirectory)
-            checkouts += subfolders(folder).count { exists(folder.appending(path: $0, directoryHint: .isDirectory).appending(path: ".git")) }
+            checkouts += subfolders(folder).count(where: { exists(folder.appending(path: $0, directoryHint: .isDirectory).appending(path: ".git")) })
             if checkouts >= Self.listingLimit { break }
         }
         guard checkouts > 0 else { return nil }
