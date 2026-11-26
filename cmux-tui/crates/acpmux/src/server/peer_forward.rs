@@ -154,6 +154,15 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // peer would read as this daemon's.
     "_acpmux/journal_restore",
     "_acpmux/attachments_held",
+    // A call on another of the person's machines names that machine, never a chat: its
+    // `session` is the calling chat's Computer Use session key and its `name` a tool's
+    // (`computer_use_relay.rs`, `machine_files_relay.rs`). Forwarded as a chat's request, a peer
+    // that mirrors the caller's chat sent it back with `name` dropped (`forward_inner`), and the
+    // call failed as `unknown Computer Use tool ""`.
+    method::MUX_COMPUTER_USE_CALL,
+    method::MUX_COMPUTER_USE_MACHINES,
+    method::MUX_COMPUTER_USE_STATE,
+    method::MUX_MACHINE_FILES_CALL,
 ];
 
 /// The requests a chat that moved to a peer still takes here, forwarded to its copy there
@@ -1758,6 +1767,21 @@ mod tests {
     #[test]
     fn a_registration_is_never_forwarded_to_a_peer() {
         assert!(!names_a_session(method::MUX_REGISTER));
+    }
+
+    /// A call on another machine is answered by the machine it reached, never forwarded to a peer
+    /// chat its `session` (the caller's chat) or `name` (a tool) happens to name: forwarded, it
+    /// came back with its tool name dropped (`unknown Computer Use tool ""`).
+    #[test]
+    fn a_machine_call_is_never_forwarded_as_a_chat_request() {
+        for m in [
+            method::MUX_COMPUTER_USE_CALL,
+            method::MUX_COMPUTER_USE_MACHINES,
+            method::MUX_COMPUTER_USE_STATE,
+            method::MUX_MACHINE_FILES_CALL,
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
     }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's

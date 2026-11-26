@@ -138,7 +138,7 @@ fn switching_looks_back_and_forth_returns_the_same_settings() {
         filled(&root, schema(), &Domains::default())
     };
     let first = with("codex");
-    for look in ["claude", "studio", "cmux", "codex"] {
+    for look in ["claude", "studio", "rex", "cmux", "codex"] {
         let _ = with(look);
     }
     assert_eq!(with("codex"), first, "a look is a pure function of the file");
