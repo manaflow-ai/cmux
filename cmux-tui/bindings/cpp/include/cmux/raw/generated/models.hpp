@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b6dbf6ea09edda7f3076d8f789dc543a35a867a1621e5aea5ffa52eb302d8bad";
+inline constexpr std::string_view kProtocolIrSha256 = "a3d4fc03cd7d13202c91e5077acfc6d371d615592c4ec52039831e16599c24c6";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -648,6 +648,7 @@ struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct AgentSessionShareChangedEvent;
+struct AppsCloudMachineEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -770,6 +771,7 @@ enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
+enum class AppsCloudMachineEventKind;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
@@ -1004,6 +1006,24 @@ struct ApplyLayoutResult {
     std::vector<AppliedPane> panes{};
     Id screen{};
     friend bool operator==(const ApplyLayoutResult&, const ApplyLayoutResult&) = default;
+};
+
+enum class AppsCloudMachineEventKind {
+    record,
+    live,
+    lost,
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct AppsCloudMachineEvent {
+    AppsCloudMachineEventKind kind{};
+    std::string machine{};
+    std::optional<JsonValue> record{};
+    friend bool operator==(const AppsCloudMachineEvent&, const AppsCloudMachineEvent&) = default;
 };
 
 enum class AttachSurfaceRequestMode {
@@ -1357,11 +1377,6 @@ struct ChiefInspectRequest {
     std::string path{};
     std::optional<std::map<std::string, std::string, std::less<>>> query{};
     friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ChiefInspectResult {
@@ -10654,6 +10669,12 @@ struct Codec<AgentSessionShareChangedEvent> {
 };
 
 template <>
+struct Codec<AppsCloudMachineEvent> {
+    static Result<Json> encode(const AppsCloudMachineEvent& value);
+    static Result<AppsCloudMachineEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<BellEvent> {
     static Result<Json> encode(const BellEvent& value);
     static Result<BellEvent> decode(const Json& value);
@@ -11383,6 +11404,12 @@ template <>
 struct Codec<ZoomPaneRequestMode> {
     static Result<Json> encode(const ZoomPaneRequestMode& value);
     static Result<ZoomPaneRequestMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppsCloudMachineEventKind> {
+    static Result<Json> encode(const AppsCloudMachineEventKind& value);
+    static Result<AppsCloudMachineEventKind> decode(const Json& value);
 };
 
 template <>
