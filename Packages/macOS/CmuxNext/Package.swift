@@ -819,6 +819,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -2537,6 +2538,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // wires it to Ghostty's search bindings and draws the bar. No default
         // main-actor isolation: its value types are test arguments, which
         // Swift Testing builds off the main actor.
+        .testTarget(
+            name: "CmuxNextTerminalGeometryTests",
+            dependencies: ["CmuxNextTerminalGeometry"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextTerminalFind",
             swiftSettings: daemonSwiftSettings
@@ -3097,8 +3103,12 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextChromiumRuntimeTests",
     "CmuxNextCompat",
     "CmuxNextCompatTests",
+    "CmuxNextCopyMode",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
+    "CmuxNextTerminalFind",
+    "CmuxNextTerminalGeometry",
+    "CmuxNextTerminalGeometryTests",
 ]
 
 let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }
