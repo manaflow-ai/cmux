@@ -190,6 +190,22 @@ fn refusals_read_plainly() {
 }
 
 #[test]
+fn malformed_success_responses_do_not_report_success() {
+    let create = parse(&words("create ci")).unwrap().verb;
+    for bytes in [b"".as_slice(), b"<html/>", b"null", b"{}", br#"{"token":" "}"#] {
+        let error = successful_response(&create, bytes).unwrap_err();
+        assert_eq!(error.code, "api.invalid_response");
+        assert!(!error.retryable);
+    }
+    assert!(successful_response(&create, br#"{"token":"cmux_pat_example"}"#).is_ok());
+    assert!(successful_response(&Verb::List, br#"{"tokens":[]}"#).is_ok());
+    assert!(successful_response(&Verb::List, br#"{"tokens":null}"#).is_err());
+    let revoke = Verb::Revoke { target: "ci".into() };
+    assert_eq!(successful_response(&revoke, b"").unwrap(), json!({}));
+    assert!(successful_response(&revoke, b"<html/>").is_err());
+}
+
+#[test]
 fn create_prints_the_token_alone_on_stdout() {
     let verb = parse(&words("create ci --expires never")).unwrap().verb;
     let answer =
@@ -197,7 +213,8 @@ fn create_prints_the_token_alone_on_stdout() {
     let (out, note) = human(&verb, &answer);
     assert_eq!(out, "cmux_pat_ABC\n");
     assert!(note.contains("not shown again"));
-    assert!(note.contains("export CMUX_TOKEN=cmux_pat_ABC"));
+    assert!(note.contains("Set CMUX_TOKEN"));
+    assert!(!note.contains("cmux_pat_ABC"));
     assert!(note.contains("never expires"));
     let list = human(
         &Verb::List,

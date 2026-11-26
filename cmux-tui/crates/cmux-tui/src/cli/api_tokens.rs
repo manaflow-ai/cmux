@@ -602,15 +602,12 @@ pub(super) fn execute(
     let client = Client::new(platform.clone(), credential, command.team.clone(), runtime)?;
     let id = match &command.verb {
         Verb::Revoke { target } | Verb::Uses { target } => Some(
-            resolve_target(&client.send(&Call::get("/v1/tokens"))?, target)
+            resolve_target(&client.send(&Verb::List, None)?, target)
                 .map_err(|m| Failure::new("token.not_found", m))?,
         ),
         _ => None,
     };
-    let Some(call) = call_for(&command.verb, id.as_deref()) else {
-        return Err(Failure::new("cli.invalid_args", "help never reaches the platform"));
-    };
-    let mut body = client.send(&call)?;
+    let mut body = client.send(&command.verb, id.as_deref())?;
     if let (Some(id), Some(fields)) = (id, body.as_object_mut()) {
         fields.entry("id").or_insert(json!(id));
     }
@@ -673,7 +670,10 @@ impl Client {
         Ok(Self { origin, credential, team, http, runtime })
     }
 
-    fn send(&self, call: &Call) -> Result<Value, Failure> {
+    fn send(&self, verb: &Verb, id: Option<&str>) -> Result<Value, Failure> {
+        let Some(call) = call_for(verb, id) else {
+            return Err(Failure::new("cli.invalid_args", "help never reaches the platform"));
+        };
         let method = match call.method {
             "POST" => reqwest::Method::POST,
             "DELETE" => reqwest::Method::DELETE,
@@ -700,15 +700,36 @@ impl Client {
                 )
             })?;
             let status = response.status().as_u16();
-            let bytes = response.bytes().await.unwrap_or_default();
-            let body = if bytes.iter().all(u8::is_ascii_whitespace) {
-                Value::Null
-            } else {
-                serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-            };
-            if (200..300).contains(&status) { Ok(body) } else { Err(refusal(status, &body)) }
+            if !(200..300).contains(&status) {
+                let error = response.json().await.unwrap_or(Value::Null);
+                return Err(refusal(status, &error));
+            }
+            let bytes = response.bytes().await.map_err(|_| {
+                Failure::new("api.invalid_response", "could not read the platform's response")
+            })?;
+            successful_response(verb, &bytes)
         })
     }
+}
+
+fn successful_response(verb: &Verb, bytes: &[u8]) -> Result<Value, Failure> {
+    let deletion = matches!(verb, Verb::Revoke { .. } | Verb::GithubRemove { .. });
+    if deletion && bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(json!({}));
+    }
+    let invalid =
+        || Failure::new("api.invalid_response", "the platform sent an unexpected response");
+    let body: Value = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    let valid = match verb {
+        Verb::Create { .. } => text(&body, "token").is_some_and(|token| !token.trim().is_empty()),
+        Verb::List => body["tokens"].is_array(),
+        Verb::Uses { .. } => body["uses"].is_array(),
+        Verb::GithubList => body["rules"].is_array(),
+        Verb::GithubAllow { .. } => text(body.get("rule").unwrap_or(&body), "id").is_some(),
+        Verb::Revoke { .. } | Verb::GithubRemove { .. } => body.is_object(),
+        Verb::Help => false,
+    };
+    if valid { Ok(body) } else { Err(invalid()) }
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -755,7 +776,7 @@ pub(super) fn human(verb: &Verb, answer: &Value) -> (String, String) {
             let token = text(answer, "token").unwrap_or_default();
             let info = answer.get("tokenInfo").unwrap_or(&Value::Null);
             let mut note = format!(
-                "Store it now: it is not shown again.\nUse it: export {API_TOKEN_ENV}={token}  (scopes {}; expires {})\n",
+                "Store it now: it is not shown again.\nSet {API_TOKEN_ENV} to the token printed on stdout (scopes {}; expires {}).\n",
                 scope_list(info),
                 day(info, "expiresAt", "never"),
             );
