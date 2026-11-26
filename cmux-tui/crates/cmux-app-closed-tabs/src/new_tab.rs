@@ -88,7 +88,7 @@ pub fn kind(item: &SourceItem) -> PageKind {
 /// History row's detail. `home` is the user's home folder.
 pub fn items(sources: &[Source], home: &str) -> Vec<PageItem> {
     let mut sorted: Vec<&Source> = sources.iter().collect();
-    sorted.sort_by(|a, b| b.time_ms.cmp(&a.time_ms));
+    sorted.sort_by_key(|source| std::cmp::Reverse(source.time_ms));
     sorted
         .into_iter()
         .filter_map(|source| {
