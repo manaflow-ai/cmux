@@ -141,6 +141,9 @@ struct MacScreenViewerStyle {
     /// The pane as shipped.
     static var current: MacScreenViewerStyle { MacScreenViewerStyle() }
 
+    /// Every field at its default (the pane as shipped).
+    init() {}
+
     /// The style Rust's `viewerLook.style` answers (its field names; a `Metrics` token or points for a length).
     init(rd: [String: Any]) {
         func points(_ value: Any?) -> CGFloat? {
