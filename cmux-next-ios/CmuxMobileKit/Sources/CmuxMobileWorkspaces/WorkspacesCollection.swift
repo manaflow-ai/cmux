@@ -613,7 +613,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     /// The item in the middle of the list, then a press fill that fades on its cell.
     func reveal(_ itemID: String) {
         guard let collectionView, let indexPath = dataSource?.indexPath(for: itemID) else { return }
-        let flash = { [weak self] in self?.flash(itemID, announce: true) }
+        let flash: () -> Void = { [weak self] in self?.flash(itemID, announce: true) }
         // Reduce Motion: the list jumps there.
         guard !UIAccessibility.isReduceMotionEnabled else {
             collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
