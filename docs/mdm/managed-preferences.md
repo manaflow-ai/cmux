@@ -535,7 +535,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.controlsOnHover` | boolean | `false` |  | Show Sidebar Controls Only on Hover. The sidebar's buttons show only while the pointer is over it. |
 | `sidebar.floatOnHover` | boolean | `true` |  | Float Hidden Sidebar on Hover. With the sidebar hidden, point at the window's edge to show it over your work. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Sidebar and tab bar buttons show only while the pointer is over them. |
-| `sidebar.look` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio` | Sidebar Look. Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win. |
+| `sidebar.look` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio`, `rex` | Sidebar Look. Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win. |
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a strip; point at it to open the full sidebar. |
 | `sidebar.drawnMenus` | boolean | `false` |  | Styled Sidebar Menus. Right-click and more-button menus in the sidebar follow the menu look instead of the system menu. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Expanded shows status, age, pull request and computer under each name. |
