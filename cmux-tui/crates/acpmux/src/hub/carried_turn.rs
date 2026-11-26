@@ -146,12 +146,14 @@ impl NextTurn {
         let control = Control::from_recorded(record.get("control").and_then(Value::as_str));
         let (client, prompt) =
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
-        let mut next =
-            TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
         // Its line as the turn showed it (`prompt_line.rs`); an older record has none.
-        if let Some(line) = text("promptLine") {
-            next.show(&line);
-        }
+        let (turn_id, prompt_id) = (text("turnId")?, text("promptId")?);
+        let mut next = match text("promptLine") {
+            Some(line) => {
+                TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, &line)
+            }
+            None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+        };
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
         next.trigger = flag("trigger");
         let continues = Continues {

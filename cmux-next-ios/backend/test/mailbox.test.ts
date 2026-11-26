@@ -307,6 +307,29 @@ describe("store and forward", () => {
     again.ws.close()
   }, 30_000)
 
+  it("counts unacked items per phone: one phone's held page never starves another phone", async () => {
+    const t = await token("sf-fair")
+    const mac = await register(t, "mac", "personal-sf-fair")
+    const phoneA = await register(t, "phone", "personal-sf-fair")
+    const phoneB = await register(t, "phone", "personal-sf-fair")
+    const hub = hubOf("sf-fair")
+    for (let i = 0; i < 40; i++) await hub.mailboxPost("sf-fair", { id: crypto.randomUUID(), mac, from: phoneA, sealed: sealedBox() }, 3_600_000)
+    const b1 = crypto.randomUUID()
+    await hub.mailboxPost("sf-fair", { id: b1, mac, from: phoneB, sealed: sealedBox() }, 3_600_000)
+    const s = await connect(t, "personal-sf-fair", mac)
+    // Phone A's 32 and phone B's item all go out on the same hello (two frames), not after an ack.
+    await s.until((x) => x.frames.filter((f) => f.type === "mailbox").reduce((n, f) => n + (f.items as unknown[]).length, 0) >= 33)
+    const frames = () => s.frames.filter((f) => f.type === "mailbox").map((f) => f.items as Array<{ id: string; from: string; seq: number }>)
+    expect(frames().every((f) => f.length <= 32)).toBe(true)
+    const all = frames().flat()
+    expect(all.filter((i) => i.from === phoneA).length).toBe(32)
+    expect(all.filter((i) => i.from === phoneB).map((i) => i.id)).toEqual([b1])
+    // With A's 32 still held (never acked), a new item from B is sent at once; one more from A is not.
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phoneB, sealed: sealedBox() })).json).toMatchObject({ delivered: true, seq: 2 })
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phoneA, sealed: sealedBox() })).json).toMatchObject({ delivered: false })
+    s.ws.close()
+  }, 30_000)
+
   it("keeps the older Mac's contract: every item still carries id, from, sealed and at", async () => {
     const t = await token("sf-old")
     const mac = await register(t, "mac", "personal-sf-old")
