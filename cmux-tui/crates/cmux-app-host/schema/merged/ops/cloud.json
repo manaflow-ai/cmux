@@ -322,10 +322,25 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
+    "cloud.owner.github_clone_token": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_complete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
     "cloud.owner.github_connect": {
       "source": "local",
       "class": "mutation",
       "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_list": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
     },
     "cloud.owner.github_repos": {
       "source": "local",
