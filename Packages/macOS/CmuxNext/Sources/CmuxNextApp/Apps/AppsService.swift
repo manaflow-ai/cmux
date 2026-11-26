@@ -22,10 +22,8 @@ final class AppsService {
     let transport: DaemonAppsTransport
     let client: AppsClient
     let overlays: AppOverlayPresenter // app overlays (`presentation.overlay`), opened by the person only
-    /// The control router once the socket starts (the CodeRouter page's ops run on it).
+    /// The control router once the socket starts.
     private(set) var controlRouter: ControlRouter?
-    /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
-    private var coderouterPage: WebPageTab?
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
@@ -75,7 +73,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps(), MediaAppOps.card({ [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }, perform: { [weak services] in services?.cache.pageRequests.sidebarSources.perform($0) })]))
+        transport.provider.attach(AppHostCapabilities([ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps(), MediaAppOps.card({ [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }, perform: { [weak services] in services?.cache.pageRequests.sidebarSources.perform($0) })]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -120,23 +118,16 @@ final class AppsService {
 
     /// Opens an app (``AppOpenTarget``): its scene page as a tab of the active window (one per window), its web
     /// app as a browser tab in the active workspace, or a widget app's New Tab page, then runs `command` (one of
-    /// the app's palette ops, by name or its last segment, for example CodeRouter's connectAccount) in it when
-    /// given. User runs select and focus the tab; automation opens it without moving focus. The CodeRouter web
-    /// page opens without the apps client (it talks to this Mac's CodeRouter ops, not to the supervisor). Returns
-    /// the command's run, whose failure the caller reports.
+    /// the app's palette ops, by name or its last segment, for example an app's connectAccount) in it when
+    /// given. User runs select and focus the tab; automation opens it without moving focus. Returns the command's run, whose failure the caller reports.
     @discardableResult
     func openApp(_ appID: String, command: String? = nil, focus: Bool = true, origin: ActionOrigin = .user) throws(AppsServiceError) -> ActionWork? {
-        if appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web, command == nil,
-           let provider = pageProvider(appID: appID) {
-            guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
-            return nil
-        }
         if let reason = client.unavailableReason { throw .unavailable(reason) }
         guard let app = client.app(appID), app.installed else { throw .unknownApp }
         guard app.enabled else { throw .disabled }
         switch AppOpenTarget(app) {
         case .scenePane:
-            guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
+            guard AppPanePage.opens(app), let provider = pageProvider(appID: appID) else { throw .noPage }
             guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
         case .web(let url):
             // A web app is a browser tab in the active workspace, through the one browser-open path
@@ -160,17 +151,9 @@ final class AppsService {
         return AppCommandPalette.run(AppCommandPalette.Entry(app: app, command: found), services: services, origin: origin)
     }
 
-    /// The page provider of app `appID` (registered on first use): CodeRouter's
-    /// web page, else the app's own pane page; nil when the app has no page.
-    func pageProvider(appID: String, codeRouterAsPage: Bool = true) -> (any InternalPageProvider)? {
-        if codeRouterAsPage, appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web {
-            let tab = coderouterPage ?? CodeRouterPageTab.make(services)
-            if coderouterPage == nil {
-                coderouterPage = tab
-                services.pages.register(tab)
-            }
-            return tab
-        }
+    /// The page provider of app `appID` (registered on first use): the app's own
+    /// pane page; nil when the app has no page.
+    func pageProvider(appID: String) -> (any InternalPageProvider)? {
         guard let app = client.app(appID), app.isActive, AppPanePage.opens(app) else { return nil }
         let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
         if appPages[appID] == nil {
