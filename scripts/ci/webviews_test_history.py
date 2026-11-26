@@ -43,7 +43,7 @@
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
         exit 0 when FILES (the change's reds to re-run alone) is not empty and no head shard holds more than N
         of them, else 1
-    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
+    webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH [--wait-rate-limit SECONDS]
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
     webviews_test_history.py shared-name --inputs KEY --runner DIR --workflow FILE
@@ -93,6 +93,7 @@ import shutil
 from pathlib import Path
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -288,14 +289,44 @@ def flaky_name(runs: list[dict], name: str) -> bool:
     return name != file and any(not ok for _, ok in found) and returns(file_verdicts(runs, file))
 
 
-def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+# A red name the history has on the last HELD_RED_PUSHES pushes that ran its file, whatever their inputs, the newest no
+# older than HELD_RED_AGE_S, is a base red without a replay. Most feat-cmux-next pushes change a webview input, so a push
+# at the merge parent's exact key is rare: job 137269052440 (2026-11-22) had 225 head red files, the history answered
+# 0 at its key, and 168 replayed for 55 min to the step's cap; 100 of 106 the replay reached failed on the base too.
+HELD_RED_PUSHES = 2
+HELD_RED_AGE_S = 24 * 3600
+
+
+def held_red(runs: list[dict], name: str, now: float) -> bool:
+    """Whether NAME was red on each of the last HELD_RED_PUSHES pushes that gave it a verdict (any inputs), the newest
+    of them no older than HELD_RED_AGE_S before NOW."""
+    file = name.split(" > ", 1)[0]
+    found: list[tuple[float, bool]] = []
+    for run in runs:
+        if file not in run["files"]:
+            continue
+        red = set(run["red"])
+        if name in red:
+            found.append((run["time"], False))
+        elif name != file and file in red:
+            continue  # the file failed without reaching or naming its tests
+        else:
+            found.append((run["time"], True))
+    last = found[-HELD_RED_PUSHES:]
+    return len(last) == HELD_RED_PUSHES and not any(ok for _, ok in last) and last[-1][0] >= now - HELD_RED_AGE_S
+
+
+def known(runs: list[dict], key: str, head: dict[str, bool],
+          now: float | None = None) -> tuple[dict[str, bool], list[str]]:
     """(the base verdicts the history holds for HEAD's reds on inputs KEY, the files it holds none for).
 
     react-apps-base-check replays each head red file once on the merge parent. A push with the same
     inputs key ran the same webview tree, so its verdict answers the same question without the replay's
     install, bundle build and browsers (3 to 11 min a shard). A name takes the newest such push's
     verdict, a green one only from GREEN_SAMPLES pushes (flaky() still names a name those pushes flip on). A file with any
-    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
+    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts. A name no push at
+    KEY answers that held red on the base (held_red) is a base red: the replay would only say so again."""
+    now = time.time() if now is None else now
     at = [run for run in runs if run["inputs"] == key]
     base: dict[str, bool] = {}
     replay: set[str] = set()
@@ -305,6 +336,8 @@ def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, 
         # GREEN_SAMPLES pushes is one sample: the file replays instead (and replays again while it passes there).
         if found and (not found[-1] or len(found) >= GREEN_SAMPLES):
             base[name] = found[-1]
+        elif held_red(runs, name, now):
+            base[name] = False
         else:
             replay.add(name.split(" > ", 1)[0])
     return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)
@@ -619,14 +652,41 @@ def newest(listing: object, branch: str) -> dict | None:
     return best
 
 
-def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dict], str, bool]:
+def rate_wait(status: int, headers: dict | None, now: float) -> float | None:
+    """Seconds until a rate-limited answer (403 or 429 with no requests left, or a Retry-After) may be tried again, or
+    None when STATUS is not a rate limit."""
+    if status not in (403, 429):
+        return None
+    found = {k.lower(): v for k, v in (headers or {}).items()}
+    try:
+        if found.get("retry-after"):
+            return max(0.0, float(found["retry-after"]))
+        if found.get("x-ratelimit-remaining") == "0" and found.get("x-ratelimit-reset"):
+            return max(0.0, float(found["x-ratelimit-reset"]) - now) + RATE_WAIT_SLACK_S
+    except ValueError:
+        return None
+    return None
+
+
+RATE_WAIT_SLACK_S = 5  # past the reset second, so the retry is not early by the clocks' skew
+
+
+def fetch(repo: str, branch: str, token: str | None, get=_get, wait: float = 0,
+          sleep=time.sleep, clock=time.time) -> tuple[list[dict], str, bool]:
     """(the newest history a push on BRANCH uploaded, what was read, whether it was read): two requests, the list and
     the download. Any failure is an empty history that says why and was not read; a missing history only means no
-    flakes, and counts as read."""
+    flakes, and counts as read. A rate-limited list whose reset is at most WAIT seconds away is listed once more after
+    it: the history job's 403 (the repository's token quota spent) saved no history from 2026-11-21 22:21Z, so every pull
+    request's base check read a day-old one (ticks 45026611875 and 45037396919, 2026-11-22)."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
     try:
         status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        delay = rate_wait(status, headers, clock())
+        if delay is not None and delay <= wait:
+            print(f"webview test history: the artifact list is rate limited; listing again in {delay:.0f} s", flush=True)
+            sleep(delay)
+            status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
         if status != 200:
             left = {k.lower(): v for k, v in (headers or {}).items()}.get("x-ratelimit-remaining")
             quota = f" (rate limit remaining {left})" if left is not None else ""
@@ -854,6 +914,8 @@ def main(argv: list[str]) -> int:
     fe.add_argument("--branch", required=True)
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
+    fe.add_argument("--wait-rate-limit", type=float, default=0, metavar="SECONDS",
+                    help="list once more after a rate limit that resets within SECONDS (default 0: no wait)")
     pb = sub.add_parser("passed-before")
     pb.add_argument("out")
     pb.add_argument("--repo", required=True)
@@ -903,7 +965,7 @@ def main(argv: list[str]) -> int:
         print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
         return 0
     if args.command == "fetch":
-        found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
+        found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"), wait=args.wait_rate_limit)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({"runs": found}, separators=(",", ":")) + "\n", encoding="utf-8")
         print(f"webview test history: {len(found)} push runs ({said})")
