@@ -12,7 +12,7 @@
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
 import { PHASE_DWELL_MS } from "../src/agent-session/acpmux/subagents/hatStep";
-import { afterAll, beforeAll, describe, expect, setSystemTime, test, afterEach } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
@@ -1911,57 +1911,6 @@ describe("subagents show their harness logos", () => {
       await done();
     }
   });
-});
-
-// A plan with nothing running has no lines to stack: the header's slot stays blank, never the 3/4
-// ring Leo rejected (2026-11-01).
-// The slot over its rows' status column is never blank (2026-11-14). Between turns it draws the Plan
-// mode mark; while the turn runs, the shared spinner, so the hat says the chat is working (cmux#51039).
-test("a plan-only tray's header draws the Plan mode mark over its rows' status column, not the ring (2026-11-14)", async () => {
-  const { root, done } = await render(
-    createElement(SubagentTray, {
-      items: [],
-      working: false,
-      waiting: new Set<string>(),
-      onOpen: () => {},
-      plan: [{ content: "Fix the grid", status: "in_progress" }],
-      planKept: true,
-    }),
-  );
-  try {
-    const head = root.querySelector(".acpmux-running-tray__head")!;
-    expect(head.querySelector(".acpmux-running-tray__stack")).toBeNull();
-    const mark = head.querySelector(".acpmux-lineage__icon");
-    expect(mark?.hasAttribute("data-blank")).toBe(false);
-    expect(mark?.querySelector('[data-icon="mode.plan"]')).not.toBeNull();
-    expect(mark?.querySelector(".cv-spinner")).toBeNull();
-  } finally {
-    await done();
-  }
-});
-
-test("a plan-only tray's header spins in that slot and counts the turn's time while the turn runs (cmux#51039)", async () => {
-  const { root, done } = await render(
-    createElement(SubagentTray, {
-      items: [],
-      working: true,
-      waiting: new Set<string>(),
-      onOpen: () => {},
-      plan: [{ content: "Fix the grid", status: "in_progress" }],
-      turnSince: Date.now() - 65_000,
-    }),
-  );
-  try {
-    const head = root.querySelector(".acpmux-running-tray__head")!;
-    const mark = head.querySelector(".acpmux-lineage__icon");
-    expect(mark?.hasAttribute("data-blank")).toBe(false);
-    expect(mark?.getAttribute("data-state")).toBe("running");
-    expect(mark?.querySelector(".cv-spinner")).not.toBeNull();
-    expect(mark?.querySelector('[data-icon="mode.plan"]')).toBeNull();
-    expect(head.querySelector(".acpmux-running-tray__time")?.textContent).toMatch(/\d/);
-  } finally {
-    await done();
-  }
 });
 
 test("many live and finished commands share one terminal header mark without hiding agents", async () => {

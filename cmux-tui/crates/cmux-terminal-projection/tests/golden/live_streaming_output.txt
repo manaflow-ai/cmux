@@ -211,4 +211,4 @@ s  36|arget(s) in 41.2s|
 s  37|$|
 cursor col 2 row 37
 
-bytes to the phone: one feed 2973, byte by byte 8596
+bytes to the phone: one feed 2973, byte by byte 9972

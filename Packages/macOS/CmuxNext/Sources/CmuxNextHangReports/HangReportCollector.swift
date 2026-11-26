@@ -10,8 +10,10 @@ import Foundation
 /// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
 /// reads dyld and the classifier) and kept after that. Sampled stalls wait in a short list for the
 /// one resolution job running: the main thread starts a job only when none is pending, so a burst
-/// of stalls under load costs it one job, not one per stall (a 2.0 s hang inside the job's start,
-/// hq#18810). Nothing here runs while the app is idle.
+/// of stalls under load costs it one job, not one per stall. The main thread's part allocates
+/// nothing: the waiting list keeps its reserved storage, and a job starts by signalling a dispatch
+/// source made once at init, not by creating a task (the main thread hung 2.0 s in that task's
+/// allocation and in the list's growth at a stall's end, hq#18810). Nothing here runs while the app is idle.
 ///
 /// ```swift
 /// let collector = HangReportCollector(resolve: { addresses in frames(for: addresses) })
@@ -29,22 +31,40 @@ public final class HangReportCollector: Sendable {
     /// Sampled stalls and hangs waiting for the resolution job, and whether one is scheduled.
     private let pending = Mutex(Pending())
     private struct Pending {
-        var jobs: [(sample: HangSample, addresses: [UInt])] = []
+        /// Reserved for ``HangReportCollector/maxPending`` up front, so the main thread's append never grows it.
+        var jobs = Pending.reserved()
         var scheduled = false
+
+        static func reserved() -> [(sample: HangSample, addresses: [UInt])] {
+            var jobs: [(sample: HangSample, addresses: [UInt])] = []
+            jobs.reserveCapacity(HangReportCollector.maxPending)
+            return jobs
+        }
     }
     /// At most this many samples wait for resolution; more are dropped (only the 8 longest are kept anyway).
     static let maxPending = 16
-    /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
-    private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
+    /// Runs a resolution job instead of ``wake`` (tests run it inline or hold it).
+    private let schedule: (@Sendable (@escaping @Sendable () -> Void) -> Void)?
+    /// Starts the resolution job on a utility queue: one `or` from the main thread, no allocation.
+    /// Nil when `schedule` was given. Under a lock only for `Sendable`: the main thread takes it uncontended.
+    private let wake: Mutex<(any DispatchSourceUserDataOr)?>
 
-    /// Makes the value from its parts.
+    /// Makes the value from its parts. `schedule`, when given, runs each resolution job in place of
+    /// the default utility queue.
     public init(resolve: @escaping Resolve,
-                schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
-                    // task-owner: one short resolution per sampled stall; nothing to cancel.
-                    Task.detached(priority: .utility) { job() }
-                }) {
+                schedule: (@Sendable (@escaping @Sendable () -> Void) -> Void)? = nil) {
         self.resolve = resolve
         self.schedule = schedule
+        let source = schedule == nil
+            ? DispatchSource.makeUserDataOrSource(queue: DispatchQueue(label: "com.cmuxterm.app.next.hang-resolve", qos: .utility))
+            : nil
+        wake = Mutex(source)
+        source?.setEventHandler { [weak self] in self?.resolvePending() }
+        source?.activate()
+    }
+
+    deinit {
+        wake.withLock { $0?.cancel() }
     }
 
     /// Whether stalls are recorded.
@@ -111,7 +131,13 @@ public final class HangReportCollector: Sendable {
     }
 
     /// A copy of what is recorded, for a preview.
-    public func snapshot() -> StallAggregate { aggregate.withLock { $0 } }
+    /// The copy has storage of its own: one sharing the recorded arrays would make the main thread's
+    /// next count copy them (an allocation at a stall's end, hq#18810).
+    public func snapshot() -> StallAggregate {
+        var copy = StallAggregate()
+        aggregate.withLock { copy.merge($0) }
+        return copy
+    }
 
     private func keepLater(_ sample: HangSample, addresses: [UInt]) {
         let start = pending.withLock { pending in
@@ -121,17 +147,26 @@ public final class HangReportCollector: Sendable {
             pending.scheduled = true
             return true
         }
-        if start { schedule { [self] in resolvePending() } }
+        if start { startJob() }
+    }
+
+    /// Starts the resolution job: an `or` into the source (no allocation), or a test's scheduler.
+    private func startJob() {
+        if let schedule {
+            schedule { [self] in resolvePending() }
+        } else {
+            wake.withLock { $0?.or(data: 1) }
+        }
     }
 
     /// Resolves the samples waiting now (off the main thread); samples that came meanwhile go to a next job,
     /// and the last job, finding none, lets the main thread start one again.
     private func resolvePending() {
-        let jobs = pending.withLock { pending in
-            let jobs = pending.jobs
-            pending.jobs = []
+        // The list's next reserved storage is made here, off the main thread, and swapped in.
+        var jobs = Pending.reserved()
+        pending.withLock { pending in
+            swap(&jobs, &pending.jobs)
             if jobs.isEmpty { pending.scheduled = false }
-            return jobs
         }
         guard !jobs.isEmpty else { return }
         for job in jobs {
@@ -139,7 +174,7 @@ public final class HangReportCollector: Sendable {
             resolved.frames = Array(resolve(job.addresses).prefix(HangSample.maxFrames))
             if isEnabled { aggregate.withLock { $0.keep(resolved) } }
         }
-        schedule { [self] in resolvePending() }
+        startJob()
     }
 
     static func milliseconds(_ nanos: UInt64) -> Int { Int(min(nanos / 1_000_000, UInt64(HistogramBucket.maxMs))) }

@@ -1,5 +1,5 @@
 import type { Env } from "../env.ts"
-import { appJwt, ghHeaders, type Http } from "./providers.ts"
+import { appJwt, ghHeaders, type Http, githubInstallBase } from "./providers.ts";
 
 /**
  * Connect's one page for a GitHub repository (design: remote-integrations, "a connect is one inline card, one
@@ -79,14 +79,13 @@ export const githubConnectTarget = async (env: Env, http: Http, repo: string, re
 }
 
 /** The URL Connect answers for a target: never a permission beyond what the App already asks for. */
-export const githubConnectUrl = (env: Env, target: GithubConnectTarget, state: string, redirectUri: string): string => {
-  // A pending permission update: the installation's page, where an owner accepts it, before any authorize.
+export const githubConnectUrl = async (env: Env, target: GithubConnectTarget, state: string, redirectUri: string): Promise<string> => {
   if (target.kind === "installed" && target.permissions_pending) return target.configure_url
   if (target.kind === "installed") {
     const q = new URLSearchParams({ client_id: env.GITHUB_APP_CLIENT_ID!, redirect_uri: redirectUri, state })
     return `https://github.com/login/oauth/authorize?${q}`
   }
-  const base = `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`
+  const base = await githubInstallBase(env)
   return target.target_id ? `${base}/permissions?target_id=${target.target_id}&state=${encodeURIComponent(state)}` : `${base}?state=${encodeURIComponent(state)}`
 }
 

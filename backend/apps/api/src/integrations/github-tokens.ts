@@ -663,13 +663,14 @@ export const githubStatusConnection = (state: ConnectionsState, p: Principal): C
  * App now requests permissions the installation has not accepted (a write token is refused until it is), and
  * `accept_url` is then the same settings page, where an owner of the account accepts them; null otherwise.
  */
-export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null, permissionsPending = false) => {
+export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null, appSlug: string | null = env.GITHUB_APP_SLUG ?? null, permissionsPending = false) => {
   const c = githubStatusConnection(state, p)
   // A pending permission update: the installation's settings page is where an owner accepts it.
   const pending = permissionsPending && configureUrl !== null
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
-    app_slug: env.GITHUB_APP_SLUG ?? null,
+    // The slug GitHub names the App now (providers.ts githubAppSlug), so clients build its install URL after a rename.
+    app_slug: appSlug,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
     connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl, permissions_pending: pending, accept_url: pending ? configureUrl : null } : null

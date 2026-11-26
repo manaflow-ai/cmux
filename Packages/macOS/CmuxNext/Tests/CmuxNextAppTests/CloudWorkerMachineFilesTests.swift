@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// `cmux cloud deliver-secrets`, `apply-machine-config` and credential recovery failed at their
 /// first read ("This machine has no finished machine config yet"). Its exec and file routes are the
 /// same requests under `/v1/cloud/machines/{id}/` on the cmux API Worker, with the person's Stack
-/// session and the team in `x-cmux-team`: a Mac install has no execute grant (backend
+/// session and the team in `x-cmux-team` (the daemon's `machine.io`): a Mac install has no execute grant (backend
 /// domains/user.ts), so the route's caller check (cloud-client-session.ts) refuses its token with a 403.
 @Suite(.serialized)
 struct CloudWorkerMachineFilesTests {
@@ -75,39 +76,65 @@ struct CloudWorkerMachineFilesTests {
                                              session: URLSession(configuration: sessionConfiguration))
     }
 
-    @Test func execAndFilesGoToTheWorkerRoutesWithThePersonsSessionAndCmuxTeam() async throws {
+    /// The daemon calls a fake `cmux cloud api` saw: each request's JSON.
+    final class Seen: Sendable {
+        let inputs = Mutex<[Data]>([])
+        var requests: [[String: Any]] {
+            inputs.withLock { $0 }.map { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] ?? [:] }
+        }
+    }
+
+    /// A Worker machines client whose daemon answers each `machine.io` op as the route would.
+    private func daemonWorker(_ seen: Seen) -> CloudAPIClient {
+        var api = worker()
+        api.daemon.daemonCall = { input, _ in
+            let request = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
+            let args = request["args"] as? [String: Any] ?? [:]
+            seen.inputs.withLock { $0.append(input) }
+            let body = switch args["op"] as? String {
+            case "exec": #"{"exitCode":0,"stdout":"ok","stderr":""}"#
+            case "read": #"{"path":"/a","dataBase64":"aGk=","size":2}"#
+            default: #"{"ok":true,"path":"/a"}"#
+            }
+            return Data(#"{"ok":true,"body":\#(body)}"#.utf8)
+        }
+        return api
+    }
+
+    @Test func execAndFilesGoToTheDaemonWithThePersonsSessionAndCmuxTeam() async throws {
         WorkerAPI.seen = []
+        let seen = Seen()
         // A flow that pins the app's (Stack) team keeps the cmux team the Worker knows.
-        let api = worker().pinningTeam("stack-team-1")
+        let api = daemonWorker(seen).pinningTeam("stack-team-1")
         let machine = "vm_aaaaaaaaaaaaaaaaaaaa"
         #expect(try await api.exec(machine, command: "true", timeoutMs: 8_000).stdout == "ok")
         #expect(try await api.readFile(machine, path: "/home/cmux/.cmux/machine-config/status.json").dataBase64 == "aGk=")
         try await api.writeFile(machine, path: "/a", data: Data("hi".utf8), mode: 0o644)
-        #expect(WorkerAPI.seen.map(\.method) == ["POST", "GET", "POST"])
-        #expect(WorkerAPI.seen.map(\.url) == [
-            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec",
-            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/read?path=/home/cmux/.cmux/machine-config/status.json",
-            "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write",
-        ])
-        for request in WorkerAPI.seen {
+        let requests = seen.requests
+        #expect(requests.map { ($0["args"] as? [String: Any])?["op"] as? String } == ["exec", "read", "write"])
+        for request in requests {
+            #expect(request["call"] as? String == "machine.io")
             // A Mac install token here is a 403 for every Mac user: its grant has no execute.
-            #expect(request.authorization == "Bearer session-access")
-            #expect(request.cmuxTeam == "team_cmux")
-            #expect(request.refresh == nil, "the Stack refresh token never goes to the Worker")
-            #expect(request.team == nil)
+            #expect(request["auth"] as? String == "owner")
+            #expect(request["credential"] as? String == "session-access")
+            #expect(request["team"] as? String == "team_cmux")
+            #expect((request["args"] as? [String: Any])?["machine"] as? String == machine)
         }
+        #expect(WorkerAPI.seen.isEmpty, "nothing goes over Swift HTTP")
     }
 
-    /// Set Up GitHub's script runs on the Worker exec route, as `cmux`: a NEXT machine id is a Worker
-    /// id, which classic `/api/vm/{id}/exec` does not know.
+    /// Set Up GitHub's script runs on the Worker exec route through the daemon, as `cmux`: a NEXT machine id
+    /// is a Worker id, which classic `/api/vm/{id}/exec` does not know.
     @Test func gitHubSetupExecsOnTheWorkerRoute() async throws {
-        WorkerAPI.seen = []
+        let seen = Seen()
         let machine = "vm_aaaaaaaaaaaaaaaaaaaa", identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "ann@example.test")
-        let outcome = try await CloudGitHubSetup.run(identity, app: true, machine: machine, on: worker())
+        let outcome = try await CloudGitHubSetup.run(identity, app: true, machine: machine, on: daemonWorker(seen))
         #expect(outcome == CloudGitHubSetup.parse(exitCode: 0, stdout: "ok"))
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec"])
-        #expect(WorkerAPI.seen.first?.body["command"] as? String == CloudGitHubSetup.command(identity, app: true))
-        #expect(WorkerAPI.seen.first?.body["timeoutMs"] as? Int == CloudGitHubSetup.timeoutMs)
+        let args = try #require(seen.requests.first?["args"] as? [String: Any])
+        #expect(args["op"] as? String == "exec")
+        #expect(args["machine"] as? String == machine)
+        #expect(args["command"] as? String == CloudGitHubSetup.command(identity, app: true))
+        #expect(args["timeout_ms"] as? Int == CloudGitHubSetup.timeoutMs)
     }
 
     /// Classic `/api/vm` is gone from NEXT: the sign-in client refuses a machine call before any request.

@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 import os
+import CmuxNextWakeups
 
 /// `cloud.startChat {task, cwd?, harness?, model?, mode?, effort?, account?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
@@ -449,12 +450,14 @@ extension AgentPaneModel {
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
     /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
     /// withdraws it (the page left Cloud, or gave up).
-    func setUpCloud(key: String, action: String, family: String) async -> [String: Any] {
+    func setUpCloud(key: String?, action: String, family: String) async -> [String: Any] {
+        // A start's card (with its key) only on the page that starts it; the picker's button (no key) on any page.
         guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
-              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces else {
+              key == nil || (onCloudStartChat != nil && !chatIsElsewhere && (sessionId == nil || sessionId == cloudStartReplaces)) else {
             return Self.unsupported("cloud.setUp")
         }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        guard let key else { return await setUpCloudFromPicker(way, family: family, run: onCloudSetUp) }
         let generation = cloudSignInGeneration
         cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
         let wait = Task { await onCloudSetUp(way, family) } // the model's own actor: it only awaits the App's wait
@@ -466,6 +469,31 @@ extension AgentPaneModel {
         }
         keepCloudSignInGrant(key, generation: generation)
         return AgentPaneReply.success(["ready": true])
+    }
+
+    /// The model picker's set up button (`cloud.setUp` with no key): its own wait, so it never cancels a Set up Cloud
+    /// card's, and one that ends by ``pickerSetUpLimit`` so the page reads the families again. It keeps no click.
+    private func setUpCloudFromPicker(_ way: CloudSetup.Action, family: String,
+                                      run: @escaping @MainActor (CloudSetup.Action, String) async -> Bool) async -> [String: Any] {
+        pickerSetUpWait?.cancel() // a newer click replaces it
+        let wait = Task { await run(way, family) }
+        pickerSetUpWait = wait
+        let deadline = DemandTimer(owner: "agent-pane-picker-cloud-set-up")
+        deadline.schedule(after: Self.pickerSetUpLimit) { wait.cancel() }
+        let ready = await wait.value
+        deadline.cancel()
+        if pickerSetUpWait == wait { pickerSetUpWait = nil }
+        return ready ? AgentPaneReply.success(["ready": true]) : AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+    }
+
+    /// How long the picker's set up waits for a connection: the Set up Cloud card's (cloudSetup.ts `CLOUD_SETUP_LIMIT_MS`).
+    static let pickerSetUpLimit: Duration = .seconds(600)
+
+    /// `cloud.setupState`: `{families: {claude: Bool, codex: Bool}}` (``CloudSetup/serving()``), or `{}` when nothing
+    /// could be read, which the picker reads as nothing to hold back.
+    func cloudSetupState() async -> [String: Any] {
+        guard let families = await onCloudSetupState?() else { return AgentPaneReply.success([:]) }
+        return AgentPaneReply.success(["families": families])
     }
 
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or

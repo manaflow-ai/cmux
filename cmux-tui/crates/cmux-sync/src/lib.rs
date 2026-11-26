@@ -39,7 +39,7 @@ pub mod truth;
 pub mod two_way;
 pub mod vv;
 
-pub use hlc::{Actor, Clock, Stamp};
+pub use hlc::{Actor, Clock, MAX_DRIFT_MS, Stamp};
 pub use map::{Applied, Delta, Entry, Replica, Snapshot, SyncState};
 pub use presence::{Activity, Beat, DeviceKind, Here, HereDevice, Kind, Member, Presence, Status};
 pub use truth::{Report, most_truthful};

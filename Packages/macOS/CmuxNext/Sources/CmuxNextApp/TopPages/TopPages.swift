@@ -69,11 +69,9 @@ enum TopPages {
         automations.openChat = { [weak services] session, title in // a prompt run's chat, found by its name
             _ = services?.registry.perform("agent.openSessionWorkspace", invocation: .init(arguments: ["session": .string(session), "name": .string(title)], origin: .user))
         }
-        // Signed out, the page's Cloud line offers the app's one cmux sign-in (msg 3790).
-        automations.signIn = { [weak services] in
-            guard let services else { return }
-            CmuxSignInOffer(registry: services.registry, isSignedIn: { services.cloud.isSignedIn }).signIn()
-        }
+        // Signed out, the page's Cloud line offers the app's one cmux sign-in (msg 3790), saying what it signs in to.
+        automations.signIn = { [weak services] in services.map { app in CmuxSignInOffer(registry: app.registry, isSignedIn: { app.cloud.isSignedIn }).signIn() } }
+        automations.signInBackend = services.cloud.configuration.signInBackendLine
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
                                            view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
         _ = services.registry.bindEffect("automations.show", effect: { [weak services] i in _ = services.map { TopPages.show(.page(.automations), services: $0) }; automations.show(named: i.arguments["name"]?.stringValue); return .done })
@@ -103,10 +101,9 @@ enum TopPages {
     }
 
     /// The provider of internal page `id`: a registered one, else an app's
-    /// page registered on first use (CodeRouter, `app:<id>` pages).
+    /// page registered on first use (`app:<id>` pages).
     static func provider(_ id: InternalPageID, services: AppServices) -> (any InternalPageProvider)? {
         if let provider = services.pages.provider(id) { return provider }
-        if id == .coderouter { return services.apps.pageProvider(appID: CodeRouterPageTab.appID) }
         let prefix = AppPanePage.pageID("").rawValue
         guard id.rawValue.hasPrefix(prefix) else { return nil }
         return services.apps.pageProvider(appID: String(id.rawValue.dropFirst(prefix.count)))
