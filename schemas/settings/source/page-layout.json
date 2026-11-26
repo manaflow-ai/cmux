@@ -138,6 +138,7 @@
             {"group": "settings.group.colorTransition"},
             {"group": "settings.group.windowBackground"},
             {"group": "settings.group.statusIndicator"},
+            {"group": "settings.group.agentSignature"},
             {"group": "settings.group.surfaces"},
             {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "keys": [
               "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity",

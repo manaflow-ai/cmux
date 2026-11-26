@@ -406,6 +406,9 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Each named session's dot glyph, a pure function of its id (`server/requests/signature.rs`):
+    /// `{sessionIds}` (at most 512) to `{signatures: {<id>: Glyph}}`.
+    pub const SESSION_SIGNATURE: &str = "session/signature";
     /// Dedicated, scoped Cloud trigger chat operations. These never fall
     /// through to the ordinary session/new, session/prompt or info paths.
     pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
@@ -1070,6 +1073,15 @@ pub mod method {
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
     /// olderThanDays?, only?, unreadOnly?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
+    /// Delete old chats' history (`hub/history_delete.rs`): `{dryRun?, olderThanDays?, export?}`
+    /// -> the chats deleted, or with `dryRun` the preview of those a pass would delete.
+    pub const MUX_HISTORY_DELETE: &str = "_acpmux/history_delete";
+    /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
+    /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
+    pub const MUX_HISTORY_OFFLOAD: &str = "_acpmux/history_offload";
+    /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
+    /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
+    pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.
     pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
