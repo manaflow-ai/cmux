@@ -4079,6 +4079,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+      NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
       # Signed app path for every step after "Prepare channel identity".
       CHANNEL_APP_PATH: build-universal/Build/Products/Release/${{ needs.decide.outputs.app_name }}.app
     steps:
@@ -4772,6 +4773,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
       CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+      NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
     steps:
       - *github-token-for-git
       - *checkout-build-ref
