@@ -146,7 +146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
         let settingsRead = SettingsController.appliedAtLaunch(settings)
         TerminalThemeSetting.prime(settingsRead.snapshot)
-        AppearanceModeSetting.apply(settingsRead.snapshot.appearanceMode)  // appearance.mode before any window
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
@@ -398,7 +397,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
         NewTabClosed.wire(services.agentTabs, services: services)
-        AppearanceModeSetting.follow(settings)  // appearance.mode: Light, Dark or Match System
         // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) follows into the one toast center.
         Task { [weak settings] in
             guard let settings else { return }

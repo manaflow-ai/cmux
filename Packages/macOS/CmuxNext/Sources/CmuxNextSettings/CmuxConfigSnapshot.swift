@@ -193,15 +193,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
-    /// `sidebar.border` and `sidebar.borderWidth`; an unset border follows
-    /// `chromeStyle`.
+    /// `sidebar.border` and `sidebar.borderWidth`; an unset border follows `chromeStyle`.
     public var sidebarBorder = SidebarBorder()
-    /// `appearance.mode`: the app's light or dark appearance; `system` (follow macOS) when unset or invalid.
-    public var appearanceMode: AppearanceMode = AppearanceModeSetting.fallback
+    public var appearanceMode: AppearanceMode = AppearanceModeSetting.fallback // `appearance.mode`; `system` when unset or invalid
     /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
     public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
-    /// `appearance.iconTheme`: reserved for the optional Neko family. Neko
-    /// remains on the default drawings until reviewed artwork is enabled.
+    /// `appearance.iconTheme`: reserved for the optional Neko family, on the default drawings until reviewed artwork is enabled.
     public var iconTheme: NekoIconTheme = NekoIconThemeSetting.fallback
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
