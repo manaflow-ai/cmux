@@ -845,6 +845,28 @@ fn cmux_rd_is_where_the_host_unit_runs_it() {
 }
 
 #[test]
+fn a_running_host_off_the_hub_is_set_up_again_with_backoff() {
+    use super::linux::{LINK_GRACE, LINK_RETRY_MAX, relink_due};
+    use cmux_hub_host::host_link::Link;
+    let grace = LINK_GRACE.as_millis() as u64;
+    let off = |since_ms| Link { online: false, since_ms, error: Some("hub link: 401".into()) };
+    // big-red's case: the unit is active, the host never reached the hub.
+    assert!(!relink_due(Some(&off(1_000)), 1_000 + grace - 1, 0, None));
+    assert!(relink_due(Some(&off(1_000)), 1_000 + grace, 0, None));
+    // After a set-up the next waits twice as long, from that set-up, up to an hour.
+    let retried = 1_000 + grace;
+    assert!(!relink_due(Some(&off(retried)), retried + 2 * grace - 1, 1, Some(retried)));
+    assert!(relink_due(Some(&off(retried)), retried + 2 * grace, 1, Some(retried)));
+    let max = LINK_RETRY_MAX.as_millis() as u64;
+    assert!(relink_due(Some(&off(0)), max, 40, Some(0)));
+    assert!(!relink_due(Some(&off(0)), max - 1, 40, Some(0)));
+    // On the hub, or an older cmux-rd that writes no link: never.
+    let on = Link { online: true, since_ms: 0, error: None };
+    assert!(!relink_due(Some(&on), u64::MAX, 0, None));
+    assert!(!relink_due(None, u64::MAX, 0, None));
+}
+
+#[test]
 fn the_enable_is_the_joins_with_its_device_hub() {
     assert_eq!(
         super::linux::enable_args("https://cmux-device-hub-dev.debussy.workers.dev"),

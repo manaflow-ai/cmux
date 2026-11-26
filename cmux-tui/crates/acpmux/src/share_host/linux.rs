@@ -50,6 +50,36 @@ pub(crate) const HOST_UNIT: &str = "cmux-screen-host.service";
 pub(crate) const MARK: &str = "linux-host.json";
 /// The line `enable --non-interactive` prints when it could not sign the machine in.
 const NOT_INSTALLED: &str = "not_installed:";
+/// How long the host may be off the hub (its socket not open) before the daemon sets it up
+/// again, which restarts it: longer than its reconnect backoff (30 s at most) takes a few times.
+pub(crate) const LINK_GRACE: Duration = Duration::from_secs(180);
+/// The longest wait between two set-ups of a host that stays off the hub: the wait doubles
+/// from [`LINK_GRACE`] with each one, so a hub that is down for hours is not hammered.
+pub(crate) const LINK_RETRY_MAX: Duration = Duration::from_secs(3600);
+
+/// Whether the host whose last hub link is `link` should be set up again at `now_ms`, after
+/// `retries` set-ups for this stretch off the hub: it has been off the hub for
+/// `LINK_GRACE * 2^retries` (at most [`LINK_RETRY_MAX`]) since it went off or since the last
+/// set-up (`last_retry_ms`). A host on the hub, or one that wrote no link (an older cmux-rd),
+/// never is: only `systemctl` speaks for it.
+pub(crate) fn relink_due(
+    link: Option<&cmux_hub_host::host_link::Link>,
+    now_ms: u64,
+    retries: u32,
+    last_retry_ms: Option<u64>,
+) -> bool {
+    let Some(since) = link.and_then(|l| l.offline_since()) else { return false };
+    let wait = LINK_GRACE
+        .saturating_mul(1_u32.checked_shl(retries).unwrap_or(u32::MAX))
+        .min(LINK_RETRY_MAX);
+    let from = since.max(last_retry_ms.unwrap_or(0));
+    now_ms.saturating_sub(from) >= u64::try_from(wait.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The host's last hub link, from cmux-rd's config directory.
+fn host_link() -> Option<cmux_hub_host::host_link::Link> {
+    cmux_hub_host::host_link::Link::read(&identity::config_dir().ok()?)
+}
 
 /// Where cmux-rd is: `<user home>/.local/bin/cmux-rd`, the host unit's own path.
 pub(crate) fn cmux_rd_path(user_home: &Path) -> PathBuf {
@@ -508,9 +538,14 @@ pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Va
 pub(crate) fn start(scope: &cmux_scope::Scope) {
     let home = crate::config::home();
     // The hub shown until the first enable; each enable reads the join again (below).
+    // Not joined yet (or copied, or revoked): the watcher below still runs, so a join made
+    // after this start is set up at its next check, with no restart of the daemon.
     let mut hub = match super::joined() {
         Ok((_, hub)) => hub,
-        Err(why) => return not_running(why),
+        Err(why) => {
+            not_running(why);
+            String::new()
+        }
     };
     let Some(user_home) = dirs::home_dir() else {
         return not_running(NotRunning::new(
@@ -537,6 +572,9 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         // The cmux-rd build tried, and the join it was tried for (None: there was no join).
         let mut attempted: Option<(Identity, Option<Value>)> = None;
         let mut said: Option<String> = None;
+        // Set-ups for the host's current stretch off the hub, and when the last one ran.
+        let mut relinks: u32 = 0;
+        let mut last_relink: Option<u64> = None;
         while !stop.is_cancelled() {
             // One read of the join per check: its credential's mark and its own deployment's
             // hub come from the same record (review F2 of #45480), never from what the daemon
@@ -545,6 +583,24 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
             let join_key = join.as_ref().ok().map(|(credential, _)| join_key_of(credential));
             if attempted.as_ref().is_some_and(|(_, key)| *key != join_key) {
                 attempted = None;
+            }
+            // A host this join set up that runs but is not on the hub is set up again (which
+            // restarts it): `systemctl is-active` alone left a machine off the hub for good.
+            if attempted.as_ref().is_some_and(|(_, key)| key.is_some()) {
+                let link = host_link();
+                let now = cmux_hub_host::hub::now_ms();
+                if link.as_ref().is_some_and(|l| l.online) {
+                    (relinks, last_relink) = (0, None);
+                } else if relink_due(link.as_ref(), now, relinks, last_relink) {
+                    tracing::info!(
+                        "{}: cmux-rd's host is not on the hub ({}); setting it up again",
+                        super::LOG,
+                        link.and_then(|l| l.error).unwrap_or_default()
+                    );
+                    relinks = relinks.saturating_add(1);
+                    last_relink = Some(now);
+                    attempted = None;
+                }
             }
             match next_step(attempted.as_ref().map(|(id, _)| id), identity_of(&rd)) {
                 Step::Wait => {}
@@ -653,7 +709,9 @@ fn set_up(
     // A unit that runs is left alone only when cmux-rd's own record says it is this join's: a
     // person's sign-in that replaced it is set up over.
     let rd_signed_in = identity::config_dir().is_ok_and(|c| rd_signed_in_for(&c, mark, home));
-    if marked(folder, mark) && rd_signed_in && host_active(env) {
+    // Running is not enough: a host off the hub this long is set up again (restarted).
+    let off_hub = relink_due(host_link().as_ref(), cmux_hub_host::hub::now_ms(), 0, None);
+    if marked(folder, mark) && rd_signed_in && !off_hub && host_active(env) {
         tracing::info!("{}: cmux-rd's host already runs for this join", super::LOG);
         let detail = format!("{HOST_UNIT} runs for this join");
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
