@@ -1,6 +1,58 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "tabs.playground.maxWidth.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Max tab width %@ pt"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブの最大幅 %@ pt"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أقصى عرض للعلامة %@ pt"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Najveća širina kartice %@ pt"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maks. fanebredde %@ pt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maximale Tabbreite %@ pt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ancho máximo de pestaña %@ pt"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Largeur max. des onglets %@ pt"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Larghezza massima scheda %@ pt"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទទឹងផ្ទាំងអតិបរមា %@ pt"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "탭 최대 너비 %@ pt"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maks. fanebredde %@ pt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maks. szerokość karty %@ pt"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Largura máxima da aba %@ pt"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Макс. ширина вкладки %@ pt"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความกว้างแท็บสูงสุด %@ pt"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Azami sekme genişliği %@ pt"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Макс. ширина вкладки %@ pt"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Độ rộng tab tối đa %@ pt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "标签页最大宽度 %@ pt"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "分頁最大寬度 %@ pt"}}
+      }
+    },
+    "tabs.playground.section.tabMaxWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tab Max Width"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブの最大幅"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أقصى عرض للعلامة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Najveća širina kartice"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maks. fanebredde"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maximale Tabbreite"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ancho máximo de pestaña"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Largeur max. des onglets"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Larghezza massima scheda"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទទឹងផ្ទាំងអតិបរមា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "탭 최대 너비"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maks. fanebredde"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Maks. szerokość karty"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Largura máxima da aba"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Макс. ширина вкладки"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความกว้างแท็บสูงสุด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Azami sekme genişliği"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Макс. ширина вкладки"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Độ rộng tab tối đa"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "标签页最大宽度"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "分頁最大寬度"}}
+      }
+    },
     "tabs.ax.busy": {
       "extractionState": "manual",
       "localizations": {

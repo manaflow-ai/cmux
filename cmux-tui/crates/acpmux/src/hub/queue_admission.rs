@@ -43,11 +43,6 @@ impl QueueLimits {
     pub(super) const DEFAULT_PROMPTS: u64 = 1000;
     pub(super) const DEFAULT_BYTES: u64 = 256 << 20;
 
-    /// The defaults, for a step that may not wait on the config (`prompt_admission.rs`).
-    pub(super) fn defaults() -> Self {
-        Self { prompts: Some(Self::DEFAULT_PROMPTS), bytes: Some(Self::DEFAULT_BYTES) }
-    }
-
     /// The config's limits, or their defaults; 0 is no limit.
     pub(super) fn of(cfg: &Config) -> Self {
         let limit = |v: Option<u64>, default: u64| Some(v.unwrap_or(default)).filter(|&n| n != 0);

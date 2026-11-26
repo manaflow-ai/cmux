@@ -38,7 +38,7 @@ extension PairingCode {
         /// The same for a Mac or Linux machine without cmux: the install line "Set up a new device"
         /// shows (``AddDevicePlatform/setupLine``), then the invite.
         public static func installLine(_ code: String) -> String {
-            "curl -fsSL https://cmux.com/tui/install-static.sh | sh && ~/.cmux/bin/\(line(code))"
+            AddDevicePlatform.pinnedInstall(then: "~/.cmux/bin/\(line(code))")
         }
 
         /// The QR payload: a universal link with the invite in the query (`i=`, never the server
