@@ -39,16 +39,19 @@ impl Hub {
             }
         }
         drop(state);
-        // The next adoption of this host reads only what follows it.
+        // The next adoption of this host reads only what follows it. The table it keeps is
+        // saved, then moved to the adoption's rebuild (`recover_work`), never copied: a long
+        // chat's is its every process (32 MB of a 4 GB chat's checkpoint), and each copy was
+        // the restart's peak (cmux#51494).
         if let Some(checkpoint) = self.keep_processes(session, &mut work, checkpoint) {
-            self.save_adoption_checkpoint(session, checkpoint);
+            work.processes = self.save_adoption_checkpoint(session, checkpoint);
         }
         work
     }
 
     /// `checkpoint` with the chat's process table through its record, from the one the resumed
-    /// checkpoint kept (in `work.processes`), which then holds it for the adoption's rebuild of
-    /// the table (`recover_work`): neither reads more than the records after a checkpoint.
+    /// checkpoint kept (taken from `work.processes`): no read covers more than the records after
+    /// a checkpoint.
     fn keep_processes(
         &self,
         session: &Session,
@@ -56,9 +59,8 @@ impl Hub {
         checkpoint: Option<Checkpoint>,
     ) -> Option<Checkpoint> {
         let mut checkpoint = checkpoint?;
-        let saved = self.processes_through(session, work.processes.take(), checkpoint.seq);
-        work.processes = Some(saved.clone());
-        checkpoint.processes = Some(saved);
+        checkpoint.processes =
+            Some(self.processes_through(session, work.processes.take(), checkpoint.seq));
         Some(checkpoint)
     }
 
@@ -218,13 +220,15 @@ impl Hub {
         // knew a later last turn: a checkpoint ends before an open last turn's start, so each
         // record it holds was read as every later fold reads it.
         let turn_bound = if last_turn_starts { last_turn - 1 } else { u64::MAX };
-        let resumed = resume
+        let mut resumed = resume
             .then(|| self.adoption_checkpoint(session, incarnation, &inputs))
             .flatten()
             .filter(|c| c.seq <= turn_bound);
         // The process table it kept goes on beside the work (`keep_processes`).
-        let resumed_processes =
-            resumed.as_ref().and_then(|c| c.processes.clone().filter(|p| p.through <= c.seq));
+        let resumed_processes = resumed.as_mut().and_then(|c| {
+            let seq = c.seq;
+            c.processes.take().filter(|p| p.through <= seq)
+        });
         // Beside them, while saving a checkpoint, the folds of an incarnation not started yet,
         // which the next host's first adoption resumes from (`checkpoint.rs` `unstarted`).
         let unstarted_too = resume && settled.is_some() && incarnation != UNSTARTED;

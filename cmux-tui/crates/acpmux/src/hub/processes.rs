@@ -188,11 +188,14 @@ impl ProcessTable {
         table
     }
 
-    fn saved(&self) -> SavedProcesses {
-        SavedProcesses {
-            through: self.through,
-            rows: self.processes.iter().map(|p| (p.clone(), p.logged)).collect(),
-        }
+    /// The table as a checkpoint keeps it, moved out: a long chat's is its every process, which
+    /// a copy held twice at a restart's peak (cmux#51494).
+    fn into_saved(self) -> SavedProcesses {
+        let rows = self.processes.into_iter().map(|p| {
+            let logged = p.logged;
+            (p, logged)
+        });
+        SavedProcesses { through: self.through, rows: rows.collect() }
     }
 
     /// All appends go here, including records replayed from a logged process update.
@@ -979,7 +982,7 @@ impl Hub {
         let after = table.through;
         self.fold_processes(session, &mut table, after, through.saturating_add(1));
         table.through = through;
-        table.saved()
+        table.into_saved()
     }
 
     /// Reads the session's processes from its log again: a daemon that adopted a running host

@@ -37,6 +37,7 @@
 //! background when its host starts (`prime_adoption_checkpoint`), so no restart reads its whole
 //! log.
 
+use super::super::processes::SavedProcesses;
 use super::journal::{EnvFold, HostSeqFold, WorkFold};
 use super::*;
 use crate::store::LinePos;
@@ -73,7 +74,7 @@ pub(super) struct Checkpoint {
     /// incarnation does not change. None in a checkpoint saved before it was kept: the next
     /// adoption reads the table from the log's copies, then keeps it.
     #[serde(default)]
-    pub(super) processes: Option<super::super::processes::SavedProcesses>,
+    pub(super) processes: Option<SavedProcesses>,
 }
 
 /// What the folds read besides the log; a checkpoint is good only under the same.
@@ -243,7 +244,7 @@ impl Hub {
                     hub.catch_up(&session);
                     let settled = hub.settled_seq(&session);
                     if let Some(point) = hub.fold_checkpoint(&session, &incarnation, settled) {
-                        hub.save_adoption_checkpoint(&session, point);
+                        let _ = hub.save_adoption_checkpoint(&session, point);
                     }
                 }
             });
@@ -255,24 +256,33 @@ impl Hub {
     }
 
     /// Saves `point` for `session`'s next adoption. A failed write leaves the last one, which is
-    /// still right.
-    pub(super) fn save_adoption_checkpoint(&self, session: &Session, mut point: Checkpoint) {
-        if session.meta().fork_seq.is_some()
-            || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
-        {
-            return;
-        }
-        let Some(record) = self.record_at(session, point.seq) else { return };
-        let Ok(record_bytes) = serde_json::to_vec(&record) else { return };
-        point.digest = crate::sha256::sha256_hex(&record_bytes);
-        point.at = record.at;
-        point.kind = record.kind;
-        if self.store.log_stamp(&session.id).ok() != Some(point.stamp) {
-            return;
-        }
-        let Ok(bytes) = serde_json::to_vec(&point) else { return };
-        if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
-            tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
-        }
+    /// still right. Gives back the process table it kept, saved or not, so the caller moves it
+    /// on rather than keeping a copy beside it.
+    pub(super) fn save_adoption_checkpoint(
+        &self,
+        session: &Session,
+        mut point: Checkpoint,
+    ) -> Option<SavedProcesses> {
+        let save = |point: &mut Checkpoint| {
+            if session.meta().fork_seq.is_some()
+                || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
+            {
+                return;
+            }
+            let Some(record) = self.record_at(session, point.seq) else { return };
+            let Ok(record_bytes) = serde_json::to_vec(&record) else { return };
+            point.digest = crate::sha256::sha256_hex(&record_bytes);
+            point.at = record.at;
+            point.kind = record.kind;
+            if self.store.log_stamp(&session.id).ok() != Some(point.stamp) {
+                return;
+            }
+            let Ok(bytes) = serde_json::to_vec(&*point) else { return };
+            if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
+                tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
+            }
+        };
+        save(&mut point);
+        point.processes
     }
 }
