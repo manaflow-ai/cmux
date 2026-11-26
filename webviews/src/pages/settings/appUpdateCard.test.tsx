@@ -96,7 +96,13 @@ test("a staged update lists what's in it, grouped by area, each PR linked with i
         {
           area: null,
           items: [
-            { pr: 10, title: "Faster cold start", author: null, url: "https://github.com/manaflow-ai/cmux/pull/10", build: "998" },
+            {
+              pr: 10,
+              title: "Faster cold start",
+              author: null,
+              url: "https://github.com/manaflow-ai/cmux/pull/10",
+              build: "998",
+            },
           ],
         },
       ],
