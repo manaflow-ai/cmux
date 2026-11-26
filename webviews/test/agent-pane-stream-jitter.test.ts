@@ -531,7 +531,9 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     endTurn();
     await page.locator(".acpmux-row--last-footer").waitFor();
     await rest(page);
-    const frames = (await stop(page)).flatMap((frame) => (frame.marker === undefined ? [] : [frame.marker]));
+    const allF = await stop(page);
+    console.log("DBG", JSON.stringify(allF.map((f) => [f.t, f.marker?.toFixed(1), f.composerTop?.toFixed(1), f.settled, f.under?.toFixed(1)])));
+    const frames = allF.flatMap((frame) => (frame.marker === undefined ? [] : [frame.marker]));
     expect(frames.length).toBeGreaterThanOrEqual(5);
     expect(Math.max(...frames) - Math.min(...frames)).toBeLessThanOrEqual(0.5);
     expect(await fromEnd(page)).toBeLessThanOrEqual(4);
