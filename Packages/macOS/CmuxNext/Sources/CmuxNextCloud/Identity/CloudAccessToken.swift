@@ -194,7 +194,10 @@ extension CloudAuth {
     /// The install is registered first when sign-in has not bound it yet (`signedIn` reuses a bound one): the
     /// sign-in enroll asks as soon as the sign-in finishes, which can be before `CloudService` binds it, and a
     /// nil then would leave the enroll waiting for a report that never comes (#43841 review F1).
+    /// It binds only after the stored session has restored: before that ``user`` is the cached account,
+    /// which can differ from the stored token's, and an install bound to it is refused for another user.
     public func machineRoutesToken(identity: MacInstallIdentity) async -> String? {
+        await awaitRestored()
         guard isSignedIn, let stackUser = user?.id else { return nil }
         do {
             try await identity.signedIn(stackUser: stackUser, session: { [weak self] in
@@ -209,14 +212,6 @@ extension CloudAuth {
         } catch {
             return nil
         }
-    }
-
-    /// ``machineRoutesToken(identity:)`` or ``MacInstallIdentity/Failure/signedOut``: for a caller that throws, such as the
-    /// environment create's `POST /v1/workspaces/{W}/machine`, which refused the session token 401 `machine.unauthorized`
-    /// (prod start-matrix Environment row, run 45769283095, 2026-11-26).
-    public func machineRoutesAccess(identity: MacInstallIdentity) async throws -> String {
-        guard let token = await machineRoutesToken(identity: identity) else { throw MacInstallIdentity.Failure.signedOut }
-        return token
     }
 
     /// `cmux auth token`'s mint: a fresh token from `identity` for the team ``accessTokenTeam(requested:)`` picks.
