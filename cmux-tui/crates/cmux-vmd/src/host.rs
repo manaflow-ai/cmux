@@ -33,8 +33,13 @@ use crate::{cmd, fc, vsock};
 pub enum VmdError {
     MachineNotFound,
     SnapshotNotFound,
-    InvalidState { operation: &'static str, state: &'static str },
+    InvalidState {
+        operation: &'static str,
+        state: &'static str,
+    },
     InvalidInput(String),
+    /// No room for this machine: network slots or the memory budget are spent.
+    HostFull(String),
     Backend(anyhow::Error),
 }
 
@@ -47,6 +52,7 @@ impl std::fmt::Display for VmdError {
                 write!(f, "cannot {operation} a {state} machine")
             }
             Self::InvalidInput(m) => write!(f, "invalid input: {m}"),
+            Self::HostFull(m) => write!(f, "host full: {m}"),
             Self::Backend(e) => write!(f, "{e:#}"),
         }
     }
@@ -79,6 +85,9 @@ pub struct Config {
     /// Network slots kept built (egress none) ahead of demand, so a create, restore or fork
     /// only points its egress chain: building one costs a few hundred ms of `ip` and `nft`.
     pub warm_slots: usize,
+    /// Guest memory the host may hand out, summed over machines (0: total RAM less 2 GiB).
+    /// Forks share their snapshot's pages until they write, so this budget is conservative.
+    pub max_mem_mib: u64,
 }
 
 impl Default for Config {
@@ -93,6 +102,7 @@ impl Default for Config {
             dns: "1.1.1.1".into(),
             ipv6: true,
             warm_slots: 8,
+            max_mem_mib: 0,
         }
     }
 }
@@ -186,6 +196,35 @@ struct State {
     children: BTreeSet<u32>,
     /// Built slots no machine holds yet (each also in `slots`).
     warm: Vec<u16>,
+    /// Memory held by creates and forks still on their way up.
+    reserved_mib: u64,
+}
+
+/// Memory a create or fork holds against the budget until it returns.
+struct Reservation<'a> {
+    host: &'a Host,
+    mib: u64,
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        let mut st = self.host.lock_state();
+        st.reserved_mib = st.reserved_mib.saturating_sub(self.mib);
+    }
+}
+
+/// Total RAM in MiB from `/proc/meminfo`, or None when unreadable.
+fn mem_total_mib() -> Option<u64> {
+    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kb: u64 = info
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))?
+        .trim()
+        .trim_end_matches("kB")
+        .trim()
+        .parse()
+        .ok()?;
+    Some(kb / 1024)
 }
 
 pub struct Host {
@@ -241,7 +280,10 @@ async fn copy_disk(src: &Path, dst: &Path) -> Result<()> {
 
 impl Host {
     /// Open the root, set up host networking, and reattach to VMs a previous daemon left running.
-    pub async fn open(cfg: Config) -> anyhow::Result<Arc<Self>> {
+    pub async fn open(mut cfg: Config) -> anyhow::Result<Arc<Self>> {
+        if cfg.max_mem_mib == 0 {
+            cfg.max_mem_mib = mem_total_mib().unwrap_or(4096).saturating_sub(2048).max(512);
+        }
         for d in ["images", "machines", "snapshots"] {
             tokio::fs::create_dir_all(cfg.root.join(d)).await?;
         }
@@ -365,7 +407,7 @@ impl Host {
         let mut st = self.lock_state();
         let n = (0..=net::MAX_SLOT)
             .find(|n| !st.slots.contains(n))
-            .ok_or_else(|| anyhow!("no free network slots"))?;
+            .ok_or_else(|| VmdError::HostFull("no free network slots".into()))?;
         st.slots.insert(n);
         Ok(n)
     }
@@ -382,6 +424,31 @@ impl Host {
 
     pub fn get(&self, id: &str) -> Result<MachineMeta> {
         self.machine(id)
+    }
+
+    pub fn snapshot_meta(&self, sid: &str) -> Option<SnapshotMeta> {
+        self.lock_state().snapshots.get(sid).cloned()
+    }
+
+    /// Size of a machine's disk file in bytes.
+    pub fn disk_bytes(&self, id: &str) -> u64 {
+        std::fs::metadata(self.machine_dir(id).join("rootfs.ext4")).map(|m| m.len()).unwrap_or(0)
+    }
+
+    /// Hold `mem_mib` against the budget, or refuse with HostFull.
+    fn reserve(&self, mem_mib: u32) -> Result<Reservation<'_>> {
+        let mib = u64::from(mem_mib);
+        let mut st = self.lock_state();
+        let used: u64 =
+            st.machines.values().map(|m| u64::from(m.mem_mib)).sum::<u64>() + st.reserved_mib;
+        if used + mib > self.cfg.max_mem_mib {
+            return Err(VmdError::HostFull(format!(
+                "{mib} MiB asked, {used} of {} MiB in use",
+                self.cfg.max_mem_mib
+            )));
+        }
+        st.reserved_mib += mib;
+        Ok(Reservation { host: self, mib })
     }
 
     pub fn snapshots(&self) -> Vec<SnapshotMeta> {
@@ -483,6 +550,7 @@ impl Host {
         }
         let vcpus = req.vcpus.unwrap_or(self.cfg.default_vcpus).clamp(1, 32);
         let mem_mib = req.mem_mib.unwrap_or(self.cfg.default_mem_mib).clamp(128, 256 * 1024);
+        let _held = self.reserve(mem_mib)?;
         let id = new_id("vm");
         let t_all = Instant::now();
         let (dir, slot) = self.prepare(&id, &egress).await?;
@@ -669,6 +737,7 @@ impl Host {
             self.lock_state().snapshots.get(sid).cloned().ok_or(VmdError::SnapshotNotFound)?;
         let egress = req.egress.clone().unwrap_or_else(|| snap.egress.clone());
         egress.validate().map_err(|e| VmdError::InvalidInput(format!("{e:#}")))?;
+        let _held = self.reserve(snap.mem_mib)?;
         let sdir = self.snapshot_dir(sid);
         let id = new_id("vm");
         let t_all = Instant::now();

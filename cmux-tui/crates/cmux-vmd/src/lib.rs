@@ -11,6 +11,7 @@ pub mod cmd;
 pub mod fc;
 pub mod host;
 pub mod net;
+pub mod ownhost;
 pub mod proto;
 pub mod provider;
 pub mod server;
