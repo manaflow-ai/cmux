@@ -1036,7 +1036,7 @@ function ComposerFrame({
   const field = useRef<MarkdownFieldHandle>(null);
   const closeRunOn = () => {
     setRunningOn(false);
-    field.current?.focus();
+    focusRoute(field.current, "person", "the Run on N agents panel closed: the composer");
   };
   /// The composer's box, read when the Run on N agents popover is placed.
   const composerAnchor = {
