@@ -417,7 +417,7 @@
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
-    "cmux-next-tip-test-compile.yml#compile": {
+    "cmux-next-tip-test-compile.yml#compile-fleet": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
