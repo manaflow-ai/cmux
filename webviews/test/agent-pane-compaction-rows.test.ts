@@ -1829,3 +1829,35 @@ test("a steer before the Stop stays in its turn, and an answered Stop marks noth
     client.close();
   }
 });
+
+// chat-flow-shift-budget-browser.test.ts, compaction-steer: a prompt sent while /compact ran opened
+// its turn, which noted the compaction as ended, so its note was drawn above the prompt. The
+// compaction's late end only changes the note's words there; it moved the note under the prompt
+// (#57527's move, meant for a note still drawn as the live line under the steer), a ~75 px jump.
+test("a compaction the next turn's start noted as ended keeps its place above that prompt when it ends", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "/compact", turnId: "t-1" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "manual" })],
+      ["mux", "user_message", { text: "Now move the retry cap into one place.", turnId: "t-2" }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  const order = () =>
+    rows()
+      .filter((row) => row.kind === "compaction" || row.kind === "user")
+      .map((row) => (row.kind === "user" ? (row.text ?? "").split(" ")[0] : `compaction:${row.compaction?.state}`));
+  expect(order()).toEqual(["/compact", "compaction:failed", "Now"]);
+  daemon.push(
+    record(
+      [
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", reason: "manual" })],
+        ["in", "compaction_summary", update({ sessionUpdate: "compaction_summary", text: "Summary." })],
+      ],
+      6,
+    ),
+  );
+  expect(order()).toEqual(["/compact", "compaction:completed", "Now"]);
+});

@@ -11130,8 +11130,13 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
+      // Only one still running moves: its row was the live line under the steer. One a new turn's
+      // start already noted as ended (`inferred`, settleCompactions) is drawn as its note, in place
+      // above the steer; its end only changes its words there, never moving it ~75 px under the steer
+      // (chat-flow-shift-budget-browser.test.ts, compaction-steer: "compaction ends").
       else if (
         compaction.state !== "running" &&
+        running?.compaction?.state === "running" &&
         running?.seq !== undefined &&
         this.rows
           .rowsFrom(running.seq + 1)
