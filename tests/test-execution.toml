@@ -731,6 +731,10 @@ path = "tests/test_classic_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_release_compile_script.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_classic_nightly_one_mini.py"
 lane = "linux-guard"
 
