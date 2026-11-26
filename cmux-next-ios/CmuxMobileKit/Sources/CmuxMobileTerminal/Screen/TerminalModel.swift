@@ -276,6 +276,8 @@ public final class TerminalModel {
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
+    /// The composer's text view, for the controller's inset (`stripOverlap`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
 
     public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
                 quietStatus: QuietStatusGate = QuietStatusGate()) {

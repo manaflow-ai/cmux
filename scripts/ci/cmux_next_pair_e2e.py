@@ -1505,14 +1505,12 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
     def save(name, text, lines=400):
         return save_redacted(out, name, text, lines)
 
-    try:  # the worker's rule (build-fleet console_session.go): loginwindow or no key is nobody
-        scutil = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n",
-                                capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        scutil = ""
-    console = re.search(r"(?m)^\s*Name : (\S+)", scutil)
+    # The worker's rule (build-fleet console_session.go readConsoleUser): IOConsoleUsers' session on the console, not
+    # scutil's ConsoleUser, which a Screen Sharing login to another account takes over (bench_launch.console_user).
+    from bench_launch import console_user
+    console = console_user()
     facts = (f"running {app.poll() is None}, account {pwd.getpwuid(os.getuid()).pw_name}, console user "
-             f"{console.group(1) if console else 'none'}, launchd {run(['/bin/launchctl', 'managername'], 10).strip()}, "
+             f"{console or 'none'}, launchd {run(['/bin/launchctl', 'managername'], 10).strip()}, "
              f"socket {'present' if os.path.exists(sock) else 'absent'}")
     files = [save("mac-app-sample.txt", run(["/usr/bin/sample", str(app.pid), "3", "-file", "/dev/stdout"], 60), 2000),
              save("mac-app-unified.log", run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact",
