@@ -1,6 +1,6 @@
 //! A fake ssh that keeps a master as real ssh does: with a ControlPath whose socket is there it
 //! is a mux client ("mux"), else it logs in (0.3 s, "login") and leaves the socket behind,
-//! as the master ssh backgrounds once authenticated does. `-O exit` removes it ("exit").
+//! as the master ssh backgrounds once authenticated does.
 
 use super::*;
 use std::sync::Arc;
@@ -23,16 +23,14 @@ impl Fake {
         let script = format!(
             r#"#!/bin/sh
 log='{log}'
-cp=''; tunnel=0; op=''; prev=''
+cp=''; tunnel=0; prev=''
 for a in "$@"; do
   case "$a" in
-    ControlPath=*) cp="${{a#ControlPath=}}" ;;
     -W) tunnel=1 ;;
   esac
-  [ "$prev" = "-O" ] && op="$a"
+  [ "$prev" = "-S" ] && cp="$a"
   prev="$a"
 done
-if [ -n "$op" ]; then echo exit >> "$log"; rm -f "$cp"; exit 0; fi
 if [ -n "$cp" ] && [ -e "$cp" ]; then echo mux >> "$log"
 else sleep 0.3; echo login >> "$log"; if [ -n "$cp" ]; then : > "$cp"; fi
 fi
@@ -86,7 +84,7 @@ printf '{{"websocket":{{"token":"dash"}}}}\0{PEER_TOKEN}'
 /// A first connect as `open_ssh` runs it: the tunnel, and the token read beside it.
 async fn first_connect(fake: &Fake, peer: &Peer) {
     let _tunnel = peer.open_tunnel().await.unwrap();
-    let ((token, peer_token), kept) = peer.connect_tokens_after(true).await.unwrap();
+    let ((token, peer_token), kept) = peer.connect_tokens().await.unwrap();
     assert_eq!((token.as_str(), peer_token.as_deref(), kept), ("dash", Some(PEER_TOKEN), false));
     fake.settle(2).await;
     peer.end_tunnel().await;
@@ -110,8 +108,8 @@ async fn every_ssh_to_a_host_names_its_one_master_under_the_home() {
         [
             "-o",
             "ControlMaster=auto",
-            "-o",
-            &format!("ControlPath={}", path.display()),
+            "-S",
+            path.to_str().unwrap(),
             "-o",
             &format!("ControlPersist={CONTROL_PERSIST_SECS}"),
             // Whichever ssh becomes the master (the token read, on a redial) keeps it probed.
@@ -168,28 +166,34 @@ async fn a_first_connect_is_one_login_and_a_restarted_daemon_logs_in_none() {
     let _tunnel = restarted.open_tunnel().await.unwrap();
     after.settle(3).await;
     restarted.end_tunnel().await;
-    let tokens = restarted.connect_tokens_after(false).await.unwrap();
+    let tokens = restarted.connect_tokens().await.unwrap();
     assert_eq!(tokens.0.1.as_deref(), Some(PEER_TOKEN));
     assert_eq!(after.count(), (1, 4), "the restart's tunnel and read log in none");
 }
 
 #[tokio::test]
-async fn a_dial_that_timed_out_with_no_word_from_ssh_drops_the_master() {
+async fn cold_peers_and_a_probe_share_one_login_to_the_same_host() {
     let fake = Fake::new();
-    let peer = fake.peer("sm-stale", "box-stale", fake.mux());
-    let path = peer.master_path().unwrap();
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(&path, b"").unwrap();
-    // ssh named a cause: its master is not the one at fault for a timeout of its own.
-    peer.note_ssh_failure_over_master(Some(ssh_errors_timeout()), Some(DialFail::Timeout)).await;
-    peer.note_ssh_failure_over_master(None, Some(DialFail::Refused)).await;
-    assert!(path.exists());
-    assert_eq!(fake.count(), (0, 0));
-    peer.note_ssh_failure_over_master(None, Some(DialFail::Timeout)).await;
-    assert!(!path.exists(), "the next attempt logs in again");
-    assert_eq!(fake.count(), (0, 1), "`ssh -O exit`, no login");
+    let mut mux = fake.mux();
+    mux.dir = Some(fake.dir.path().join("a space and a 'quote"));
+    let a = fake.peer("sm-race-a", "box-race", mux.clone());
+    let b = fake.peer("sm-race-b", "box-race", mux.clone());
+    let probe = fake.peer("sm-race-probe", "box-race", mux);
+    let ((), (), probe_tunnel) =
+        tokio::join!(first_connect(&fake, &a), first_connect(&fake, &b), probe.spawn_tunnel());
+    let _probe = probe_tunnel.unwrap();
+    fake.settle(5).await;
+    assert_eq!(fake.count(), (1, 5), "two tunnels, two reads, and one probe share one login");
 }
 
-fn ssh_errors_timeout() -> &'static str {
-    "SSH connection timed out"
+#[tokio::test]
+async fn an_exited_tunnel_releases_its_login_immediately() {
+    let fake = Fake::new();
+    let peer = fake.peer("sm-exited", "box-exited", fake.mux());
+    std::fs::write(&fake.program, "#!/bin/sh\nexit 1\n").unwrap();
+    let _tunnel = tokio::time::timeout(Duration::from_secs(1), peer.open_tunnel())
+        .await
+        .expect("a failed login should not take the SSH connect timeout")
+        .unwrap();
+    peer.end_tunnel().await;
 }

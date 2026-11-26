@@ -805,7 +805,7 @@ impl Peer {
             };
             let read = match ssh_tokens.take() {
                 Some(tokens) => Ok(tokens),
-                None => self.connect_tokens_after(early.is_some()).await,
+                None => self.connect_tokens().await,
             };
             let ((token, peer_token), kept) = match read {
                 Ok(tokens) => tokens,
@@ -894,7 +894,9 @@ impl Peer {
                 }
             }
             let reason = errors.finish().await;
-            self.note_ssh_failure_over_master(reason, error.fail).await;
+            // A WebSocket timeout can be specific to one remote daemon. OpenSSH's
+            // transport keepalives retire a dead master without ending healthy siblings.
+            self.note_ssh_failure(reason);
             // ssh's own failure class says more than the upgrade's error over its tunnel.
             let fail = ssh_errors::dial_fail(reason).or(error.fail);
             return Err(DialError::new(fail, ssh_errors::describe(error.text, reason)));
@@ -1139,7 +1141,7 @@ impl Peer {
                 let (token, peer_token) = self
                     .direct_credentials(None)
                     .ok_or_else(|| "no token for the peer yet".to_owned())?;
-                let (child, stream, remote_port, errors) = self.spawn_tunnel()?;
+                let (child, stream, remote_port, errors) = self.spawn_tunnel().await?;
                 let req = self.ws_request(
                     &format!("ws://127.0.0.1:{remote_port}"),
                     Some(&token),

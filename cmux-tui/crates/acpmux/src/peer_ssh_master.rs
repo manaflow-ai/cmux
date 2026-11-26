@@ -20,9 +20,10 @@
 //! A home too long for a unix socket's path gets no options: the ssh config decides, as before.
 
 use super::Peer;
-use crate::protocol::peer_state::DialFail;
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
+use std::fs::{OpenOptions, TryLockError};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -34,11 +35,8 @@ pub(crate) const CONTROL_PERSIST_SECS: u64 = 600;
 /// and ssh binds a temporary name 17 bytes longer before it renames it into place.
 const SOCKET_PATH_MAX: usize = 104 - 1 - 17;
 
-/// How often a token read that waits for the tunnel's master looks for its socket.
+/// While another SSH login starts, check for its control socket without spawning more SSH clients.
 const MASTER_POLL: Duration = Duration::from_millis(25);
-
-/// How long `ssh -O exit` may take to drop a master that stopped answering.
-const EXIT_FOR: Duration = Duration::from_secs(2);
 
 /// The ssh program and where its masters' sockets live.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,8 +81,8 @@ pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     Some([
         "-o".into(),
         "ControlMaster=auto".into(),
-        "-o".into(),
-        format!("ControlPath={path}"),
+        "-S".into(),
+        path,
         "-o".into(),
         format!("ControlPersist={CONTROL_PERSIST_SECS}"),
         "-o".into(),
@@ -159,77 +157,71 @@ impl Peer {
         ssh
     }
 
-    /// The tokens for a connect (`connect_tokens`). With `tunnel_logging_in` (a first connect's
-    /// tunnel started beside the read, `peer_carriers.rs`), a read that goes over ssh waits,
-    /// up to ssh's connect timeout, for that tunnel's login to leave its master, and rides it:
-    /// one login for the host, not two. Past the wait it runs anyway, with a login of its own.
-    pub(in crate::peer) async fn connect_tokens_after(
+    /// The first SSH process establishes the shared transport. A per-socket advisory lock
+    /// also covers a second daemon starting during handoff. The lock is released on exit
+    /// or cancellation, and a warm multiplexed channel only needs a socket existence check.
+    pub(in crate::peer) async fn spawn_ssh(
         &self,
-        tunnel_logging_in: bool,
-    ) -> Result<(crate::peer::tokens::Tokens, bool), String> {
-        let reads =
-            (self.token.is_none() || self.peer_token.is_none()) && self.read_tokens.get().is_none();
-        if tunnel_logging_in
-            && reads
-            && let Some(path) = self.master_path()
+        command: &mut tokio::process::Command,
+    ) -> io::Result<tokio::process::Child> {
+        // ssh_with_master adds -S only if the path can be used by OpenSSH.
+        let path =
+            self.master_path().filter(|_| command.as_std().get_args().any(|arg| arg == "-S"));
+        let Some(path) = path.filter(|path| !path.exists()) else {
+            return command.spawn();
+        };
+        let lock = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_extension("lock"))
         {
-            self.wait_for_master(&path, Duration::from_secs(self.ssh_connect_secs())).await;
-        }
-        self.connect_tokens().await
-    }
-
-    /// Until `path` (a master's socket) exists, the tunnel that would make it ends, the peer
-    /// stops, or `within` passes. No process: the socket file is looked for.
-    async fn wait_for_master(&self, path: &Path, within: Duration) {
-        let deadline = tokio::time::Instant::now() + within;
-        let mut stopped = self.stop_changed.subscribe();
-        while !path.exists() && tokio::time::Instant::now() < deadline {
-            if self.tunnel.try_lock().is_ok_and(|tunnel| tunnel.is_none()) {
-                return;
+            Ok(lock) => lock,
+            Err(_) => return command.spawn(), // Preserve ordinary SSH when locking is unavailable.
+        };
+        let mut stopped = self.stopped();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(self.ssh_connect_secs());
+        loop {
+            if *stopped.borrow() {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "peer stopped"));
+            }
+            if path.exists() {
+                return command.spawn();
+            }
+            match lock.try_lock() {
+                Ok(()) => break,
+                Err(TryLockError::WouldBlock) if tokio::time::Instant::now() < deadline => {}
+                Err(TryLockError::WouldBlock) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "waiting for peer SSH master to log in",
+                    ));
+                }
+                Err(TryLockError::Error(_)) => return command.spawn(),
             }
             tokio::select! {
-                _ = stopped.wait_for(|stopped| *stopped) => return,
+                _ = stopped.changed() => {}
                 () = tokio::time::sleep(MASTER_POLL) => {}
             }
         }
-    }
-
-    /// `note_ssh_failure`, and a master that let an attempt time out with no word from ssh
-    /// (a network that changed under it, a machine that paused) is dropped (`ssh -O exit`, no
-    /// login), so the next attempt logs in again instead of waiting on it until its keepalives
-    /// give up.
-    pub(in crate::peer) async fn note_ssh_failure_over_master(
-        &self,
-        reason: Option<&str>,
-        fail: Option<DialFail>,
-    ) {
-        self.note_ssh_failure(reason);
-        if reason.is_none() && fail == Some(DialFail::Timeout) {
-            self.drop_master().await;
-        }
-    }
-
-    /// Ends this host's master, when there is one, within `EXIT_FOR`.
-    pub(in crate::peer) async fn drop_master(&self) {
-        let (Some(path), Some((destination, _))) = (self.master_path(), self.ssh_parts()) else {
-            return;
-        };
-        let Some(options) = path.exists().then(|| options(&path)).flatten() else { return };
-        let exit = tokio::process::Command::new(self.ssh_mux().program)
-            .args(&options[2..4])
-            .args(["-O", "exit", "--", destination.as_str()])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true)
-            .status();
-        match tokio::time::timeout(EXIT_FOR, exit).await {
-            Ok(Ok(status)) => {
-                tracing::info!(peer = %self.name, %status, "dropped the ssh master an attempt timed out on")
+        let mut child = command.spawn()?;
+        // OpenSSH publishes the socket after authentication. On failure, pass the child's
+        // status and stderr back to the caller immediately. Keep the lock bounded even if
+        // a proxy command never produces a socket.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(self.ssh_connect_secs());
+        while !path.exists() && tokio::time::Instant::now() < deadline {
+            if child.try_wait()?.is_some() {
+                break;
             }
-            Ok(Err(e)) => tracing::warn!(peer = %self.name, "ssh -O exit: {e}"),
-            Err(_) => tracing::warn!(peer = %self.name, "ssh -O exit did not answer in time"),
+            tokio::select! {
+                _ = stopped.wait_for(|stopped| *stopped) => {
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "peer stopped"));
+                }
+                () = tokio::time::sleep(MASTER_POLL) => {}
+            }
         }
+        Ok(child)
     }
 }
 
