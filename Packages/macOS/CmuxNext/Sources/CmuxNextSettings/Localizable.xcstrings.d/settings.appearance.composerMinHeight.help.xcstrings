@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.composerMinHeight.help" : {
+      "comment" : "Settings > Appearance: a look's layout and proportions (appearance.metrics)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Höhe des einzeiligen Chat-Eingabefelds; bei längerem Text wächst es weiter. Ohne Wert gilt die Dichte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La hauteur du champ de saisie du chat sur une ligne ; il s’agrandit toujours avec un texte plus long. Sans valeur, celui de la densité."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ارتفاع مربع الكتابة ذي السطر الواحد في الدردشة؛ ويظل يكبر مع النص الأطول. بلا قيمة تُستخدم قيمة الكثافة."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La altura del cuadro de mensaje de una línea del chat; sigue creciendo con un mensaje más largo. Sin valor, el de la densidad."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天單行輸入框的高度；輸入較長內容時仍會長高。未設定時沿用密度的值。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天单行输入框的高度；输入较长内容时仍会变高。未设置时沿用密度的值。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅의 한 줄 입력창 높이입니다. 긴 입력에는 계속 늘어납니다. 설정하지 않으면 밀도 값을 따릅니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットの1行の入力欄の高さ。長い入力では引き続き伸びます。未設定なら密度の値です。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Visina jednorednog polja za unos u chatu; i dalje raste s dužim unosom. Bez vrijednosti važi gustina."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Højden på chattens inputfelt med én linje; det vokser stadig med længere tekst. Uden værdi gælder tætheden."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’altezza del campo di scrittura della chat su una riga; cresce comunque con un testo più lungo. Se non impostato, vale la densità."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្ពស់ប្រអប់សរសេរមួយបន្ទាត់នៃការជជែក ហើយវានៅតែរីកធំពេលសរសេរវែង។ បើមិនកំណត់ ប្រើតម្លៃនៃដង់ស៊ីតេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Høyden på chatens inndatafelt med én linje; det vokser fortsatt med lengre tekst. Uten verdi gjelder tettheten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wysokość jednowierszowego pola wpisywania czatu; nadal rośnie przy dłuższym tekście. Bez wartości obowiązuje gęstość."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A altura da caixa de mensagem de uma linha do chat; ela ainda cresce com textos mais longos. Sem valor, vale a densidade."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Высота однострочного поля ввода чата; при длинном тексте оно всё равно растёт. Без значения действует плотность."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ความสูงของช่องพิมพ์บรรทัดเดียวของแชท และยังขยายเมื่อพิมพ์ยาวขึ้น หากไม่ตั้งค่า จะใช้ค่าของความหนาแน่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sohbetin tek satırlık yazma kutusunun yüksekliği; uzun metinde yine büyür. Ayarlanmazsa yoğunluğunki geçerlidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Висота однорядкового поля введення чату; з довшим текстом воно все одно росте. Без значення діє щільність."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiều cao ô soạn tin một dòng của trò chuyện; ô vẫn cao lên khi nhập dài hơn. Nếu không đặt, dùng giá trị của mật độ."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
