@@ -132,7 +132,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. Retries after rate limits, capacity errors or a dropped connection. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. 0 waits longer after each failed try. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
-| `agents.autoRetry.capacityFallbackAfter` | real | `1` | 0 to 12 | Capacity Failures Before Switching to Sonnet. After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model. |
+| `agents.autoRetry.capacityFallbackAfter` | real | `0` | 0 to 12 | Capacity Failures Before Switching to Sonnet. After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model. |
 | `models.spreadUsage` | boolean | `true` |  | Spread Usage Across My Subscriptions. When one subscription runs out, a chat moves to another with the same model. |
 | `agents.cacheCompact.enabled` | boolean | `true` |  | Compact Before the Cache Expires. Compacts an idle Claude chat while its cache is warm, so the next message costs less. |
 | `agents.cacheCompact.minContextPercent` | real | `30` | 10 to 95 | Only Above Context Used (%). Chats using less of their context window than this are left as they are. |
