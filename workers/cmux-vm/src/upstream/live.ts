@@ -72,7 +72,17 @@ export interface UpstreamConfig {
   readonly timeoutMs?: number;
   /** How often a background request's stored result is polled (live-background.ts); tests set 1. */
   readonly backgroundPollMs?: number;
+  /** How often a disk grow re-reads a VM that is still starting (GROW_START_POLLS times); tests set 1. */
+  readonly startPollMs?: number;
 }
+
+/**
+ * A disk grow needs a running VM. One asked of a VM the provider still reports "starting" (a
+ * Cloud chat grows its disk right after the machine first answers, while the provider's state can
+ * lag: production 2026-11-26 01:08-01:29Z, 18 such 409s) waits for it, at most this many reads.
+ */
+const GROW_START_POLLS = 30;
+const DEFAULT_START_POLL_MS = 2_000;
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** Booting, snapshotting and shutting down can take longer than a read. */
@@ -209,7 +219,12 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   return {
     ...vmInstanceIdentity,
     resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
-      const current = yield* getVmById("resizeVm", id);
+      let current = yield* getVmById("resizeVm", id);
+      const growsDisk = size.diskMib !== undefined && size.diskMib > current.resources.storage;
+      for (let read = 0; growsDisk && current.state === "starting" && read < GROW_START_POLLS; read += 1) {
+        yield* Effect.sleep(config.startPollMs ?? DEFAULT_START_POLL_MS);
+        current = yield* getVmById("resizeVm", id);
+      }
       if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {
         return yield* Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 }));
       }
