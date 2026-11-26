@@ -5,6 +5,7 @@ import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxMobileLinkFFI
 import CmuxMobileModel
+import CmuxMobileTransport
 import CmuxMobileScreenSharing
 import Observation
 import QuartzCore
@@ -634,8 +635,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // A working agent or a program running in the tab: a phone close ends
         // its terminal with no way back. Ask first, exactly as the Mac's tab
         // close does (TabCloseGuard), from the Mac's own process state.
-        guard await confirmClose([tab], in: workspace) else { return false }
-        return await closeConfirmed(tab, in: workspace)
+        // One trace per Close Tab (PhoneTrace): its question's read and the close, against the
+        // one round trip a close needs.
+        return (try? await PhoneTrace.action("close-tab", floorRoundTrips: 1) {
+            guard await confirmClose([tab], in: workspace) else { return false }
+            return await closeConfirmed(tab, in: workspace)
+        }) ?? false
     }
 
     /// The tabs Close Tabs to the Left (`left`) or to the Right closes for `tab`, in order: the
@@ -666,16 +671,28 @@ public final class WorkspaceTabsSource: TabsDataSource {
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
+        // The tab leaves the grid at once, as on the Mac; the Mac's answer only confirms it. A
+        // refusal puts it back where it was, still selected if it was.
+        let position = store.workspace(id: workspaceID)?.tabs.firstIndex { $0.id == id }
+        let wasSelected = selectedTabID == id
+        let movesSelection = wasSelected || selectedTabID == nil
+        let next = removeTabHere(id)
+        // The kit reads `tabs` as soon as this returns (Safari's timing).
+        refreshTabs()
+        // Only the closed tab moves the choice: one that is only missing for now (a partial
+        // list) comes back on screen when it is listed again.
+        if movesSelection { selectedTabID = next?.id }
         do {
             try await creator.backend.closeTab(tab, in: workspace)
         } catch {
+            removedHere.remove(id)
+            if let position { store.insertTab(tab, at: position, in: workspaceID) }
+            if wasSelected { selectedTabID = id }
+            refreshTabs()
             show(TabNotice(action: .close(title: tab.title), macName: macName, reason: Self.message(error)))
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
-        let next = removeTabHere(id)
-        // The kit reads `tabs` as soon as this returns (Safari's timing).
-        refreshTabs()
         dropDraft(id)
         surfaces[id] = nil
         browsers[id] = nil
@@ -684,12 +701,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
-        // Only the closed tab moves the choice: one that is only missing for now (a partial
-        // list) comes back on screen when it is listed again.
-        if selectedTabID == id || selectedTabID == nil {
-            selectedTabID = next?.id
-            if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
-        }
+        if movesSelection, let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
         return true
     }
@@ -977,6 +989,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         let id = tab.id
         if tab.kind == .browser, !streamed.isLive, browsers[id] == nil { browsers[id] = BrowserTabModel(url: tab.url) }
+        if tab.kind == .browser, streamed.isLive { placeNewBrowserTab(tab, announce: true) }
         refreshTabs()
         // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
         // open a new chat with the keyboard up).
@@ -1135,6 +1148,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(opened, to: workspaceID)
             }
             if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: opened.url) }
+            if streamed.isLive { placeNewBrowserTab(opened, announce: !request.opensInBackground) }
             if request.opensInBackground {
                 show("Opened in a new tab.")
             } else {
@@ -1189,6 +1203,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func accessory(for kit: TabsKitTab, context: TabsKitContentContext) -> some View {
         WorkspaceTabAccessory(source: self, tabID: kit.id, context: context)
+    }
+
+    /// A terminal's top bar band is its page's ground (its Mac's theme and wallpaper), never the
+    /// kit's black: the page continues up to the screen's top edge under the bar.
+    public func topBarGround(for kit: TabsKitTab) -> AnyView? {
+        guard kit.kind == .terminal else { return nil }
+        return AnyView(TerminalPageGround(macID: workspace?.macID))
     }
 
     func remember(_ insets: EdgeInsets, pageSize: CGSize) {
@@ -1677,6 +1698,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(opened, to: workspaceID)
             }
             if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: url) }
+            if streamed.isLive {
+                var typed = opened
+                if typed.url == nil { typed.url = url }
+                placeNewBrowserTab(typed, announce: true)
+            }
             return opened.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
             show(named(error.message))
@@ -1706,6 +1732,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(created, to: workspaceID)
             }
             if created.kind == .browser, !streamed.isLive, browsers[created.id] == nil { browsers[created.id] = BrowserTabModel(url: created.url) }
+            if created.kind == .browser, streamed.isLive { placeNewBrowserTab(created, announce: true) }
             refreshTabs()
             if created.kind == .agent { surface(created.id).composerFocused = true }
             activate(created.id)
@@ -1782,6 +1809,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
                 store.appendTab(opened, to: workspaceID)
             }
+            // The terminal sent it to the Mac on purpose (Open on Mac, a Mac-only address): no rule moves it.
+            native.keepWhereItIs(tab: opened.id, macID: workspace.macID)
             activate(opened.id)
             openedTab = opened.id
         } catch let error as WorkspaceCreationError where error.isForPerson {

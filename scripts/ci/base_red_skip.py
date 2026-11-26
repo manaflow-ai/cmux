@@ -50,9 +50,11 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -60,20 +62,47 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deadline_http  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-DEADLINE_S = 40.0
+# The whole read set (one list, then at most --runs jobs reads) ends by DEADLINE_S; each read try by READ_S of it, so
+# one slow answer is tried again instead of eating the budget. 2026-11-25 from 12Z GitHub answered slowly, and with
+# one 40 s budget for up to 13 reads and no retry, decide-many failed open on PRs whose base was red (~2.0k PR
+# minutes of cargo that day). The cmux-next.yml step that runs it allows 3 minutes.
+DEADLINE_S = 90.0
+READ_S = 20.0
+READ_TRIES = 3
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 DECIDED = {"success": False, "failure": True}
 
 
-def get_json(path: str, token: str, deadline: deadline_http.Deadline):
+def get_json(path: str, token: str, deadline: deadline_http.Deadline, sleep=time.sleep):
+    """GET PATH as JSON: a timeout, a dropped connection or a 429/5xx is tried again (READ_TRIES tries, each at
+    most READ_S, all inside DEADLINE); any other status, or the last try's failure, raises."""
     req = urllib.request.Request(f"{API}{path}", headers={
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    status, body, _ = deadline_http.request(req, deadline=deadline)
-    if status != 200:
-        raise RuntimeError(f"GET {path}: HTTP {status}")
-    return json.loads(body)
+    last = ""
+    for attempt in range(READ_TRIES):
+        left = deadline.at - deadline.clock()
+        if left <= 0:
+            break
+        if attempt:
+            pause = min(2.0 ** attempt, left / 2)
+            sleep(pause)
+            left -= pause
+        try:
+            status, body, _ = deadline_http.request(
+                req, deadline=deadline_http.Deadline(min(READ_S, left), clock=deadline.clock))
+        except (OSError, http.client.HTTPException) as err:  # RequestTimeout and URLError are OSErrors
+            last = f"{type(err).__name__}: {err}"
+            continue
+        if status in RETRY_STATUSES:
+            last = f"HTTP {status}"
+            continue
+        if status != 200:
+            raise RuntimeError(f"GET {path}: HTTP {status}")
+        return json.loads(body)
+    raise RuntimeError(f"GET {path}: {last or 'no time left'} (after {READ_TRIES} tries or the {deadline.seconds:g} s deadline)")
 
 
 def base_verdicts(repo: str, workflow: str, jobs: list[str], base: str, runs: int, read, max_age_hours: float = 12.0,
