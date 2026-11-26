@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-pool-pod",
     "crates/cmux-terminal-host-protocol",
     "crates/acpmux-tui",
     "crates/cmux-egress",
@@ -54,6 +55,7 @@ members = [
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
+    "crates/cmux-git-cache",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
     "crates/cmux-migrate",
@@ -128,22 +130,26 @@ members = [
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
+    "crates/cmux-tui/tests/it/modules",
     "crates/cmux-wg",
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
+    "crates/cmux-braid-class",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
+    "crates/cmux-presence",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
@@ -233,6 +239,7 @@ default-members = [
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
     "crates/cmux-git",
+    "crates/cmux-git-cache",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
     "crates/cmux-migrate",
@@ -298,16 +305,19 @@ default-members = [
     "crates/cmux-transport",
     "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
+    "crates/cmux-braid-class",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
+    "crates/cmux-presence",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
@@ -408,11 +418,13 @@ cmux-coderouter = { path = "crates/cmux-coderouter" }
 cmux-session-cloud = { path = "crates/cmux-session-cloud" }
 cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
+cmux-tailnet-local = { path = "crates/cmux-tailnet-local" }
 cmux-tailnet-front = { path = "crates/cmux-tailnet-front" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-git-cache = { path = "crates/cmux-git-cache" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
@@ -421,6 +433,7 @@ cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
@@ -428,6 +441,7 @@ cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-migrate = { path = "crates/cmux-migrate" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
+cmux-presence = { path = "crates/cmux-presence" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-focus-core = { path = "crates/cmux-focus-core" }
@@ -520,6 +534,7 @@ cmux-remote = { path = "crates/cmux-remote", default-features = false, features 
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-braid-carrier = { path = "crates/cmux-braid-carrier" }
 cmux-braid-path = { path = "crates/cmux-braid-path" }
+cmux-braid-class = { path = "crates/cmux-braid-class" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
 cmux-host = { path = "crates/cmux-host" }
@@ -565,13 +580,16 @@ ip_network = "0.4"
 # smoltcp is the userspace TCP/IP stack those tunnels terminate in. Without a
 # congestion-control feature it runs with none and bursts a full window into
 # any bottleneck; CUBIC is the controller cmux-wg selects.
-smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
+smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "socket-tcp-bbr", "async"] }
 png = "0.17"
 libc = "0.2"
 # One poller for every idle terminal-host link (cmux-tui-core surface/idle_links.rs); tokio
 # already links mio with these features.
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
+# SIMD UTF-8 validation for ghostty-vt's neutral-run scan; already in the
+# graph via tokio-websockets and encoding_rs, so no new transitive code.
+simdutf8 = "0.1.5"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 # Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to
 # the Dioxus CLI that sends the patches (dx 0.7.10).

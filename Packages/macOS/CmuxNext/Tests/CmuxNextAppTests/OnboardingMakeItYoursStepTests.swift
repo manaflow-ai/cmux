@@ -172,6 +172,7 @@ import Testing
         #expect(make["opacity"]?.doubleValue == 0.8)
         #expect(make["opacitySet"]?.boolValue == false)
         #expect(make["material"] == .null)
+        #expect(make["chatsRunIn"]?.stringValue == "local", "chats stay on this Mac until the person picks Cloud")
         #expect(make["materials"]?.arrayValue?.compactMap(\.stringValue) == ["none", "frosted", "glass", "glass-clear"])
         #expect(state["footer"]?["primary"]?.stringValue == "continue")
 
@@ -181,12 +182,16 @@ import Testing
         _ = try await provider.call("cmux.onboarding.makeItYours.opacity", params: ["value": 0.55], context: clicked(303))
         _ = try await provider.call("cmux.onboarding.makeItYours.material", params: ["value": "frosted"], context: clicked(304))
         #expect(source.current == FirstRunChoices(workStyle: .terminal, density: "spacious", background: "daily", opacity: 0.55, material: .frosted))
+        _ = try await provider.call("cmux.onboarding.makeItYours.chatsRunIn", params: ["value": "cloud"], context: clicked(307))
+        #expect(source.current.chatsRunIn == .cloud)
+        #expect(source.applied.last?.old.chatsRunIn == .local)
         let after = try await provider.call("cmux.onboarding.state", params: [:], context: PageCallContext(page: "cmux.onboarding"))
         #expect(after["makeItYours"]?["opacity"]?.doubleValue == 0.55)
         #expect(after["makeItYours"]?["opacitySet"]?.boolValue == true)
         #expect(after["makeItYours"]?["material"]?.stringValue == "frosted")
+        #expect(after["makeItYours"]?["chatsRunIn"]?.stringValue == "cloud")
         for (op, params) in [("background", ["id": "elsewhere"]), ("density", ["value": "huge"]), ("material", ["value": "chrome"]),
-                             ("opacity", ["value": 2])] as [(String, JSONValue)] {
+                             ("opacity", ["value": 2]), ("chatsRunIn", ["value": "moon"])] as [(String, JSONValue)] {
             await #expect(throws: PageError.self) {
                 _ = try await provider.call("cmux.onboarding.makeItYours.\(op)", params: params, context: clicked(310))
             }
@@ -315,6 +320,49 @@ import Testing
         source.apply(FirstRunChoices(workStyle: .gui, density: "cozy", background: nil, opacity: 0.7, material: .frosted), from: model.makeItYours.choices)
         await source.settled()
         #expect(writer.publishes == 6)
+    }
+
+    /// The intro walk's screens (a look bundle, the trust and noise rows, Tidy) write their settings in
+    /// one publish per click, refuse a path the walk does not own, and Skip puts them back with the picks.
+    @Test func walkWritesAreOnePublishAndSkipPutsThemBack() async throws {
+        let (settings, writer, url) = try await countedSettings(Self.ownSettings)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
+        let provider = OnboardingPageProvider(model: model)
+        model.stepDidAppear()
+        await Self.until { model.makeItYours.loaded }
+        await source.settled()
+
+        let bundle: JSONValue = ["writes": .array([
+            ["path": "appearance.twoTone", "value": "auto"],
+            ["path": "ui.calm", "value": "calm"],
+            ["path": "appearance.density", "value": "ultraCompact"],
+            ["path": "agents.defaultPermissionMode", "value": "ask"],
+            ["path": "notifications.sound", "value": .null],
+        ])]
+        _ = try await provider.call("cmux.onboarding.makeItYours.walk", params: bundle, context: clicked(650))
+        await source.settled()
+        #expect(writer.publishes == 1, "a bundle is one publish")
+        let file = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        #expect(file.value(at: ["appearance", "twoTone"])?.stringValue == "auto")
+        #expect(file.value(at: ["ui", "calm"])?.stringValue == "calm")
+        #expect(file.value(at: ["agents", "defaultPermissionMode"])?.stringValue == "ask")
+        #expect(file.value(at: ["appearance", "customDensity"]) == nil, "a bundle's density carries its linked edit")
+        await Self.until { model.makeItYours.choices.density == "ultraCompact" }
+        #expect(model.makeItYours.walk["appearance.twoTone"]?.stringValue == "auto")
+
+        await #expect(throws: (any Error).self) {
+            _ = try await provider.call("cmux.onboarding.makeItYours.walk",
+                                        params: ["writes": .array([["path": "terminal.fontSize", "value": 20]])], context: clicked(651))
+        }
+        await source.settled()
+        #expect(writer.publishes == 1, "a path the walk does not own writes nothing")
+
+        _ = try await provider.call("cmux.onboarding.skip", params: [:], context: clicked(652))
+        await source.settled()
+        #expect(writer.publishes == 2, "Skip is one publish")
+        #expect(try String(contentsOf: url, encoding: .utf8) == Self.ownSettings)
     }
 
     /// A reopen from the palette right after Skip (its restore still queued behind a pick's write)

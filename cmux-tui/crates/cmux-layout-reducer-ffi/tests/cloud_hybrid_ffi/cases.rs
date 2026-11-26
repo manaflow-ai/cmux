@@ -46,6 +46,45 @@ fn a_pro_account_gets_it_and_another_plan_hears_why_not() {
 }
 
 #[test]
+fn the_apps_cloud_send_runs_its_first_turn_here_on_a_plain_folder() {
+    let send = json!({
+        "account": {"plan": "next_pro", "signedIn": true},
+        "folder": true,
+        "catalog": {"defaultHarness": "claude", "harnesses": {"claude": {}}},
+    });
+    assert_eq!(
+        call(c"cloud_hybrid_gui_start", &send),
+        (OK, json!({"here": true, "probe": "cloud hybrid gui start: here"}))
+    );
+    let mut repo = send.clone();
+    repo["repository"] = json!(true);
+    assert_eq!(
+        call(c"cloud_hybrid_gui_start", &repo),
+        (
+            OK,
+            json!({"here": false, "off": "repository",
+                    "probe": "cloud hybrid gui start: off repository"})
+        )
+    );
+    let mut bare = send.clone();
+    bare["catalog"] = Value::Null;
+    assert_eq!(call(c"cloud_hybrid_gui_start", &bare).1["off"], "no-local-harness");
+    let mut killed = send;
+    killed["killed"] = json!(true);
+    assert_eq!(call(c"cloud_hybrid_gui_start", &killed).1["off"], "kill-switch");
+}
+
+#[test]
+fn a_call_key_is_the_gateways_header_and_a_stable_hash() {
+    let ask = json!({"chatId": "c", "turnId": "t", "callSeq": 0});
+    let (code, reply) = call(c"cloud_hybrid_call_key", &ask);
+    assert_eq!(code, OK);
+    assert_eq!(reply["header"], "x-cmux-call-key");
+    assert_eq!(reply["key"].as_str().map(str::len), Some(64));
+    assert_eq!(call(c"cloud_hybrid_call_key", &ask).1, reply);
+}
+
+#[test]
 fn a_start_answers_here_at_once_and_goes_on_on_its_machine() {
     let begun = step(&Value::Null, json!({"on": "begin"}), 0);
     assert_eq!(

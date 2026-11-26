@@ -126,7 +126,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
     case tool(ACPToolCall)
-    case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(AgentQuestion)
     /// Subagents started together (ids into `AgentChatStore.subagents`).
@@ -141,7 +140,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
-        case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"
         case .question(let question): "q-\(question.id)"
         }
@@ -482,8 +480,6 @@ public final class AgentChatStore {
     public private(set) var pendingElevation: AgentElevationAsk?
     /// The sudo card's Approve is being signed and sent.
     public private(set) var sendingElevation = false
-    /// The running turn's latest plan.
-    public private(set) var runningPlanEntries: [ACPPlanEntry]?
     /// Turns before the newest that hold an edit (counted once per new turn).
     @ObservationIgnored private var editsBeforeLast: (count: Int, any: Bool) = (0, false)
 
@@ -495,7 +491,6 @@ public final class AgentChatStore {
         assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
-        assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
         let earlier = max(turns.count - 1, 0)
         if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
             editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
@@ -524,13 +519,6 @@ public final class AgentChatStore {
     nonisolated static func openQuestion(_ turn: AgentTurn) -> AgentQuestion? {
         for case .question(let question) in turn.items.reversed() where question.isPending {
             return question
-        }
-        return nil
-    }
-
-    nonisolated static func latestPlan(_ turn: AgentTurn) -> [ACPPlanEntry]? {
-        for item in turn.items.reversed() {
-            if case .plan(_, let entries) = item { return entries }
         }
         return nil
     }
@@ -935,10 +923,31 @@ public final class AgentChatStore {
     }
 
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
-    /// Stops a message's upload: it comes back to the composer (`promptNotSent`).
+    /// Stops a message on its way, at any stage (uploading, waiting for the link or a retry,
+    /// being written): it comes back to the composer (`promptNotSent`) to edit and send again,
+    /// as a new message.
     public func cancelSend(promptID: String) {
+        stoppedSends.insert(promptID)
         source.send(.cancelSend(promptID: promptID))
     }
+
+    /// Deletes a message on its way: its row goes now and nothing comes back to the composer.
+    public func deleteSend(promptID: String) {
+        deletedSends.insert(promptID)
+        outgoing.removeAll { $0.id == promptID }
+        source.send(.deleteSend(promptID: promptID))
+    }
+
+    /// Send now: a message waiting on a retry goes at once.
+    public func retrySend(promptID: String) {
+        source.send(.retrySend(promptID: promptID))
+    }
+
+    /// Messages the person stopped: one that comes back is sent again as a new message (a
+    /// stopped one may have been taken off the Mac's queue under its id).
+    @ObservationIgnored private var stoppedSends: Set<String> = []
+    /// Messages the person deleted: one that comes back anyway is dropped.
+    @ObservationIgnored private var deletedSends: Set<String> = []
 
     public func resumeQueue() {
         guard queuePaused else { return }
@@ -1272,8 +1281,25 @@ public final class AgentChatStore {
             if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
                shown.sent > progress.sent, progress.phase == .sending { break }
             outgoing[index].progress = progress
+        case .pendingSends(let rows):
+            let shown = Dictionary(rows.map { ($0.promptID, $0) }, uniquingKeysWith: { first, _ in first })
+            // A text message's row is the outbox's alone; one with files stays until its echo.
+            outgoing.removeAll { $0.attachments.isEmpty && shown[$0.id] == nil }
+            for index in outgoing.indices {
+                let row = shown[outgoing[index].id]
+                outgoing[index].waiting = row?.waiting ?? false
+                outgoing[index].canSendNow = row?.canSendNow ?? false
+                outgoing[index].stopping = row?.stopping ?? false
+            }
+            for row in rows where !deletedSends.contains(row.promptID) && !outgoing.contains(where: { $0.id == row.promptID }) {
+                outgoing.append(OutgoingMessage(id: row.promptID, text: row.text, attachments: [],
+                                                waiting: row.waiting, canSendNow: row.canSendNow, stopping: row.stopping))
+            }
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             outgoing.removeAll { $0.id == promptID }
+            if deletedSends.remove(promptID) != nil { break }
+            let stopped = stoppedSends.remove(promptID) != nil
+            defer { if stopped, resendable?.promptID == promptID { resendable = nil } }
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
@@ -1864,18 +1890,6 @@ public final class AgentChatStore {
                 if !call.isRunning, call.endedAt == nil { call.endedAt = Date() }
                 return call
             }
-        case .plan(let entries):
-            guard var turn = turns.last else { return }
-            if let index = turn.items.firstIndex(where: { if case .plan = $0 { return true }; return false }) {
-                if entries.isEmpty {
-                    turn.items.remove(at: index)
-                } else if case .plan(let id, _) = turn.items[index] {
-                    turn.items[index] = .plan(id: id, entries: entries)
-                }
-            } else if !entries.isEmpty {
-                turn.items.append(.plan(id: UUID().uuidString, entries: entries))
-            }
-            turns[turns.count - 1] = turn
         case .availableCommands(let commands):
             assign(\.availableCommands, commands)
         case .currentMode(let mode):
@@ -1978,18 +1992,29 @@ extension AgentChatStore {
     }
 }
 
-/// A message with files the phone is sending (``AgentChatStore/outgoing``).
+/// A message the phone is sending (``AgentChatStore/outgoing``): one with files from the tap, a
+/// text one while it waits.
 public struct OutgoingMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public let text: String
     public let attachments: [AgentAttachment]
     /// The current file's upload; nil until its first step.
     public var progress: AgentUploadProgress?
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
 
-    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil) {
+    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil,
+                waiting: Bool = false, canSendNow: Bool = false, stopping: Bool = false) {
         self.id = id
         self.text = text
         self.attachments = attachments
         self.progress = progress
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
     }
 }

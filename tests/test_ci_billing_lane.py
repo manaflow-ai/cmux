@@ -120,6 +120,8 @@ BILLING_TEST_NAMES = (
 def workflow_pull_request_paths() -> list[str]:
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = lines.index("  pull_request:")
+    if lines[start + 1].startswith("    types: "):  # the land tier's trigger types (tests/test_head_tier.py)
+        start += 1
     assert lines[start + 1] == "    branches: [feat-cmux-next]", "billing.yml must target feat-cmux-next"
     assert lines[start + 2] == "    paths:", "billing.yml pull_request must list paths after branches"
     paths = []

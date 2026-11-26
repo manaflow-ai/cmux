@@ -126,5 +126,7 @@ describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS"
     }
     expect(bytes).toBeLessThan(STATE_MAX_BYTES)
     expect(Object.keys(cur.confirm?.presence_keys ?? {}).every((i) => cur.installs[i])).toBe(true)
-  })
+    // 401 registers over a 3,000-install head, each serialized: CPU-bound, and past the suite's 20 s on a packed
+    // runner even run alone (run 45605232679, shard 6/12, twice; cmux#56511).
+  }, 120_000)
 })

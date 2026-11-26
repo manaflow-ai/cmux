@@ -17,7 +17,6 @@ import { DelayedSpinner, SPINNER_DELAY_MS } from "./conversation/DelayedSpinner"
 import { ShimmerText } from "./conversation/ShimmerText";
 import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { Thinking } from "./conversation/Thinking";
-import { formatDuration } from "./conversation/turns";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
 import { CloudSetupSteps, cloudSetupStep, type CloudSetupStepsLook } from "./conversation/CloudSetupSteps";
 import type { CloudSetupAction } from "./cloudSetup";
@@ -36,24 +35,40 @@ import {
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { gitHubPickerStore, githubFullName, useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
-import { type ChecklistStep, startupChecklist, type QuietStage, quietStage } from "./cloudStartViewModel";
+import { type ChecklistStep, startupChecklist, type QuietStage, quietStage, stageClock } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
 import { WithFacts } from "./chips/FactsHoverCard";
 
 type QuietLook = "inline" | "stacked" | "hint" | "thinking";
 
+/// When the stage on the line began: the host's start time, else the moment this view first showed
+/// the stage, so the clock always counts (a host that sends no start time for a step still gets
+/// seconds on its line, never a bare label). A new stage starts its own count.
+export function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
+  const seen = useRef<{ id: QuietStage["id"]; at: number } | undefined>(undefined);
+  if (!stage) {
+    seen.current = undefined;
+    return undefined;
+  }
+  if (seen.current?.id !== stage.id) seen.current = { id: stage.id, at: now };
+  return stage.since ?? seen.current.at;
+}
+
 /// The quiet view's one line while a start is on its way: the stage's words in the live line's look
-/// (the local Thinking line's shimmer, so the start still reads as a local first turn), its clock,
-/// then why the chat waits and for about how long (Leo, 2026-11-09: "the ergonomic part is super big
-/// for us."). Never the step list: that stays behind a failure (cloudStartQuietLook's arms).
+/// (the local Thinking line's shimmer, so the start still reads as a local first turn) and its live
+/// clock ("12s", then "1:05"), then the copy's own progress when it reports one (Leo, 2026-11-09:
+/// "the ergonomic part is super big for us."; Austin, 2026-11-24: "show the seconds, dont need to
+/// show usually under a minute that stuff"). Never the step list: that stays behind a failure
+/// (cloudStartQuietLook's arms).
 function StageLine({ stage, look, now }: { stage: QuietStage; look: Exclude<QuietLook, "thinking">; now: number }) {
-  const clock = stage.since === undefined ? undefined : formatDuration(Math.max(0, now - stage.since));
-  const eta = (
-    <span className="cv-worked__count acpmux-cloud-start__eta">
+  const since = useStageSince(stage, now);
+  const clock = since === undefined ? undefined : stageClock(Math.max(0, now - since));
+  const detail = stage.detail && (
+    <span className="cv-worked__count acpmux-cloud-start__progress">
       <span className="cv-worked__sep" aria-hidden="true">
         ·
       </span>
-      <span>{stage.eta}</span>
+      <span>{stage.detail}</span>
     </span>
   );
   return (
@@ -63,11 +78,15 @@ function StageLine({ stage, look, now }: { stage: QuietStage; look: Exclude<Quie
           <output className="cv-thinking is-shimmer">
             <ShimmerText text={stage.label} />
           </output>
-          {clock && <span className="cv-worked__time">{clock}</span>}
+          {clock && (
+            <time className="cv-worked__time" data-stage-clock>
+              {clock}
+            </time>
+          )}
         </span>
-        {look !== "stacked" && eta}
+        {look !== "stacked" && detail}
       </div>
-      {look === "stacked" && <div className="acpmux-cloud-start__eta-line">{stage.eta}</div>}
+      {look === "stacked" && stage.detail && <div className="acpmux-cloud-start__progress-line">{stage.detail}</div>}
       {look === "hint" && (
         <div className="acpmux-cloud-start__hint" aria-hidden="true">
           {Array.from({ length: stage.steps }, (_, index) => (
@@ -756,6 +775,7 @@ export function CloudStartView({
           waiting={!failed}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
+          {...(onSetUpDismiss && !failed ? { onCancel: onSetUpDismiss } : {})}
         />
       </section>
     );

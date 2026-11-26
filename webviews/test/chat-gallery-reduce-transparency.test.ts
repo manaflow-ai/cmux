@@ -18,7 +18,7 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
     return;
   }
   // desktop.css first, as every page loads it: it holds the glass levels the gallery names.
-  const css = ["pages/shared/desktop.css", "agent-session/acpmux/summary/summary.css"]
+  const css = ["pages/shared/desktop.css", "ui/glass/glass.css", "agent-session/acpmux/summary/summary.css"]
     .map((file) => readFileSync(path.resolve(import.meta.dir, "../src", file), "utf8"))
     .join("\n");
   let browser: Browser | undefined;
@@ -35,7 +35,7 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
       // A translucent window (or a custom surface) sends a fully clear page background, so the solid
       // look must come from the always-opaque surface token, as the composer's does. The glass
       // levels come from desktop.css in the app; the page sets the popover level's values here.
-      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40);--ds-glass-popover-tint:70%;--ds-glass-popover-blur:blur(24px) saturate(1.25)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
+      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40);--ds-glass-popover-tint:70%;--ds-glass-popover-blur:blur(24px) saturate(1.25)}${css}</style><div class="acpmux-chat-gallery ui-glass" id="g"></div>`,
     );
     return page;
   }
@@ -68,15 +68,15 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
           if (rule instanceof CSSMediaRule && rule.conditionText.includes("prefers-reduced-transparency"))
             for (const inner of rule.cssRules)
               if (inner instanceof CSSStyleRule && dialog.matches(inner.selectorText)) {
-                for (const name of ["backdrop-filter", "background", "background-color"]) {
+                for (const name of ["--glass-backdrop", "--glass-tint"]) {
                   const value = inner.style.getPropertyValue(name);
-                  if (value) values[name] = value;
+                  if (value) values[name] = `${value}${inner.style.getPropertyPriority(name) ? " !important" : ""}`;
                 }
               }
       return values;
     });
-    expect(set["backdrop-filter"]).toBe("none");
-    expect(set.background ?? set["background-color"]).toBe("var(--cmux-surface-solid, var(--acpmux-base, Canvas))");
+    expect(set["--glass-backdrop"]).toBe("none !important");
+    expect(set["--glass-tint"]).toBe("var(--glass-opaque) !important");
     await page.close();
   });
 });

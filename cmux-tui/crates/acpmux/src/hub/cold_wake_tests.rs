@@ -317,6 +317,7 @@ async fn task_and_offer_results_name_their_sender_and_join_the_window() {
             admitted: false,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         super::super::digest::gathers(&session, &s)
     };

@@ -66,7 +66,7 @@ fn a_day_in_drops_the_trailing_zero() {
 }
 
 #[test]
-fn almost_full_under_two_gib_free() {
+fn almost_full_under_four_gib_or_fifteen_percent_free() {
     let view = view(Some(gib(20.0)), &split(20.0, 5.4, 9.0, 4.2)).unwrap();
     assert_eq!(view.label, "18.6 / 20 GB");
     assert_eq!(view.text, "18.6 of 20 GB, 1.4 free");
@@ -84,6 +84,42 @@ fn almost_full_under_two_gib_free() {
     };
     assert_eq!(at(ALMOST_FULL_FREE_BYTES), DiskState::Ok);
     assert_eq!(at(ALMOST_FULL_FREE_BYTES - 1), DiskState::AlmostFull);
+    // A 40 GiB disk is almost full under 6 GiB (15%), not 4.
+    assert_eq!(almost_full_under(gib(40.0)), gib(6.0));
+    let big = |free: f64| {
+        let r = DiskReport {
+            total_bytes: Some(gib(40.0)),
+            used_bytes: Some(gib(40.0 - free)),
+            free_bytes: Some(gib(free)),
+            ..DiskReport::default()
+        };
+        super::view(None, &r).unwrap().state
+    };
+    assert_eq!(big(5.0), DiskState::AlmostFull);
+    assert_eq!(big(6.5), DiskState::Ok);
+}
+
+#[test]
+fn a_disk_health_names_its_chats_and_last_eviction() {
+    let value = serde_json::json!({"rootTotalBytes": 1, "diskSplit": {"systemBytes": 1,
+        "chats": [{"id": "c-small", "bytes": 5}, {"id": "c-big", "bytes": 900}],
+        "evicted": {"at": 7, "freedBytes": 4096, "paths": ["/home/u/.npm/_cacache"]}}});
+    let chats = chats_from_health(&value);
+    assert_eq!(
+        chats,
+        [ChatDisk { id: "c-big".into(), bytes: 900 }, ChatDisk { id: "c-small".into(), bytes: 5 }]
+    );
+    assert_eq!(
+        eviction_from_health(&value),
+        Some(DiskEviction {
+            at: 7,
+            freed_bytes: 4096,
+            paths: vec!["/home/u/.npm/_cacache".into()]
+        })
+    );
+    let old = serde_json::json!({"total_mb": 20480});
+    assert!(chats_from_health(&old).is_empty());
+    assert_eq!(eviction_from_health(&old), None);
 }
 
 #[test]
@@ -93,7 +129,8 @@ fn just_grown_the_guest_total_wins_over_the_record() {
     assert_eq!(view.label, "20.5 / 24 GB");
     assert_eq!(view.text, "20.5 of 24 GB, 3.5 free");
     assert_eq!(view.total_gb, 24.0);
-    assert_eq!(view.state, DiskState::Ok);
+    // 3.5 GB free is still under the 4 GiB budget: the next grow is on its way.
+    assert_eq!(view.state, DiskState::AlmostFull);
 }
 
 #[test]

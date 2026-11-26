@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
+use optchat_chief::gateway::{GatewayFallback, GatewayHealth};
 use optchat_chief::subagents::{Spawner, SubagentSettings, auto_route_on};
 use optchat_chief::tools::Orchestrator;
 use serde_json::json;
@@ -227,4 +228,69 @@ fn pinned_harness_controls_machine_login_selection_and_cached_auth_fallback() {
             "the paired Mac has no Codex login: {answer}"
         );
     }
+}
+
+#[test]
+fn gateway_fallback_allows_codex_when_subagent_routing_is_off() {
+    let engine_dir = tempfile::tempdir().unwrap();
+    let engine_file = engine_dir.path().join("engine.json");
+    optchat_chief::engine::save(
+        &engine_file,
+        &optchat_chief::engine::EngineChoice {
+            subagent_routing: Some("off".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let gateway = Arc::new(GatewayHealth::new(
+        "sr2:4016",
+        3,
+        GatewayFallback::Harness("codex".into()),
+    ));
+    for n in 0..3 {
+        let _ = gateway.record_refusal(&format!("a{n}"), "ECONNREFUSED");
+    }
+    let sp = Arc::new(
+        Spawner::new(
+            h.chat.clone(),
+            h.agents.clone(),
+            SubagentSettings {
+                harness: "claude".into(),
+                policy: "approve-all".into(),
+                model: None,
+                effort: None,
+                preset: Some("optchat-sub-h0me".into()),
+                cwd: h.dir.path().join("subagent"),
+                prefix: "optchat-sub-h0me".into(),
+                parent: optchat_chief::brain::PARENT.into(),
+                claude_md: None,
+            },
+            h.tx.clone(),
+            Arc::new(|_: &str| {}),
+        )
+        .with_engine_file(Some(engine_file))
+        .with_families(
+            [
+                ("claude".into(), optchat_chief::acpmux::Family::Claude),
+                ("codex".into(), optchat_chief::acpmux::Family::Codex),
+            ]
+            .into(),
+        )
+        .with_gateway(Some(gateway)),
+    );
+    let answer = run(&mut h, move || {
+        sp.spawn_with_route(
+            vec!["fix the gateway".into()],
+            None,
+            None,
+            None,
+            Some("codex".into()),
+            None,
+        )
+    })
+    .unwrap();
+    assert!(answer.contains("Started a1"), "{answer}");
+    assert_eq!(sub_harnesses(&h), vec!["codex"]);
 }

@@ -7,5 +7,3 @@ _meta.acpmux#noProject the pane's own key (Do not work in a project): AcpmuxPath
 _meta.acpmux#ownerCloud a reply key: RemoteAcpmuxWire answers initialize as the remote daemon, and acpmux's own initialize reply carries it too
 _acpmux/side_chat a remote chat's page method that RemoteAcpmuxWire serves itself through the machine's daemon (agent-session-side); no acpmux serves it, and this Mac's acpmux answers it Method not found
 _acpmux/attach#hold the row store's read-free attach (rows/holdKinds.ts, attach-hold-v1): acpmux reads it from the raw params (server/requests.rs MUX_ATTACH, hold_attach_filter), but its typed AttachParams, which emits the protocol, does not name it yet
-_acpmux/trace/spans the daemon's Chrome trace sink (perf_trace.rs METHOD_SPANS, served in server/chats.rs ahead of the typed protocol table): the app hands its own spans over; the protocol's spec does not list the trace methods yet
-_acpmux/trace/status the daemon's Chrome trace state (perf_trace.rs METHOD_STATUS, served beside _acpmux/trace/spans): whether CMUX_TRACE_FILE is set; the protocol's spec does not list the trace methods yet

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextPalette
 @testable import CmuxNextApp
 import Testing
@@ -170,9 +171,11 @@ import Testing
     /// The toolbar's profile menu for tab `tab-1`, whose profile is `current`.
     static func toolbarProfileMenu(_ services: AppServices, current: String = BrowserProfileRecord.defaultID,
                                    profileActions: Bool = true, header: (title: String, subtitle: String?, image: NSImage?)? = nil,
-                                   workspace: String? = nil) -> NSMenu {
+                                   workspace: String? = nil, style: BrowserProfileMenuStyle = .list,
+                                   account: (name: String, image: NSImage?)? = nil) -> NSMenu {
         services.registry.makeBrowserProfileMenu(tabKey: "tab-1", current: current, profiles: profiles.map { ($0.id, $0.name) },
-                                                 profileActions: profileActions, header: header, workspace: workspace)
+                                                 profileActions: profileActions, header: header, workspace: workspace,
+                                                 style: style, account: account)
     }
 
     /// The menu as the toolbar's profile button opens it (cmuxterm-hq RFD 0050, D2): the tab's profile and why it has it
@@ -217,13 +220,71 @@ import Testing
         #expect(!zip(separators, separators.dropFirst()).contains { $0 && $1 }, "two separators in a row")
     }
 
-    @Test func everyBrowserToolbarProfileMenuRowHasAPaletteRow() {
+    @Test(arguments: BrowserProfileMenuStyle.allCases) func everyBrowserToolbarProfileMenuRowHasAPaletteRow(style: BrowserProfileMenuStyle) {
         let services = Self.services()
         let palette = Self.paletteIDs(services.registry)
-        let gaps = Self.gaps(in: [("toolbar profile menu", Self.toolbarProfileMenu(services)),
-                                  ("incognito toolbar profile menu", Self.toolbarProfileMenu(services, profileActions: false))],
+        let header = BrowserProfileBadge(monogram: "D", color: nil, name: "Default").menuHeader(.builtIn)
+        let gaps = Self.gaps(in: [("toolbar profile menu", Self.toolbarProfileMenu(services, header: header, style: style,
+                                                                                   account: ("leo@example.com", nil))),
+                                  ("incognito toolbar profile menu", Self.toolbarProfileMenu(services, profileActions: false, style: style))],
                              registry: services.registry, palette: palette)
         #expect(gaps.isEmpty, "\(gaps.count) toolbar profile menu rows with no palette row:\n\(gaps.joined(separator: "\n"))")
+    }
+
+    /// Settings > Experiments > Browser Profile Card off (the default): the button opens cmux#51248's menu, no card, no
+    /// account row, no avatars on the other profiles (Leo's UI hold, 2026-11-25).
+    @Test func browserToolbarProfileMenuIsTodaysWhileTheCardExperimentIsOff() throws {
+        let services = Self.services()
+        #expect(!DesignSettings.shared.experiment("browserProfileCard"))
+        let menu = BrowserToolbarHandlers.profileMenu(forTab: "tab-1", services: services)
+        #expect(!menu.items.contains { $0.view != nil || $0.identifier == ActionRegistry.browserProfileAccountID
+            || $0.identifier == ActionRegistry.browserProfileCustomizeID })
+        let carded = BrowserToolbarHandlers.profileMenu(forTab: "tab-1", services: services, style: .card)
+        #expect(carded.items.first?.view is MenuProfileCardView)
+    }
+
+    /// The look the experiment opens (Leo 2026-11-25, Helium's profile menu): the card leads, with who is signed in to cmux
+    /// under it opening Accounts; New Browser Profile, New Incognito Window and Manage Browser Profiles sit together;
+    /// the profile's own rows are one level down, in Customize Profile; Import from Browser and the Web Store end it.
+    @Test func browserToolbarProfileMenuCardLeadsWithTheProfileCard() throws {
+        let services = Self.services()
+        let registry = services.registry
+        registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
+        let menu = Self.toolbarProfileMenu(services, current: "work", header: BrowserProfileBadge(monogram: "W", color: nil, name: "Work")
+            .menuHeader(.workspace), workspace: "ws-1", style: .card, account: ("leo@example.com", nil))
+
+        let header = try #require(menu.items.first)
+        #expect(header.identifier == ActionRegistry.browserProfileHeaderID && !header.isEnabled)
+        let card = try #require(header.view as? MenuProfileCardView)
+        #expect(card.title == "Work" && card.subtitle == BrowserProfileStrings.reason(.workspace) && card.image != nil)
+
+        let account = try #require(menu.items.dropFirst().first)
+        #expect(account.identifier == ActionRegistry.browserProfileAccountID && account.title.contains("leo@example.com"))
+        #expect(ActionRegistry.menuRun(of: account)?.id == "accounts.show")
+
+        let runs = menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { (item, $0.id) } }
+        let ids = runs.map(\.1)
+        let new = try #require(ids.firstIndex(of: "browserProfile.new"))
+        #expect(Array(ids[new...].prefix(3)) == ["browserProfile.new", "newIncognitoWindow", "openSettings"],
+                "New Browser Profile, New Incognito Window and Manage Browser Profiles sit together: \(ids)")
+        #expect(ids.suffix(2) == ["importFromBrowser", "browser.extensions.webStore"])
+        #expect(!ids.contains("browserProfile.rename"), "the profile's own rows are in Customize Profile, not at the top level")
+
+        let customize = try #require(menu.items.first { $0.identifier == ActionRegistry.browserProfileCustomizeID })
+        let inside = Self.rows(try #require(customize.submenu), "").compactMap { ActionRegistry.menuRun(of: $0.1)?.id }
+        #expect(inside.contains("browserProfile.rename") && inside.contains("browserProfile.delete") && !inside.contains("browserProfile.new"))
+
+        // Signed out: no account row. Incognito: no card, no Customize Profile.
+        let signedOut = Self.toolbarProfileMenu(services, header: BrowserProfileBadge(monogram: "D", color: nil, name: "Default")
+            .menuHeader(.builtIn), style: .card)
+        #expect(!signedOut.items.contains { $0.identifier == ActionRegistry.browserProfileAccountID })
+        let incognito = Self.toolbarProfileMenu(services, profileActions: false, style: .card)
+        #expect(!incognito.items.contains { $0.identifier == ActionRegistry.browserProfileCustomizeID || $0.view != nil })
+        for shown in [menu, signedOut, incognito] {
+            let separators = shown.items.map(\.isSeparatorItem)
+            #expect(separators.first == false && separators.last == false)
+            #expect(!zip(separators, separators.dropFirst()).contains { $0 && $1 }, "two separators in a row")
+        }
     }
 
     /// The other way: the toolbar's profile menu offers every action of the profile's own menu

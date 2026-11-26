@@ -1,3 +1,4 @@
+import type { StatusItem } from "./composerStatusModel";
 import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
 import type { PeerLinkState } from "./protocol/generated/types";
 
@@ -6,7 +7,7 @@ import type { PeerLinkState } from "./protocol/generated/types";
 /// snapshot that dropped that row would leave the picker no state, so it would read the peer as ready.
 type LinkState = PeerLinkState | "restarting";
 const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "restarting", "offline"]);
-/// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `downReason`, `since`, `nextRetryAt`), what the pane
+/// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `downReason`, `since`, `nextRetryAt`, `status`), what the pane
 /// draws (linkState.ts); `state` stays the older word every other reader compares.
 type Link = {
   state: LinkState;
@@ -18,6 +19,19 @@ type Link = {
 type VersionedLink = { link: Link; revision: number };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+/// The link's dot item (`status`), field by field: a new one redraws the dot.
+const sameStatus = (a: StatusItem | undefined, b: StatusItem | undefined) =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.kind === b.kind &&
+    a.level === b.level &&
+    a.words === b.words &&
+    a.subject === b.subject &&
+    a.since === b.since &&
+    a.until === b.until &&
+    a.showAt === b.showAt &&
+    a.action === b.action);
 const same = (a: Link | undefined, b: Link) =>
   a?.state === b.state &&
   a.lastSeen === b.lastSeen &&
@@ -26,7 +40,8 @@ const same = (a: Link | undefined, b: Link) =>
   a.detail?.carrier === b.detail?.carrier &&
   a.detail?.cause === b.detail?.cause &&
   a.detail?.downReason === b.detail?.downReason &&
-  a.detail?.nextRetryAt === b.detail?.nextRetryAt;
+  a.detail?.nextRetryAt === b.detail?.nextRetryAt &&
+  sameStatus(a.detail?.status, b.detail?.status);
 
 /// One local/app connection's snapshot and pushed state. The daemon names both proven origins
 /// `local`; a peer daemon's connection never hears this host's peer inventory (#26860).

@@ -488,6 +488,8 @@ pub mod method {
     /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
     /// cursor forward only.
     pub const MUX_SEEN: &str = "_acpmux/seen";
+    /// The person pins or unpins a chat (`hub/synced.rs`): one synced `pin/<id>` edit.
+    pub const MUX_PIN: &str = "_acpmux/pin";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
@@ -496,9 +498,10 @@ pub mod method {
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
     pub const MUX_HERE: &str = "_acpmux/here";
-    /// The chat titles and read marks a replica lacks since its version vector (`hub/synced.rs`).
+    /// The chat titles, read marks, pins and drafts a replica lacks since its version vector
+    /// (`hub/synced.rs`).
     pub const MUX_SYNC_PULL: &str = "_acpmux/sync/pull";
-    /// Another replica's title and read-mark edits, merged here (`hub/synced.rs`).
+    /// Another replica's title, read-mark, pin and draft edits, merged here (`hub/synced.rs`).
     pub const MUX_SYNC_PUSH: &str = "_acpmux/sync/push";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
@@ -629,6 +632,8 @@ pub mod method {
     pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
     pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
+    /// Open, list and close a listen on another member's agent address, and read what it receives.
+    pub const MUX_TEAM_LISTEN: &str = "_acpmux/team/listen";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -763,6 +768,9 @@ pub mod method {
     /// A chat's review brief: what it set out to do, what it dropped, where it was unsure
     /// (`review_brief.rs`), kept beside its log; the local socket and the app only.
     pub const MUX_REVIEW_BRIEF: &str = "_acpmux/review_brief";
+    /// A paused machine's file tree and search from its replica and journal, with no wake
+    /// (`server/paused_files.rs`, RFD 0144); the person only.
+    pub const MUX_PAUSED_FILES: &str = "_acpmux/paused_files";
     /// A review verdict on a session's pull request, written to the audit trail
     /// (`hub/audit_entries.rs`); the person's local socket or app only.
     pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";
@@ -931,6 +939,8 @@ pub mod method {
     pub const MUX_CONNECTIONS_SPREAD_SET: &str = "_acpmux/connections/spread.set";
     pub const MUX_CONNECTIONS_REMOVE: &str = "_acpmux/connections/remove";
     pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
+    /// Asks a provider whether a pasted API key (by its reference) is good, before `key.add`.
+    pub const MUX_CONNECTIONS_KEY_CHECK: &str = "_acpmux/connections/key.check";
     pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
@@ -938,6 +948,11 @@ pub mod method {
     /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
     pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
     pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// One-click Claude Code token: the daemon runs `claude setup-token` itself (`claude_token`).
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN: &str = "_acpmux/connections/claude_token.begin";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT: &str = "_acpmux/connections/claude_token.wait";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_CODE: &str = "_acpmux/connections/claude_token.code";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL: &str = "_acpmux/connections/claude_token.cancel";
     /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
     pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
     /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
@@ -1038,10 +1053,6 @@ pub mod method {
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";
-    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
-    /// agent or its Chief when the harness writes no plan of its own, and read back.
-    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
-    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
@@ -1062,11 +1073,16 @@ pub mod method {
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.
     pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
-    /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, auto, keepInCloud?}` ->
-    /// `{autoSession}`, the chat's row field after the switch.
+    /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, mode}` with `local`,
+    /// `auto` or `cloud`, or `{sessionId, auto, keepInCloud?}` -> `{autoSession}`, the chat's
+    /// row field after the switch.
     pub const MUX_AUTO_SESSION_SET: &str = "_acpmux/auto_session/set";
+    /// Moves an Auto chat now: `{sessionId, to}` with `cloud` or `local` -> `{autoSession}`. A
+    /// move the Cloud refuses is the request's error, in plain words.
+    pub const MUX_AUTO_SESSION_MOVE: &str = "_acpmux/auto_session/move";
     /// Move one chat between Local, Cloud and AutoCloud (`chat_place.rs`): `{sessionId, on,
-    /// reason?}` -> `{status: moved|already|needs_person, from, to, autoSession?, command?, why?}`.
+    /// reason?}` -> `{status: moved|moving|already|needs_person, from, to, autoSession?, command?,
+    /// why?}`. `moving`: the Cloud took the move and the chat is on its way (`autoSession.moving`).
     /// The person may make any move; a chat's own agent only the ones `chat_place::consent` allows.
     pub const MUX_CHAT_MOVE: &str = "_acpmux/chat_move";
     /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->

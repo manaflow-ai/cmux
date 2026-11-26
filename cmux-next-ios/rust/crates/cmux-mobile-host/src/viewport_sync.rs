@@ -1488,7 +1488,7 @@ mod tests {
         let mut ms = 0_u64;
         let mut line = 0_u64;
         let mut took_ms = Vec::with_capacity(bursts);
-        let mut tick = |sync: &mut ViewportSync, phone: &mut SyncReceiver, link: &mut FakeLink, ms: u64| {
+        let tick = |sync: &mut ViewportSync, phone: &mut SyncReceiver, link: &mut FakeLink, ms: u64| {
             let now = start + Duration::from_millis(ms);
             let sent = sync.poll(now);
             link.step(sync, phone, sent, now);

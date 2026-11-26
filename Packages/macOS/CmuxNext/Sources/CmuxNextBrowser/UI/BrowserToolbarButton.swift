@@ -55,6 +55,22 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// Accessibility identifier (UI automation, `debug.extensions.toolbar`).
     public var identifier: String { "browser.toolbar.\(rawValue)" }
 
+    /// The catalog action a press runs (`BrowserToolbarHandlers.actionID(for:)` in the App). The theme button runs
+    /// `browserTheme` from its menu, one item per scheme.
+    public var actionName: String {
+        switch self {
+        case .media: "browser.media.show"
+        case .zoom: "browserZoomReset"
+        case .favorites: "bookmark.manager"
+        case .downloads: "browser.downloads.show"
+        case .designMode: "toggleBrowserDesignMode"
+        case .profile: "browser.profile.choose"
+        case .theme: "browserTheme"
+        case .devTools: "toggleBrowserDeveloperTools"
+        case .overflow: "browser.overflow.menu"
+        }
+    }
+
     /// How early the button hides as the pane narrows (`BrowserToolbarButtonsView.collapse`):
     /// design mode and DevTools at level 1, the rest at level 2; More always
     /// stays and lists the hidden ones.

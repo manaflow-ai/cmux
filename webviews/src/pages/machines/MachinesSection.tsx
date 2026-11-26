@@ -8,6 +8,8 @@ import { memo, useRef, useSyncExternalStore, type MouseEvent } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Dialog } from "../../ui/Dialog";
+import "../../ui/motion/motion.css";
+import { revealControls } from "../../ui/revealCover";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import {
@@ -256,7 +258,7 @@ const JoinedRow = memo(function JoinedRow({
   };
   return (
     <li
-      className="machines-row machines-joined"
+      className="machines-row machines-joined ui-reveal-host"
       aria-label={[row.name, dialWords ?? caption, help ?? ""].filter(Boolean).join(", ")}
       data-menu-open={menuOpen ? "" : undefined}
       data-busy={busy ? "" : undefined}
@@ -266,11 +268,11 @@ const JoinedRow = memo(function JoinedRow({
       <Icon name={KIND_ICON[row.kind]} size={ICON} row fit className="machines-icon" />
       {/* tooltip-allow: the last check's step appears nowhere else on the row. */}
       <span className="machines-text" title={help}>
-        <span className="machines-name-line">
+        <span className="machines-name-line ui-reveal-text">
           <span className="machines-name machines-name-truncate">{row.name}</span>
           <HealthMark health={row.health} />
         </span>
-        <span className="machines-state-line">
+        <span className="machines-state-line ui-reveal-text">
           {inCaption ? (
             // An <output> is a status: a screen reader reads each new word of the ask as it lands.
             <output className="machines-state" data-dial={dial}>
@@ -293,59 +295,66 @@ const JoinedRow = memo(function JoinedRow({
           {dialWords}
         </output>
       )}
-      {busy ? (
-        <Spinner size={SMALL_ICON} className="machines-spinner machines-joined-spinner" loading />
-      ) : (
-        <button
-          type="button"
-          className="machines-action machines-more"
-          data-machine={machine.id}
-          aria-label={strings.format("machines.joined.more", row.name)}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          data-popup-open={menuOpen ? "" : undefined}
-          onMouseDown={(event) => event.button === 0 && openMenuAt(store, row.id, "joined", event, true)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            const rect = event.currentTarget.getBoundingClientRect();
-            void store.openMenu(row.id, "joined", rect.left, rect.bottom + 4);
-          }}
-        >
-          <Icon name="overflow.more" size={SMALL_ICON} />
-        </button>
-      )}
-      {!busy && (
-        <button
-          type="button"
-          className="machines-action machines-remove"
-          aria-label={strings.format("machines.joined.remove", row.name)}
-          onClick={() => store.askRemove(row.id)}
-        >
-          <Icon name="action.remove" size={SMALL_ICON} />
-        </button>
-      )}
+      {/* The row's buttons show only on hover, so they lie over the end of its words in a zero-width
+          slot of their own; a spinner or a stopped ask's words, which show without hover, keep
+          theirs (Leo, 2026-11-24). */}
+      <span className="machines-actions-anchor">
+        <span className="machines-actions" ref={revealControls}>
+          {busy ? null : (
+            <button
+              type="button"
+              className="machines-action machines-more"
+              data-machine={machine.id}
+              aria-label={strings.format("machines.joined.more", row.name)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              data-popup-open={menuOpen ? "" : undefined}
+              onMouseDown={(event) => event.button === 0 && openMenuAt(store, row.id, "joined", event, true)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                void store.openMenu(row.id, "joined", rect.left, rect.bottom + 4);
+              }}
+            >
+              <Icon name="overflow.more" size={SMALL_ICON} />
+            </button>
+          )}
+          {!busy && (
+            <button
+              type="button"
+              className="machines-action machines-remove"
+              aria-label={strings.format("machines.joined.remove", row.name)}
+              onClick={() => store.askRemove(row.id)}
+            >
+              <Icon name="action.remove" size={SMALL_ICON} />
+            </button>
+          )}
+          {asking ? null : (
+            <button
+              type="button"
+              className="machines-action machines-new"
+              aria-label={stopped && dialLayout !== "caption" ? retry : newWorkspace}
+              // tooltip-allow: why a workspace cannot open on a mesh-only machine.
+              title={
+                canOpen
+                  ? stopped && dialLayout !== "caption"
+                    ? retry
+                    : newWorkspace
+                  : strings.t("machines.joined.noWorkspace")
+              }
+              disabled={!canOpen}
+              onClick={open}
+            >
+              <Icon name={stopped && dialLayout !== "caption" ? "action.retry" : "action.add"} size={SMALL_ICON} />
+            </button>
+          )}
+        </span>
+      </span>
+      {busy ? <Spinner size={SMALL_ICON} className="machines-spinner machines-joined-spinner" loading /> : null}
       {asking ? (
         <Spinner size={SMALL_ICON} className="machines-spinner machines-joined-spinner machines-dial-spinner" loading />
-      ) : (
-        <button
-          type="button"
-          className="machines-action machines-new"
-          aria-label={stopped && dialLayout !== "caption" ? retry : newWorkspace}
-          // tooltip-allow: why a workspace cannot open on a mesh-only machine.
-          title={
-            canOpen
-              ? stopped && dialLayout !== "caption"
-                ? retry
-                : newWorkspace
-              : strings.t("machines.joined.noWorkspace")
-          }
-          disabled={!canOpen}
-          onClick={open}
-        >
-          <Icon name={stopped && dialLayout !== "caption" ? "action.retry" : "action.add"} size={SMALL_ICON} />
-        </button>
-      )}
+      ) : null}
     </li>
   );
 });
