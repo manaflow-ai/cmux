@@ -103,6 +103,7 @@ class Target:
     type: str
     path: str
     deps: list[str] = field(default_factory=list)
+    dep_blocker: str = ""  # a blocked dependency, even when the target's own import is named first
     imports: dict[str, str] = field(default_factory=dict)  # module -> first file importing it on Linux
     state: str = ""
     kind: str = ""
@@ -322,6 +323,13 @@ def dump_targets(pkg: str, env: dict[str, str], swift: str) -> set[str]:
     }
 
 
+# Remote packages whose products are Apple-only (an XCFramework or Cocoa API), as a binary blocker.
+APPLE_REMOTE = {
+    name: Target(package=f"remote:{name}", name=name, type="binaryTarget", path=f"remote:{name}")
+    for name in ("Sparkle", "sentry-cocoa", "swift-nio-transport-services")
+}
+
+
 def classify() -> list[Target]:
     targets: list[Target] = []
     products: dict[str, dict[str, list[str]]] = {}
@@ -340,7 +348,8 @@ def classify() -> list[Target]:
             _, pkgname, prod = dep.split(":", 2)
             other = locals_[t.package].get(pkgname)
             if other is None:
-                return []  # a remote package (swift-crypto, swift-nio): builds on Linux or the row says so
+                # A remote package: swift-crypto, swift-nio and the rest build on Linux; these do not.
+                return [APPLE_REMOTE[pkgname]] if pkgname in APPLE_REMOTE else []
             return [by_key[(other, n)] for n in products.get(other, {}).get(prod, [prod]) if (other, n) in by_key]
         return [by_key[(t.package, dep)]] if (t.package, dep) in by_key else []
 
@@ -360,18 +369,21 @@ def classify() -> list[Target]:
         if key in memo:
             return memo[key]
         kind, mod, f = own(t)
-        res = (kind, mod, f, "")
-        if not kind:
-            for dep in t.deps:
-                for d in resolve(t, dep):
-                    if (d.package, d.name) in trail:
-                        continue
-                    dk = blocked(d, trail | {key})
-                    if dk[0]:
-                        res = ("dep", f"{d.name} ({dk[1]})", dk[2], d.name)
-                        break
-                if res[0]:
+        via: tuple[str, str, str, str] = ("", "", "", "")
+        for dep in t.deps:
+            for d in resolve(t, dep):
+                if (d.package, d.name) in trail:
+                    continue
+                dk = blocked(d, trail | {key})
+                if dk[0]:
+                    via = ("dep", f"{d.name} ({dk[1]})", dk[2], d.name)
                     break
+            if via[0]:
+                break
+        # A target's own import names its blocker; a blocked dependency still keeps it off Linux, so
+        # `dep_blocker` says whether fixing its own imports alone would be enough.
+        t.dep_blocker = via[1]
+        res = (kind, mod, f, "") if kind else via
         memo[key] = res
         return res
 
@@ -415,7 +427,7 @@ def summary(targets: list[Target]) -> str:
         lines.append("clean targets by package (cheapest unblocks):")
         for pkg, n in by_pkg.most_common():
             lines.append(f"  {n:3}  {pkg}")
-    dar = Counter(t.package for t in targets if t.kind == "darwin")
+    dar = Counter(t.package for t in targets if t.kind == "darwin" and not t.dep_blocker)
     if dar:
         lines.append("targets blocked only by `import Darwin` (a canImport(Glibc) shim):")
         for pkg, n in dar.most_common():
