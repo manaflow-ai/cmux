@@ -181,11 +181,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     }
     /// That question's button: the card's own word for the press.
     public static func confirmButton(_ action: ImportCardAction) -> String {
-        switch action {
-        case .resume: resume
-        case .retry: retry
-        case .start, .dismiss, .restore, .more, .open, .hide: importButton
-        }
+        label(action.confirmLabel ?? .importButton)
     }
     public static var cardsOff: String { String(localized: "importSuggestions.refusal.off", defaultValue: "Import suggestions are turned off in Debug Settings.", table: "ImportSuggestions", bundle: .localizedModule) }
 

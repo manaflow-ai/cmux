@@ -22,7 +22,17 @@ public nonisolated enum ImportCardAction: String, Codable, Sendable, CaseIterabl
 
 extension ImportCardAction {
     /// Start, Resume and Try Again read another app's data, so only the person runs them.
-    public var startsWork: Bool { self == .start || self == .resume || self == .retry }
+    public var startsWork: Bool { facts?.startsWork ?? false }
+
+    /// The words on the native confirm button for this action (Rust's `Action::confirm_label`).
+    var confirmLabel: ImportLabel? { facts?.confirmLabel }
+
+    private struct Facts: Decodable {
+        var startsWork: Bool
+        var confirmLabel: ImportLabel
+    }
+
+    private var facts: Facts? { ImportSuggestRules.call("action_facts", ["action": self], as: Facts.self) }
 }
 
 extension ImportSourceKind {
@@ -30,7 +40,17 @@ extension ImportSourceKind {
     /// iTerm2's colors written as a theme), so a start that is not the person's own click in this
     /// app (a page's button) asks the person natively first. The others only open something of
     /// cmux's, or ask on their own (Classic's preview).
-    nonisolated public var startReadsAnotherApp: Bool { self == .browser || self == .iterm2 }
+    nonisolated public var startReadsAnotherApp: Bool { facts?.startReadsAnotherApp ?? true }
+
+    /// The source's name when no scan names it (a job whose source went away).
+    nonisolated var displayName: String { facts?.displayName ?? "" }
+
+    private struct Facts: Decodable {
+        var startReadsAnotherApp: Bool
+        var displayName: String
+    }
+
+    nonisolated private var facts: Facts? { ImportSuggestRules.call("kind_facts", ["kind": self], as: Facts.self) }
 }
 
 /// One card as Settings › Import draws it: every text is already in the person's language.
