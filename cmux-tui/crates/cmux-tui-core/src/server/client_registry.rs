@@ -720,8 +720,12 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
+            // Binary frames only where every byte reaches the client as written: a local Unix
+            // socket. A WebSocket writes text messages and the remote entry's bridges cut lines.
+            let byte_clean = matches!(record.transport, ClientTransport::Unix);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
-                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                (byte_clean && capability == super::ATTACH_FRAMES_CAPABILITY)
+                    || capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
@@ -752,6 +756,10 @@ impl ClientRegistry {
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY
+                    // Replays first on `subscribe` (server/cmd_subscribe.rs). Unlisted, a
+                    // client's opt-in was dropped here and the replay never ran (hq#19373).
+                    || capability == super::SCREEN_DEVICE_IDENTITY_CAPABILITY
+                    || capability == super::AGENT_PRESENCE_REPLAY_CAPABILITY
                     || capability == super::TREE_SELECTION_DELTAS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)

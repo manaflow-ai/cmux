@@ -37,6 +37,7 @@ on:
       - scripts/cmux-next/rfd0135_gates.py
       - tests/test_rfd0135_gates.py
       - cmux-tui/crates/cmux-tui/tests/lid_close_gate.rs
+      - cmux-tui/crates/cmux-tui/tests/move_times.rs
       - cmux-tui/crates/cmux-tui/tests/phone_direct_gate.rs
       - cmux-tui/crates/cmux-cloud-phone-acp/**
       - cmux-tui/crates/cmux-tui/src/link/phone_chat.rs
