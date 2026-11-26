@@ -60,7 +60,7 @@
 //! Writes `duress-bench.json` (schema `acpmux.duress-bench.v1`) and `duress-bench.md` to
 //! `$FAST_CHECKS_OUT` (else a scratch folder it prints) and prints the table. No gate yet.
 //! Refuses to run unless `ACPMUX_DURESS=1`, and on any host whose name contains `cosmic-gray`.
-//! Linux only. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
+//! Linux and macOS. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
 //! scratch folder, off the home) is searched for ENOSPC, panics and socket loss
 //! (`daemonLogFindings`; the disk leg also reads `home/daemon.log` a CLI-started daemon wrote).
 //!
@@ -86,15 +86,23 @@
 //!
 //! (`ACPMUX_DURESS_LEGS=relay,bigchat` works too; libtest takes `legs=...` as a name filter that
 //! matches nothing, so `duress_bench` must be named with it.)
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // host150, peerscale and the measures every leg's row gains (presence gap, links, notices, spawns).
+#[cfg(target_os = "linux")]
 #[path = "support/duress_host150.rs"]
 mod host150;
+#[cfg(target_os = "macos")]
+#[path = "support/duress_host150_macos.rs"]
+mod host150;
 // RFD 0050 rule 7's drill: 90% CPU and RAM, the broker answering in 100 s.
+#[cfg(target_os = "linux")]
 #[path = "support/duress_rfd0050.rs"]
+mod rfd0050;
+#[cfg(target_os = "macos")]
+#[path = "support/duress_rfd0050_macos.rs"]
 mod rfd0050;
 // The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
@@ -304,6 +312,20 @@ impl Stress {
 // The host's own state.
 
 fn hostname() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        let mut bytes = [0i8; 256];
+        // SAFETY: `bytes` is writable and its length is the supplied buffer size.
+        let rc = unsafe { libc::gethostname(bytes.as_mut_ptr(), bytes.len()) };
+        if rc == 0 {
+            let len = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+            return String::from_utf8_lossy(
+                &bytes[..len].iter().map(|b| *b as u8).collect::<Vec<_>>(),
+            )
+            .trim()
+            .to_owned();
+        }
+    }
     std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
 }
 
@@ -312,6 +334,12 @@ fn cores() -> usize {
 }
 
 fn load1() -> Option<f64> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut value = 0.0;
+        // SAFETY: `value` points to one writable load-average slot.
+        return (unsafe { libc::getloadavg(&mut value, 1) } == 1).then_some(value);
+    }
     std::fs::read_to_string("/proc/loadavg").ok()?.split_whitespace().next()?.parse().ok()
 }
 
