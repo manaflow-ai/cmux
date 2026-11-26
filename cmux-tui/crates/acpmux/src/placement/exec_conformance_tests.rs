@@ -111,13 +111,11 @@ impl Runner for FakeRunner {
     }
 }
 
-/// Make `dir` a copy of `before` again, `.git` aside (both test scratch trees).
+/// Make `dir` a copy of `before` again, `.git` too (both test scratch trees): `cp -a` cannot
+/// write over git's read-only objects, so everything goes first.
 fn restore(before: &Path, dir: &Path) {
     for e in std::fs::read_dir(dir).unwrap() {
         let e = e.unwrap();
-        if e.file_name() == ".git" {
-            continue;
-        }
         let p = e.path();
         if std::fs::symlink_metadata(&p).unwrap().is_dir() {
             std::fs::remove_dir_all(&p).unwrap();
@@ -368,4 +366,10 @@ fn the_fixture_is_a_checkout_with_uncommitted_work() {
     assert!(status.contains(" M edited.txt") && status.contains("?? draft.txt"), "{status}");
     let mode = std::fs::metadata(p.join("tool.sh")).unwrap().permissions().mode();
     assert_eq!(mode & 0o111, 0, "a case sets the bit");
+    for (rel, want) in
+        [("tool.sh", 0o644), ("edited.txt", 0o644), ("draft.txt", 0o644), ("src", 0o755)]
+    {
+        let mode = std::fs::metadata(p.join(rel)).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, want, "{rel} has a cloned checkout's mode, not home_fs's private one");
+    }
 }
