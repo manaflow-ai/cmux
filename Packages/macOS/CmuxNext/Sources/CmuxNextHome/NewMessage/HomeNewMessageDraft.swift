@@ -24,19 +24,17 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     public init() {}
 
     /// The recipients of the valid tokens, in order.
-    public var recipients: [HomeRecipient] { tokens.compactMap(\.recipient) }
+    public var recipients: [HomeRecipient] { state.homeRecipients }
     /// Some token names nobody (it draws red; the send waits).
-    public var hasInvalidTokens: Bool { tokens.contains { !$0.isValid } }
+    public var hasInvalidTokens: Bool { state.hasInvalidTokens }
     /// Nothing chosen and nothing typed in the To: field.
-    public var isEmpty: Bool { tokens.isEmpty && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var isEmpty: Bool { state.isEmpty }
     /// Several people: the first send makes a group.
-    public var isGroup: Bool { recipients.count > 1 }
+    public var isGroup: Bool { state.isGroup }
 
     /// Adds a chosen recipient as a token (once) and clears the typed text.
     public mutating func add(_ recipient: HomeRecipient) {
-        query = ""
-        guard !tokens.contains(where: { $0.recipient == recipient }) else { return }
-        tokens.append(HomeRecipientToken(recipient))
+        apply("draft.add", .init(draft: rules, recipient: recipient))
     }
 
     /// Return, comma or Tab: the typed text becomes a token. It is the
@@ -45,31 +43,20 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     /// invalid (red) token. False when there was nothing to commit.
     @discardableResult
     public mutating func commit(contacts: [HomeContact]) -> Bool {
-        let text = query.trimmingCharacters(in: Self.separators)
-        query = ""
-        guard !text.isEmpty else { return false }
-        guard let recipient = Self.resolve(text, contacts: contacts) else {
-            tokens.append(HomeRecipientToken(text: text, recipient: nil))
-            return true
-        }
-        guard !tokens.contains(where: { $0.recipient == recipient }) else { return true }
-        tokens.append(HomeRecipientToken(text: recipient.label, recipient: recipient))
-        return true
+        apply("draft.commit", .init(draft: rules, contacts: contacts))
     }
 
     /// Backspace with nothing typed removes the last token. False when the
     /// field had typed text (Backspace edits it) or no token.
     @discardableResult
     public mutating func deleteBackward() -> Bool {
-        guard query.isEmpty, !tokens.isEmpty else { return false }
-        tokens.removeLast()
-        return true
+        apply("draft.deleteBackward", .init(draft: rules))
     }
 
     /// Removes the token at `index` (its chip's delete).
     public mutating func remove(at index: Int) {
-        guard tokens.indices.contains(index) else { return }
-        tokens.remove(at: index)
+        guard index >= 0 else { return }
+        apply("draft.remove", .init(draft: rules, index: index))
     }
 
     /// Characters that end a token as the person types them.
@@ -79,16 +66,9 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     /// a contact by exact id or name, else the one contact whose name
     /// starts with it. Nil when it names nobody.
     public static func resolve(_ text: String, contacts: [HomeContact]) -> HomeRecipient? {
-        let text = text.trimmingCharacters(in: separators)
-        guard !text.isEmpty else { return nil }
-        if let address = ContactAddress.parse(text) { return .address(address) }
-        if let contact = contacts.first(where: {
-            $0.id.rawValue == text || $0.name.compare(text, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-        }) {
-            return .contact(contact)
-        }
-        let starts = contacts.filter { $0.name.range(of: text, options: [.caseInsensitive, .diacriticInsensitive, .anchored]) != nil }
-        return starts.count == 1 ? .contact(starts[0]) : nil
+        let found: HomeComposeRules.Recipient? = HomeComposeRules.call(
+            "draft.resolve", HomeComposeRules.ResolveRequest(text: text, contacts: contacts), fallback: nil)
+        return found?.recipient
     }
 
     /// The suggestions under the To: field for the typed text: a typed
@@ -96,28 +76,18 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     /// text, then names that contain it; people already chosen are left
     /// out. Empty text suggests nobody (Messages waits for a letter).
     public func suggestions(contacts: [HomeContact], limit: Int = 8) -> [HomeRecipient] {
-        let text = query.trimmingCharacters(in: Self.separators)
-        guard !text.isEmpty else { return [] }
-        let chosen = Set(recipients)
-        var result: [HomeRecipient] = []
-        if let address = ContactAddress.parse(text), !chosen.contains(.address(address)) { result.append(.address(address)) }
-        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
-        let wordStart = contacts.filter { contact in
-            contact.name.split(whereSeparator: { $0.isWhitespace }).contains { $0.range(of: text, options: options.union(.anchored)) != nil }
-        }
-        let inside = contacts.filter { $0.name.range(of: text, options: options) != nil && !wordStart.contains($0) }
-        for contact in wordStart + inside where !chosen.contains(.contact(contact)) {
-            result.append(.contact(contact))
-        }
-        return Array(result.prefix(limit))
+        let found: [HomeComposeRules.Recipient] = HomeComposeRules.call(
+            "draft.suggestions", HomeComposeRules.DraftRequest(draft: rules, contacts: contacts, limit: limit), fallback: [])
+        return found.compactMap(\.recipient)
     }
 
     /// The Chiefs listed under the To: field before anything is typed
     /// (plans/cmux-next/chief-group-chats-DESIGN.md): the user's Chiefs not chosen yet, in the
     /// contacts' order, at most `limit`. Choosing one adds it as a token.
     public func chiefShortcuts(contacts: [HomeContact], limit: Int = 6) -> [HomeContact] {
-        let chosen = Set(recipients)
-        return Array(contacts.filter { $0.source == .agent && !chosen.contains(.contact($0)) }.prefix(limit))
+        let found: [HomeComposeRules.Contact] = HomeComposeRules.call(
+            "draft.chiefShortcuts", HomeComposeRules.DraftRequest(draft: rules, contacts: contacts, limit: limit), fallback: [])
+        return found.map(\.contact)
     }
 
     /// The people listed under the To: field before anything is typed: the Chiefs
@@ -129,9 +99,9 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     ///   - chiefLimit: At most this many Chiefs lead the list.
     /// - Returns: The Chiefs, then the team members, none already a token.
     public func idleSuggestions(contacts: [HomeContact], chiefLimit: Int = 6) -> [HomeContact] {
-        let chosen = Set(recipients)
-        let team = contacts.filter { $0.source == .team && !chosen.contains(.contact($0)) }
-        return chiefShortcuts(contacts: contacts, limit: chiefLimit) + team
+        let found: [HomeComposeRules.Contact] = HomeComposeRules.call(
+            "draft.idleSuggestions", HomeComposeRules.DraftRequest(draft: rules, contacts: contacts, limit: chiefLimit), fallback: [])
+        return found.map(\.contact)
     }
 
     /// The conversation that already has exactly the chosen people (one
@@ -140,23 +110,18 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     /// token is invalid or nobody is chosen. An address matches a person
     /// invited by that address.
     public func existingConversation(in rows: [InboxRow], me: ParticipantID?) -> ConversationID? {
-        let recipients = recipients
-        guard !recipients.isEmpty, !hasInvalidTokens else { return nil }
-        let wanted = Set(recipients.map(Self.key))
-        let match = rows.first { row in
-            guard recipients.count == 1 ? row.kind != .group : row.kind == .group else { return false }
-            let others = row.summary.participants.filter { $0.id != me }
-            guard others.count == wanted.count else { return false }
-            return Set(others.map(Self.key)) == wanted
-        }
-        return match?.id
+        guard !tokens.isEmpty else { return nil }
+        let found: String? = HomeComposeRules.call(
+            "draft.existingConversation", HomeComposeRules.DraftRequest(draft: rules, rows: rows, me: me), fallback: nil)
+        return found.map(ConversationID.init)
     }
 
     /// Why the first send cannot go yet (shown under the To: field), or nil
     /// when it can: a red token first, then nobody chosen.
     public var sendBlocker: String? {
-        if let invalid = tokens.first(where: { !$0.isValid }) { return HomeConversationStrings.unknownRecipient(invalid.text) }
-        return recipients.isEmpty ? Self.needsRecipientNotice : nil
+        guard let blocker = state.sendBlocker else { return nil }
+        if blocker.kind == "unknownRecipient" { return HomeConversationStrings.unknownRecipient(blocker.text ?? "") }
+        return Self.needsRecipientNotice
     }
 
     /// "Add someone in To: first."
@@ -165,19 +130,23 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
     /// The title of the list's draft row (Messages keeps "New Message" until the first send).
     public static var rowTitle: String { HomeConversationStrings.composeTitle }
 
-    /// A participant's matching key: an invited address's text, else its id.
-    private static func key(_ participant: Participant) -> String {
-        if participant.membership == .invited, let contact = participant.invitedContact,
-           let address = ContactAddress.parse(contact) {
-            return "address:" + address.description
-        }
-        return "id:" + participant.id.rawValue
+    /// The draft as the rules read it.
+    private var rules: HomeComposeRules.Draft {
+        HomeComposeRules.Draft(tokens: tokens.map { HomeComposeRules.Token(text: $0.text, recipient: $0.recipient) }, query: query)
     }
 
-    private static func key(_ recipient: HomeRecipient) -> String {
-        switch recipient {
-        case .contact(let contact): "id:" + contact.id.rawValue
-        case .address(let address): "address:" + address.description
-        }
+    /// `draft.state`: the recipients, the red tokens, emptiness and the send's blocker.
+    private var state: HomeComposeRules.DraftState {
+        HomeComposeRules.call("draft.state", HomeComposeRules.DraftRequest(draft: rules), fallback: .empty)
+    }
+
+    /// Runs a draft op and takes the draft it returns; true when it changed.
+    @discardableResult
+    private mutating func apply(_ op: String, _ request: HomeComposeRules.DraftRequest) -> Bool {
+        let reply: HomeComposeRules.Changed? = HomeComposeRules.call(op, request, fallback: nil)
+        guard let reply else { return false }
+        tokens = reply.draft.tokens.map { HomeRecipientToken(text: $0.text, recipient: $0.homeRecipient) }
+        query = reply.draft.query
+        return reply.changed
     }
 }
