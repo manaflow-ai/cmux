@@ -20,8 +20,12 @@ impl Hub {
         // Every record through it is whole: no append was under way. Read (and the log's tail
         // past the saved meta counted) before the permissions lock, which an append may hold
         // the append lock to take.
+        let _probe = crate::gauges::global().phase("TEMP rw: catch_up");
         self.catch_up(session);
+        drop(_probe);
+        let _probe = crate::gauges::global().phase("TEMP rw: settled_seq");
         let settled = self.settled_seq(session);
+        drop(_probe);
         // A withdrawal either precedes this snapshot in the log or waits
         // on this lock until its recovered request has been admitted.
         let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -40,7 +44,11 @@ impl Hub {
         }
         drop(state);
         // The next adoption of this host reads only what follows it.
-        if let Some(checkpoint) = self.keep_processes(session, &mut work, checkpoint) {
+        let _probe = crate::gauges::global().phase("TEMP rw: keep_processes");
+        let kept_checkpoint = self.keep_processes(session, &mut work, checkpoint);
+        drop(_probe);
+        if let Some(checkpoint) = kept_checkpoint {
+            let _probe = crate::gauges::global().phase("TEMP rw: save checkpoint");
             self.save_adoption_checkpoint(session, checkpoint);
         }
         work
@@ -81,6 +89,7 @@ impl Hub {
         // And the `seq` of the record that holds it.
         let (last, at) = (fold.last, fold.at);
         if last > 0 && !self.logs_host_seq(session, at, last) {
+            let _probe = crate::gauges::global().phase("TEMP seq: parsed fallback");
             return self.last_host_seq_parsed(session, incarnation);
         }
         last
@@ -148,8 +157,14 @@ impl Hub {
         self.catch_up(session);
         let inputs = self.fold_inputs(session);
         match self.adoption_checkpoint(session, incarnation, &inputs) {
-            Some(Checkpoint { seq, next, folds, .. }) => ((seq + 1, next), fold(folds)),
-            None => ((0, None), fold(Folds::new(&inputs))),
+            Some(Checkpoint { seq, next, folds, .. }) => {
+                drop(crate::gauges::global().phase("TEMP resume: hit"));
+                ((seq + 1, next), fold(folds))
+            }
+            None => {
+                drop(crate::gauges::global().phase("TEMP resume: miss"));
+                ((0, None), fold(Folds::new(&inputs)))
+            }
         }
     }
 
@@ -199,6 +214,7 @@ impl Hub {
         // (most of a long log) are folded away at its `turn_result`. Found from the end, on the
         // heads of the records after that turn's marker.
         let (mut last_turn, mut last_turn_starts) = (0, false);
+        let _probe = crate::gauges::global().phase("TEMP fold: last turn");
         let _ = self.store.scan_back(
             &session.id,
             0,
@@ -213,6 +229,8 @@ impl Hub {
                 true
             },
         );
+        drop(_probe);
+        let _probe = crate::gauges::global().phase("TEMP fold: checkpoint");
         let inputs = self.fold_inputs(session);
         // A record of the last turn is parsed while it is open, and was not by a fold that
         // knew a later last turn: a checkpoint ends before an open last turn's start, so each
@@ -225,6 +243,7 @@ impl Hub {
         // The process table it kept goes on beside the work (`keep_processes`).
         let resumed_processes =
             resumed.as_ref().and_then(|c| c.processes.clone().filter(|p| p.through <= c.seq));
+        let resumed_seen = resumed.is_some();
         // Beside them, while saving a checkpoint, the folds of an incarnation not started yet,
         // which the next host's first adoption resumes from (`checkpoint.rs` `unstarted`).
         let unstarted_too = resume && settled.is_some() && incarnation != UNSTARTED;
@@ -240,6 +259,16 @@ impl Hub {
             }
             None => ((0, None), Folds::new(&inputs), unstarted_too.then(|| Folds::new(&inputs))),
         };
+        drop(_probe);
+        drop(crate::gauges::global().phase(if from == 0 {
+            "TEMP fold: from 0"
+        } else {
+            "TEMP fold: resumed"
+        }));
+        if resumed_seen && from == 0 {
+            drop(crate::gauges::global().phase("TEMP fold: resumed but from 0"));
+        }
+        let _probe = crate::gauges::global().phase("TEMP fold: scan");
         // The last record a checkpoint may hold.
         let bound = settled.map(|settled| settled.min(turn_bound));
         let mut folded = from.saturating_sub(1);
@@ -261,12 +290,14 @@ impl Hub {
         if bound.is_some() && kept.is_none() {
             kept = Some((folded, None, folds.clone(), unstarted.clone()));
         }
+        drop(_probe);
         let (mut work, host_seq_at) = folds.work.finish(scanned.is_err());
         work.processes = resumed_processes;
         // A line cut short showed it: the whole records decide, as before.
         if let Some(seq) = host_seq_at
             && !self.logs_host_seq(session, seq, work.last_host_seq)
         {
+            let _probe = crate::gauges::global().phase("TEMP fold: reread whole");
             return (self.open_work_reading(session, incarnation, |_, _, _| true), None);
         }
         // None when the log could not be read to its end, or when it is the one resumed from.
