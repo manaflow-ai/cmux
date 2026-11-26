@@ -92,6 +92,11 @@ if [[ -n "$peer_token" ]]; then
   # absolute path, named from the token so both halves agree on it, and each removes it when done.
   rig_root="/tmp/ssvp-rd-$(printf '%s' "$peer_token" | shasum -a 256 | cut -c1-12)"
 fi
+# The rig root screen-share-vs.py uses on both Macs. Over peer-serve the two steps run in different homes (a
+# worker's step home, the bench account's), so its home-relative default fails "different homes". Absolute, the
+# same on both Macs, per run by the secret token (no other account can claim it first), space-free.
+root_args=()
+[[ -n "$peer_token" ]] && root_args=(--root "/tmp/cmux-ssvp-$(shasum -a 256 "$work/peer-token" | cut -c17-32)")
 if [[ "$role" == viewer ]]; then
   [[ -n "$self_ip" ]] || { echo "SSVP no LAN address on $self" | tee -a "$work/probe.txt"; pack; exit 3; }
   echo "SSVP viewer serving $self_ip:$peer_port for ${hold_s} s" | tee -a "$work/probe.txt"
@@ -182,6 +187,7 @@ for kind in ${inputs//,/ }; do
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
     ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} --cmux-input "$kind" --samples "$samples" \
     --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \
+    ${root_args[@]+"${root_args[@]}"} \
     --out "$work/run-$kind.jsonl" 2>&1 | tee -a "$work/run.log"
   leg=${PIPESTATUS[0]}
   cat "$work/run-$kind.jsonl" >>"$work/run.jsonl" 2>/dev/null
