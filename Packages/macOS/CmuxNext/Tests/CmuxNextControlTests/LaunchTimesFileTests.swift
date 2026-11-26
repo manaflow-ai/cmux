@@ -171,6 +171,18 @@ import Testing
         #expect(completed == ["agent_pane.transport_open"])
     }
 
+    @Test func aChatAlreadyLiveAtTheFirstFrameIsRecorded() async throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        let marks = Self.merged(Self.chatMarks)
+        _ = LaunchTimesRecorder(file: file, work: BackgroundWork(label: "test.already-live"), info: [:],
+                                marks: { marks }, prewarmed: { _ in false })
+        _ = try await Self.lines(file, until: { !$0.isEmpty })
+        let rows = file.records()
+        #expect(rows.count == 1)
+        #expect(rows.first?.priorChatPaintedMs == 1234.5 && rows.first?.priorChatLiveMs == 1490.2)
+    }
+
     /// The launch's row is written at the first frame, then rewritten exactly once with the prior chat's columns
     /// when its marks arrive: still one line, pre-warmed as first read (its marker is consumed on reading).
     @Test func theRowIsRewrittenOnceWhenThePriorChatsMarksArrive() async throws {
@@ -226,7 +238,8 @@ import Testing
             "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
             "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
             "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
-            "main.warmup_started": 42, "main.nsapp": 50, "main.run": 55, "app.did_finish_launching_entry": 56,
+            "main.warmup_started": 42, "main.environment": 43, "main.state_folder": 44, "main.reads_started": 45,
+            "main.crash_handlers": 46, "main.nsapp_made": 47.5, "main.delegate_made": 48.25, "main.nsapp": 50, "main.run": 55, "app.did_finish_launching_entry": 56,
             "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5,
             "dfl.theme": 75, "dfl.settings": 125, "daemon.binary_resolved": 150, "dfl.daemon_cloud_updater": 325,
             "dfl.first_window_hooks": 335, "dfl.home_history": 345, "daemon_snapshot_loaded": 365,
