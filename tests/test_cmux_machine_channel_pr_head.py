@@ -173,6 +173,17 @@ class TreeKeyCliTest(unittest.TestCase):
         self.assertNotIn('"$tk" key', text)
         self.assertIn('"$tk" --version v2', text)
 
+    def test_a_head_behind_the_base_does_not_build(self):
+        """find takes a build only when the head's key is the merge's, so a head behind the base (its key differs
+        from its merge with the base) builds a pair no merge can take: 470 head builds, 16.8k runner-minutes, in
+        04:30-07:11Z 2026-11-26 against 6 push builds (ci-min-per-pr-1500)."""
+        text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
+        plan = text[text.index("if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]"):text.index("# The channel's commit")]
+        self.assertIn('"$tk" --version v2 HEAD^2', plan)
+        self.assertIn('"$head" != "$mine"', plan)
+        self.assertLess(plan.index('"$mine" != "$base"'), plan.index('"$head" != "$mine"'))
+        self.assertLess(plan.index('"$head" != "$mine"'), plan.index('echo "build=$build" >> "$GITHUB_OUTPUT"'))
+
 
 if __name__ == "__main__":
     unittest.main()

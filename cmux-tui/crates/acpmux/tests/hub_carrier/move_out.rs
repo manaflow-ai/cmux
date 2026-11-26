@@ -123,6 +123,7 @@ impl Tickets for MachineTickets {
             peers: self.peers.keys().cloned().collect(),
             peer_services: Default::default(),
             relays: Vec::new(),
+            placed: Vec::new(),
         })
     }
 
@@ -137,6 +138,7 @@ impl Tickets for MachineTickets {
             peers: Vec::new(),
             peer_services: Default::default(),
             relays: Vec::new(),
+            placed: Vec::new(),
         })
     }
 }

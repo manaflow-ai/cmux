@@ -1474,11 +1474,29 @@ def build_failed_tip(cur):
             and any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values()))
 
 
+# A build part's failure that ran nothing of the commit: the fleet could not fetch its source (NOT_STARTED_RE, and the
+# shapes of it a record keeps once its 200-character why cuts that suffix off). Such a tip says nothing about the base.
+BUILD_NEVER_RAN_RE = re.compile(r"source download failed \d+ times?, before the job started|GitHub refused the fetch"
+                                r"|no reviewed tip could be fetched|not fetched \(git: unable to access")
+
+
 def last_tip_build_failed(state):
-    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure)."""
+    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure). A build
+    that never ran (BUILD_NEVER_RAN_RE) is no failure of the app: tip c2b1760e's checkout was refused (HTTP 403,
+    2026-11-26) before the controller's NOT_STARTED_RE yield existed, and the next tip, 60a23ed3, whose source fetch
+    the controller's git proxy answered 503, then took it for a broken base and held the Mac behind its Linux parts."""
     entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
-    return bool(entry) and (bool(entry.get("build_failed"))
-                            or "build_failed" in (entry.get("failed_why") or {}).values())
+    if not entry:
+        return False
+    if BUILD_NEVER_RAN_RE.search(str((entry.get("failed_why") or {}).get("build") or "")):
+        return False
+    return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
+
+
+def build_never_ran(cur):
+    """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
+    build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
+    return isinstance(build, dict) and build.get("state") == "failed" and bool(BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
 def unread_missing(state, cur):
@@ -1511,7 +1529,11 @@ def supersede_for_unread(state, t, newest, supported_parts):
         # while the newer tip, with the unread part, waited (tip 12aa19c2, 2026-11-23: Mac parts superseded, then
         # web-ui-growth unanswered 23 h, so chat-size never ran). A record with no `at` predates this bound: ends now.
         since = parse_started(gave.get("at"))
-        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS:
+        # A tip superseded for its build while the base looked broken keeps its Linux parts for the bound; once that
+        # judgement no longer holds (its build never ran, or the tip before built), they end now, as below.
+        base_ok = str(gave.get("why") or "").startswith("its app build failed") and (
+            build_never_ran(cur) or not last_tip_build_failed(state))
+        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS and not base_ok:
             return None
         for name in list(cur["parts_todo"]):
             cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
@@ -1523,7 +1545,7 @@ def supersede_for_unread(state, t, newest, supported_parts):
         # 10:32Z with 24 Linux parts to do, and tabs, which NOW's tabs-keep-speed reads, had no row for 8 days).
         why = f"its app build failed; {newest[:12]} is newer"
         cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
-        if not last_tip_build_failed(state):
+        if build_never_ran(cur) or not last_tip_build_failed(state):
             # The Mac waits on no Linux part: the tip ends now and the newer tip claims the Mac at this tick, its own
             # Linux parts running at once with it (decide). The Linux parts that ran with the build already reported
             # in that tick; the rest end 'superseded', and the build's failure stays on record (finish_measurement).
