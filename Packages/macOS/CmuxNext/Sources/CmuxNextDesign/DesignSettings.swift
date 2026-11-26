@@ -286,6 +286,9 @@ public final class DesignSettings {
     public var layoutRows = true
     /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
     public var focusFollowsMouse = false
+    /// `layout.fadeInactivePanes`: panes without the focus fade under the pane fill and fade back
+    /// when they take it (default off).
+    public var fadeInactivePanes = false
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
@@ -420,6 +423,14 @@ public final class DesignSettings {
     public var tabShape: TabShape = .block {
         didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
+    /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
+    /// without writing either setting. A change repaints, as the corner does.
+    public var gooeyTabs: GooeyTabs = .off {
+        didSet { if gooeyTabs != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// The title area's tone in effect: Subtle Tone under gooey tabs (subtle or full), else `titleAreaTone`.
+    public var effectiveTitleAreaTone: TitleAreaTone { gooeyTabs.isOn ? .subtleTone : titleAreaTone }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

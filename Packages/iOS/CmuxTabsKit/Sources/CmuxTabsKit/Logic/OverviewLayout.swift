@@ -134,6 +134,20 @@ struct OverviewLayout: Equatable, Sendable {
         return card(index).offsetBy(dx: origin.x, dy: origin.y)
     }
 
+    /// `rect` (screen, at the grid's resting scale) where the grid draws it
+    /// now: scaled about the screen's center as the grid's settle animation
+    /// scales it (`TabTransitionVariant.gridScale`, the same function the
+    /// grid's `scaleEffect` uses). The zoom aims at this, computed in the same
+    /// frame, so the page lands on its cell as the neighbours do, with no
+    /// frame-late origin read through the scale.
+    func zoomScaled(_ rect: CGRect, shown: Double, variant: TabTransitionVariant = .safari) -> CGRect {
+        let k = CGFloat(variant.gridScale(shown: shown))
+        guard k != 1 else { return rect }
+        let cx = size.width / 2, cy = size.height / 2
+        return CGRect(x: cx + (rect.minX - cx) * k, y: cy + (rect.minY - cy) * k,
+                      width: rect.width * k, height: rect.height * k)
+    }
+
     /// Whether the card and its title row are fully on screen between the
     /// top controls and the bottom bar.
     func isFullyVisible(_ index: Int, offset: CGFloat) -> Bool {

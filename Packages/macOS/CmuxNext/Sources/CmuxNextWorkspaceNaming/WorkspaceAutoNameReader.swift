@@ -101,7 +101,8 @@ public struct WorkspaceAutoNameReader {
             // agent still reads as the agent's name now, never frozen on the name it had at launch.
             // acpmux keeps only a few former names, so the hold remembers a match once seen (`WorkspaceAutoNameHold`).
             var formerNames = turns.formerNames(for: session)
-            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
+            // Another machine's names never unlock a name the person gave the workspace (cmux#55668).
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil && !turns.namesAreRemote(session)
                 && hold.launcherNamed(workspace: workspace.id, name: workspace.name, session: session.session ?? "",
                                       matches: SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName,
                                                                              displayName: givenName,
@@ -157,6 +158,8 @@ public struct WorkspaceAutoNameReader {
     /// what a workspace made from it would take. A page, app or Home
     /// conversation tab gives nothing (nil): its record is titled `about:blank`.
     public func front(_ tab: TabModel) -> WorkspaceAutoName.Front? {
+        // The persisted name (`WorkspaceAutoNamer`) reads a Mac tab showing a Cloud chat as that chat too (cmux#55668).
+        if let chat = shown(tab) { return front(chat) }
         if let session = tab.agentSession {
             // A page whose Send starts a Cloud chat reads as that chat from the Send (`AgentCloudStartTitles`).
             if isNewTabPage(tab) { return .chat(userName: nil, title: cloudStarts.title(of: tab)) }
