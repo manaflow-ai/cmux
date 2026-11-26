@@ -575,6 +575,21 @@
         1
       ]
     },
+    "domain:backdrop_pictures": {
+      "accept": [
+        [],
+        ["file:/Users/Shared/Harbor.png"],
+        ["munch-scream", "file:/Users/Shared/Harbor.png", "system:/System/Library/Desktop Pictures/Sonoma.heic"]
+      ],
+      "refuse": [
+        "file:/Users/Shared/Harbor.png",
+        ["folder:/Users/Shared/Wallpapers"],
+        ["file:relative.png"],
+        ["none"],
+        [1],
+        {}
+      ]
+    },
     "domain:backdrop_schedule": {
       "accept": [
         {},
