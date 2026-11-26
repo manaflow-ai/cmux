@@ -8,8 +8,13 @@ use super::*;
 fn the_token_rides_only_in_authorization() {
     cmux_egress::capture::install().unwrap();
     let token = "ghp_SEEDEDnoCheckoutToken71d4e0b2";
-    let gh = GitHub::new(GITHUB_API, "seeded-owner/seeded-repo", Some(Zeroizing::new(token.into())), None)
-        .unwrap();
+    let gh = GitHub::new(
+        GITHUB_API,
+        "seeded-owner/seeded-repo",
+        Some(Zeroizing::new(token.into())),
+        None,
+    )
+    .unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let _ = runtime.block_on(gh.default_branch());
     assert!(!cmux_egress::capture::requests().is_empty(), "the call reached the capture server");
