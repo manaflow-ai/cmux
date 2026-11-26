@@ -10,12 +10,12 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
@@ -98,6 +98,7 @@ import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices, cloudPickChoices, rememberCloudPick } from "./startedProject";
 import { callNative } from "../callNative";
 import {
+  exactMatch,
   canonicalAddress,
   defaultSelection,
   isAddress,
@@ -112,7 +113,6 @@ import {
   type ScreenRow,
   pageChatCards,
   returnRow,
-  exactMatch,
 } from "./screenModel";
 import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
@@ -174,9 +174,9 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { KeyHint } from "../../../ui/KeyHint";
 import type { EvacuateState } from "../place/placeModel";
 import type { ComputerUsePlace } from "../computerUse/computerUseState";
-import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -671,7 +671,6 @@ export function NewTabScreen(props: Props) {
     originalUploads,
     unsettled,
     cancel,
-    retry,
     revive,
     attachError,
     drop,
@@ -803,6 +802,7 @@ export function NewTabScreen(props: Props) {
   /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend`).
   const sendResuming = useRef(false);
   const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
+  /// retry-prompt-ok: a start's Retry sends the draft to the agent again, a paid model request.
   const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
   // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
   // again on each key. `onSetup` is read when it runs.
@@ -1063,6 +1063,7 @@ export function NewTabScreen(props: Props) {
         // A chat on another machine installs nothing here: its agent is set up on that machine.
         local: !args[6]?.peer,
         // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
+        // retry-prompt-ok: it sends the draft to the agent again, a paid model request.
         retry: () => continueAfterSetup.current(args[0], args[3]),
       });
     };
@@ -1186,7 +1187,6 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     cancel,
-    retry,
     revive,
     originalFailures,
     codex: harness === "codex",
@@ -1603,6 +1603,8 @@ export function NewTabScreen(props: Props) {
           setStartError({
             error: errorMessage(error) || t("switch.unknownError"),
             local: true,
+            // retry-prompt-ok: an open moves the person to the chat's workspace; asked again on its own it
+            // would pull them away later, so only their click opens it again.
             retry: () => (setStartError(undefined), openCard(id)),
           });
         });
@@ -1610,6 +1612,7 @@ export function NewTabScreen(props: Props) {
         setStartError({
           error: errorMessage(error) || t("switch.unknownError"),
           local: true,
+          // retry-prompt-ok: an open moves the person to the chat's workspace (as above).
           retry: () => (setStartError(undefined), openCard(id)),
         });
       }
@@ -1628,6 +1631,7 @@ export function NewTabScreen(props: Props) {
       setStartError({
         error: errorMessage(error) || t("switch.unknownError"),
         local: true,
+        // retry-prompt-ok: Compress or Decompress changes the chat; the person chooses to run it again.
         retry: () => {
           setStartError(undefined);
           coldArchiveCard(id, archived);
@@ -2495,6 +2499,7 @@ export function NewTabScreen(props: Props) {
         if (choice !== projectChoice.current) return dropReplaced();
         if (held()) heldAsk.current = undefined;
         setLocalGitHubPick(undefined);
+        // retry-prompt-ok: New Worktree makes a git worktree and branch on disk; the person chooses to again.
         setWorktreeError({ retry: () => void newWorktreeHere(cwd, github) });
       },
     );
@@ -2902,6 +2907,7 @@ export function NewTabScreen(props: Props) {
           />
         )}
         {browseError && props.onBrowseProject && (
+          // retry-prompt-ok: Browse opens a folder picker the person answers; it is theirs to open again.
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
@@ -2997,7 +3003,6 @@ export function NewTabScreen(props: Props) {
               inline.cancel(id);
               field.current?.focus();
             }}
-            onRetry={retry}
             onExpand={inline.expand}
             originalFailures={originalFailures}
             onReorder={inline.reorder}
@@ -3098,7 +3103,7 @@ export function NewTabScreen(props: Props) {
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
-                shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
+                shows them, each with its remove and cancel (the strip below leaves them out). */}
               {!shell && attachmentView !== "strip" && inline.chips}
             </div>
             {/* The card's bar, under the field (Lucas 2026-11-25, newtab-composer-lab "Unified Card"): +, the
@@ -3298,23 +3303,12 @@ export function NewTabScreen(props: Props) {
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                 {row.type === "action" && !!row.keycaps?.length && (
-                  <span className="nt-row-shortcut" data-popup-skip>
-                    {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
-                      <React.Fragment key={strokeIndex}>
-                        {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
-                        {stroke.map((cap, index) => (
-                          <kbd key={index}>{cap}</kbd>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </span>
+                  <KeyHint keys={row.keycaps} className="nt-row-shortcut" data-popup-skip />
                 )}
                 {/* Return's row says so: a "return" cap at its end. The Ask row needs none: it is what
                     Return does with plain text, as its name says. */}
                 {index === current && row.type !== "ask" && (
-                  <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                    {keycapLegend("↩")}
-                  </kbd>
+                  <KeyHint keys="↩" className="nt-row-return" aria-hidden="true" data-popup-skip />
                 )}
               </div>
             ))}
