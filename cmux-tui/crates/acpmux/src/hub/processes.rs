@@ -363,6 +363,8 @@ impl ProcessTable {
         }
         let newest = if ends.len() == recent {
             ends.iter().copied().min().unwrap_or(0)
+        } else if recent == 0 {
+            u64::MAX
         } else {
             let at = ends.len() - recent;
             *ends.select_nth_unstable(at).1
@@ -636,6 +638,9 @@ impl ProcessTable {
             0
         } else if ends.len() <= recent {
             ends.iter().copied().min().unwrap_or(0)
+        } else if recent == 0 {
+            // No ended row is asked for; past every end keeps only the running ones.
+            u64::MAX
         } else {
             let at = ends.len() - recent;
             *ends.select_nth_unstable(at).1
