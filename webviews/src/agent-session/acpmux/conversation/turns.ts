@@ -3557,12 +3557,16 @@ export function turnClock(
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
-/// not send) that came after the agent had replied since then, which set it going again.
+/// not send) that came after the agent had replied since then, which set it going again. The reply
+/// must be the agent's last step before the notice: a call after it means the agent was still at
+/// work, the reply was commentary, and a notice then (acpmux who-else steers one into the running
+/// turn) set nothing going. A who-else notice 7 s before a 6m 44s turn's answer read "Worked for 7s".
 export function continuationStart(rows: readonly AcpmuxRow[], start: number): number {
   let from = start;
   let replied = false;
   for (const row of rows) {
     if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = true;
+    else if (row.kind === "activity" && row.items?.some((item) => item.tool)) replied = false;
     else if (row.kind === "user" && !sentByPerson(row) && replied && hasTimestamp(row.at) && row.at > from) {
       from = row.at;
       replied = false;
