@@ -122,6 +122,7 @@ impl Hub {
             require_asking,
             credential,
             create_key,
+            placed_by,
         } = req;
         // A create sent again after a restart cut its reply: the session the first one made
         // answers it, on this daemon or the one before (`create_key.rs`).
@@ -464,6 +465,7 @@ impl Hub {
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
             meta.create_key = create_key;
+            meta.placed_by = placed_by;
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -853,8 +855,9 @@ impl Hub {
         }
         self.wake_ended(session, wake, None);
         session.launch_backoff.clear();
-        // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
-        child.enter_run_class().await;
+        // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`); an
+        // AutoCloud-placed chat at the background class, below the owner's own work.
+        child.enter_run_class(session.read_meta(|m| m.placed_by.is_some())).await;
         // A Codex that went ahead at the head but started without the repository hook gets no
         // prompt before the whole checkout is in (repo_sync.rs).
         if super::repo_sync::start_waits_for_all(head_ok, profile, &child) {

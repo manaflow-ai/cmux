@@ -223,6 +223,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.
@@ -1681,6 +1682,27 @@ let package = Package(
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_spawn_owner_reads_unchanged_path_declaration_and_refuses_product_spawn(self):
+        src = "cmux-tui/crates/fixture/src/"
+        self.write(src + "lib.rs", "mod session;\nmod worker;\n")
+        self.write(src + "session.rs", '#[cfg(test)]\n#[path = "backpressure.rs"]\nmod bench;\n')
+        self.write(src + "worker.rs", "")
+        self.commit("crate with a test-only module at a sibling path")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+
+        spawn = "pub fn run() {\n    tokio::spawn(async {});\n}\n"
+        self.write(src + "backpressure.rs", spawn)
+        self.commit("spawn in the test-only module")
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.write(src + "worker.rs", spawn)
+        self.commit("spawn in a production module")
+        result = self.push()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("worker.rs has 1 spawn line", result.stdout + result.stderr)
 
     def test_the_raw_spawn_guard_rules_hold(self):
         # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.

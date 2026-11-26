@@ -45,9 +45,10 @@ import PackageDescription
 //   CmuxNextBrowserImport -> CCmuxAppFFI (imported cookies' sync), system frameworks (browser detection, parsers, importer; no UI)
 //   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
-//   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender (the Home models, tunables and their
-//     strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and invite
-//     outcomes, pins, dock mode, chat colours; no views, no MessagesLab, no daemon)
+//   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender, CCmuxAppFFI (the Home models, tunables
+//     and their strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and
+//     invite outcomes, pins, dock mode, chat colours; HomeRules, the Rust home rules' caller over cmux_home_call;
+//     no views, no MessagesLab, no daemon)
 //   CmuxNextHome -> Compat, Design, Dictation, HomeModel, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
@@ -89,8 +90,8 @@ import PackageDescription
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextTaskManagerPage -> Pages, Resources, Settings (the React Task Manager page's model lifetime, kill
 //     rule and snapshot stream; the App opens the tabs and runs the kill action)
-//   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
-//     handshake; the page talks to acpmux itself; no daemon)
+//   CmuxNextAgentPane -> Design, Actions, Dictation, CCmuxAppFFI (WKWebView host for the React agent pane and the acpmux
+//     handshake; the page talks to acpmux itself; no daemon; the page frames' duplicate-key check in Rust)
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> CCmuxAppFFI, AgentCursor (visibility of a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out, from cmux-focus-core's rules through the typed app FFI call;
@@ -194,7 +195,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: f78b1959f2e73763eb68289303aa3a1a95a4565fc8c3df080df665875967a065
+// app-ffi-pin-checksum: e8540e6af152a709dc604d4bdfbdf33e5a4402340b5ed812b37ae43f446d3f3a
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -215,6 +216,18 @@ let appFFI: Target = .binaryTarget(
     url: appFFIPin.url,
     checksum: appFFIPin.checksum
 )
+
+// The Linux shape: the Linux package jobs (scripts/ci/swift-linux-packages.txt) set
+// CMUX_SWIFTPM_TARGET_LINUX and get only the targets below, which build without Apple
+// frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC); ChromiumRuntime
+// hashes with its PortableSHA256 where CryptoKit is missing. Only those Linux jobs set the variable; every
+// other build keeps every target. A runtime read, not a compile-time branch: scripts/ci/app_ffi_pin.py
+// refuses conditional compilation in this manifest.
+let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
+
+// A target that imports CCmuxAppFFI's modules depends on this: the xcframework in the Apple shape, the system
+// library (linuxAppFFI, below) in the Linux shape. A plain ternary of string literals, so arch_counts.py reads both.
+let appFFIDependency: [Target.Dependency] = targetsLinux ? ["CCmuxAppFFILinux"] : ["CCmuxAppFFI"]
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
 // separate from CmuxNextApp lets the host build real SwiftUI chrome without
@@ -688,6 +701,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextAgentPane",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the page frames' strict duplicate-key check (cmux-agent-pane-policy src/json_keys.rs).
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextAgentList",
                 "CmuxNextAgentPanePlacement",
@@ -716,7 +731,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "AgentPanePolicyPlugin")]
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
@@ -818,6 +834,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -984,6 +1001,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHomeModel",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
@@ -1128,8 +1146,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // and rules live in Rust; cx-8w027.2). No AppKit, no app imports.
         .target(
             name: "CmuxNextFocus",
-            dependencies: ["CCmuxAppFFI"],
+            dependencies: appFFIDependency,
             swiftSettings: daemonSwiftSettings
+        ),
+        // The focus machine's own tests (no app, no AppKit): they build and run on Linux too.
+        .testTarget(
+            name: "CmuxNextFocusTests",
+            dependencies: ["CmuxNextFocus"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextWindowRules",
@@ -1189,6 +1213,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -1424,6 +1449,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
+                "CmuxNextTerminal",
             ],
             resources: [
                 .process("Resources"),
@@ -1930,6 +1956,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextAgentActivity",
+                "CmuxNextBrowserCore",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
@@ -2377,8 +2404,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // DesignScale.generated.swift, from schemas/design-scale/design-scale.json.
+            plugins: [.plugin(name: "DesignScalePlugin")]
         ),
+        // Runs scripts/cmux-next/gen-design-scale-swift.py --swift-out into its work directory.
+        .plugin(name: "DesignScalePlugin", capability: .buildTool()),
         .target(
             name: "CmuxNextDesign",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2535,6 +2566,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // wires it to Ghostty's search bindings and draws the bar. No default
         // main-actor isolation: its value types are test arguments, which
         // Swift Testing builds off the main actor.
+        .testTarget(
+            name: "CmuxNextTerminalGeometryTests",
+            dependencies: ["CmuxNextTerminalGeometry"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextTerminalFind",
             swiftSettings: daemonSwiftSettings
@@ -2789,6 +2825,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-agent-pane-policy-swift.py --swift-out into its work directory.
+        .plugin(name: "AgentPanePolicyPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
@@ -3077,27 +3115,36 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
     ] + [appFFI]
 
-// The Linux shape: the Linux package jobs (scripts/ci/swift-linux-packages.txt) set
-// CMUX_SWIFTPM_TARGET_LINUX and get only the targets below, which build without Apple
-// frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC); ChromiumRuntime
-// hashes with its PortableSHA256 where CryptoKit is missing. Only those Linux jobs set the variable; every
-// other build keeps every target. A runtime read, not a compile-time branch: scripts/ci/app_ffi_pin.py
-// refuses conditional compilation in this manifest.
-let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
-
 /// Targets in the Linux shape, each with every dependency it names also in it.
 let linuxTargetNames: Set<String> = [
     "CmuxNextAgentPanePlacement",
     "CmuxNextAgentPanePlacementTests",
     "CmuxNextChromiumRuntime",
     "CmuxNextChromiumRuntimeTests",
+    "CmuxNextCLIInstall",
+    "CmuxNextCLIInstallTests",
     "CmuxNextCompat",
     "CmuxNextCompatTests",
+    "CmuxNextCopyMode",
+    "CmuxNextFocus",
+    "CmuxNextFocusTests",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
+    "CmuxNextTerminalFind",
+    "CmuxNextTerminalGeometry",
+    "CmuxNextTerminalGeometryTests",
 ]
 
-let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }
+// CCmuxAppFFI on Linux: a system library over the crates' headers and libcmux_app_ffi.a built for the host, in place
+// of the xcframework. `scripts/ci/app_ffi_linux.py build` writes LinuxAppFFI/module.modulemap (gitignored: the same
+// module names as build-app-ffi.sh's headers_in, so imports do not change) and the library, whose directory swift build
+// gets as -Xlinker -L DIR. Its own target name, so each name declares one target; appFFIDependency points the Linux
+// shape's targets at it.
+let linuxAppFFI: Target = .systemLibrary(name: "CCmuxAppFFILinux", path: "LinuxAppFFI")
+
+let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter {
+    linuxTargetNames.contains($0.name) && $0.name != appFFI.name
+} + [linuxAppFFI]
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),

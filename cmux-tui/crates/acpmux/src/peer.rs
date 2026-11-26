@@ -45,6 +45,8 @@ pub(crate) mod overlay;
 #[path = "peer_tailnet.rs"]
 mod tailnet_path;
 
+#[path = "peer_demand.rs"]
+mod demand;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
@@ -56,6 +58,8 @@ mod ssh_errors;
 mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
+pub use demand::DIAL_AT_START_ENV;
+pub(crate) use demand::{lazily, saved};
 use wanted::BackoffWait;
 pub use wanted::{WAKE_ENV, WakeHook};
 #[path = "peer_controls.rs"]
@@ -162,6 +166,9 @@ pub enum PeerNotice {
     /// (`Peer::lists_after_ready`).
     Listed,
     Disconnected(String),
+    /// The link closed because nothing used it (`LinkEnd::Idle`): its rows are last-known now,
+    /// with no outage; the next use dials again.
+    Idle,
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
     /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
@@ -302,6 +309,9 @@ enum LinkEnd {
     /// The link ended to move to another path of this peer (`peer_carriers.rs`): no outage,
     /// the next connect runs at once and its chats resume from their cursors.
     Switching,
+    /// Nothing used the link for `peer_demand::IDLE_CLOSE_AFTER`: it closes, and the next use
+    /// dials again. No outage, no failed attempt.
+    Idle,
 }
 
 pub struct Peer {

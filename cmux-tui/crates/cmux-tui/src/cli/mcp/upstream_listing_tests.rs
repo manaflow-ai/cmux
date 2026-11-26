@@ -1,5 +1,5 @@
-use super::*;
 use super::super::upstream::upstream_http::Http;
+use super::*;
 
 /// A DEV build's `cmux mcp serve` keeps its tool lists in the build's own caches
 /// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths), never in `~/.cache/cmux`, which NIGHTLY shares.

@@ -1463,6 +1463,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         public var totalDecodeTime: Double = 0
         public var freezeCount: Double = 0
         public var packetsLost: Double = 0
+        /// Every byte the nominated path received (video, RTCP, the data channel, headers): what a relay carries.
+        public var transportBytesReceived: Double = 0
     }
 
     public func videoStats() async -> VideoStats {

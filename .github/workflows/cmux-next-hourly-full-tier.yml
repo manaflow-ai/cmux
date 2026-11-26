@@ -8,8 +8,13 @@ name: cmux NEXT hourly full tier
 # reverts or fixes forward, nothing here reverts. main's 30-minute schedule (cmux-next-post-merge-dispatch.yml)
 # starts this through scripts/ci/post_merge_batch.py tick at most once an hour, only when the tip moved.
 # vars.CI_LAND_FULL_PER_PR = '1' puts the full tier back on every landing head and skips this job.
+# The push on this file's own path registers the workflow: GitHub answers 404 for a dispatch-only workflow that is
+# not on the default branch and has never run, so every tick's kick failed (tests/test_ci_workflows_registered.py).
 on:
   workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-hourly-full-tier.yml]
 
 permissions: {}
 
@@ -38,6 +43,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/hourly_full_tier.py
             .github/hourly-full-tier.json
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The run lists each workflow's runs and dispatches them (actions: write) and compares commits (contents: read)
       # on the App's own REST budget, not the shared job token's.
