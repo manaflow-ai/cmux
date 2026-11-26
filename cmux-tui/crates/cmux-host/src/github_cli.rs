@@ -50,7 +50,7 @@ use crate::cloud::wire::AGENT_SOCKET;
 use crate::github_cli_joined::{JoinedMachine, Post, ask_hub, https_post, joined_now};
 use crate::json::JsonField;
 
-const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
+const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | pr create|view|comment ... | setup [--unset]";
 const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
 /// The agent answers within this: an ask that waited 60 s in its queue is
@@ -1228,6 +1228,20 @@ fn gh_auto(args: &[String]) -> u8 {
             None => {}
         }
     }
+    // `gh pr create` needs GitHub's GraphQL API, which the platform edge does not pass: on a
+    // machine with the edge and no GitHub login of its own, open the PR over REST through it.
+    if !cx.token_env
+        && !cx.own_login
+        && args.starts_with(&["pr".to_owned(), "create".to_owned()])
+        && crate::github_cli_pr::edge_available()
+    {
+        match crate::github_cli_pr::from_gh(args) {
+            Some(pr) => return crate::github_cli_pr::run(&pr),
+            None => eprintln!(
+                "cmux github gh: this machine opens PRs through the platform edge with `cmux github pr create --title T [--body B] [--base B]`; gh pr create runs as given"
+            ),
+        }
+    }
     let mut command = std::process::Command::new(real_gh());
     match gh_auto_route(args, &cx, &origin_url) {
         GhRoute::Direct => {
@@ -1309,6 +1323,7 @@ pub fn run(args: &[String]) -> u8 {
     match verb.as_str() {
         "credential" => credential(rest),
         "gh" => gh(rest),
+        "pr" => crate::github_cli_pr::run(rest),
         "setup" => setup(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");

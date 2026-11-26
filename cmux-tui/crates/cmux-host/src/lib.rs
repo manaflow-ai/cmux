@@ -27,7 +27,7 @@
 //! - [`updater`]: the Cloud machine's self-update from the signed channel.
 //! - [`team_ssh`]: sshd trust files, fail-closed principals and revoked-session reaping.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
-//! - `github_cli`: `cmux github credential|gh|setup` (git and gh with
+//! - `github_cli`: `cmux github credential|gh|pr|setup` (git and gh with
 //!   tokens the Cloud agent gets for this machine).
 //! - `gitlab_cli`: `cmux gitlab credential` (git for GitLab and other
 //!   hosts with the token sealed to this machine).
@@ -69,6 +69,9 @@ pub mod github_cli_joined;
 /// `cmux github` on a machine a Mac lends GitHub to: the ask goes to its acpmux daemon.
 #[cfg(unix)]
 pub mod github_cli_lane;
+/// `cmux github pr`: pull requests through the platform edge, with no GitHub token on the machine.
+#[cfg(unix)]
+pub mod github_cli_pr;
 /// The Mac app's GitHub calls as data: what acpmux's `_acpmux/github_rest` runs with an App token.
 pub mod github_rest;
 #[cfg(unix)]

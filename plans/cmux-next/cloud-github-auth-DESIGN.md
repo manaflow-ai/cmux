@@ -89,6 +89,17 @@ command asks the write set (contents, pull requests, issues write; checks, actio
 metadata read), then the read set when the team policy refuses write. `workflows: write` stays
 opt-in (`CMUX_GITHUB_WORKFLOWS=1`), as for git.
 
+On a machine whose platform edge is on (`platform.cmux.internal` resolves; the edge rule adds the
+machine's own authorization), `gh pr create` with no token in the environment and no gh login of
+the person's own opens the PR over REST through the edge instead: `cmux github pr create`
+(`github_cli_pr.rs`) POSTs GitHub's create-pull-request body to
+`https://platform.cmux.internal/v1/cloud/github/api/repos/OWNER/REPO/pulls`, and the platform mints
+the repository's token and never sends it to the machine. Stock `gh pr create` needs GraphQL,
+which the edge does not pass, so the shim maps it when every flag is one the client takes
+(`--repo/-R`, `--head/-H`, `--base/-B`, `--title/-t`, `--body/-b`, `--body-file/-F`, `--draft/-d`)
+and otherwise names `cmux github pr create` and runs gh as given. `cmux github pr view N` and
+`cmux github pr comment N --body B` use the same route's `pulls/N` and `issues/N/comments`.
+
 A refusal from the API (no connection, policy, rate limit) does not block gh: it runs without a
 token and gh says what it says, after one line from cmux with the API's reason.
 
