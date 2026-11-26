@@ -74,7 +74,7 @@ jobs:
       deployment: false
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-gcp-repair-jit-x64' }} # owned one-job JIT VM: runs while Blacksmith starts nothing; GitHub-hosted never starts here
+    runs-on: cmux-gcp-repair-jit-x64 # owned one-job JIT VM: runs while Blacksmith starts nothing; GitHub-hosted never starts here
     timeout-minutes: 25
     permissions:
       actions: write

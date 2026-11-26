@@ -90,8 +90,8 @@ def secret_linux_jobs():
 
 def leads_with_jit(runs_on: str) -> bool:
     """True when RUNS_ON is a JIT label, or its first operand after the fork and fork-PR branches yields one."""
-    if runs_on.strip() == SECRET_JIT_LABEL:
-        return True
+    if JIT_LABEL.fullmatch(f"'{runs_on.strip()}'"):
+        return True  # a bare JIT label
     labels = LABEL_LITERAL.findall(runs_on)
     if runs_on.startswith("${{ ") and "vars." not in runs_on and "fromJSON" not in runs_on and labels and all(
             JIT_LABEL.fullmatch(f"'{label}'") for label in labels):
@@ -137,6 +137,7 @@ class SecretJobsSecretJitTest(unittest.TestCase):
             FORK_BRANCH + "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}"))
         self.assertTrue(leads_with_jit(FORK_BRANCH + f"'{SECRET_JIT_LABEL}' }}}}"))
         self.assertFalse(leads_with_jit(FORK_BRANCH + "'blacksmith-4vcpu-ubuntu-2404' }}"))
+        self.assertTrue(leads_with_jit("cmux-gcp-repair-jit-x64"))
         self.assertFalse(leads_with_jit("blacksmith-4vcpu-ubuntu-2404"))
         self.assertFalse(leads_with_jit("ubuntu-24.04"))
         self.assertFalse(leads_with_jit(FORK_BRANCH + "'blacksmith-4vcpu-ubuntu-2404' }}"))
