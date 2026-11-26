@@ -43,6 +43,11 @@ public final class MacScreenSession {
         /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
         /// labels Ultra only from this, never from the quality it asked for.
         public var encodeProfile: String?
+        /// The frames the host says it has sent (its `stats` `frames`) and when that line arrived. The host
+        /// sends a line every second while frames flow and every two seconds on a still screen, so a fresh
+        /// line whose count the viewer has already decoded means the screen did not change, not a stall.
+        public var hostFrames: Double?
+        var hostStatsAt: Date?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
@@ -76,7 +81,7 @@ public final class MacScreenSession {
     @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
-    /// This approach never reconnects on its own: Try Again asks the hub again.
+    /// The session never reconnects itself: the pane asks the hub again (``MacScreenPane``'s retry, or Try Again).
     public var isReconnecting: Bool { false }
     public var preferences: ScreenPreferences
     /// The viewer display's refresh rate; the next session asks for up to it.
@@ -438,6 +443,8 @@ public final class MacScreenSession {
                 stats.lossPercent = report.lossPercent
                 stats.encodeMsP50 = report.encodeMsP50
                 stats.encodeProfile = report.encodeProfile
+                stats.hostFrames = Double(report.frames)
+                stats.hostStatsAt = Date()
             }
         })
         transport.connect()
