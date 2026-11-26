@@ -70,10 +70,15 @@ export function startRailDrag(
     });
   };
 
-  // Near the rail's edge, scroll it each frame while the pointer stays there.
+  // Near the rail's edge, scroll it each frame while the pointer stays there. A rail the menu took
+  // away (it closed under the drag) ends the drag.
   const scrollEdge = () => {
     frame = 0;
     if (!lifted) return;
+    if (!rail.isConnected) {
+      finish(false, false);
+      return;
+    }
     const near = pointerAt - (y ? box.top : box.left);
     const length = y ? box.height : box.width;
     const by =
@@ -83,31 +88,41 @@ export function startRailDrag(
           ? EDGE_SPEED * (1 - (length - near) / EDGE)
           : 0;
     if (!by) return;
+    const was = scrollAt();
     if (y) rail.scrollTop += by;
     else rail.scrollLeft += by;
+    // At its end the rail scrolls no further: nothing moves until the pointer does.
+    if (scrollAt() === was) return;
     place();
     frame = win.requestAnimationFrame(scrollEdge);
   };
 
-  const finish = (drop: boolean) => {
+  /// `drop`: the release places the tab. `guard`: a click is still to come from this press (a release,
+  /// or Escape with the button still down), which must not pick the tab.
+  const finish = (drop: boolean, guard = true) => {
     win.removeEventListener("pointermove", move, true);
     win.removeEventListener("pointerup", up, true);
     win.removeEventListener("pointercancel", cancel, true);
     win.removeEventListener("keydown", key_, true);
+    win.removeEventListener("blur", blur);
     if (frame) win.cancelAnimationFrame(frame);
+    frame = 0;
     if (!lifted) return;
     // The click the release makes on the tab is the drag's, never a pick of the tab. The next click
-    // anywhere ends this guard; one elsewhere goes on as usual.
-    win.addEventListener(
-      "click",
-      (click) => {
-        if (click.target instanceof win.Node && tab.contains(click.target)) {
-          click.preventDefault();
-          click.stopPropagation();
-        }
-      },
-      { capture: true, once: true },
-    );
+    // anywhere ends this guard; one elsewhere goes on as usual. A cancelled press (pointercancel, the
+    // window losing focus) makes no click, so it sets no guard: the next click on the tab is the
+    // person's own.
+    if (guard)
+      win.addEventListener(
+        "click",
+        (click) => {
+          if (click.target instanceof win.Node && tab.contains(click.target)) {
+            click.preventDefault();
+            click.stopPropagation();
+          }
+        },
+        { capture: true, once: true },
+      );
     rail.removeAttribute("data-reordering");
     tab.removeAttribute("data-lifted");
     for (const element of tabs) element.style.transform = "";
@@ -130,7 +145,7 @@ export function startRailDrag(
     if (next.pointerId === pointer) finish(true);
   };
   const cancel = (next: PointerEvent) => {
-    if (next.pointerId === pointer) finish(false);
+    if (next.pointerId === pointer) finish(false, false);
   };
   const key_ = (next: KeyboardEvent) => {
     if (next.key !== "Escape" || !lifted) return;
@@ -143,4 +158,7 @@ export function startRailDrag(
   win.addEventListener("pointerup", up, true);
   win.addEventListener("pointercancel", cancel, true);
   win.addEventListener("keydown", key_, true);
+  // The window lost focus mid-drag (another app, another window): its release may never come here.
+  const blur = () => finish(false, false);
+  win.addEventListener("blur", blur);
 }

@@ -108,6 +108,67 @@ test("orderTabs and movedOrder: Starred first, the named tabs in order, the rest
   expect(movedOrder(["claude", "openai", "opencode"], "claude", 2)).toEqual(["openai", "opencode", "claude"]);
 });
 
+// A started chat's rail shows only its own harness and those it can continue in: a drag there keeps
+// the saved places of the harnesses it does not show.
+test("droppedOrder keeps the saved place of every harness the rail does not show", async () => {
+  const { droppedOrder } = await import("../src/agent-session/acpmux/modelPickerOrder");
+  const saved = ["gemini", "opencode", "claude", "openai"];
+  expect(droppedOrder(saved, ["claude", "openai"], "openai", 0)).toEqual(["gemini", "opencode", "openai", "claude"]);
+  // A shown harness the order does not name yet joins after the named ones.
+  expect(droppedOrder(["gemini"], ["claude", "openai"], "openai", 0)).toEqual(["gemini", "openai", "claude"]);
+  expect(droppedOrder([], ["claude", "openai", "opencode"], "opencode", 0)).toEqual(["opencode", "claude", "openai"]);
+});
+
+// A cancelled drag (pointercancel, the window losing focus) makes no click, so it must not swallow
+// the person's next click on the tab.
+test("a cancelled drag leaves the next click on the tab to pick it", async () => {
+  const { startRailDrag } = await import("../src/agent-session/acpmux/railReorder");
+  const doc = dom.window.document;
+  const rail = doc.createElement("div");
+  host.append(rail);
+  const keys = ["claude", "openai", "opencode"];
+  const tabs = keys.map((key, index) => {
+    const tab = doc.createElement("button");
+    tab.dataset.tabKey = key;
+    tab.setAttribute("data-movable", "");
+    tab.getBoundingClientRect = () =>
+      ({ top: index * 36, left: 0, width: 32, height: 32, right: 32, bottom: index * 36 + 32 }) as DOMRect;
+    rail.append(tab);
+    return tab;
+  });
+  rail.getBoundingClientRect = () => ({ top: 0, left: 0, width: 40, height: 400, right: 40, bottom: 400 }) as DOMRect;
+  const pointer = (type: string, y: number) =>
+    new dom.window.PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 1,
+      clientX: 16,
+      clientY: y,
+    });
+  const dropped: unknown[] = [];
+  let clicks = 0;
+  tabs[2]!.addEventListener("click", () => clicks++);
+  for (const end of ["pointercancel", "blur"] as const) {
+    tabs[2]!.addEventListener(
+      "pointerdown",
+      (event) =>
+        startRailDrag(event as unknown as Parameters<typeof startRailDrag>[0], "y", (...drop) => dropped.push(drop)),
+      { once: true },
+    );
+    tabs[2]!.dispatchEvent(pointer("pointerdown", 88));
+    dom.window.dispatchEvent(pointer("pointermove", 40));
+    expect(tabs[2]!.hasAttribute("data-lifted")).toBe(true);
+    if (end === "blur") dom.window.dispatchEvent(new dom.window.Event("blur"));
+    else dom.window.dispatchEvent(pointer("pointercancel", 40));
+    expect(tabs[2]!.hasAttribute("data-lifted")).toBe(false);
+    tabs[2]!.click();
+  }
+  expect(dropped).toEqual([]);
+  expect(clicks).toBe(2);
+  rail.remove();
+});
+
 test("a drag moves a harness tab up the rail, keeps the order, and picks nothing", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");

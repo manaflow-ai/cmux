@@ -46,7 +46,7 @@ import {
   heldTab,
   type UsedLook,
 } from "./quickModelMenuModel";
-import { movedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
+import { droppedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
 import { startRailDrag } from "./railReorder";
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
 /// version's search field.
@@ -310,7 +310,8 @@ export function QuickModelMenu({
   /// A drag dropped the tab `key` at `to` among the movable tabs: that is the order now.
   const dropTab = (key: string, to: number) =>
     setModelPickerOrder(
-      movedOrder(
+      droppedOrder(
+        order,
         tabs.filter((tab) => !tab.starred).map((tab) => tab.key),
         key,
         to,

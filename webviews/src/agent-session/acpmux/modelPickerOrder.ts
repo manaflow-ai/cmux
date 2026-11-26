@@ -115,3 +115,15 @@ export function movedOrder(keys: readonly string[], key: string, to: number): st
   next.splice(Math.max(0, Math.min(to, next.length)), 0, key);
   return next;
 }
+
+/** The saved order after a drag moved the tab `key` to `to` among the rail's movable tabs `shown`.
+ *  A rail can show only some harnesses (a started chat lists its own and those it can continue in):
+ *  a harness the order names that this rail does not show keeps its place, and the shown ones take
+ *  the slots the shown ones had, in their new order. */
+export function droppedOrder(saved: readonly string[], shown: readonly string[], key: string, to: number): string[] {
+  const visible = new Set(shown);
+  const next = movedOrder(shown, key, to);
+  const base = [...saved, ...shown.filter((item) => !saved.includes(item))];
+  let at = 0;
+  return base.map((item) => (visible.has(item) ? next[at++]! : item));
+}

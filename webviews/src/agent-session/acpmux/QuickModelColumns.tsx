@@ -32,7 +32,7 @@ import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
-import { movedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
+import { droppedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
 import { startRailDrag } from "./railReorder";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { startPopupResize, type PopupResizeAxes } from "../../ui/popupResizeDrag";
@@ -667,7 +667,8 @@ function Columns({
   /// A drag dropped the tab `key` at `to` among the movable tabs: that is the order now.
   const dropTab = (key: string, to: number) =>
     setModelPickerOrder(
-      movedOrder(
+      droppedOrder(
+        order,
         tabs.filter((tab) => !tab.starred).map((tab) => tab.key),
         key,
         to,
