@@ -292,6 +292,8 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 cmux-build-space = { workspace = true, features = ["testing"] }
+# Seeded-secret tests: gated clients send to a local capture server (hub/forum_hosted.rs).
+cmux-egress = { workspace = true, features = ["capture"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
