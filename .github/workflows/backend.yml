@@ -129,6 +129,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/
+            /.gitmodules
       - id: route
         env:
           EVENT_NAME: ${{ github.event_name }}
