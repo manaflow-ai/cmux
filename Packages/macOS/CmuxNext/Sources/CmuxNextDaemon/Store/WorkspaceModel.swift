@@ -69,6 +69,9 @@ public final class WorkspaceModel: Identifiable {
     @ObservationIgnored var tookOverStandIn: (pane: PaneID, firstTab: SurfaceID?)?
     /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
     public internal(set) var pinned: Bool
+    /// The daemon's copy of Keep Workspace Awake (`workspace-keep-awake-v1`), which its freeing timer honors;
+    /// the app's own set is `WorkspaceKeepAwakeStore`, mirrored here by `WorkspaceKeepAwakeFlags`.
+    public internal(set) var keepAwake = false
     /// Marked unread by hand (`notification-mark-unread-v1`), apart from
     /// notification markers; cleared when the workspace is used.
     public internal(set) var markedUnread: Bool { didSet { noteUnreadChange() } }
@@ -191,6 +194,7 @@ public final class WorkspaceModel: Identifiable {
         icon = s.icon
         title = s.title
         pinned = s.pinned
+        keepAwake = s.keepAwake
         markedUnread = s.markedUnread
         kind = s.kind
         app = s.app
@@ -215,6 +219,7 @@ public final class WorkspaceModel: Identifiable {
         if icon != s.icon { icon = s.icon }
         if title != s.title { title = s.title }
         if pinned != s.pinned { pinned = s.pinned }
+        if keepAwake != s.keepAwake { keepAwake = s.keepAwake }
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if kind != s.kind { kind = s.kind }
         if app != s.app { app = s.app }

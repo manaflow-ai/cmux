@@ -66,6 +66,7 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.lists(id.rawValue, in: $0.id) == true } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        model.chatMoveTargets = { [weak self] id in self.map { ChatMoveDrop(host: $0.services).targets(of: id) } ?? [] }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
         model.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         // Loose rows come before every group unless the home session places
@@ -200,6 +201,13 @@ final class SidebarBridge {
             BenchSpans.measure("sidebar.pendingRow.show") { self.rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines))) }
             self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
             BenchSpans.measure("sidebar.pendingRow.render") { self.container.sidebarView.renderInFrame() } // the model changed in this turn; the list draws the row in its frame
+        }
+        // A chat moving to another machine: its row there, saying the step (``ChatMoves``); a row it shares stays put.
+        sameTurn.observe({ services.cloud.chatMoves.all.values.compactMap { move in
+            move.workspace.map { SidebarChatMove(workspace: WorkspaceID($0), machine: move.travels ? move.machine.map(MachineID.init) : nil, line: move.line, fraction: move.fraction) }
+        }.sorted { $0.workspace.rawValue < $1.workspace.rawValue } }) { [weak self] moves in
+            self?.rows.chatMoves = moves
+            self?.container.sidebarView.renderInFrame()
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
         model.spaceSections = { [weak windowState, spaceCache] key in
