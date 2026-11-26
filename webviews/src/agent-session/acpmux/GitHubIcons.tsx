@@ -4,13 +4,19 @@
 import { AGENT_BRANDS } from "../shared/agentBrands.generated";
 
 /// GitHub's mark (Primer Octicons mark-github, MIT, 16 px grid), in the text color.
-export function GitHubMark({ size = 12 }: { size?: number }) {
+/// `chip`: the mark as the folder chip's face, in the folder icon's own box (the location strip's glyph,
+/// which grows with the density, on the icon column). It stayed a fixed 12 px beside a laptop and a
+/// folder that scale, off their column (2026-11-23: the GitHub icon, This Mac's laptop and the
+/// chevrons "look like different sizes"). Its solid disc fills its box, so it draws at three quarters
+/// of the box: the ink footprint of the folder and the laptop (test/newtab-chip-icon-sizes.test.ts).
+export function GitHubMark({ size = 12, chip = false }: { size?: number; chip?: boolean }) {
   return (
     <svg
-      className="acpmux-icon"
+      className={chip ? "acpmux-icon acpmux-location-icon ui-ghost-icon" : "acpmux-icon"}
+      data-github-mark={chip ? "" : undefined}
       width={size}
       height={size}
-      viewBox="0 0 16 16"
+      viewBox={chip ? "-2.6667 -2.6667 21.3333 21.3333" : "0 0 16 16"}
       fill="currentColor"
       aria-hidden="true"
       focusable="false"
@@ -20,7 +26,7 @@ export function GitHubMark({ size = 12 }: { size?: number }) {
   );
 }
 
-/// GitHub's mark as a menu glyph: the 18 px box of the folder picker's other glyphs (ComposerPickers `Icon`), the
+/// GitHub's mark as a menu glyph (the folder chip's face is GitHubMark `chip`, which scales with the strip): the 18 px box of the folder picker's other glyphs (ComposerPickers `Icon`), the
 /// mark inset so its circle (about 14.4 px) reads as large as the folder glyph's ink (about 13.7 px wide).
 export function GitHubGlyph() {
   return (
