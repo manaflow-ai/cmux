@@ -21,7 +21,11 @@ export function MobileCard() {
       <div className="rows">
         <ActionRow title={state.status_title} help={state.status}>
           {state.sign_in ? (
-            <SignInButton label={state.sign_in} onSignIn={() => void store.runAction("palette.auth.signIn")} />
+            <SignInButton
+              label={state.sign_in}
+              backend={state.sign_in_backend}
+              onSignIn={() => void store.runAction("palette.auth.signIn")}
+            />
           ) : state.phase === "removed" && state.allow_again_title ? (
             <Button type="button" className="button" data-allow-again="" onClick={() => void store.allowPhonesAgain()}>
               {state.allow_again_title}
