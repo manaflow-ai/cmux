@@ -34,6 +34,7 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
+mod chat_page;
 mod chat_perf;
 mod classic;
 mod events;
@@ -207,6 +208,8 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app chat page`: `agent.chat.page.*`, a chat page's elements, styles or masked picture (app/chat_page.rs).
+    ChatPage(chat_page::Request),
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -354,6 +357,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
+        }
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "page") => {
+            chat_page::parse(rest)?
         }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
@@ -1095,6 +1101,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::ChatPage(request) => return Ran::Done(chat_page::run(global, stream, request)),
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
@@ -1229,6 +1236,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 skew::annotate(stream, method, &mut error);
             }
             settings::explain_refusal(method, &params, &mut error);
+            chat_page::explain_chat_tab(method, &mut error);
             if refused_before_running(&error) {
                 report.succeeded();
             } else {

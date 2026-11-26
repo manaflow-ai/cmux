@@ -81,6 +81,8 @@ pub(crate) struct AppControlMessages {
     pub live: LiveMessages,
     /// `cmux app chat perf` (cli/app/chat_perf.rs).
     pub chat_perf: ChatPerfMessages,
+    /// `cmux app chat page` (cli/app/chat_page.rs).
+    pub chat_page: ChatPageMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
     /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
@@ -144,6 +146,19 @@ pub(crate) struct LaunchTimesMessages {
 
 /// `cmux app chat perf`: a chat page's frames and record-to-paint times over a window. The JSON
 /// keys stay English; `{name}` placeholders are filled by cli/app/chat_perf.rs.
+/// `cmux app chat page`: a chat page's elements, computed styles and masked picture, read-only.
+/// `{name}` placeholders are filled by cli/app/chat_page.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChatPageMessages {
+    pub usage: &'static str,
+    /// `{tab}`, `{shown}`: elements printed, `{count}`: elements matched.
+    pub header: &'static str,
+    /// After an element outside the viewport.
+    pub offscreen: &'static str,
+    /// Added to a `cmux browser <tab>` refusal of a chat tab: `{tab}`.
+    pub browser_hint: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ChatPerfMessages {
     pub usage: &'static str,
@@ -577,6 +592,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         owners_none: "  no page code asked for frames, short timers or animations",
         owners_unsupported: "Frame owners: this chat page does not report them (a build from before they were added)",
     },
+    chat_page: ChatPageMessages {
+        usage: "usage: cmux app chat page --tab <tab> query [<selector>] [--style <property,...>] [--limit <1-1000>]\n       cmux app chat page --tab <tab> screenshot [--out <file>|-]\n  Reads the chat in <tab> as its page draws it, without focusing or showing it, so it works behind\n  other windows and while the Mac is locked. query lists the elements matching <selector> (default\n  every element, the first 200): tag, classes, data-*, role, label, text, rect, and the computed\n  --style properties asked for; secrets in them are masked. screenshot saves the page's own picture\n  with every text, image and field greyed, so it shows layout and colors, never words. --json prints\n  the answer.",
+        header: "Chat {tab}: {shown} of {count} elements",
+        offscreen: "(offscreen)",
+        browser_hint: "{tab} is a chat tab. Read its page with `cmux app chat page --tab {tab} query [<selector>]` or `cmux app chat page --tab {tab} screenshot`.",
+    },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
@@ -828,6 +849,12 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         owner_animation: "  アニメーション {name} ({target}): 実行中 {count}、反復 {iterations}",
         owners_none: "  フレーム、短いタイマー、アニメーションを要求したページのコードはありません",
         owners_unsupported: "フレームの要求元: このチャットのページは報告しません (追加される前のビルドです)",
+    },
+    chat_page: ChatPageMessages {
+        usage: "使い方: cmux app chat page --tab <タブ> query [<セレクタ>] [--style <プロパティ,...>] [--limit <1-1000>]\n       cmux app chat page --tab <タブ> screenshot [--out <ファイル>|-]\n  <タブ> のチャットを、フォーカスも表示もせずにページが描くとおりに読み取ります。ほかのウインドウの\n  後ろでも、Mac がロック中でも動きます。query は <セレクタ> に一致する要素 (既定はすべて、最初の 200 個)\n  のタグ、クラス、data-*、ロール、ラベル、テキスト、位置と、--style で指定した計算済みスタイルを\n  一覧にします。中の秘密情報はマスクされます。screenshot はページ自身の画像を、文字、画像、入力欄を\n  すべて灰色にして保存します。レイアウトと色はわかりますが、文字は写りません。--json で結果を表示します。",
+        header: "チャット {tab}: {count} 個中 {shown} 個の要素",
+        offscreen: "(画面外)",
+        browser_hint: "{tab} はチャットタブです。ページは `cmux app chat page --tab {tab} query [<セレクタ>]` または `cmux app chat page --tab {tab} screenshot` で読み取れます。",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",

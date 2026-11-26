@@ -38,6 +38,12 @@ public struct AgentChatPerfControl: Sendable {
             .withLimit { request, _ in .seconds(((try? Self.seconds(request.params)) ?? Self.maxSeconds) + 15) }
     }
 
+    /// ``controlMethod(sources:)`` and the same page's read-only ``AgentChatPageControl`` methods
+    /// (`cmux app chat page`), all finding the tab's page the same way.
+    public func controlMethods(sources: @escaping @MainActor @Sendable () -> AgentPageSources? = { nil }) -> [ControlMethod] {
+        [controlMethod(sources: sources)] + AgentChatPageControl(find: find).controlMethods()
+    }
+
     /// `seconds`, checked: a whole number from 1 to 60, or absent for the default.
     public nonisolated static func seconds(_ params: [String: JSONValue]) throws -> Int {
         guard let raw = params["seconds"] else { return defaultSeconds }
