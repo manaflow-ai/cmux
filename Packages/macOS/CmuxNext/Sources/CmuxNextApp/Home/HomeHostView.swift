@@ -21,7 +21,6 @@ import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextSettings
 import CmuxNextWakeups
-
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
