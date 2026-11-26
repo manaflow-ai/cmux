@@ -98,7 +98,8 @@ impl StreamEncoder {
                 break;
             }
         }
-        let zstd_len = u32::try_from(out.len() - HEADER_BYTES).map_err(|_| StreamError::TooLong(out.len()))?;
+        let zstd_len =
+            u32::try_from(out.len() - HEADER_BYTES).map_err(|_| StreamError::TooLong(out.len()))?;
         out[5..9].copy_from_slice(&zstd_len.to_be_bytes());
         Ok(out)
     }
@@ -115,7 +116,8 @@ pub fn header(bytes: &[u8]) -> Option<(usize, usize)> {
     if bytes.len() < HEADER_BYTES || bytes[0] != MARKER {
         return None;
     }
-    let u32_at = |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+    let u32_at =
+        |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
     Some((u32_at(1), u32_at(5)))
 }
 

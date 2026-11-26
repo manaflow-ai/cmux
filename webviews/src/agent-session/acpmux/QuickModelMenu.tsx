@@ -137,6 +137,17 @@ export function QuickModelMenu({
       setHeldFast(undefined);
     }
   }
+  // The chat's harness changing under an open menu moves it to that harness's tab, as the columns
+  // menu does (QuickModelColumns.tsx, cmux#55750).
+  const [seenCurrent, setSeenCurrent] = useState(families?.current);
+  if (families?.current !== seenCurrent) {
+    setSeenCurrent(families?.current);
+    if (open && families?.current) {
+      setTab(heldTab(families) ?? families.current);
+      setMoreFor(undefined);
+      setHeldFast(undefined);
+    }
+  }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
   // goes to the first row left, so the next key, Enter and Escape still reach the menu. A
   // re-render with the same filter (a streaming reply hands over new families) keeps the row the
@@ -1075,6 +1086,10 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          // The columns menu sizes itself (QuickModelColumns: the longest name of every tab, the
+          // person's dragged width and grip). The compact menu is settled by the shared rule; its
+          // rail hold above (railRef) only raises the same floor, so the two never disagree.
+          popupSettle={families ? "own" : undefined}
           scroll={families === undefined}
           footer={
             menu.updates ? (

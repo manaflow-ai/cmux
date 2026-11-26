@@ -20,6 +20,10 @@ public actor AcpmuxConnection {
         public var reason: String?
         /// `error.data.retryAfterMs`: when acpmux paces a request (`list.paced`), how long to wait.
         public var retryAfterMs: Int? = nil
+        /// `error.data.origin` and `error.data.code` (a string): Rust tells a "not now" from a
+        /// real refusal by them and `reason`; Swift only carries them.
+        public var origin: String? = nil
+        public var dataCode: String? = nil
     }
 
     public struct Notification: Sendable {
@@ -28,6 +32,10 @@ public actor AcpmuxConnection {
     }
 
     private let channel: any LinkChannel
+    /// The link's last progress (its Mac's ``MacSession/progress``, or this channel's own): every
+    /// frame heard and every write taken tells it, and a ``submit(_:_:timeout:)``'s write is
+    /// bounded by silence on it, not by a fixed time.
+    nonisolated let progress: LinkProgress
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var readTask: Task<Void, Never>?
@@ -57,8 +65,9 @@ public actor AcpmuxConnection {
     /// (the channel closes), so a peer that never passes the check cannot fill the phone's memory.
     /// The answers to this phone's own requests are kept whole, as on any connection: one each,
     /// at most ``MessageJoiner/maxMessage``, so an older Mac's whole chat list still arrives.
-    public init(channel: any LinkChannel, held: Bool = false) {
+    public init(channel: any LinkChannel, held: Bool = false, progress: LinkProgress = LinkProgress()) {
         self.channel = channel
+        self.progress = progress
         (notifications, continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         if held { self.held = [] }
     }
@@ -185,9 +194,13 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// The write is bounded by `timeout` (a link that stopped taking data) and released when the
+    /// The write is bounded by a quiet window of `timeout` (by default ``writeBound(bytes:base:)``
+    /// of its size) that ``progress`` (anything heard from the Mac, a write taken) restarts, not
+    /// by `timeout` in all: a write on a link that keeps moving goes on (Leo, 2026-11-24: "if
+    /// it's making good progress, it shiukd be allowed to keep going?"). It is released when the
     /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
-    public func submit(_ method: String, _ params: JSONValue, timeout: Duration = .seconds(30)) async throws -> Int {
+    public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil,
+                       base: Duration = AcpmuxConnection.writeBase) async throws -> Int {
         try Task.checkCancellation()
         if let ended { throw ended }
         start()
@@ -197,12 +210,19 @@ public actor AcpmuxConnection {
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
         submitted.insert(id)
-        if !AcpmuxHub.steadyMethods.contains(method) { writes.insert(id) }
+        if !AcpmuxHub.steadyMethods.contains(method) {
+            writes.insert(id)
+            // Bounded by this write's own deadline below, so a recovery it holds off is too.
+            sending.insert(id)
+        }
+        defer { sending.remove(id) }
         let channel = channel
+        let window = timeout ?? Self.writeBound(bytes: data.count, base: base)
         do {
             try await LinkDeadline.run(
-                timeout: timeout,
-                timeoutError: LinkError(code: "timeout", message: "write of \(method) timed out"),
+                timeout: window,
+                timeoutError: LinkError(code: "timeout", message: "write of \(method) made no progress"),
+                extend: progress.stallExtension(after: window),
                 operation: { try await channel.send(data) },
                 onCancel: { await self.release(id) }
             )
@@ -210,11 +230,27 @@ public actor AcpmuxConnection {
             release(id)
             throw error
         }
+        progress.progressed()
         return id
+    }
+
+    /// The fixed part of a write's bound: a link that takes no data for this long is down.
+    public static let writeBase: Duration = .seconds(30)
+    /// The slowest link a write is still expected to finish on, in bytes a second: a prompt with
+    /// an inline image or PDF (several MB of base64) on a slow cellular link.
+    static let writeFloorRate = 16 * 1024
+
+    /// How long a write of `bytes` may take: `base`, plus its bytes at ``writeFloorRate``. A fixed
+    /// bound cut off a large prompt that was still going out on a slow link, and the prompt came
+    /// back as "unreachable" though the Mac was there (``LinkChannel/send(_:)`` reports no
+    /// progress, so the bound scales with the size instead of watching for a stall).
+    public static func writeBound(bytes: Int, base: Duration = writeBase) -> Duration {
+        base + .milliseconds(Int64(max(0, bytes)) * 1000 / Int64(writeFloorRate))
     }
 
     /// A submitted request whose write failed, timed out or was cancelled: nothing waits for it.
     private func release(_ id: Int) {
+        sending.remove(id)
         submitted.remove(id)
         writes.remove(id)
         answered[id] = nil
@@ -245,6 +281,12 @@ public actor AcpmuxConnection {
     /// A prompt or mutation is still waiting for the Mac on this channel: a slow answer here is
     /// work, not a stall, and closing the channel would lose it.
     var hasWritesInFlight: Bool { !writes.isEmpty }
+    /// Submitted writes (``submit(_:_:timeout:base:)``, not idempotent reads) whose bytes are still
+    /// going out on the channel: the channel has not taken them whole yet.
+    private var sending: Set<Int> = []
+    /// A write is still going out: a read behind it on this channel is slow, not stalled (the Mac
+    /// cannot answer what has not reached it), and the write is bounded by its own deadline.
+    var isSending: Bool { !sending.isEmpty }
     private var answered: [Int: Result<JSONValue, any Error>] = [:]
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
@@ -293,6 +335,8 @@ public actor AcpmuxConnection {
     /// full-size frames (PROTOCOL.md "Link"), so frames join until they parse
     /// as one JSON value: a transcript record carrying an image arrives whole.
     func route(_ data: Data) {
+        // Bytes heard from the Mac: the link is moving.
+        progress.progressed()
         guard cutOff == nil else { return }
         var joiner = frames
         // Before the check every message, plain or compressed, grows to at most what is left of
@@ -336,7 +380,9 @@ public actor AcpmuxConnection {
                     code: Int(error["code"]?.numberValue ?? 0),
                     message: error["message"]?.stringValue ?? "error",
                     reason: error["data"]?["reason"]?.stringValue,
-                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) }
+                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) },
+                    origin: error["data"]?["origin"]?.stringValue,
+                    dataCode: error["data"]?["code"]?.stringValue
                 ))
             } else {
                 outcome = .success(value["result"] ?? .null)
@@ -529,11 +575,12 @@ public actor AcpmuxConnection {
                 if pending.count < ZstdStreamMessage.headerBytes { return nil }
                 return lose()
             }
-            guard header.textBytes <= Self.maxMessage else { return lose() }
-            // Never more compressed bytes than ``budget`` (before the pairing check, what is left
-            // of it): what this phone holds while an envelope arrives stays bounded.
-            if header.zstdBytes > max(budget, Self.chunk) {
-                refused = header.zstdBytes
+            // Before the text is decoded its id is unknown: it may be as long as ``budget``, or as
+            // any message while one of this phone's own requests waits (its id is checked after).
+            // Never more compressed bytes than that either, so what is held stays bounded.
+            let most = replyIDs.isEmpty ? budget : Self.maxMessage
+            if header.textBytes > most || header.zstdBytes > max(most, Self.chunk) {
+                refused = header.textBytes
                 return lose()
             }
             let used = ZstdStreamMessage.headerBytes + header.zstdBytes
@@ -544,15 +591,13 @@ public actor AcpmuxConnection {
             reset()
             guard let text = zstd.decode(body, textLength: header.textBytes) else { return lose() }
             lastBytes = text.count
-            // The text's limit, now that its id is known: an answer to one of this phone's own
-            // requests may be as long as any message, anything else as long as ``budget``.
             start(Self.leadingID(text))
-            if let limit, text.count > limit {
+            let allowed = limit ?? budget
+            limit = nil
+            if text.count > allowed {
                 refused = text.count
-                limit = nil
                 return nil
             }
-            limit = nil
             return Self.decode(text)
         }
 
@@ -619,6 +664,7 @@ public actor AcpmuxConnection {
         for id in submitted where pending[id] == nil && answered[id] == nil { answered[id] = .failure(error) }
         submitted.subtract(pending.keys)
         writes.removeAll()
+        sending.removeAll()
         pending.removeAll()
         continuation.finish()
     }

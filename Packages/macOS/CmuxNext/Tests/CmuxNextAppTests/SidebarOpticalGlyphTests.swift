@@ -37,6 +37,16 @@ import Testing
         }
     }
 
+    @Test func aWideGlyphStartsOnTheLeadingEdge() throws {
+        // Home's house: 16 x 14 ink, wider than tall. Fitted by its height, it starts on `leading` and runs past the
+        // square's trailing edge only (Lucas 2026-11-24: its ink had spilled 0.5 pt left of the globe and the red light).
+        let frame = try #require(optics.frame(imageSize: CGSize(width: 18, height: 18), ink: CGRect(x: 1, y: 2, width: 16, height: 14),
+                                              leading: 10, centerY: 12, flipped: true, scale: 2))
+        let k = frame.width / 18
+        #expect(abs(14 * k - 16) <= 0.25, "the ink stands \(14 * k) pt tall")
+        #expect(abs(frame.minX + 1 * k - 10) <= 0.25, "the ink starts at \(frame.minX + k), the leading edge at 10")
+    }
+
     @Test func emptyInkDrawsNothing() {
         #expect(optics.frame(imageSize: CGSize(width: 16, height: 16), ink: .zero, leading: 0, centerY: 0, flipped: true, scale: 2) == nil)
     }

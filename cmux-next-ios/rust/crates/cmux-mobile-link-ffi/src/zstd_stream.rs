@@ -28,7 +28,9 @@ impl ZstdStreamDecoder {
     pub fn decode(&self, body: Vec<u8>, text_len: u32) -> Result<Vec<u8>, CmuxMobileError> {
         let text_len = text_len as usize;
         if text_len > MAX_TEXT {
-            return Err(CmuxMobileError::InvalidArgument { message: format!("zstd stream: {text_len} bytes") });
+            return Err(CmuxMobileError::InvalidArgument {
+                message: format!("zstd stream: {text_len} bytes"),
+            });
         }
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         inner

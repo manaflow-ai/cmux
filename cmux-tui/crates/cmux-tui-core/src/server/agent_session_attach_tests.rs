@@ -8,7 +8,7 @@
 //! with a bound session, carry no command-bearing or session params, prompts
 //! are one text block, and permission answers name only a request acpmux
 //! announced on the attachment.
-use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
+use super::agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
 use super::*;
 use serde_json::{Value, json};
 use std::collections::{HashSet, VecDeque};
@@ -680,6 +680,44 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
             json!({"sessionId": "acp_moved", "cwd": params["cwd"]})
         }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
+        // A begin that carries a token is answered as an acpmux that keeps one: the frozen
+        // move's own token, `tok_frozen`.
+        "_acpmux/transfer_begin"
+            if params["sessionId"] == json!(MOVING_CHAT) && params.get("beginToken").is_some() =>
+        {
+            json!({
+                FAKE_ERROR: "transfer.moving: this chat is already being moved",
+                FAKE_ERROR_DATA: {"transferId": "xfer_frozen", "beginToken": "tok_frozen"},
+            })
+        }
+        // Tail first (`agent_transfer/history_later.rs`).
+        "_acpmux/transfer_prepare" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_1", "afterSeq": 7,
+            "token": "tok", "sessionId": params["sessionId"], "historyLater": true,
+            "files": [{"path": "events/0.ndjson", "size": 3}],
+        }),
+        "_acpmux/transfer_stage" => {
+            json!({"receiveId": "stg_1", "stageId": "stg_1",
+                   "sessionId": params["manifest"]["sessionId"]})
+        }
+        "_acpmux/transfer_stage_finish" => json!({"afterSeq": 7, "records": 2}),
+        "_acpmux/transfer_history_have" => json!({"have": 0}),
+        "_acpmux/transfer_history_export" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_h", "throughSeq": 7,
+            "sessionId": params["sessionId"],
+            "files": [{"path": "events/history.cspb", "size": 3}],
+        }),
+        "_acpmux/transfer_history" => {
+            json!({"sessionId": params["sessionId"], "throughSeq": 7, "records": 5})
+        }
+        "_acpmux/transfer_begin" if params["prepareId"] == json!("pre_1") => json!({
+            "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
+            "sessionId": params["sessionId"], "prefix": {"afterSeq": params["afterSeq"]},
+            "files": [{"path": "events/1.ndjson", "size": 3},
+                      {"path": "manifest.json", "size": BUNDLE_MANIFEST.len()},
+                      {"path": "session.json", "size": BUNDLE_SESSION.len()}],
+            "session": {"sessionId": params["sessionId"], "harness": "claude"},
+        }),
         "_acpmux/transfer_begin" if params["sessionId"] == json!(MOVING_CHAT) => json!({
             FAKE_ERROR: "transfer.moving: this chat is already being moved",
             FAKE_ERROR_DATA: {"transferId": "xfer_frozen"},
@@ -1698,9 +1736,8 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
         assert_eq!(sent["params"], params, "no session: the sign-in is this machine's own");
     }
     for bad in [
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor",
-               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Open Code"}),
+        // An unknown param (`sessionId`) is ignored, not refused (cmux#49712): no row here.
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"cursor"}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
@@ -2123,16 +2160,15 @@ fn detach_and_disconnect_close_the_acpmux_link() {
 }
 
 #[test]
-fn attachments_per_connection_are_bounded() {
+fn attachments_past_the_old_caps_of_8_per_connection_and_64_in_all_attach() {
     let fake = FakeAcpmux::start("limit");
     let mux = mux_with(&fake, "asa-limit");
     let mut client = Client::connect(&mux, "limit");
-    for _ in 0..MAX_ATTACHMENTS_PER_CLIENT {
+    for _ in 0..72 {
         let surface = agent_tab(&mux, Some(SESSION));
         assert_eq!(attach(&mut client, surface)["ok"], json!(true));
     }
-    let surface = agent_tab(&mux, Some(SESSION));
-    assert_code(&attach(&mut client, surface), "agent_session.limit");
+    assert_eq!(mux.control_clients.agent_sessions.attachment_count(), 72);
 }
 
 #[test]

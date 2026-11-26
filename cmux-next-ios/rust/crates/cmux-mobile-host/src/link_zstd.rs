@@ -148,8 +148,11 @@ mod tests {
             sent += link.frame((*text).to_owned()).await.unwrap().len();
             deflate += crate::link_deflate::frame(true, text).await.len();
         }
-        eprintln!("raw {raw} B, zstd-stream {sent} B ({:.1} %), deflate {deflate} B ({:.1} %)",
-            sent as f64 * 100.0 / raw as f64, deflate as f64 * 100.0 / raw as f64);
+        eprintln!(
+            "raw {raw} B, zstd-stream {sent} B ({:.1} %), deflate {deflate} B ({:.1} %)",
+            sent as f64 * 100.0 / raw as f64,
+            deflate as f64 * 100.0 / raw as f64
+        );
         assert!(sent * 4 <= raw, "zstd stream sent {sent} of {raw} bytes");
         assert!(deflate * 10 >= raw * 9, "per-message deflate leaves small messages as text");
     }
@@ -167,13 +170,17 @@ mod tests {
     #[test]
     fn asked_only_by_a_compressions_list_naming_it() {
         // A new phone.
-        assert!(asked(&serde_json::json!({"compression": "deflate", "compressions": ["zstd-stream-v1", "deflate"]})));
+        assert!(asked(
+            &serde_json::json!({"compression": "deflate", "compressions": ["zstd-stream-v1", "deflate"]})
+        ));
         // An old phone: only `compression`; it keeps deflate (`link_deflate::asked`).
         let old = serde_json::json!({"compression": "deflate"});
         assert!(!asked(&old));
         assert!(crate::link_deflate::asked(&old));
         // The phone's string-to-string args.
-        assert!(asked(&serde_json::json!({"compression": "deflate", "compressions": "zstd-stream-v1,deflate"})));
+        assert!(asked(
+            &serde_json::json!({"compression": "deflate", "compressions": "zstd-stream-v1,deflate"})
+        ));
         assert!(asked(&serde_json::json!({"compressions": "zstd-stream-v1"})));
         assert!(!asked(&serde_json::json!({"compressions": ["deflate"]})));
         assert!(!asked(&serde_json::json!({"compressions": "deflate,zstd-stream-v2"})));
@@ -185,7 +192,8 @@ mod tests {
     /// deflate, so it gets envelopes (0x00) or text, never a 0x01 it can't have made.
     #[tokio::test]
     async fn new_phone_args_on_an_old_host_get_deflate() {
-        let args = serde_json::json!({"compression": "deflate", "compressions": ["zstd-stream-v1", "deflate"]});
+        let args =
+            serde_json::json!({"compression": "deflate", "compressions": ["zstd-stream-v1", "deflate"]});
         assert!(crate::link_deflate::asked(&args));
         let small = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
         assert_eq!(&crate::link_deflate::frame(true, small).await[..], small.as_bytes());

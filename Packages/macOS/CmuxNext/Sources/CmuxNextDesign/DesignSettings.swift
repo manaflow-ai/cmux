@@ -8,6 +8,7 @@ public import CmuxNextDesignTokens
 public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarWidth
     case sidebarRowHeight
+    case spaceButtonSpacing
     case tabStripHeight
     case tabMaxWidth
     /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
@@ -162,6 +163,19 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.wallpaperLighting`: treats the desktop wallpaper as a light source (glass edges
+    /// facing its brightest part catch its color, the composer glows with it, the glass leans toward
+    /// its hue). Off by default and until the setting reaches it (``SettingsApplier``).
+    public var wallpaperLighting = false {
+        didSet {
+            guard wallpaperLighting != oldValue else { return }
+            BackdropImageStore.shared.light.enabled = wallpaperLighting
+            BackdropImageStore.shared.desktop.lightingEnabled = wallpaperLighting
+        }
+    }
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
@@ -212,6 +226,9 @@ public final class DesignSettings {
     /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
     /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (Settings > Advanced > Experiments, off by default): an agent running in a terminal
+    /// tab draws its mark on a soft rounded square of its tint, so it is told from a GUI agent chat's bare mark.
+    public var terminalAgentMarks = false
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -269,6 +286,9 @@ public final class DesignSettings {
     public var layoutRows = true
     /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
     public var focusFollowsMouse = false
+    /// `layout.fadeInactivePanes`: panes without the focus fade under the pane fill and fade back
+    /// when they take it (default off).
+    public var fadeInactivePanes = false
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
@@ -306,6 +326,11 @@ public final class DesignSettings {
     public var terminalConfigFontFamilies: [String] = [] {
         didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// The active theme file's `slots` (slot id to variant id), as the daemon resolved them
+    /// (`theme.slots.resolve`). Pages get them with the theme as is (``WebTheme/slots``).
+    public var themeSlots: [String: String] = [:] {
+        didSet { if themeSlots != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
@@ -333,17 +358,36 @@ public final class DesignSettings {
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `appearance.appFont`: the family cmux's interface draws in, nil for the system font. Every web
+    /// page takes it as its `--font-ui` live (``WebTheme/appFontStack(_:)``); native chrome text made
+    /// through ``Typography/system(_:size:weight:)`` takes it too while the `experiments.appFontChrome`
+    /// switch is on (``CheckedFont``), as each view makes its font again.
+    public var appFont: String?
     /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
     /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
     /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
     /// a name to its experiment's arm); native code reads ``experiment(_:)``. A change repaints, so
     /// every page gets its theme, and with it the switches, again.
     public var experiments: [String: Bool] = [:] {
-        didSet { if experiments != oldValue { ThemeScope.app.store.repaintAll() } }
+        didSet {
+            guard experiments != oldValue else { return }
+            // cmux Remote's prompts read the theme the app leaves for them only while Themed Floating Prompts is on.
+            if experiments["themedPrompts"] != oldValue["themedPrompts"] {
+                PromptThemeFile.publish(ThemeScope.app.store.tokens, enabled: themedPrompts)
+            }
+            ThemeScope.app.store.repaintAll()
+        }
     }
 
     /// Whether the `experiments.<name>` switch is on (`DesignSettings.shared.experiment("menuStyleV2")`).
     public func experiment(_ name: String) -> Bool { experiments[name] == true }
+    /// `experiments.themedPrompts` (Settings > Experiments > Themed Floating Prompts, off by default: Leo's UI merge
+    /// hold, 2026-11-24): prompts that float over every app draw the ``SurfaceRole/prompt`` look
+    /// (``CmuxDialogView/overApps``), and cmux Remote's wear the app's theme (``PromptThemeFile``). Off keeps the
+    /// system-glass prompts as they were. A test turns it on for its own task only (``themedPromptsOverride``).
+    public var themedPrompts: Bool { Self.themedPromptsOverride ?? experiment("themedPrompts") }
+    /// A test's answer for ``themedPrompts`` in its own task, so tests in parallel never see each other's switch.
+    @TaskLocal public static var themedPromptsOverride: Bool?
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
@@ -364,6 +408,10 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.menu.*` and `appearance.popover.*` (``MenuLook``): the menu and popover look a theme file
+    /// sets; ``MenuLook/standard`` (every key unset) is today's. The App's menus read it at each open, and
+    /// pages get it through ``WebTheme`` (``WebTheme/pushInputs`` carries it, so a save repaints every page).
+    public var menuLook = MenuLook.standard
     /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
     /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
     /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
@@ -375,6 +423,14 @@ public final class DesignSettings {
     public var tabShape: TabShape = .block {
         didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
+    /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
+    /// without writing either setting. A change repaints, as the corner does.
+    public var gooeyTabs: GooeyTabs = .off {
+        didSet { if gooeyTabs != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// The title area's tone in effect: Subtle Tone under gooey tabs (subtle or full), else `titleAreaTone`.
+    public var effectiveTitleAreaTone: TitleAreaTone { gooeyTabs.isOn ? .subtleTone : titleAreaTone }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
@@ -431,6 +487,7 @@ public final class DesignSettings {
         switch key {
         case .sidebarWidth: 160...420
         case .sidebarRowHeight: 20...48
+        case .spaceButtonSpacing: 18...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
         case .tabMinActiveWidth: 32...200
