@@ -37,6 +37,14 @@
 # a published tree is built at the tip, by its own workflow, with its own
 # daemon. Main's promote job ignores a request that does not move forward.
 #
+# An older tree (Leo, 2026-11-26: "man the tui thing is always so flakey / cant we just accept the nightly
+# using an older tui version"): a commit whose own tree is a confirmed 404, with no run building it, is still
+# promoted when scripts/cmux-next/older-tree-for-tip.sh finds the newest published tree within 24 h whose
+# daemon-capabilities.json matches, and the commit's nightly.yml carries NIGHTLY_NEXT_TREE_AT_INSTALL (main's
+# promote guard admits its missing marker on that line) and that script (its nightly builds its app with that
+# tree: scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh). The same question in both places, so
+# promotion never stalls on the tui publisher (2026-11-25: none published from about 21:24Z, 108 refused).
+#
 # Usage: request-nightly-next.sh --repo <owner/repo> (--sha <sha> --release-compile-green | --tree-ready <sha>)
 # Run from a checkout whose HEAD is <sha>. Needs GH_TOKEN with actions: write.
 # Exit 0 when a commit was requested or
@@ -354,6 +362,8 @@ request() { # <sha>
   local marker_rc=0
   if [[ "${tree_pending_request:-}" == "$1" ]]; then
     echo "${1:0:12}: its tree is still building; its nightly.yml waits for it at install (NIGHTLY_NEXT_TREE_AT_INSTALL)"
+  elif [[ "${tree_older_request:-}" == "$1" ]]; then
+    echo "${1:0:12}: its tree is not published; its nightly builds its app with the older tree ${older_key:0:12} of ${older_from:0:12} (no marker of its own: NIGHTLY_NEXT_TREE_AT_INSTALL)"
   else
     bash "$script_dir/tree-commit-marker.sh" check "$1" >/dev/null || marker_rc=$?
   fi
@@ -375,6 +385,8 @@ request() { # <sha>
   fi
   if [[ "${tree_pending_request:-}" == "$1" ]]; then
     echo "requested nightly-next promotion of $1 (its cmux-tui tree is building; its nightly compiles the app now and installs the tree's client)"
+  elif [[ "${tree_older_request:-}" == "$1" ]]; then
+    echo "requested nightly-next promotion of $1 (its cmux-tui tree is not published; its nightly builds its app with the older published tree ${older_key:0:12} of ${older_from:0:12}, same daemon-capabilities.json)"
   else
     echo "requested nightly-next promotion of $1 (published, verified cmux-tui tree; its nightly compiles it)"
   fi
@@ -447,6 +459,28 @@ request_tree_pending() {
   return "$rc"
 }
 
+# request_older_tree: <sha> with an older published tree (the header's "An older tree"). Returns request()'s
+# codes, or 1 when it does not apply: the commit's nightly.yml lacks the line or the script, or no tree matches.
+tree_older_request="" older_key="" older_from=""
+request_older_tree() {
+  local workflow older
+  # A tip whose tree is building already had its request (request_tree_pending).
+  [[ -z "${tree_pending_request:-}" ]] || return 1
+  git cat-file -e "$sha:scripts/cmux-next/older-tree-for-tip.sh" 2>/dev/null || return 1
+  # The whole file first: `git show | grep -q` fails under pipefail on an early match.
+  workflow="$(git show "$sha:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
+  grep -qxE '[[:space:]]*NIGHTLY_NEXT_TREE_AT_INSTALL: v1[[:space:]]*' <<<"$workflow" || return 1
+  older="$(bash "$script_dir/older-tree-for-tip.sh")" || return 1
+  older_key="$(sed -n 's/^key=//p' <<<"$older" | head -1)"
+  older_from="$(sed -n 's/^tree_from=//p' <<<"$older" | head -1)"
+  echo "${sha:0:12}: its own tree is not published; older tree $older_key of ${older_from:0:12} (commits, hours behind: ${older_from#* }) has its daemon-capabilities.json"
+  older_from="${older_from%% *}"
+  tree_older_request="$sha"
+  local rc=0
+  request "$sha" || rc=$?
+  return "$rc"
+}
+
 # backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
 # marks every recent commit whose tree is ready (mark-tree-commits) and builds
 # the tip's tree when it has none. At most one per job (the nightly-next tick
@@ -509,6 +543,12 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   pending_rc=0
   request_tree_pending || pending_rc=$?
   case "$pending_rc" in
+    0) exit 0 ;;
+    2) exit 1 ;;
+  esac
+  older_rc=0
+  request_older_tree || older_rc=$?
+  case "$older_rc" in
     0) exit 0 ;;
     2) exit 1 ;;
   esac
