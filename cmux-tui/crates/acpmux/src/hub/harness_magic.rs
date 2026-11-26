@@ -23,7 +23,10 @@ use serde_json::{Map, Value, json};
 
 /// The features this build carries, by the name their setting and counters use. A builder adds
 /// its feature here; an empty list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[&str] = &["turnRules"];
+pub(crate) const FEATURES: &[&str] = &["turnRules", "sidecars"];
+
+/// The features that are off unless their setting is `true` (opinionated nudges).
+pub(crate) const DEFAULT_OFF: &[&str] = &["sidecars"];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {
@@ -43,7 +46,7 @@ pub(crate) fn env_key(feature: &str) -> String {
 
 /// Whether `feature` is on, given the settings file (`doc`, `None` when missing or unreadable)
 /// and an environment lookup: on unless its setting is `false` or its kill switch is `0`,
-/// `false` or `off`.
+/// `false` or `off`; a [`DEFAULT_OFF`] feature is off unless its setting is `true`.
 pub(crate) fn enabled_in(
     feature: &str,
     doc: Option<&Value>,
@@ -57,11 +60,10 @@ pub(crate) fn enabled_in(
     }
     doc.and_then(|d| crate::user_settings::value(d, &setting_key(feature)))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(!DEFAULT_OFF.contains(&feature))
 }
 
 /// Whether `feature` is on now (the settings file read at each call, as every daemon setting is).
-#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn enabled(feature: &str) -> bool {
     let doc = match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => Some(doc),
@@ -116,7 +118,6 @@ pub(crate) fn stamp(msg: &mut Value) {
 }
 
 /// Adds `n` to `harnessMagic.<feature>.<counter>` on a `turn_result` message.
-#[allow(dead_code)] // the features' own seam; the first feature to land calls it
 pub(crate) fn add_counter(msg: &mut Value, feature: &str, counter: &str, n: u64) {
     let Some(hm) = object(msg) else { return };
     let f = hm.entry(feature.to_owned()).or_insert_with(|| json!({}));
