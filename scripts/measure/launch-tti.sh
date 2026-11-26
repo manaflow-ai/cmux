@@ -6,8 +6,15 @@
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL|build] [--arg=build=SHA] \
 #     [--arg=config=bench|Release|Debug] [--arg=input=auto|posted|in_app] [--arg=plan=warm:terminal,warm:browser,warm:chat] \
-#     [--arg=load=none|busy] [--arg=chats=6] [--arg=workspaces=120] [--arg=launch=open|exec] [--arg=control=500] [--arg=session=auto|own] \
+#     [--arg=repeat=N] [--arg=load=none|busy|X] [--arg=min_quiet=N] [--arg=chats=6] [--arg=workspaces=120] \
+#     [--arg=launch=open|exec] [--arg=control=500] [--arg=session=auto|own] \
 #     --artifact .build/launch-tti/report.tgz --timeout 2400
+#   plan=        KIND:FRONT rounds; repeat=N runs each item N times in a row (plan=cold_install:terminal repeat=20: the
+#                startup-matrix row, twenty cold launches, printed as TTI-PCT p50/p95 with the load each ran at; the
+#                controller's arg allowlist refuses a `*` in plan=, so the count goes in repeat=)
+#   load=X       the load bound per core (default 0.5): each round waits up to 120 s for the 1-minute load per core to
+#                fall to X; rounds launched over it are left out of TTI-PCT, and a cell under min_quiet=N (default 5)
+#                quiet rounds is refused, never posted
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   dmg=build    a tagged app built from this checkout (scripts/reload.sh, config=bench by default: Release
 #                optimization with the debug.* commands; config=Release or config=Debug)
@@ -35,7 +42,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/launch-tti"
 rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-dmg=nightly config=bench build_sha="" extra=() control=
+dmg=nightly config=bench build_sha="" extra=() control= plan= repeat=
 for arg in "$@"; do
   case "$arg" in
     dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -43,8 +50,12 @@ for arg in "$@"; do
     config=bench|config=Release|config=Debug) config="${arg#config=}" ;;
     input=auto|input=posted|input=in_app) extra+=(--input "${arg#input=}") ;;
     load=none|load=busy) extra+=(--load "${arg#load=}") ;;
+    load=*) extra+=(--max-load-per-core "${arg#load=}") ;;
+    min_quiet=*) extra+=(--min-quiet "${arg#min_quiet=}") ;;
     launch=open|launch=exec) extra+=(--launch "${arg#launch=}") ;;
-    plan=*) extra+=(--plan "${arg#plan=}") ;;
+    plan=*) plan="${arg#plan=}" ;;
+    repeat=*) repeat="${arg#repeat=}"
+      [[ "$repeat" =~ ^[1-9][0-9]?$ ]] || { echo "repeat=N takes 1-99" >&2; exit 2; } ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
     chats=*) extra+=(--chats "${arg#chats=}") ;;
     session=auto|session=own) export CONSOLE_SESSION="${arg#session=}" ;;
@@ -53,6 +64,11 @@ for arg in "$@"; do
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+if [[ -n "$repeat" ]]; then
+  [[ -n "$plan" ]] || { echo "repeat=N needs plan=" >&2; exit 2; }
+  plan="$(sed "s/\([^,]*\)/\1*$repeat/g" <<<"$plan")"  # each item N times: the check's KIND:FRONT*N
+fi
+[[ -n "$plan" ]] && extra+=(--plan "$plan")
 if [[ -n "$build_sha" ]]; then
   [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "build=$build_sha: want a full 40-hex commit sha" >&2; exit 2; }
   [[ "$dmg" == build ]] || { echo "build=SHA needs dmg=build (it builds the app at SHA)" >&2; exit 2; }
