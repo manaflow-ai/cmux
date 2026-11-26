@@ -163,23 +163,47 @@ export function installPageHealth(client: HealthClient, doc: Document = document
       },
     );
   };
-  const tick = () => {
-    // The page is awake for the beat: the deferred jobs whose window opened run now (slackTimers.ts).
-    slackTimersFor(view).ride();
-    quiet++;
-    if (quiet < REST_AFTER_BEATS || !hostTakesRest || client.holding || holdsEdits()) return beat();
-    // Nothing happened for a while: the last beat says so, then no timer runs until something does. The
-    // jobs that waited only for this quiet run with it rather than wake the resting page (slackTimers.ts).
+  const mayRest = () => hostTakesRest && !client.holding && !holdsEdits();
+  const rest = () => {
+    // The jobs that waited only for this quiet run with it rather than wake the resting page (slackTimers.ts).
     slackTimersFor(view).rest();
     beat(true);
     stop();
     resting = true;
+    restedAt = view.performance.now();
+  };
+  const tick = () => {
+    // The page is awake for the beat: the deferred jobs whose window opened run now (slackTimers.ts).
+    slackTimersFor(view).ride();
+    quiet++;
+    if (quiet < REST_AFTER_BEATS || !mayRest()) return beat();
+    // Nothing happened for a while: the last beat says so, then no timer runs until something does.
+    rest();
+  };
+  // When the page last rested, and which start the pending idle rest belongs to.
+  let restedAt = Number.NEGATIVE_INFINITY;
+  let starts = 0;
+  const whenIdle = (run: () => void) => {
+    const idle = (view as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (idle) idle.call(view, run);
+    else view.setTimeout(run, 0);
   };
   const start = () => {
     quiet = 0;
     resting = false;
     beat();
     timer = view.setInterval(tick, HEARTBEAT_MS);
+    // Woken by one press, key or a return to view, the page rests at its first idle moment rather than
+    // a beat later: that it reached idle after the input proves what the 2 s beat did (a page hung in
+    // the input's work never gets there), and a page left alone then wakes for nothing. Woken again
+    // within a beat of its last rest (a scroll, typing) it beats as before, so a stream of input is
+    // one beat per HEARTBEAT_MS, not one per event.
+    const at = ++starts;
+    if (!hostTakesRest || view.performance.now() - restedAt < HEARTBEAT_MS) return;
+    whenIdle(() => {
+      if (at !== starts || resting || timer === undefined || !mayRest()) return;
+      rest();
+    });
   };
   wake = () => {
     if (!refused && doc.visibilityState === "visible" && timer === undefined) start();
