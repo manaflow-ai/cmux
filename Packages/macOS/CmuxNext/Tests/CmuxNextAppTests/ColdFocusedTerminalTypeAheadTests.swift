@@ -93,8 +93,8 @@ struct ColdFocusedTerminalTypeAheadTests {
             #expect(services.registry.perform("splitRight", invocation: terminal))
             try await PinnedPageTests.until({ terminals().count == 2 }, report: { "waiting for the split's terminal: \(describe())" })
             let content = try #require(controller.workspaceContent)
-            let frames = Dictionary(uniqueKeysWithValues: terminals().map { ($0.pane, content.paneController(key: $0.pane)?.view.frame.minX ?? 0) })
-            let ordered = terminals().sorted { frames[$0.pane, default: 0] < frames[$1.pane, default: 0] }
+            let minX = Dictionary(uniqueKeysWithValues: terminals().map { ($0.pane, content.paneController(key: $0.pane)?.view.frame.minX ?? 0) })
+            let ordered = terminals().sorted { minX[$0.pane, default: 0] < minX[$1.pane, default: 0] }
             let left = ordered[0], right = ordered[1]
             PaneHandlers.focus(try #require(content.paneController(key: right.pane)).layoutPaneID, in: content)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: right.pane, tab: right.tab)
