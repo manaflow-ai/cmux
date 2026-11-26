@@ -23,25 +23,21 @@
     // The composer: one rounded card, the prompt over a row of model, effort and access chips, the
     // attach clip and a round accent send button at the right; the branch and checkout sit in a tray
     // under it (cmux#46738). A new, empty chat holds it in the middle of the pane under its heading.
-    // Pending the settings export: cmux#46738 landed both keys, but schemas/settings/settings-schema.json
-    // (what install checks a key against) is not regenerated yet; install refuses a key it does not know.
-    // "agentPane.composerLook": "studio",
-    // "agentPane.emptyChatComposerPosition": "center",
+    "agentPane.composerLook": "studio",
+    "agentPane.emptyChatComposerPosition": "center",
 
     // The sidebar, top to bottom: New thread and Search rows (cmux#46508), then the threads by
     // project, each a card with its project and age on the first line and its title under it
     // (sidebar.showTimestamps), and the chats you have read folded into Settled (N) at the end
     // (cmux#46872). Its right-click and more-button menus follow the theme (cmux#46879).
-    // Pending cmux#46508: the nav rows.
-    // "sidebar.nav": [
-    //   "palette.newAgentChat | New thread | square.and.pencil",
-    //   "search.chats | Search | magnifyingglass"
-    // ],
+    "sidebar.nav": [
+      "palette.newAgentChat | New thread | square.and.pencil",
+      "search.chats | Search | magnifyingglass"
+    ],
     "sidebar.density": "comfortable",
     "sidebar.groupBy": "folder",
     "sidebar.settleFinished": true,
-    // Pending cmux#46879: menus in the theme's colors.
-    // "sidebar.drawnMenus": true,
+    "sidebar.drawnMenus": true,
     "sidebar.showTimestamps": true,
     "sidebar.workspaceRow.icon": false,
     "sidebar.workspaceRow.directory": true,
