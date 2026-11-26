@@ -259,7 +259,13 @@ impl Adapter {
                     Simple::Prompt,
                 )
             }
-            _ => unreachable!("methods checked above"),
+            _ => {
+                return Ok(error(
+                    id,
+                    -32601,
+                    "This action is not supported by the Cloud chat relay",
+                ));
+            }
         };
         // Always read current mode/policy immediately before prompting. A cached
         // attachment can outlive a mode change made on the Mac.

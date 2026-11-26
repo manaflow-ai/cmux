@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """scripts/cmux-next/rfd0135_gates.py: the kill matrix table is counted cell by cell, p95 is the
-nearest-rank 95th percentile, and the phone gate is NO (not NOT-RUN) until its check exists."""
+nearest-rank 95th percentile, and the phone gate is NO (not NOT-RUN) when its check fails."""
 
 from __future__ import annotations
 
@@ -51,14 +51,16 @@ class Rfd0135GatesTest(unittest.TestCase):
         self.assertEqual(gates.p95(list(range(1, 21))), 19)
         self.assertEqual(gates.p95([5.0]), 5.0)
 
-    def test_phone_is_no_until_its_check_exists(self) -> None:
-        os.environ.pop("PHONE_GATE_CMD", None)
-        result = gates.gate_phone(None)
-        self.assertTrue(result["ran"])
-        self.assertFalse(result["ok"])
-        os.environ["PHONE_GATE_CMD"] = "true"
+    def test_phone_is_no_when_its_check_fails(self) -> None:
+        os.environ["PHONE_GATE_CMD"] = "false"
         try:
-            self.assertTrue(gates.gate_phone(None)["ok"])
+            result = gates.gate_phone(None)
+            self.assertTrue(result["ran"])
+            self.assertFalse(result["ok"])
+            os.environ["PHONE_GATE_CMD"] = 'echo \'GATE phone {"ok":true,"first_reply_ms":12}\''
+            result = gates.gate_phone(None)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["measured"]["first_reply_ms"], 12)
         finally:
             os.environ.pop("PHONE_GATE_CMD")
 
