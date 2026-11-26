@@ -72,7 +72,9 @@
 //! `cmux-window-rules`' `browser::tabs`: a new tab's engine, its route, the
 //! live tab a page reuses, the machine browser record) and the tab-side rules
 //! (`tab_rules_*`, `cmux-window-rules`' `tabs::agent_key`, `type_ahead`,
-//! `group_drop`, `page_closes`).
+//! `group_drop`, `page_closes`), and the tab strip's view rules
+//! (`tab_view_rules_*`, `tabs::hover_card`, `strip_state`: the hover card's
+//! rows, an inline rename's commit, the slot index, the sync hold).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
@@ -105,6 +107,7 @@ pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
 mod tab_rules;
+mod tab_view_rules;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -630,6 +633,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 browser_tabs::respond(operation, request)?
             }
             operation if tab_rules::handles(operation) => tab_rules::respond(operation, request)?,
+            operation if tab_view_rules::handles(operation) => {
+                tab_view_rules::respond(operation, request)?
+            }
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
