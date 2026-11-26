@@ -74,7 +74,7 @@ const SHIPPED = `
 from \\ to   prompt   reply  footer  worked     run    peer  bgTask   group   bgRun bgReply  bgLine
 prompt          32      32      32      32      32      32      32      32      32      32      32
 reply           32      24       8      24      16      24      16      16      32      32      16
-footer          32      24      24      24      24      24       8      24      24      32       8
+footer          32      24      24      16      16      16       8      16      16      32       8
 worked          32       0       0       0       0      16       0       0       0       0       0
 run             32      16       8      16       0       0       0       0       0      32       0
 peer            32      16       8      16       0       0       0       0       0      32       0

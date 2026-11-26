@@ -982,7 +982,7 @@ struct HeightArgs {
 
 /// One row, or the header row plus as many rows as the controls wrap into under it.
 fn height(a: &HeightArgs) -> f64 {
-    if !(a.controls_shown && a.width < a.expanded_width && !a.pill && !a.bar.one_row()) {
+    if !a.controls_shown || a.width >= a.expanded_width || a.pill || a.bar.one_row() {
         return a.row_height;
     }
     let available = (a.width - a.space.space3 * 2.0).max(0.0);
