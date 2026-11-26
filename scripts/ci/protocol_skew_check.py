@@ -21,7 +21,7 @@ judged nothing: the base is always there.
      running the old build gets refused.
   4. new strict decoders: a line the pull request adds under cmux-tui/ or webviews/src/ that refuses
      unknown fields (`deny_unknown_fields`, `additionalProperties: false`, zod `.strict()`), and a resource
-     operation the spec newly marks `"extra": false`. Keep one strict on purpose (a token, a signature,
+     operation the spec newly marks `"unknown_params": "refuse"` (`"extra": false` alone drops the field). Keep one strict on purpose (a token, a signature,
      a local config file) with `skew: strict <why>` on the line or the line above.
 
   protocol_skew_check.py --base SHA [--old SHA ...] [--nightly-feed URL] [--head REF]
@@ -160,13 +160,14 @@ def judge_decoders(base: str, head: str) -> list[str]:
                         f"`{ESCAPE} <why>` beside it")
     new_spec, old_spec = show(head, RESOURCE_SPEC), show(base, RESOURCE_SPEC)
     if new_spec and old_spec:
-        # Only an operation the old peer already knows can be skewed: a new operation (every one is born
-        # strict) has no older caller to send it unknown params.
+        # `"extra": false` alone drops an undeclared param (catalog_validation.rs, #49712); only
+        # `"unknown_params": "refuse"` refuses the request. Only an operation the old peer already knows can be
+        # skewed: a new operation (born strict or not) has no older caller to send it unknown params.
         old_ops, new_ops = strict_ops(old_spec), strict_ops(new_spec)
         flipped = sorted(name for name, strict in new_ops.items() if strict and old_ops.get(name) is False)
         if flipped:
             fail.append(f"{RESOURCE_SPEC}: {len(flipped)} more operation(s) refuse unknown params "
-                        f"(\"extra\": false): {', '.join(flipped[:5])}")
+                        f"(\"unknown_params\": \"refuse\"): {', '.join(flipped[:5])}")
     return fail
 
 
@@ -181,8 +182,8 @@ def strict_ops(spec: str) -> dict[str, bool]:
     def walk(node: object, name: str) -> None:
         if isinstance(node, dict):
             params = node.get("params")
-            if isinstance(params, dict) and "extra" in params:
-                found[name] = params["extra"] is False
+            if isinstance(params, dict):
+                found[name] = params.get("unknown_params") == "refuse"
             for key, child in node.items():
                 walk(child, key)
         elif isinstance(node, list):

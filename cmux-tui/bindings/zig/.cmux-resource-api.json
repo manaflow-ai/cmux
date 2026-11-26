@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "5d2014238a55a93cf931df30039a95876a18bd5a9dd7d065e22c13bf4d67077d",
+  "catalog_sha256": "0743fc82f1d9ba71b7d63b5556d96a0147ba2b439adc06fe5c5d5cd5de092e51",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -208,6 +208,9 @@
     "cloud.machine.io": {
       "class": "mutation"
     },
+    "cloud.machine.setup_desktop": {
+      "class": "mutation"
+    },
     "cloud.machine.share_chat": {
       "class": "mutation"
     },
@@ -223,8 +226,17 @@
     "cloud.owner.github_app": {
       "class": "read"
     },
+    "cloud.owner.github_clone_token": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_complete": {
+      "class": "mutation"
+    },
     "cloud.owner.github_connect": {
       "class": "mutation"
+    },
+    "cloud.owner.github_list": {
+      "class": "read"
     },
     "cloud.owner.github_repos": {
       "class": "read"

@@ -244,7 +244,7 @@ public struct CloudDaemon: Sendable {
     public typealias TeamID = @Sendable () async -> String?
 
     let baseURL: URL
-    private(set) var tokens: Tokens
+    var tokens: Tokens
     private(set) var teamID: TeamID
     let appVersion: String
     /// The sign-in client sends its Stack team with every call (``pinningTeam(_:)`` fixes it); a Worker client keeps its cmux team.
