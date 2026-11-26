@@ -59,12 +59,7 @@ extension MacScreenCard {
     static let quietMarkAlpha: CGFloat = 0.4
 
     /// A state that passes on its own (connecting, waiting): no action is asked of the person.
-    var isTransient: Bool {
-        switch self {
-        case .connecting, .waitingForPicture, .hubRequesting, .hubWaiting: true
-        default: false
-        }
-    }
+    var isTransient: Bool { RdUI.call("card.isTransient", ["card": rd]) as? Bool ?? false }
 }
 
 extension MacScreenColors {
