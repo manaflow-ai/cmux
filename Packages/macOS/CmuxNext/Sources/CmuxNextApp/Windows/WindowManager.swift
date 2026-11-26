@@ -455,7 +455,7 @@ final class WindowManager {
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
         // controller's own observer would install it a main-actor hop later.
-        controller.showWorkspace(requested: state.workspaceID)
+        DebugTimings.markLaunch("window.configured"); controller.showWorkspace(requested: state.workspaceID); DebugTimings.markLaunch("window.workspace_shown")
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
