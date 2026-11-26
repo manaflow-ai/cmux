@@ -2509,3 +2509,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_next_tick_request_bound.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_files_git_fallback.py"
+lane = "linux-guard"
