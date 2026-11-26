@@ -457,6 +457,7 @@ experiments.attachmentTypeIcons
 experiments.browserProfileCard
 experiments.chatWidgets
 experiments.cloudDiskBar
+experiments.compactionThresholdInsight
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
