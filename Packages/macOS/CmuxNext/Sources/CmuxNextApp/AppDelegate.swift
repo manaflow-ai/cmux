@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentLanes
@@ -117,8 +118,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let preparedDaemon = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
-        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
-        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -141,10 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
-        // A `cmux` shim outside this app runs the CLI of the app opened last (plans/cmux-next/version-skew.md).
-        LastAppCLIPointer.publishAtLaunch()
         // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
-        appCopyGuide.start(activates: !environment.noActivate)
+        appCopyGuide.start(activates: !environment.noActivate, afterFrame: firstFrame.whenOpen)
         // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config
         // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
         let settingsRead = SettingsController.appliedAtLaunch(settings)
@@ -189,7 +186,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)
-        HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
@@ -204,7 +200,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
             openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
         DebugTimings.markLaunch("dfl.menu")
-        logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
         daemonPrompts = DaemonPrompts.start(services)
@@ -216,7 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart, launchSnapshot: launchSnapshot)
         FeaturePolicyEnforcer(services: services).start()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
+        firstFrame.whenOpen { [weak services, logger] in
+            guard let services else { return }
+            services.startNonPaintServices()
+            services.liveCode.labsSwitch(services.settings?.snapshot.liveCode == true)
+            HandlerCoverage.verify(services.registry)
+            logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
+        }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
         // Before the first window opens (restoreWhenLoaded opens one at once).
         launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
@@ -297,9 +298,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
                                                    contextMenus: services.contextMenus, activeLook: services.activeLook)
-        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
-        self.webAuthHandler = webAuthHandler
-        WebAuthSessionHandler.install(webAuthHandler)
+        // The same panel opens Connect GitHub's pages over the app's window; the app finishes GitHub's return itself.
+        webAuthHandler = GitHubInstallSheet.install(opener: webAuthWindows, auth: services.cloud.auth)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         // A cmux tab's return to this app (GitHub's completion, the sign-in callback): same route, no prompt, its tab closes.
@@ -388,8 +388,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }) // fresh-install Glass, theme rotation: written once the daemon is live
-        CustomizeDoctorNotice(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { [weak settings] in settings?.file.url }, untilWindow: { [firstFrame] in await firstFrame.opened() }, present: CustomizeDoctorNotice.toast { [weak registry] in // `customize doctor --announce` after each load; Review opens its card
-            _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["route": .string(CustomizeDoctorNotice.route)], origin: .user)) }).follow(settings)
+        firstFrame.whenOpen { [weak services] in
+            guard let services else { return }
+            CustomizeDoctorNotice(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { [weak settings] in settings?.file.url }, untilWindow: {}, present: CustomizeDoctorNotice.toast { [weak registry] in // `customize doctor --announce` after each load; Review opens its card
+                _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["route": .string(CustomizeDoctorNotice.route)], origin: .user)) }).follow(settings)
+        }
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         AnonymousTelemetryConsent.install(on: settings) // after hang reports: `app.sendAnonymousTelemetry` writes reach the app's preference
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
@@ -397,16 +400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
         NewTabClosed.wire(services.agentTabs, services: services)
-        // The GitHub connection is deliberately off by default. Changes in
-        // Settings apply to the one feed owner and never create a second
-        // inbox store.
-        Task { [weak services, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
-                services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
-            }
-        }
         // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) follows into the one toast center.
         Task { [weak settings] in
             guard let settings else { return }
@@ -442,8 +435,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startDeviceHub(settings)
         services.updater.follow(settings)
         services.startHibernation(settings: settings)
-        services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
-        services.workspaceHibernation.start() // workspaces.hibernation: first pass 60 s after launch
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
@@ -569,7 +560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth // GitHub's install redirect handed back here: the app finishes it itself (#46018)
-        guard !CloudGitHubCompletion.handle(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
+        guard !services.accounts.github.finishCompletion(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
         Task { if await auth.callbackFailed(url) { try? services.settingsWindow.show(section: .accounts) } }
     }
 

@@ -323,37 +323,15 @@
             "key" : "settings.group.updates",
             "rows" : [
               "updates.channel",
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.oneClickInstall",
-              "updates.whatsNewInstall",
-              "updates.meteredNetwork",
-              "updates.web",
+              "updates.automatic",
               "updates.daemon",
               "updates.liveWebReload",
-              "updates.installOnQuit",
-              "updates.installWhenIdle",
-              "updates.installWhenIdleMinutes",
-              "updates.notify",
-              "updates.keepPreviousVersions",
               "updates.showWhatsNew",
               "updates.showFeatureTips"
             ],
             "title" : {
               "key" : "settings.group.updates",
               "text" : "Updates"
-            }
-          },
-          {
-            "key" : "updates.1",
-            "rows" : [
-              "updates.idleInstallMaxWaitSeconds",
-              "updates.idleInstallQuietSeconds"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.updatesAdvanced",
-              "text" : "Updates: Advanced"
             }
           }
         ],
@@ -455,6 +433,18 @@
               "appearance.fontSmoothing",
               "appearance.appFont",
               "appearance.metrics.sidebarRowHeight",
+              "appearance.metrics.sidebarRowInset",
+              "appearance.metrics.sidebarRowPadding",
+              "appearance.metrics.sidebarRowGap",
+              "appearance.metrics.sidebarRowHeightWithSubtitle",
+              "appearance.metrics.toolbarButtonSize",
+              "appearance.metrics.toolbarButtonGap",
+              "appearance.metrics.toolbarButtonCornerRadius",
+              "appearance.metrics.toolbarButtonActiveFill",
+              "appearance.metrics.headerDivider",
+              "appearance.metrics.spacingScale",
+              "appearance.metrics.composerPadding",
+              "appearance.metrics.composerMinHeight",
               "appearance.borders",
               "appearance.liquidGlass",
               "appearance.focusIndicator",
@@ -966,6 +956,7 @@
               "appearance.twoTone",
               "appearance.cornerFlush",
               "appearance.tabShape",
+              "appearance.gooeyTabs",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -1047,10 +1038,10 @@
               "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap",
               "agentPane.display.chatListStatusPills",
-              "agentPane.display.pinnedPlan",
               "agentPane.display.trayTucked",
               "agentPane.display.trayHandle",
               "agentPane.display.headerBreadcrumb",
+              "agentPane.display.subagentOf",
               "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead",
               "agentPane.display.senderIcon.badge",
@@ -1708,6 +1699,7 @@
             "rows" : [
               "cloud.newWorkspacesInCloud",
               "cloud.newWorkspaceFolder",
+              "cloud.defaultImage",
               "cloud.agentsStartWithoutAsking",
               "cloud.turnCheckpoints",
               "cloud.autoCloud",
@@ -10923,40 +10915,82 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "off",
+        "notify",
+        "download",
+        "idle"
       ],
-      "agent_refusal" : "network",
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticNotify",
+            "text" : "Notify Only"
+          },
+          "value" : "notify"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticDownload",
+            "text" : "Download Automatically"
+          },
+          "value" : "download"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesAutomaticIdle",
+            "text" : "Install When Idle"
+          },
+          "value" : "idle"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : "download",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
         "text" : "Updates"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.updates.automatic.help",
+        "text" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running."
+      },
       "kept_on_reset_all" : false,
-      "key" : "updates.checkAutomatically",
+      "key" : "updates.automatic",
       "keywords" : [
         "update",
-        "sparkle",
+        "updates",
+        "automatic",
         "check",
-        "automatic"
+        "download",
+        "install",
+        "idle",
+        "restart",
+        "sparkle",
+        "auto update",
+        "update when idle"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "updates",
-        "checkAutomatically"
+        "automatic"
       ],
       "placeholder" : null,
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "general",
       "summary" : null,
@@ -11011,13 +11045,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
+          "editor" : "options",
           "offered" : true,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
           "reason" : null,
-          "row" : "setting:updates.checkAutomatically"
+          "row" : "setting:updates.automatic"
         },
         "socket" : {
           "aliases" : [
@@ -11044,8 +11078,8 @@
         }
       },
       "title" : {
-        "key" : "settings.updates.checkAutomatically",
-        "text" : "Check for Updates Automatically"
+        "key" : "settings.updates.automatic",
+        "text" : "Automatic Updates"
       },
       "validation" : "portable"
     },
@@ -11077,7 +11111,7 @@
         "daily"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "checkIntervalSeconds"
@@ -11148,13 +11182,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.checkIntervalSeconds"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11191,137 +11225,6 @@
         true,
         false
       ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux asks before downloading. It always asks before restarting."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.downloadAutomatically",
-      "keywords" : [
-        "update",
-        "download",
-        "background",
-        "metered"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "downloadAutomatically"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:updates.downloadAutomatically"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download Updates Automatically"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -11347,7 +11250,7 @@
         "one click"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "oneClickInstall"
@@ -11411,13 +11314,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
-          "reason" : null,
-          "row" : "setting:updates.oneClickInstall"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11481,7 +11384,7 @@
         "what's new"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "whatsNewInstall"
@@ -11545,13 +11448,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
-          "reason" : null,
-          "row" : "setting:updates.whatsNewInstall"
+          "reason" : "a feature gate, not a choice (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11637,7 +11540,7 @@
         "hotspot"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "meteredNetwork"
@@ -11701,13 +11604,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.meteredNetwork"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -11795,7 +11698,7 @@
         "merge"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "web"
@@ -11859,13 +11762,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.web"
+          "reason" : "web UI updates follow the channel and Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -12213,7 +12116,7 @@
         "quit"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "installOnQuit"
@@ -12277,13 +12180,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "toggle",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
-            "palette.toggleSetting"
+
           ],
-          "reason" : null,
-          "row" : "setting:updates.installOnQuit"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -12312,138 +12215,6 @@
       "title" : {
         "key" : "settings.updates.installOnQuit",
         "text" : "Install Updates When Quitting"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.installWhenIdle.help",
-        "text" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.installWhenIdle",
-      "keywords" : [
-        "update",
-        "install",
-        "idle",
-        "automatic",
-        "restart"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "updates",
-        "installWhenIdle"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:updates.installWhenIdle"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.updates.installWhenIdle",
-        "text" : "Update When Idle"
       },
       "validation" : "portable"
     },
@@ -12479,7 +12250,7 @@
         "minutes"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "installWhenIdleMinutes"
@@ -12550,13 +12321,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.installWhenIdleMinutes"
+          "reason" : "the idle time of Automatic Updates' Install When Idle (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -12630,7 +12401,7 @@
         "silent"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "notify"
@@ -12696,13 +12467,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.notify"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -12764,7 +12535,7 @@
         "downgrade"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "keepPreviousVersions"
@@ -12835,13 +12606,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.keepPreviousVersions"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -13173,7 +12944,7 @@
         "nightly"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "idleInstallMaxWaitSeconds"
@@ -13244,13 +13015,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.idleInstallMaxWaitSeconds"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -13314,7 +13085,7 @@
         "nightly"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "updates",
         "idleInstallQuietSeconds"
@@ -13385,13 +13156,13 @@
           "app_operations" : [
 
           ],
-          "editor" : "options",
-          "offered" : true,
+          "editor" : null,
+          "offered" : false,
           "operations" : [
 
           ],
-          "reason" : null,
-          "row" : "setting:updates.idleInstallQuietSeconds"
+          "reason" : "folded into Automatic Updates (2026-11-22); cmux.json only",
+          "row" : null
         },
         "socket" : {
           "aliases" : [
@@ -17683,6 +17454,141 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.defaultImage.help",
+        "text" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.defaultImage",
+      "keywords" : [
+        "cloud",
+        "image",
+        "environment",
+        "default",
+        "auto",
+        "snapshot",
+        "vm",
+        "machine",
+        "new chat"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "defaultImage"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.defaultImage"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.defaultImage",
+        "text" : "Default Image"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -20022,7 +19928,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1,
+      "default" : 0,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentRetry",
@@ -20577,7 +20483,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 60000,
+      "default" : 20000,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentCache",
@@ -32640,7 +32546,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.appTheme",
@@ -44495,6 +44401,1779 @@
     },
     {
       "accepts" : [
+        0,
+        24,
+        12
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.sidebarRowInset.help",
+        "text" : "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.sidebarRowInset",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "padding",
+        "inset",
+        "sidebarRowInset"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "sidebarRowInset"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 24,
+        "min" : 0,
+        "placeholder" : 6,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        48,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.sidebarRowInset"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.sidebarRowInset",
+        "text" : "Workspace Row Inset"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        24,
+        12
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.sidebarRowPadding.help",
+        "text" : "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.sidebarRowPadding",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "padding",
+        "content",
+        "sidebarRowPadding"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "sidebarRowPadding"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 24,
+        "min" : 0,
+        "placeholder" : 8,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        48,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.sidebarRowPadding"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.sidebarRowPadding",
+        "text" : "Workspace Row Padding"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        12,
+        6
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.sidebarRowGap.help",
+        "text" : "The gap between two sidebar rows. Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.sidebarRowGap",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "gap",
+        "spacing",
+        "sidebarRowGap"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "sidebarRowGap"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 12,
+        "min" : 0,
+        "placeholder" : 2,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -12,
+        24,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.sidebarRowGap"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.sidebarRowGap",
+        "text" : "Workspace Row Gap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        28,
+        96,
+        62
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.sidebarRowHeightWithSubtitle.help",
+        "text" : "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.sidebarRowHeightWithSubtitle",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "two line",
+        "card",
+        "subtitle",
+        "height",
+        "sidebarRowHeightWithSubtitle"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "sidebarRowHeightWithSubtitle"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 96,
+        "min" : 28,
+        "placeholder" : 37,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -40,
+        164,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.sidebarRowHeightWithSubtitle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.sidebarRowHeightWithSubtitle",
+        "text" : "Two-Line Row Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        16,
+        40,
+        28
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.toolbarButtonSize.help",
+        "text" : "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.toolbarButtonSize",
+      "keywords" : [
+        "toolbar",
+        "header",
+        "titlebar",
+        "button",
+        "icon",
+        "size",
+        "toolbarButtonSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "toolbarButtonSize"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 40,
+        "min" : 16,
+        "placeholder" : 20,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -8,
+        64,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.toolbarButtonSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.toolbarButtonSize",
+        "text" : "Toolbar Button Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        16,
+        8
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.toolbarButtonGap.help",
+        "text" : "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.toolbarButtonGap",
+      "keywords" : [
+        "toolbar",
+        "header",
+        "titlebar",
+        "button",
+        "gap",
+        "spacing",
+        "toolbarButtonGap"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "toolbarButtonGap"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 16,
+        "min" : 0,
+        "placeholder" : 6,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -16,
+        32,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.toolbarButtonGap"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.toolbarButtonGap",
+        "text" : "Toolbar Button Gap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        20,
+        10
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.toolbarButtonCornerRadius.help",
+        "text" : "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.toolbarButtonCornerRadius",
+      "keywords" : [
+        "toolbar",
+        "header",
+        "titlebar",
+        "button",
+        "corner",
+        "radius",
+        "rounded",
+        "square",
+        "toolbarButtonCornerRadius"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "toolbarButtonCornerRadius"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 20,
+        "min" : 0,
+        "placeholder" : 6,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -20,
+        40,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.toolbarButtonCornerRadius"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.toolbarButtonCornerRadius",
+        "text" : "Toolbar Button Corner"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        0.4,
+        0.2
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.toolbarButtonActiveFill.help",
+        "text" : "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.toolbarButtonActiveFill",
+      "keywords" : [
+        "toolbar",
+        "header",
+        "button",
+        "active",
+        "on",
+        "fill",
+        "toolbarButtonActiveFill"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "toolbarButtonActiveFill"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 0.4,
+        "min" : 0,
+        "placeholder" : 0.14,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        1.4,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.toolbarButtonActiveFill"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.toolbarButtonActiveFill",
+        "text" : "Active Button Fill"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.headerDivider.help",
+        "text" : "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.headerDivider",
+      "keywords" : [
+        "header",
+        "titlebar",
+        "title bar",
+        "tab row",
+        "divider",
+        "hairline",
+        "line",
+        "headerDivider"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "headerDivider"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.headerDivider"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.headerDivider",
+        "text" : "Header Divider"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.5,
+        2,
+        1.25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.spacingScale.help",
+        "text" : "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.spacingScale",
+      "keywords" : [
+        "spacing",
+        "padding",
+        "gap",
+        "airy",
+        "tight",
+        "spacingScale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "spacingScale"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 2,
+        "min" : 0.5,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        3.5,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.spacingScale"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.spacingScale",
+        "text" : "Spacing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        24,
+        12
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.composerPadding.help",
+        "text" : "The room from the chat prompt box's sides to its text and controls. Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.composerPadding",
+      "keywords" : [
+        "composer",
+        "prompt",
+        "input",
+        "padding",
+        "inset",
+        "composerPadding"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "composerPadding"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 24,
+        "min" : 0,
+        "placeholder" : 8,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        48,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.composerPadding"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.composerPadding",
+        "text" : "Composer Padding"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        32,
+        160,
+        96
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.composerMinHeight.help",
+        "text" : "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.composerMinHeight",
+      "keywords" : [
+        "composer",
+        "prompt",
+        "input",
+        "height",
+        "composerMinHeight"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "composerMinHeight"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 160,
+        "min" : 32,
+        "placeholder" : 48,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -96,
+        288,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.composerMinHeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.composerMinHeight",
+        "text" : "Composer Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "default",
         "none"
       ],
@@ -46371,6 +48050,172 @@
       "title" : {
         "key" : "settings.appearance.tabShape",
         "text" : "Tab Shape"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.gooeyTabs.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.gooeyTabs.subtle",
+            "text" : "Subtle"
+          },
+          "value" : "subtle"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.gooeyTabs.full",
+            "text" : "Full"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.gooeyTabs.help",
+        "text" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.gooeyTabs",
+      "keywords" : [
+        "goo",
+        "gooey",
+        "liquid",
+        "spring",
+        "springy",
+        "wobble",
+        "stretch",
+        "tab animation",
+        "selected tab",
+        "tab shape"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "gooeyTabs"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.gooeyTabs.summary",
+        "text" : "Off, subtle or full goo for the tab strip"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.gooeyTabs"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.gooeyTabs",
+        "text" : "Gooey Tabs"
       },
       "validation" : "portable"
     },
@@ -62450,33 +64295,28 @@
         "text" : "Agent Chat"
       },
       "help" : {
-        "key" : "settings.agentPane.display.pinnedPlan.help",
-        "text" : "Keeps the agent's task list under the latest message, not over the composer."
+        "key" : "settings.agentPane.display.subagentOf.help",
+        "text" : "In a subagent's own pane, show which chat it belongs to beside its name in the header."
       },
       "kept_on_reset_all" : false,
-      "key" : "agentPane.display.pinnedPlan",
+      "key" : "agentPane.display.subagentOf",
       "keywords" : [
         "agent",
         "chat",
-        "acp",
         "display",
-        "reading",
-        "plan",
-        "task",
-        "tasks",
-        "todo",
-        "checklist",
-        "pin",
-        "pinned",
-        "list",
-        "progress"
+        "header",
+        "subagent",
+        "parent",
+        "of",
+        "provenance",
+        "toggle"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "agentPane",
         "display",
-        "pinnedPlan"
+        "subagentOf"
       ],
       "placeholder" : null,
       "refuses" : [
@@ -62545,7 +64385,7 @@
             "palette.toggleSetting"
           ],
           "reason" : null,
-          "row" : "setting:agentPane.display.pinnedPlan"
+          "row" : "setting:agentPane.display.subagentOf"
         },
         "socket" : {
           "aliases" : [
@@ -62572,8 +64412,8 @@
         }
       },
       "title" : {
-        "key" : "settings.agentPane.display.pinnedPlan",
-        "text" : "Pin Task List in Chat"
+        "key" : "settings.agentPane.display.subagentOf",
+        "text" : "Subagent Of in Header"
       },
       "validation" : "portable"
     },
@@ -82179,6 +84019,146 @@
       "help" : {
         "key" : "settings.sidebar.showAgentSessions.help",
         "text" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showAgentSessions",
+      "keywords" : [
+        "sidebar",
+        "agent",
+        "agents",
+        "subagent",
+        "helper",
+        "started",
+        "nested",
+        "tree",
+        "hidden",
+        "hide",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showAgentSessions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.showAgentSessions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.showAgentSessions",
+        "text" : "Show Sessions Started by Agents"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showAutomaticSessions.help",
+        "text" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showAgentSessions",
