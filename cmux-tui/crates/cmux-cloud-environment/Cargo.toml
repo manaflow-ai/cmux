@@ -27,3 +27,5 @@ url.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
