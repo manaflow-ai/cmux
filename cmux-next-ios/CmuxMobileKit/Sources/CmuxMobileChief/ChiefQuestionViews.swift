@@ -92,7 +92,7 @@ struct ChiefQuestionBar: View {
         // retry-prompt-ok: re-sends the person's last message to Chief (a new turn, its cost and effects); only they choose it
         Button { session.retryFailedTurn() } label: {
             HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.bubble.fill").font(.body).foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.bubble.fill").font(.body).foregroundStyle(CmuxMobileTheme.standard.colors.needsYou.color)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(failure.barTitle).font(.footnote.weight(.semibold))
                     Text("Send your last message again.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
