@@ -60,7 +60,10 @@ STAGED = {
 }
 # Jobs behind a required check that need no one-job VM lead with cmux-linux, the persistent pool, instead: the
 # merge-group bridge only echoes (no token, no checkout, permissions {}). On 2026-11-21 the gate JIT label started
-# nothing from about 14:40Z while about 300 persistent runners sat idle, so its jobs queued for hours.
+# nothing from about 14:40Z while about 300 persistent runners sat idle, so its jobs queued for hours. They take the
+# one own-branch Linux label with no switch or Blacksmith fallback behind it (Leo: "one label (`runs-on:
+# cmux-linux`) for every own-branch Linux job, with the pickers ... deleted now"); only the fleet-wide
+# CI_OVERFLOW_LINUX switch every cmux-linux job carries stays ahead of it.
 POOL_LABEL = "cmux-linux"
 POOL_VALUE = FORK_BRANCH + "vars.CI_OVERFLOW_LINUX || '" + POOL_LABEL + "' }}"
 POOL_JOBS = {
