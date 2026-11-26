@@ -119,6 +119,16 @@ pub trait Underlay: Send + 'static {
         self.send(datagram);
     }
 
+    /// Send one data datagram of a class Braid duplicates
+    /// (`cmux_braid_class::Class::duplicates`, RFD 0164 class 0): a carrier
+    /// with several live paths sends one copy on each of the best two, and
+    /// the far end keeps the first (WireGuard's replay window drops the
+    /// other). Repair data never comes here, only the datagram itself. The
+    /// default sends it once, as [`send_classified`](Underlay::send_classified).
+    fn send_duplicated(&mut self, datagram: &[u8], priority: Priority) {
+        self.send_classified(datagram, priority);
+    }
+
     /// Send one liveness datagram (`WgDatagramSocket::send_liveness`): a
     /// single datagram, in the interactive class, never repaired or
     /// replayed (its sender resends it). `answer`: it answers the peer's
