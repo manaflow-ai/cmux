@@ -144,6 +144,8 @@ jobs:
           # An earlier run of this same head that built both artifacts: no second build (the land hands a head over
           # more than once; cmux_machine_channel_head_built.py). The job's token has actions: read for head_tier.py.
           HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          # The branch's earlier heads with this head's tree key count too (a base merge that moved no input).
+          HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
           GH_TOKEN: ${{ github.token }}
           # No PR head build while the base took a commit in the last N minutes (its push run coalesces the merge);
           # 0 turns that off.
