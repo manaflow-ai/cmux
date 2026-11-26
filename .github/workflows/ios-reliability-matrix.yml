@@ -31,7 +31,7 @@ jobs:
     permissions:
       actions: write # dispatch ios-reliability-matrix.yml
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
     # Room for one full wait through github.token's hour (below) when the App token cannot be minted.
     timeout-minutes: 70
     env:

@@ -1288,7 +1288,7 @@ class WorkflowTests(unittest.TestCase):
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-feed-watch.yml:watch", moved)
+        self.assertIn("ci-shed-superseded-runs.yml:shed", moved)
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
