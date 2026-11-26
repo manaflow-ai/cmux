@@ -119,7 +119,7 @@ test("the default variant's own component draws the pre-slot markup too", () => 
   );
   const expected = dom!.window.document.getElementById("expected")!;
   const other = createRoot(expected);
-  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} elapsed="2s" />));
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} />));
   expect(container.innerHTML).toBe(expected.innerHTML);
   act(() => other.unmount());
 });

@@ -32,6 +32,7 @@ mod deploy;
 pub mod hidden;
 mod interfaces;
 mod issue;
+pub mod keybindings;
 mod menus;
 pub mod module_store;
 mod package;

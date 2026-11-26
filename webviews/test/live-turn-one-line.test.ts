@@ -47,7 +47,7 @@ test("a running turn draws no finished run: the prompt, then one live line namin
     row("run", "activity", { items: [call("rg retry"), call("git log"), call("bun test src/net", "in_progress")] }),
   ]);
   expect(kinds(shaped)).toEqual(["user", THINKING]);
-  expect(shaped.at(-1)).toMatchObject({ id: "thinking-live", doing: "bun test src/net" });
+  expect(shaped.at(-1)).toMatchObject({ id: "thinking-live", doing: "Testing net" });
 });
 
 test("a finished thought and finished calls leave no row while the turn thinks", () => {
@@ -84,7 +84,7 @@ test("the line replaces itself in place: one line, one id, at every step", () =>
     expect(shaped.at(-1)!.id).toBe("thinking-live");
   }
   expect(steps[1]!.at(-1)!.doing).toBe("rg retry");
-  expect(steps[3]!.at(-1)!.doing).toBe("bun test");
+  expect(steps[3]!.at(-1)!.doing).toBe("Running tests");
 });
 
 test("a file change waiting for permission stays in sight over the line", () => {
@@ -119,7 +119,7 @@ test("a stretch that already ended keeps its run while the chat works, so its en
   );
   expect(shaped.some((entry) => entry.id === "woken-run")).toBe(true);
   expect(shaped.some((entry) => entry.id === "later")).toBe(false);
-  expect(shaped.at(-1)).toMatchObject({ id: "thinking-live", doing: "bun test" });
+  expect(shaped.at(-1)).toMatchObject({ id: "thinking-live", doing: "Running tests" });
 });
 
 test("the runs arm keeps every finished run in sight until the turn ends", () => {

@@ -7,26 +7,41 @@
  * CMUX_CLOUD_ACCESS_TOKEN and CMUX_CLOUD_API_URL in the environment and no --app-socket: the first
  * makes the machine and starts a chat, the second must take the same machine (no second one).
  * The token goes only in the child's environment and is scrubbed from everything printed. The
- * machine's cmux-test- name is reaped by the platform after 6 h.
+ * machine is deleted when the check ends, pass or fail: the platform's 6 h reap of cmux-test- names
+ * was too slow, and one leaked machine per run filled staging's 300-machine team limit (hq#23807).
  */
 import { spawnSync } from "node:child_process";
-import { passwordSignIn, resolveBackend, scrub, STACK } from "./cloud-journey.ts";
+import { Api, passwordSignIn, resolveBackend, scrub, STACK } from "./cloud-journey.ts";
 
 const env = process.env;
-const fail = (why: string): never => {
+let made: string | undefined;
+let cleanup = async () => {};
+const fail = async (why: string): Promise<never> => {
   console.error(`headless start-chat: FAIL: ${why}`);
+  await cleanup();
   process.exit(1);
 };
-const cmux = env.CMUX_PATH || fail("CMUX_PATH (this pull request's cmux-tui) is not set");
+const cmux = env.CMUX_PATH || (await fail("CMUX_PATH (this pull request's cmux-tui) is not set"));
 const email = env.CMUX_DOGFOOD_STACK_EMAIL;
 const password = env.CMUX_DOGFOOD_STACK_PASSWORD;
-if (!email || !password) fail("no CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD (the agent test account)");
+if (!email || !password) await fail("no CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD (the agent test account)");
 const backend = resolveBackend(env.TARGET || "staging");
 const { access } = await passwordSignIn(STACK[backend.stack], email!, password!);
 const secrets = [password!, access];
 const name = `cmux-test-headless-${env.GITHUB_RUN_ID || Date.now()}`;
+const api = new Api(backend.api);
+api.bearer = access;
+cleanup = async () => {
+  if (!made) return;
+  const id = made;
+  made = undefined;
+  await api.deleteMachine(id, `${name}-delete-${id}`).then(
+    () => console.log(`headless start-chat: deleted ${id}`),
+    (e: Error) => console.error(`headless start-chat: ${id} NOT deleted: ${scrub(e.message, secrets)}`),
+  );
+};
 
-function start(label: string): Record<string, unknown> {
+async function start(label: string): Promise<Record<string, unknown>> {
   const t0 = Date.now();
   const r = spawnSync(cmux, ["cloud", "start-chat", "--name", name, "--no-focus", "--json"], {
     env: { ...env, CMUX_CLOUD_ACCESS_TOKEN: access, CMUX_CLOUD_API_URL: backend.api, CMUX_DOGFOOD_STACK_PASSWORD: "" },
@@ -36,22 +51,30 @@ function start(label: string): Record<string, unknown> {
   const out = scrub(r.stdout ?? "", secrets);
   const err = scrub(r.stderr ?? "", secrets);
   console.log(`headless start-chat (${label}): exit ${r.status} in ${Date.now() - t0} ms`);
-  if (r.status !== 0) fail(`${label} exited ${r.status}: ${err.slice(-1500) || out.slice(-1500)}`);
+  if (r.status !== 0) await fail(`${label} exited ${r.status}: ${err.slice(-1500) || out.slice(-1500)}`);
   let answer: any;
   try {
     answer = JSON.parse(out);
   } catch {
-    fail(`${label} answered no JSON: ${out.slice(-800)}`);
+    await fail(`${label} answered no JSON: ${out.slice(-800)}`);
   }
   const result = answer?.result ?? answer;
+  if (typeof result?.machine_id === "string") made = result.machine_id;
   if (typeof result?.machine_id !== "string" || typeof result?.session_id !== "string") {
-    fail(`${label} answered no machine_id/session_id: ${out.slice(-800)}`);
+    await fail(`${label} answered no machine_id/session_id: ${out.slice(-800)}`);
   }
   console.log(JSON.stringify({ machine_id: result.machine_id, machine_name: result.machine_name, session_id: result.session_id, follow_up: result.follow_up }, null, 2));
   return result;
 }
 
-const first = start("new machine");
-const again = start("same name again");
-if (again.machine_id !== first.machine_id) fail(`the second start took ${again.machine_id}, not ${first.machine_id}`);
+const first = await start("new machine");
+const again = await start("same name again");
+if (again.machine_id !== first.machine_id) {
+  // Both are this run's: delete the second one too.
+  const second = String(again.machine_id);
+  await api.deleteMachine(second, `${name}-delete-${second}`).catch(() => undefined);
+  made = String(first.machine_id);
+  await fail(`the second start took ${second}, not ${first.machine_id}`);
+}
 console.log(`headless start-chat: PASS (${backend.name}, machine ${first.machine_id})`);
+await cleanup();

@@ -41,7 +41,7 @@ jobs:
     # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
     # elsewhere rather than queue forever for a runner a fork cannot have.
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       # The environments API shows (2026-10-06): one custom deployment
       # protection rule, the cmux-ci-testbox-approver App; no required
@@ -128,10 +128,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           ref: ${{ github.sha }}
 
@@ -198,11 +194,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          # gcc-mingw-w64-x86-64 links the Windows GNU check that every
-          # cmux-tui-core or cmux-tui landing runs on the box:
-          # cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui
-          sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config gcc-mingw-w64-x86-64 >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config gcc-mingw-w64-x86-64: already installed"
+          else
+            sudo apt-get update
+            # gcc-mingw-w64-x86-64 links the Windows GNU check that every
+            # cmux-tui-core or cmux-tui landing runs on the box:
+            # cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui
+            sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          fi
 
       # No Zig or Cargo download cache: the hq Blacksmith pilot (2026-10-12)
       # measured no gain. A cold target built in 102.8 s with the Zig cache
@@ -210,15 +211,37 @@ jobs:
       # CARGO_HOME takes 2.2 s.
       - name: Install repository-pinned Zig
         shell: bash
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Fetch Ghostty Zig dependencies without compiling
-        working-directory: ghostty-next
-        shell: bash
         run: |
           set -euo pipefail
-          # `--fetch` hydrates the package cache and exits before a build.
-          "$CMUX_ZIG" build --fetch
+          source scripts/ghostty-zig-version.sh
+          want="$(GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
+          install_root="/opt/zig-$want"
+          have="$("$install_root/zig" version 2>/dev/null)" || have=""
+          if [ "$have" != "$want" ]; then
+            GHOSTTY_ZIG_SOURCE=ghostty-next \
+              ZIG_REQUIRED="$want" \
+              ZIG_FORCE_LOCAL_INSTALL=1 \
+              ZIG_INSTALL_ROOT="$install_root" \
+              ./scripts/install-zig-ci.sh
+          fi
+          zig_path="$(find "$install_root" -mindepth 2 -maxdepth 2 -type f -name zig -perm -111 -print -quit)"
+          test -n "$zig_path"
+          test "$("$zig_path" version)" = "$want"
+          zig_lib_dir="$(dirname "$zig_path")/lib"
+          cat > "$install_root/zig" <<EOF
+          #!/usr/bin/env bash
+          export ZIG_LIB_DIR=$(printf '%q' "$zig_lib_dir")
+          exec $(printf '%q' "$zig_path") "\$@"
+          EOF
+          chmod 0755 "$install_root/zig"
+          test "$("$install_root/zig" version)" = "$want"
+          echo "CMUX_ZIG=$install_root/zig" >> "$GITHUB_ENV"
+
+      - name: Fetch Ghostty Zig dependencies without compiling
+        shell: bash
+        # From our mirror, with bounded retries; `--fetch=all` hydrates the
+        # package cache and exits before a build.
+        run: ZIG="$CMUX_ZIG" bash scripts/cmux-next/zig-fetch-all.sh ghostty-next
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -309,7 +332,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref }}
           TESTBOX_ID: ${{ inputs.testbox_id }}
-          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
         shell: bash
         run: |
           set -euo pipefail

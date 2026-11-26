@@ -340,6 +340,20 @@ impl Hub {
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
         {
             params["_meta"]["batch"] = json!({"from": from});
+        } else if !step_now
+            && super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref())
+            && !crate::prompt_provenance::is_trigger(opts.provenance.as_ref())
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            // The person's plain steer goes in with their others waiting for this step, as one
+            // message, so one message sent in pieces reads and carries as one (`steer_batch.rs`).
+            // Keyed by its author: two people of a shared chat never share a line.
+            let author = crate::author::of_provenance(opts.provenance.as_ref()).unwrap_or("");
+            if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut) {
+                meta.insert("batch".to_owned(), json!({"person": author}));
+            }
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
@@ -412,6 +426,11 @@ impl Hub {
                 self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
+                }
+                // A blocker that sits unread behind a step that never ends stops the step
+                // (`urgent_steer.rs`).
+                if inbox_notice && super::urgent_steer::carries_blocker(opts.provenance.as_ref()) {
+                    self.watch_urgent_steer(session, &prompt_id, turn_id);
                 }
             },
         );

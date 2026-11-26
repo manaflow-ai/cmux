@@ -22,24 +22,26 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
 import { paneKnowsNewChat } from "../locationRow";
 import { translate, type Translate } from "../i18n";
-import { inThisVisit, type useFolderTrustAsk } from "../useFolderTrustAsk";
+import { inThisVisit, type useFolderTrustAsk, composerTrustBlock } from "../useFolderTrustAsk";
 import { bindsHeldSendNow } from "../heldSendBinding";
 import { TrayPullTab } from "../subagents/TrayPullTab";
 import { pullTabCounts } from "../subagents/trayPullTabModel";
 import { isWaitingForWords, type Dictation } from "../dictation";
 import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
+import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
+import { cloudAgentPick } from "../cloudAgentPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -85,7 +87,7 @@ import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
-import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
+import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
@@ -141,6 +143,8 @@ export type PaneComposerDeps = {
   subagentDraftKey: string;
   /// A message to the subagent did not reach the chat: its note shows over the box.
   subagentFailed: boolean;
+  /// acpmux's queue for the composer's queued cards, the same list while it holds the same prompts.
+  composerTurnQueue: AcpmuxSnapshot["queue"];
   t: Translate;
   reviewing: boolean;
   snapshot: AcpmuxSnapshot;
@@ -188,6 +192,10 @@ export type PaneComposerDeps = {
     healthSignIn: CloudSignIn | undefined;
   };
   switchLoginCommand: string | undefined;
+  /// A failed start that starts again on its own (startFailure.ts): no card until it lasts.
+  switchFailedByItself: boolean;
+  /// That start has kept failing past the hold (useAutoRetry): its card says it is still trying.
+  switchStillTrying: boolean;
   composerHandle: React.RefObject<ComposerHandle | null>;
   healthStale: React.RefObject<boolean>;
   connectMachine: (kind: ConnectKind) => undefined;
@@ -215,6 +223,8 @@ export type PaneComposerDeps = {
   /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
   /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
   placeControl: React.ReactNode | undefined;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists; undefined with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -252,8 +262,6 @@ export type PaneComposerDeps = {
   trayNode: React.JSX.Element | null;
   trayList: TrayItem[];
   waitingAgents: Set<string>;
-  hatPlan: readonly AcpmuxPlanEntry[] | undefined;
-  hatKept: boolean;
   trayHandle: TrayHandleSide;
   /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
   /// line (hatSide, hatPillPlace.experiment.ts).
@@ -426,6 +434,7 @@ export type PaneComposerDeps = {
 export function drawPaneComposer({
   hostOverload,
   markDockEdge,
+  composerTurnQueue,
   readOnlySubagent,
   subagentRelay,
   subagentDraftKey,
@@ -455,8 +464,11 @@ export function drawPaneComposer({
   startsElsewhere,
   chatSignIns,
   switchLoginCommand,
+  switchFailedByItself,
+  switchStillTrying,
   composerHandle,
   placeControl,
+  newTabPlaceControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -514,8 +526,6 @@ export function drawPaneComposer({
   trayNode,
   trayList,
   waitingAgents,
-  hatPlan,
-  hatKept,
   trayHandle,
   hatHandle,
   hatPillArm,
@@ -739,9 +749,14 @@ export function drawPaneComposer({
                 {harnessCard}
               </Notice>
             ) : (
-              <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
+              <Notice
+                id="switch"
+                tier="error"
+                when={snapshot.switching?.phase === "failed" && (!switchFailedByItself || switchStillTrying)}
+              >
                 <SwitchNotice
                   switching={snapshot.switching}
+                  stillTrying={switchFailedByItself}
                   // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
                   installs={!startsElsewhere}
                   // An agent not signed in: on another machine its sign-in runs there, in the card; on
@@ -975,7 +990,6 @@ export function drawPaneComposer({
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
-              working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
               quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
@@ -1000,7 +1014,7 @@ export function drawPaneComposer({
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
-            turnQueue={snapshot.queue}
+            turnQueue={composerTurnQueue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
@@ -1111,11 +1125,23 @@ export function drawPaneComposer({
                 const folder = once ?? cloudStartFolder(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
+                // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
+                const machinePick = cloudAgentPick();
                 const held = heldPick(composerSnapshot);
                 const shownModel = composerSnapshot.summary?.model;
-                const cloudShownAgent = {
-                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
-                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                // Before the picker has a harness (the catalog still listing), the person's last local pick
+                // goes, so a Cloud send never falls back to Claude over the agent they use here (cmux#51731).
+                const remembered = lastPick(composerSnapshot.summary?.cwd);
+                const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
+                const cloudShownAgent = machinePick ?? {
+                  harness: shownHarness || remembered?.harness,
+                  model:
+                    held.model ??
+                    (shownModel && shownModel !== "default"
+                      ? shownModel
+                      : !shownHarness && remembered?.model !== DEFAULT_PICK_MODEL
+                        ? remembered?.model
+                        : undefined),
                 };
                 const started = sendToCloud(
                   text,
@@ -1142,6 +1168,11 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
+                // The folder the person picked (here or by an earlier Cloud start) is Cloud's next default, kept
+                // apart from This Mac's (newtab/startedProject.ts, cmux#53226); the tab folder's GitHub origin no
+                // one picked never is.
+                if (started === true && "cwd" in folder && folder.cwd === pickedProject.current)
+                  rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {
@@ -1190,7 +1221,7 @@ export function drawPaneComposer({
                     .join("\n\n");
                   const anchor = [...turnRowsShown]
                     .reverse()
-                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
+                    .find((row) => ![WORKING, THINKING, DATE].includes(row.kind));
                   const client = directClient.current;
                   btwNotes.ask(
                     snapshot.sessionId,
@@ -1573,6 +1604,7 @@ export function drawPaneComposer({
             // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
             // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
             {...(placeControl ? { placeControl } : {})}
+            {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
@@ -1668,7 +1700,7 @@ export function drawPaneComposer({
             // The folder's trust question holds Send only for a remote chat and Start Agent
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
-            blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
+            blocked={composerTrustBlock(trustSendOff, trustAsk.blocked)}
             // A new chat on another machine holds Send while its agent is not set up there.
             blockSend={
               blockSend ||

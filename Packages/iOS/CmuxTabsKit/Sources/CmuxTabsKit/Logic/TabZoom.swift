@@ -84,7 +84,10 @@ struct TabZoomState: Equatable, Sendable {
     }
 
     /// Settled when within this distance of the target, moving slower than `restVelocity`.
-    static let restDistance = 0.001
+    /// Settling snaps progress to the target: 0.0003 of the travel is under
+    /// a quarter point on a full-screen page, so the snap does not show
+    /// (0.001 left up to 0.7 pt for the settle frame to jump).
+    static let restDistance = 0.0003
     static let restVelocity = 0.01
 
     private(set) var progress: Double = 0

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.showAgentSessions.help" : {
+      "comment" : "Help for the Show Sessions Started by Agents setting.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تظهر الجلسات التي يبدؤها وكيل تحت الجلسة التي بدأتها. عند الإيقاف، تبقى في قائمة المحادثة الأم؛ وتظهر الجلسة التي تحتاج إليك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sesije koje agent pokrene prikazuju se ispod sesije koja ih je pokrenula. Kad je isključeno, ostaju na listi roditeljskog chata; ona kojoj trebate i dalje se prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessioner, som en agent starter, vises under den session, der startede dem. Slået fra bliver de i overordnet chats liste; en, der har brug for dig, vises stadig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von einem Agenten gestartete Sitzungen erscheinen unter der Sitzung, die sie gestartet hat. Aus bleiben sie in der Liste des übergeordneten Chats; eine, die dich braucht, erscheint trotzdem."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las sesiones que inicia un agente aparecen bajo la sesión que las inició. Desactivado, quedan en la lista del chat principal; la que te necesita sigue apareciendo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les sessions lancées par un agent s’affichent sous la session qui les a lancées. Désactivé, elles restent dans la liste du chat parent ; celle qui a besoin de vous s’affiche quand même."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le sessioni avviate da un agente compaiono sotto la sessione che le ha avviate. Disattivato, restano nell’elenco della chat principale; quella che ha bisogno di te compare comunque."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントが開始したセッションを、開始したセッションの下に表示します。オフにすると親チャットのリストに収まり、あなたの対応が必要なものは表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វគ្គដែលភ្នាក់ងារចាប់ផ្ដើម បង្ហាញនៅក្រោមវគ្គដែលបានចាប់ផ្ដើមវា។ ពេលបិទ វានៅក្នុងបញ្ជីរបស់ជជែកមេ; វគ្គដែលត្រូវការអ្នកនៅតែបង្ហាញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트가 시작한 세션을 시작한 세션 아래에 표시합니다. 끄면 상위 채팅의 목록에 남고, 내 응답이 필요한 세션은 계속 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Økter en agent starter, vises under økten som startet dem. Av blir de i overordnet chats liste; en som trenger deg, vises fortsatt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sesje uruchomione przez agenta są widoczne pod sesją, która je uruchomiła. Wyłączone zostają na liście czatu nadrzędnego; ta, która Cię potrzebuje, nadal jest widoczna."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessões iniciadas por um agente aparecem sob a sessão que as iniciou. Desativado, elas ficam na lista do chat principal; a que precisa de você continua aparecendo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сеансы, запущенные агентом, видны под сеансом, который их запустил. Если выключено, они остаются в списке родительского чата; сеанс, которому нужны вы, всё равно виден."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เซสชันที่เอเจนต์เริ่มจะแสดงใต้เซสชันที่เริ่มมัน เมื่อปิด จะอยู่ในรายการของแชตหลัก เซสชันที่ต้องการคุณยังคงแสดง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir ajanın başlattığı oturumlar, onları başlatan oturumun altında görünür. Kapalıyken üst sohbetin listesinde kalır; size ihtiyaç duyan yine görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сеанси, запущені агентом, видно під сеансом, який їх запустив. Якщо вимкнено, вони лишаються в списку батьківського чату; сеанс, якому потрібні ви, усе одно видно."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các phiên do tác tử khởi động hiện dưới phiên đã khởi động chúng. Khi tắt, chúng nằm trong danh sách của cuộc trò chuyện cha; phiên cần bạn vẫn hiện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能体启动的会话显示在启动它们的会话下方。关闭时，它们留在父聊天的列表中；需要你处理的会话仍会显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理程式啟動的工作階段會顯示在啟動它們的工作階段下方。關閉時，它們留在上層聊天的清單中；需要你處理的工作階段仍會顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

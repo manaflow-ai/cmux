@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.layout.focusFollowsMouse.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hovering or scrolling a pane focuses it"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التمرير فوق جزء أو تحريك المؤشر عليه ينقل التركيز إليه"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prelazak mišem ili pomicanje preko okna ga fokusira"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når du holder over eller ruller i en rude, får den fokus"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigen auf einen Bereich oder Scrollen darin fokussiert ihn"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pasar el puntero o desplazarse sobre un panel lo enfoca"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Survoler ou faire défiler un panneau lui donne le focus"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passare sopra un riquadro o scorrerlo lo rende attivo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ペインにポインタを重ねるかスクロールするとフォーカスされます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការដាក់ទស្សន៍ទ្រនិច ឬរំកិលលើផ្ទាំង នឹងផ្ដោតលើវា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창 위에 포인터를 올리거나 스크롤하면 포커스됩니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når du holder over eller ruller i en rute, får den fokus"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Najechanie lub przewinięcie panelu ustawia na nim fokus"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passar o ponteiro ou rolar sobre um painel o coloca em foco"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наведение или прокрутка панели переводит на неё фокус"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การวางเมาส์หรือเลื่อนบนบานหน้าต่างจะโฟกัสบานนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir bölmenin üzerine gelmek veya kaydırmak ona odaklanır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наведення або прокручування панелі переводить на неї фокус"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuột hoặc cuộn trên một ô sẽ đặt tiêu điểm vào ô đó"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "悬停或滚动窗格时聚焦该窗格"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "懸停或捲動窗格時聚焦該窗格"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

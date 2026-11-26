@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures (subagent names and tasks), not shipped UI.
+// retry-prompt-ok: Retry runs a failed subagent again (a paid model run), so every Retry here is kept.
 // Retry on a subagent's end line (SubagentDoneLine.tsx, retryState.ts), for Leo's two rows that
 // died on a transient capacity error (2026-10-26: "this needs to retry :("). While acpmux waits to
 // retry, the line reads "Retrying (2/4) after a capacity error" with the turning ring, never a dot.

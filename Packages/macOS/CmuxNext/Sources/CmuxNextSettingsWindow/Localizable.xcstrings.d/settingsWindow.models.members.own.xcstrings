@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.members.own" : {
+      "comment" : "Settings > Models (ModelsCard.tsx): Cloud threads' subscriptions and keys. ChatGPT, Claude, Claude Code, OpenAI, Anthropic and the provider names are product names.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Members can connect their own subscriptions and keys"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمكن للأعضاء ربط اشتراكاتهم ومفاتيحهم الخاصة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Članovi mogu povezati vlastite pretplate i ključeve"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medlemmer kan forbinde deres egne abonnementer og nøgler"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mitglieder können eigene Abos und Schlüssel verbinden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los miembros pueden conectar sus propias suscripciones y claves"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les membres peuvent connecter leurs propres abonnements et clés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I membri possono collegare i propri abbonamenti e chiavi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メンバーは自分のサブスクリプションとキーを接続できる"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សមាជិកអាចតភ្ជាប់ការជាវ និងសោផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "멤버가 자신의 구독과 키를 연결할 수 있음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medlemmer kan koble til egne abonnementer og nøkler"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Członkowie mogą łączyć własne subskrypcje i klucze"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Membros podem conectar suas próprias assinaturas e chaves"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Участники могут подключать свои подписки и ключи"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สมาชิกเชื่อมต่อการสมัครสมาชิกและคีย์ของตนเองได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Üyeler kendi aboneliklerini ve anahtarlarını bağlayabilir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Учасники можуть підключати власні підписки та ключі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thành viên có thể kết nối gói đăng ký và khóa riêng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成员可以连接自己的订阅和密钥"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成員可以連接自己的訂閱和金鑰"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

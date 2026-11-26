@@ -3,6 +3,7 @@ import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
+import CmuxSpinner
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -33,7 +34,11 @@ struct ChatComposer: View {
     /// shown over the composer (the draft stays). Empty: none offered.
     var cmuxCommands: [CmuxSlashCommand] = []
     var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
+    /// Where the screen reads how far the attachment strip reaches above the
+    /// field's own height (the transcript's inset leaves it out).
+    var fieldRef: ComposerFieldRef?
     @State private var showPhotos = false
+    @AppStorage(ComposerFooterFactsMode.key) private var footerFactsMode = ComposerFooterFactsMode.off.rawValue
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
@@ -211,7 +216,12 @@ struct ChatComposer: View {
             index += 1
             if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
-        return String(text.prefix(count))
+        // End on a word boundary: a draft cut mid-word ("...befo") fuses the first typed word
+        // into it ("befothe"), and autocorrect then rewrites that word, so the keys a test typed
+        // are not the text it reads back. The length stays exactly `count`.
+        guard count > 0 else { return "" }
+        let cut = String(text.prefix(count - 1))
+        return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
     }
     #endif
 
@@ -305,8 +315,14 @@ struct ChatComposer: View {
     /// own over the controls, 96 pt tall at one line with 10 pt between the text and the buttons.
     private var card: some View {
         ComposerCard(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the transcript's inset leaves out what reaches above
+            // the field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing.").
             if !collapsed, !attachments.isEmpty || preparingVideos > 0 {
                 attachmentStrip
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
             }
         } leading: {
             HStack(spacing: 0) {
@@ -332,6 +348,8 @@ struct ChatComposer: View {
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
                                   onPasteAttachments: pasteAttachments,
+                                  stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !attachments.isEmpty || preparingVideos > 0),
+                                  fieldRef: fieldRef,
                                   onLineChange: { store.lineMotionPending = true })
                     .onAppear { if expandRequested { focus.wrappedValue = true } }
             }
@@ -341,14 +359,19 @@ struct ChatComposer: View {
                     if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                         || store.effortOption?.options.isEmpty == false { pickerMenu }
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
+                    // RFD 0130: live counters (or an info mark) opening the Session card; off by default.
+                    ComposerFooterFactsView(facts: store.footerFacts, mode: .stored(footerFactsMode))
                 }
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
                 // button (ChatGPT's composer); while the agent runs it sits beside Stop.
                 // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
-                // hiding this by default"); "Left of Field" puts it after +.
+                // hiding this by default"); "Left of Field" puts it after +; "Beside
+                // Send" keeps it just left of send, which always shows (Claude's and
+                // ChatGPT's composers keep voice next to send).
                 let voiceInSend = voice.placement == .sendButton
                 if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
+                if voice.placement.voiceBesideSend { voiceButton }
                 if primaryState != .empty || !voiceInSend { primaryButton }
             }
         }
@@ -597,7 +620,9 @@ struct ChatComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
-            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop, active: active)
+            // Beside Send, send always shows: the waveform is the plain glyph.
+            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop || voice.placement.voiceBesideSend,
+                                           active: active)
             Image(systemName: "waveform")
                 .font(.system(size: style.isFilled ? 15 : 17, weight: style.isFilled ? .semibold : .regular))
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
@@ -653,6 +678,7 @@ struct ChatComposer: View {
             }
         }
         .accessibilityLabel(state == .stop ? "Stop" : "Send")
+        .accessibilityIdentifier("agentChat.composer.send")
     }
 
     /// A hardware Return: what the send button would do with a draft (never Stop).
@@ -705,7 +731,7 @@ struct ChatComposer: View {
                 }
                 if preparingVideos > 0 {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
+                        CmuxSpinner().controlSize(.small)
                         Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
@@ -765,7 +791,7 @@ struct ChatComposer: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -797,7 +823,7 @@ struct ChatComposer: View {
                 .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -925,7 +951,7 @@ struct QueuedPromptsView: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 40)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .accessibilityElement(children: .contain)
     }
 
@@ -959,7 +985,7 @@ struct QueuedPromptsView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 40)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
         }
         .accessibilityIdentifier("chat.queued")
     }
