@@ -1,3 +1,4 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
@@ -13,19 +14,26 @@ import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, HOSTED_DEFAULT_KEY, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
-import { memberCheck, stackHealDeps, type MemberCheck, type StackHealDeps } from "./stack-team-heal.ts"
+import { stackHealDeps, type StackHealDeps, memberCheck, type MemberCheck } from "./stack-team-heal.ts";
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
 import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
-import { deliverSignupChief, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
+import {
+  backfillDefaultChief,
+  deliverSignupChief,
+  rebindDefaultChief,
+  type DefaultMachinePlatform,
+  type RebindReply,
+  platformInSpace,
+} from "./user-chief-provision.ts";
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -54,9 +62,11 @@ export class UserDO extends OwnerDO<UserState> {
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
   /** Signup's server-only service binding (replaced inside the object in integration tests). */
-  protected signupPlatform = () => this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined
+  /** The platform's default machine, asked in this object's build space (`platformInSpace`). */
+  protected signupPlatform = () => platformInSpace(this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined, this.env.BUILD_SPACE)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
@@ -190,6 +200,18 @@ export class UserDO extends OwnerDO<UserState> {
       (machine, key) => this.submitSystem(DEFAULT_CHIEF_REBIND, machine, key, defaultChiefIdentity(entity)))
   }
 
+  /** An account older than signup provisioning gets the same outbox once, after its ensure (user-chief-provision.ts). */
+  private backfillDefaultChief() {
+    try {
+      const engine = this.existing()
+      if (!engine) return
+      const entity = engine.stream.slice("user:".length)
+      backfillDefaultChief(this.env, engine.currentState, (op, key) => this.submitSystem(op, {}, key, defaultChiefIdentity(entity)))
+    } catch {
+      // The ensure already committed; a later ensure tries again.
+    }
+  }
+
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
   /** Closes a revoked install's sockets on every other owner (instant revocation). */
@@ -238,6 +260,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
     super.afterOp(principal, op, frames, params)
     this.closeRevoked(op, frames)
+    if (op === "user.ensure" && frames.some((f) => f.t === "result")) this.backfillDefaultChief()
     const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
     if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
   }
@@ -526,7 +549,7 @@ export class UserDO extends OwnerDO<UserState> {
     const u = this.existing()?.currentState.user
     return Boolean(u && u.id === entity && u.email_verified === true && isCompanyEmail(u.email))
   }
-  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
+  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id
   /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */
   async serverKey(entity: string, install: string, grant: string, team: string): Promise<JsonWebKey | null> {
     const engine = this.existing()

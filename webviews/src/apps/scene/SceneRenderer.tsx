@@ -4,16 +4,21 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react";
-import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { Spinner } from "../../kit";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
+import { SceneChoreography, nodeChoreography } from "./SceneChoreography";
+import { SceneParticles } from "./SceneParticles";
+import { loopStyle, sceneTransitionKind, sceneTransitionVars, trimRange } from "./motionProps";
 import {
   SceneAppeared,
   SceneLeavingContext,
@@ -21,8 +26,20 @@ import {
   useSceneChildren,
   useSceneEntering,
 } from "./sceneMotion";
-import { sceneColor, sceneGradient, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
+import {
+  sceneColor,
+  sceneNumber,
+  sceneRecord,
+  sceneStyle,
+  sceneText,
+  textStyle,
+  sceneGradient,
+  type SceneStyle,
+  sceneGlass,
+} from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
+import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
@@ -32,6 +49,8 @@ export type SceneAssetResolver = (bundlePath: string) => string | undefined;
 type NodeProps = { id: string; store: SceneStore; dispatch: SceneDispatch };
 const DisabledContext = createContext(false);
 const AssetContext = createContext<SceneAssetResolver | undefined>(undefined);
+/** False where a scene shares the page with a field of cmux's own (the New Tab slot): its `autofocus` is ignored. */
+const AutofocusContext = createContext(true);
 
 function SceneImage({ source }: { source: unknown }) {
   const resolveAsset = useContext(AssetContext);
@@ -106,11 +125,26 @@ function SceneRow({ node }: { node: SceneNode }) {
   );
 }
 
-function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
+/** `TextField`: the text is the person's while they type. Each change goes into the scene mirror
+ * (`SceneStore.reflectText`), as the host takes it from each edit, submit and cancel, so the app's
+ * `text` replaces what the field shows only when it differs from it: an app that clears its draft
+ * after a submit clears the field, and the host never echoes an edit back over newer typing. */
+function SceneTextField({
+  node,
+  store,
+  dispatch,
+  disabled,
+}: {
+  node: SceneNode;
+  store: SceneStore;
+  dispatch: SceneDispatch;
+  disabled: boolean;
+}) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
   const input = useRef<HTMLInputElement>(null);
-  const autofocus = node.props.autofocus === true;
+  const autofocusAllowed = useContext(AutofocusContext);
+  const autofocus = autofocusAllowed && node.props.autofocus === true;
   useEffect(() => {
     if (autofocus) input.current?.focus();
   }, [autofocus]);
@@ -128,6 +162,7 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
       onChange={(event) => {
         const next = event.currentTarget.value;
         setText(next);
+        store.reflectText(node.id, next);
         if (node.props.onEdit === true) dispatch(node.id, "edit", { text: next });
       }}
       onKeyDown={(event) => {
@@ -139,7 +174,7 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          dispatch(node.id, "cancel");
+          dispatch(node.id, "cancel", { text });
         }
       }}
     />
@@ -258,7 +293,90 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
-function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
+/** A Text with `date` and `dateStyle`: formatted here and ticked by the shared clock (sceneDate.ts),
+ * so the app sends nothing while it counts. */
+function SceneDateText({ props, style }: { props: SceneNode["props"]; style: SceneDateStyle }) {
+  const now = useSceneNow(true);
+  const text = formatSceneDate(style, props.date as number, now, { timeZone: props.timeZone });
+  return <SceneTextContent text={text} transition={props.contentTransition} />;
+}
+
+const SHAPES = new Set(["Circle", "Capsule", "Rectangle", "RoundedRectangle"]);
+/** HStack `alignment`: SwiftUI's vertical alignments (center is the stylesheet's default). */
+const HSTACK_ALIGN: Record<string, string> = {
+  top: "flex-start",
+  bottom: "flex-end",
+  firstTextBaseline: "first baseline",
+  lastTextBaseline: "last baseline",
+};
+
+/** A stroked shape with `trim` draws its outline as SVG (a CSS border cannot draw part of itself). */
+const trimmedOutline = (node: SceneNode): boolean =>
+  SHAPES.has(node.type) && sceneColor(node.props.stroke) !== undefined && trimRange(node.props.trim) !== undefined;
+
+/** The trimmed outline: `pathLength` 1, so the dash is the trimmed fraction; a circle starts at
+ * 12 o'clock and runs clockwise, a rectangle at its top-left corner. The dash animates on the
+ * node's `animation` (the node's part, useSceneMotion). */
+function SceneShapeOutline({ node, partRef }: { node: SceneNode; partRef: RefObject<Element | null> }) {
+  const props = node.props;
+  const [boxWidth, boxHeight] = shapeBox(props);
+  const size = Math.min(boxWidth, boxHeight);
+  const width = Math.min(Math.max(0, sceneNumber(props.strokeWidth) ?? 1), size / 2);
+  const [from, to] = trimRange(props.trim) ?? [0, 1];
+  const outline = {
+    ref: partRef as RefObject<SVGCircleElement & SVGRectElement>,
+    pathLength: 1,
+    fill: "none",
+    strokeWidth: width,
+    // A token is a var(), which a presentation attribute cannot read: the ink is a style.
+    style: { stroke: sceneColor(props.stroke) },
+    strokeDasharray: `${to - from} 1`,
+    strokeDashoffset: -from,
+  };
+  const inner = size - width;
+  const radius =
+    node.type === "Circle" || node.type === "Capsule"
+      ? inner / 2
+      : node.type === "RoundedRectangle"
+        ? Math.min(sceneNumber(props.cornerRadius) ?? 4, inner / 2)
+        : 0;
+  const cx = boxWidth / 2;
+  const cy = boxHeight / 2;
+  return (
+    <svg className="cmux-app-scene-shape-svg" viewBox={`0 0 ${boxWidth} ${boxHeight}`} aria-hidden="true">
+      {node.type === "Circle" ? (
+        <circle {...outline} cx={cx} cy={cy} r={inner / 2} transform={`rotate(-90 ${cx} ${cy})`} />
+      ) : (
+        <rect
+          {...outline}
+          x={width / 2}
+          y={width / 2}
+          width={Math.max(0, boxWidth - width)}
+          height={Math.max(0, boxHeight - width)}
+          rx={radius}
+        />
+      )}
+    </svg>
+  );
+}
+
+/** A shape's box: `size` makes a square of that side; else its `frame` width and height (as the
+ * native renderer: a shape fills its frame), each 16 when neither names it. */
+function shapeBox(props: SceneNode["props"]): [number, number] {
+  const size = sceneNumber(props.size);
+  if (size !== undefined) return [Math.max(0, size), Math.max(0, size)];
+  const frame = sceneRecord(props.frame);
+  return [Math.max(0, sceneNumber(frame.width) ?? 16), Math.max(0, sceneNumber(frame.height) ?? 16)];
+}
+
+function contentOf(
+  node: SceneNode,
+  children: ReactNode,
+  store: SceneStore,
+  dispatch: SceneDispatch,
+  disabled: boolean,
+  partRef: RefObject<Element | null>,
+): ReactNode {
   const props = node.props;
   switch (node.type) {
     case "VStack":
@@ -269,12 +387,18 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "ForEach":
     case "Reorderable":
       return children;
-    case "Text":
+    case "Text": {
+      const dateStyle = sceneDateStyle(props);
       return (
-        <span className="cmux-app-scene-text" style={textStyle(props)}>
-          <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+        <span className="cmux-app-scene-text" style={textStyle(props)} data-date-style={dateStyle}>
+          {dateStyle ? (
+            <SceneDateText props={props} style={dateStyle} />
+          ) : (
+            <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+          )}
         </span>
       );
+    }
     case "Icon":
       return (
         <SceneSymbol
@@ -314,9 +438,29 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
       return <SceneBadge text={sceneText(props.text)} tone={props.tone} />;
     case "ProgressView": {
       const value = sceneNumber(props.value);
-      return value === undefined ? (
-        <Spinner loading size={16} />
-      ) : (
+      if (value === undefined) return <Spinner loading size={16} />;
+      // An animated bar is a track and a fill the value scales, so the value runs on `animation`.
+      if (props.animation !== undefined) {
+        const fraction = Math.max(0, Math.min(1, value));
+        return (
+          <span
+            className="cmux-app-scene-progress-track"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native <progress> cannot animate its value; this bar keeps its role and values
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={1}
+            aria-valuenow={fraction}
+            aria-label={sceneText(props.help) || undefined}
+          >
+            <span
+              ref={partRef as RefObject<HTMLSpanElement | null>}
+              className="cmux-app-scene-progress-fill"
+              style={{ scale: `${fraction} 1` }}
+            />
+          </span>
+        );
+      }
+      return (
         <progress
           className="cmux-app-scene-progress"
           max={1}
@@ -326,11 +470,16 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
       );
     }
     case "TextField":
-      return <SceneTextField node={node} dispatch={dispatch} disabled={disabled} />;
+      return <SceneTextField node={node} store={store} dispatch={dispatch} disabled={disabled} />;
     case "Circle":
     case "Capsule":
     case "Rectangle":
     case "RoundedRectangle":
+      return trimmedOutline(node) ? <SceneShapeOutline node={node} partRef={partRef} /> : null;
+    case "Particles":
+      // A choreography (validated by the host) wins over a preset.
+      return nodeChoreography(node) ? <SceneChoreography node={node} /> : <SceneParticles node={node} />;
+    case "Line":
       return null;
     case "Image":
       return <SceneImage source={props.src} />;
@@ -364,16 +513,51 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   const node = live ?? (leaving ? store.getDeparted(id) : undefined);
   const entering = useSceneEntering(store, node);
   const inheritedDisabled = useContext(DisabledContext);
+  const element = useRef<HTMLElement>(null);
+  const partRef = useRef<Element>(null);
+  const type = node?.type;
+  const part = useMemo<MotionPart | undefined>(() => {
+    if (type === "ProgressView") return { ref: partRef, properties: ["scale"] };
+    if (type && SHAPES.has(type))
+      return { ref: partRef, properties: ["stroke-dasharray", "stroke-dashoffset", "stroke"] };
+    return undefined;
+  }, [type]);
+  useSceneMotion(element, node, part);
   const shown = useSceneChildren(store, node?.children ?? NO_CHILDREN);
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true || leaving;
-  const children = shown.map((child) => (
+  const childView = (child: (typeof shown)[number]) => (
     <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
-  ));
-  const content = contentOf(node, children, dispatch, disabled);
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
+  const content = contentOf(node, children, store, dispatch, disabled, partRef);
   if (content === undefined) return null;
-  const style: CSSProperties = sceneStyle(props);
+  const style = sceneStyle(props) as SceneStyle & Record<`--${string}`, string | undefined>;
+  // `loop`: scene.css runs the effect from these (no script per frame); the period follows ui.animationSpeed.
+  const loop =
+    props.loop !== undefined && typeof document !== "undefined"
+      ? loopStyle(props.loop, currentMotionEnv(document).speed)
+      : undefined;
+  if (loop) {
+    Object.assign(style, loop.vars);
+    if (loop.effect === "breathe" && style.opacity !== undefined) style["--scene-opacity"] = String(style.opacity);
+  }
+  // `{kind, motion}`: the transition's own timing in place of the motion scale's steps (scene.css).
+  if (props.transition !== undefined && typeof props.transition !== "string" && typeof document !== "undefined") {
+    const timed = sceneTransitionVars(props.transition, currentMotionEnv(document), document);
+    if (timed) Object.assign(style, timed);
+  }
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");
   if (node.type === "Panel") style.gap = sceneNumber(props.spacing) ?? "var(--cmux-app-scene-panel-spacing)";
   if (node.type === "VStack" || node.type === "LazyVStack" || node.type === "Reorderable") {
@@ -381,23 +565,34 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
   if (node.type === "HStack") {
-    // SwiftUI's vertical alignment: top, center (the default) or bottom.
-    style.alignItems = props.alignment === "top" ? "flex-start" : props.alignment === "bottom" ? "flex-end" : undefined;
+    // SwiftUI's vertical alignment: top, center (the default), bottom, or the first or last
+    // text baseline (AM/PM beside a big time).
+    style.alignItems = HSTACK_ALIGN[sceneText(props.alignment)];
   }
-  if (["Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(node.type)) {
+  const frame = sceneRecord(props.frame);
+  if (node.type === "Line") {
+    // A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink).
+    if (frame.width === undefined && frame.minWidth === undefined) style.width = "100%";
+    if (frame.height === undefined) style.height = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
+    style.backgroundColor = sceneColor(props.stroke) ?? sceneColor(props.fill) ?? sceneColor("separator");
+  }
+  if (SHAPES.has(node.type)) {
     // `size` sets both sides; a `frame` width or height wins on its own side (a bar, a capsule).
-    const frame = props.frame && typeof props.frame === "object" ? (props.frame as Record<string, unknown>) : {};
     const side = Math.max(0, sceneNumber(props.size) ?? 16);
     if (frame.width === undefined && frame.maxWidth === undefined && frame.minWidth === undefined) style.width = side;
     if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
       style.height = side;
     if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
-    if (frame.maxHeight === "infinity" && frame.height === undefined) style.height = "100%";
-    style.backgroundImage = sceneGradient(props.fill);
-    style.backgroundColor = style.backgroundImage
+    style.flexShrink = 0;
+    // A gradient `fill` replaces the color; the `gradient` modifier (sceneStyle) draws over a color fill.
+    const fillGradient = sceneGradient(props.fill);
+    if (fillGradient) style.backgroundImage ??= fillGradient;
+    style.backgroundColor = fillGradient
       ? undefined
-      : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
-    if (sceneColor(props.stroke)) {
+      : (sceneColor(props.fill) ??
+        (sceneColor(props.stroke) || style.backgroundImage ? "transparent" : sceneColor("secondary")));
+    // A trimmed outline is SVG (SceneShapeOutline); the box draws only the fill.
+    if (sceneColor(props.stroke) && !trimmedOutline(node)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
@@ -414,11 +609,22 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
-    "data-transition": typeof props.transition === "string" ? props.transition : undefined,
+    "data-loop": loop?.effect,
+    "aria-hidden": own === true || node.type === "Particles" ? true : undefined,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
+    "data-transition": sceneTransitionKind(props.transition),
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
     "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    // `frame({maxHeight: "infinity"})`: the node takes its stack's (or the tile's) whole height (scene.css).
+    "data-fill-height": frame.maxHeight === "infinity" && frame.height === undefined ? "" : undefined,
+    // `frame({maxWidth: "infinity"})`: the node takes the width its row has free (SwiftUI's flexible frame).
+    "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
+    // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
+    "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
+    ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,
     title: sceneText(props.help) || undefined,
   };
@@ -482,22 +688,27 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  autofocus = true,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** False: the scene's fields never take focus on their own; a click still focuses them. */
+  autofocus?: boolean;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
   const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneAppeared key={generation} store={store} generation={generation}>
-            <SceneNodeView id={root} store={store} dispatch={dispatch} />
-          </SceneAppeared>
-        </div>
-      ) : null}
+      <AutofocusContext.Provider value={autofocus}>
+        {root ? (
+          <div className="cmux-app-scene-root">
+            <SceneAppeared key={generation} store={store} generation={generation}>
+              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+            </SceneAppeared>
+          </div>
+        ) : null}
+      </AutofocusContext.Provider>
     </AssetContext.Provider>
   );
 }

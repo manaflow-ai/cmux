@@ -24,7 +24,7 @@ public final class AgentChatsModel {
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
     /// The first page is being read again over the rows shown (the ones this run kept): the
-    /// list shows that it is updating. A pull to refresh shows its own progress instead.
+    /// list says nothing while it does. A pull to refresh shows its own progress instead.
     public private(set) var refreshing = false
     public var scope: AgentChatScope = .chats
     public var query = ""
@@ -32,6 +32,20 @@ public final class AgentChatsModel {
     public private(set) var busyID: String?
     /// A refusal to show (an alert).
     public var failure: String?
+    /// The connection to the Mac dropped or went quiet (``ConnectionInterrupted``): the list keeps
+    /// its rows (or its loading state) and asks again on its own, saying nothing: no chip over
+    /// the rows (Leo, 2026-11-24: "let's just keep optimistically connecting and reinforcing the
+    /// connection"). Past ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list
+    /// with rows keeps them (``stale``) and keeps asking.
+    public private(set) var reconnecting = false
+    /// The rows shown are the last ones read: the Mac stayed unreachable past the bound.
+    public private(set) var stale = false
+    @ObservationIgnored private var interruptedSince: ContinuousClock.Instant?
+    @ObservationIgnored private var retryAttempt = 0
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
+    /// The clock the quiet retries read and wait on (tests pass their own).
+    @ObservationIgnored var now: @Sendable () -> ContinuousClock.Instant = { .now }
+    @ObservationIgnored var pause: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     @ObservationIgnored private let macID: String
     /// Moves on each first-page load: a page asked for before it is dropped (a pull to refresh
@@ -68,11 +82,31 @@ public final class AgentChatsModel {
 
     /// The first page (again, for pull to refresh: `pulled`, whose own control shows progress).
     public func load(pulled: Bool = false) async {
+        // Asked for by the person (or the screen opening): the patience starts over.
+        retryTask?.cancel()
+        retryTask = nil
+        interruptedSince = nil
+        retryAttempt = 0
+        await loadFirstPage(pulled: pulled)
+    }
+
+    /// The screen's own retry of a failed first page (``AutoRetry``, never a button): the page
+    /// stays as it is while it asks, and the patience is not started over, so a Mac still
+    /// unreachable past the bound stays failed (and is asked again later) instead of blinking
+    /// back to the spinner on every try.
+    public func retryFailedLoad() async {
+        guard case .failed = phase else { return }
+        retryTask?.cancel()
+        retryTask = nil
+        await loadFirstPage(pulled: false, keepingFailure: true)
+    }
+
+    private func loadFirstPage(pulled: Bool, keepingFailure: Bool = false) async {
         guard let backend else {
             phase = .failed("Not connected to the Mac.")
             return
         }
-        if chats.isEmpty { phase = .loading }
+        if chats.isEmpty, !keepingFailure { phase = .loading }
         listGeneration &+= 1
         let generation = listGeneration
         loadingFirstPage = true
@@ -89,11 +123,45 @@ public final class AgentChatsModel {
             chats = page.chats
             nextCursor = page.nextCursor
             phase = .loaded
+            reconnecting = false
+            stale = false
+            interruptedSince = nil
+            retryAttempt = 0
             remember()
+        } catch is CancellationError {
+        } catch let error as ConnectionInterrupted {
+            guard generation == listGeneration else { return }
+            interrupted(error)
         } catch {
             guard generation == listGeneration else { return }
+            reconnecting = false
             let message = Self.message(error)
             if chats.isEmpty { phase = .failed(message) } else { failure = message }
+        }
+    }
+
+    /// The connection is coming back: no alert, no failure page; the list asks again on its
+    /// own, quickly at first. Only past the bound does an empty list say so.
+    private func interrupted(_ error: ConnectionInterrupted) {
+        let at = now()
+        let since = interruptedSince ?? at
+        interruptedSince = since
+        let patient = since.duration(to: at) < ConnectionPatience.giveUpAfter
+        if !patient, chats.isEmpty {
+            reconnecting = false
+            phase = .failed(Self.message(error))
+            return
+        }
+        // Nothing shows for a blip shorter than the shared notice bound; the rows stay as they were.
+        reconnecting = since.duration(to: at) >= ConnectionPatience.quietFor
+        stale = !patient
+        let delay = ConnectionPatience.delay(attempt: retryAttempt)
+        retryAttempt += 1
+        let pause = self.pause
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            do { try await pause(delay) } catch { return }
+            await self?.loadFirstPage(pulled: false)
         }
     }
 
@@ -110,6 +178,8 @@ public final class AgentChatsModel {
             chats += page.chats.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
             remember()
+        } catch is ConnectionInterrupted {
+            // The connection is coming back: Show Older Chats can be tapped again, no alert.
         } catch {
             guard generation == listGeneration else { return }
             failure = Self.message(error)
@@ -171,6 +241,15 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
+    /// A failed first page is read again on its own (no Try Again): the spinner stays, and the
+    /// failure shows only past the quiet bound, without a button.
+    @State private var autoRetry = AutoRetry()
+
+    /// The first page failed with no rows to show.
+    private var loadFailed: Bool {
+        if case .failed = model.phase { return true }
+        return false
+    }
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -186,6 +265,8 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
+            // Like the Workspaces list: a reopen's refresh of the kept rows says nothing; they
+            // update in place (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -211,6 +292,7 @@ struct AgentChatsScreen: View {
             }
             .refreshable { await model.load(pulled: true) }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: loadFailed) { await model.retryFailedLoad() }
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
                 Button("Cancel", role: .cancel) {}
@@ -234,41 +316,42 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            CmuxSpinner(label: Text("Loading chats…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("agentChats.loading")
+            loading
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                // The load replaces this page at once (phase .loading), which would cancel a
-                // task owned by the button: the screen's model runs it unowned.
-                RetryButton("Try Again") { Task { await model.load() } }
+            // Nothing to decide: `autoRetry` reads the list again on its own. The spinner stays
+            // through a short failure; past the quiet bound the page says why, with no button.
+            if autoRetry.isQuietLineShown {
+                ContentUnavailableView {
+                    Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    AutoRetryQuietLine(autoRetry)
+                }
+                .accessibilityIdentifier("agentChats.failed")
+            } else {
+                loading
             }
-            .accessibilityIdentifier("agentChats.failed")
         case .loaded:
             list
         }
     }
 
+    // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
+    // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
+    private var loading: some View {
+        // placeholder-ok: no cached chat page exists for this Mac yet.
+        CmuxSpinner(label: Text("Loading chats…"))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("agentChats.loading")
+            .placeholderBound("agentChats.loading", .milliseconds(2000))
+    }
+
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
-            if model.refreshing {
-                HStack(spacing: 8) {
-                    CmuxSpinner().controlSize(.small)
-                    Text("Updating…")
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                }
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("agentChats.updating")
-            }
+            // The kept rows show while the Mac's newest page loads, with no word that they do;
+            // a dropped link draws nothing over them (it redials on its own), so nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }

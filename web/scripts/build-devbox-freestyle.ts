@@ -95,12 +95,12 @@ import {
   cmuxTuiInstallCommand,
   cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
-  cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
   requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
+  retryFreestyleOverload,
   devboxDaemonUnit,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
@@ -132,6 +132,7 @@ import {
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCommand,
   devboxWorkUserCmuxConfigDirCommand,
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
@@ -190,12 +191,16 @@ const keepBuilder = hasFlag("--keep-builder");
 const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
-// Resolved before the builder exists so a manifest outage fails the bake for free.
+// Resolved before the builder exists so an outage, or a release file no trusted key signed,
+// fails the bake for free: the daemon and hook come from the baked commit's verified
+// release.json (resolveCmuxTuiSource), never from latest/manifest.json.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
 // Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
-// creates a VM when the pinned manifest has no acpmux build.
-requireCmuxTuiAcpmux(cmuxTuiSource, cmuxTuiManifestUrl("freestyle"));
-console.log(`acpmux pin: sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…`);
+// creates a VM when the pinned build has no acpmux.
+requireCmuxTuiAcpmux(cmuxTuiSource, `https://files.cmux.com/cmux-tui/${cmuxTuiSource.commit}/release.json`);
+console.log(
+  `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
+);
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -220,11 +225,11 @@ const WORK_HOME = DEVBOX_WORK_HOME;
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
-const { vm, vmId } = await fs.vms.create({
+const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({
   snapshotId: builderSnapshot,
   displayName: `cmux-devbox-builder ${slug}`,
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
-});
+}));
 console.log(`builder VM ${vmId} (base ${builderSnapshot}, desktop=${withDesktop})`);
 
 async function deleteBuilder(): Promise<void> {
@@ -331,7 +336,7 @@ try {
 
   await step(
     "media-apt",
-    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg imagemagick poppler-utils git-lfs xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && git lfs install --system --skip-repo && command -v Xvfb && command -v xdpyinfo && command -v xdotool && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext",
   );
 
   await step(
@@ -674,9 +679,23 @@ try {
   );
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
+  // Each condition is checked on its own, and a red names every one that
+  // failed with what it saw, after the daemon's processes, listener and unit
+  // log (the step keeps only the tail of stderr, so the summary prints last).
+  const daemonStatus = cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`);
   await step(
     "cmux-tui-daemon-up",
-    `for i in $(seq 1 30); do ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && ${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && [ "$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH})" = user ] && [ "$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u)" = ${WORK_USER} ] && echo daemon-up-bound-to-builder`,
+    [
+      `{ for i in $(seq 1 30); do ${daemonStatus} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done`,
+      `fail=""`,
+      `${daemonStatus} || fail="$fail server-status"`,
+      `grep -qi ':0539 ' /proc/net/tcp6 || fail="$fail listener-1337-tcp6"`,
+      `bound="$(cat /etc/cmux/daemon-instance-id 2>/dev/null)"; metadata="$(${instanceIdCommand})"; [ -n "$bound" ] && [ "$bound" = "$metadata" ] || fail="$fail instance-id(bound=$bound,metadata=$metadata)"`,
+      `layout="$(cat ${CMUX_TUI_LAYOUT_MARKER_PATH} 2>/dev/null)"; [ "$layout" = user ] || fail="$fail layout($layout)"`,
+      `users="$(ps -o user= -C cmux-tui | tr -d ' ' | sort -u | paste -sd, -)"; [ "$users" = ${WORK_USER} ] || fail="$fail daemon-user($users)"`,
+      `if [ -n "$fail" ]; then ps -o pid=,ppid=,user=,comm=,args= -C cmux-tui -C exe | cut -c1-200 >&2; ss -ltnp 2>/dev/null | grep ':1337' >&2; systemctl status cmux-tui-daemon --no-pager -n 15 | cut -c1-200 >&2; echo "cmux-tui-daemon-up failed:$fail" | tee /dev/stderr; exit 1; fi`,
+      `echo daemon-up-bound-to-builder; }`,
+    ].join("; "),
   );
   // Wait after the daemon first reports ready, then exercise the real
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
@@ -749,6 +768,7 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  await step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   // After the bake's last shell: the timer is enabled but stopped and the
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);

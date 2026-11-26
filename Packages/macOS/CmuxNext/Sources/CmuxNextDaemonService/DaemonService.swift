@@ -47,7 +47,13 @@ public final class DaemonService {
     public let recovery = DaemonRecovery()
     /// The person's reads of this daemon's tabs, sent until answered (DaemonService+TabReads).
     public let reads = TabReads()
+    /// The person's language downloaded on first use, asked of this daemon when it is the home one
+    /// (the app starts it for `machines.local`; CMUX-570).
+    @ObservationIgnored public private(set) lazy var languagePacks = LanguagePackService(daemon: self)
     public private(set) var connection: DaemonConnection?
+    /// The app's `client-hello` proof, as the control connection sends it: a side connection that
+    /// carries only the person's own actions proves itself with it (`AgentPaneGitLink.userMutate`).
+    public private(set) var clientHello: ClientHelloIdentity?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
     /// connect and on every change so the daemon answers OSC 10/11/12 queries
@@ -99,6 +105,9 @@ public final class DaemonService {
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
+    /// The registry id this home's record holds (`LaunchSnapshot.knownRegistryID`): a handshake that reports another
+    /// records it (`rememberLaunchSnapshot`), so a relaunch never draws another session's snapshot.
+    @ObservationIgnored var launchRecordedRegistryID: String?
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
@@ -114,6 +123,7 @@ public final class DaemonService {
         self.echoesPlacementShift = echoesPlacementShift
         // Each batch is a recorded frame task of `daemon.store.drain` (main-thread-scheduling.md G4).
         drainScheduler = FrameBatcher(owner: "daemon.store.drain", frameOn: mainWork)
+        // retry-prompt-ok: a wakeup ledger owner name, not user-facing
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -240,6 +250,7 @@ public final class DaemonService {
         requestLatency.set(latency)
         // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
         // the bundled build like one of another build; only a failed handoff shows the refusal.
+        clientHello = ClientHelloIdentity(installKey: launcher.configuration.installKey)
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,

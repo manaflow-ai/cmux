@@ -71,22 +71,80 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   per account and keeps them across sign-out (`verify/persistence.md`).
 - Machine id (added 2026-10-21): each cmux build on a Mac is its own device
   (its own id in its own Application Support folder, its own identity key and
-  paired phones), so a Mac running a nightly and a dev build, or one that kept
-  a deleted build's record, is on the account more than once. A Mac registers
-  `machineId`, the same for every build on that computer: HMAC-SHA256 under
-  the key `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
+  paired phones), so a Mac running Stable and NIGHTLY, or a dev build, is on the
+  account more than once. A Mac registers `machineId`, the same for every build
+  of one account on that computer: HMAC-SHA256 under the key
+  `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
   (`gethostuuid`, the IOPlatformUUID), first 16 bytes in lowercase hex. The
   hardware id never leaves the Mac, and two accounts on one Mac get unrelated
-  ids. The phone lists one Mac per (owner, machine id), by its most recently
-  active build. The other builds stay in Settings → Devices, marked "Another
-  cmux build on this Mac"; one links only while something names it (a Feed
-  answer or notification of that build) and closes after the idle window. A name is never an
-  identity: Macs that share a name stay separate (with the name tag), and a
-  Mac with no `machineId` (an older host) is never folded into another.
-  Builds stay separate devices on purpose: one shared device id would make
+  ids. Builds stay separate devices on purpose: one shared device id would make
   two running builds replace each other's signaling socket (4000 `replaced`),
   and would make a debug build hold the identity key phones pin for the
   release build.
+- Every build is its own Mac on the phone (changed 2026-11-12; from 2026-10-21
+  the phone listed one Mac per (owner, machine id) and marked the rest "Another
+  cmux build on this Mac"). The phone lists, links and removes each build on
+  its own. Each build names itself apart: the Mac registers `name` as the
+  computer's name for the Stable lane (`com.cmuxterm.app`, cmux NEXT Stable
+  `com.cmuxterm.app.nightly.cmux-next-stable`) and `<computer name> (<lane>)`
+  for any other build (`NIGHTLY`, `DEV <tag>`, `RC`, `STAGING <tag>`;
+  CmuxNextCompat `BuildIdentity.instanceLabel`). The phone names itself the
+  same way: the App Store build by the phone's name, every other build with its
+  label (`INTERNAL`, `BETA`, `PROD`, `DEV`, `DEMO`; Info.plist
+  `CmuxMobileInstanceLabel`). A name is never an identity: Macs that share a
+  name stay separate (with the name tag).
+- A Mac's device id is per account (changed 2026-11-12): each account signed in
+  to one build keeps its own id (`<state>/device-id.<owner sub>`) and its own
+  paired-phone list, so account B never registers the id account A owns (which
+  the service refuses with `403 not_owner`). An older build's single
+  `device-id` is adopted by the account its paired list names. If registration
+  still answers `not_owner`, hostd emits `{"type":"device_not_owned"}` and exits
+  with status 79; the app forgets that account's id and starts hostd with a new
+  one (at most twice per launch). Each id records the machine id it was made on
+  (`device-id.<owner sub>.machine`): a state folder that Migration Assistant or
+  a restore copied to another Mac carries the old Mac's value, so the new Mac
+  makes its own id instead of registering as the old one.
+
+## Build spaces (API 0.16.0)
+
+Two dev builds of the app and Mac host (say tags `a` and `b`), signed in as the
+same person, never see or touch each other's data on the service, and never see
+nightly or stable data. Each build is in a **build space**:
+
+- A dev build sends `X-Cmux-Build-Space: dev:<slug>` on every HTTP request and
+  on the signaling WebSocket upgrade. `<slug>` is the dev tag's slug
+  (`scripts/lib/mobile-attach.sh`: lowercase letters, digits and inner dashes,
+  at most 64), so the value matches
+  `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`. `dev:default` is refused:
+  `default` is the stable instance's reserved tag.
+- Stable and nightly builds send nothing: the stable space `""`, where every
+  row and hub that predates build spaces stays.
+- A malformed value is refused with `400 build_space.invalid` before anything
+  else; it never falls back to the stable space.
+- Only the dev, test and local Workers (`ENVIRONMENT` `dev`, `test`, `local`)
+  serve dev spaces. Every other Worker, production included, and one whose
+  environment is missing or misspelled, refuses them with
+  `403 build_space.not_allowed`: production holds only stable data, so a dev
+  build pointed at it fails on its first request instead of reading or writing
+  a person's real devices. Dev builds use the dev Worker or a local one.
+
+What a space scopes: the device registry (`/v1/devices`, `/v1/me/devices`,
+`/v1/me/macs`, `/v1/teams/:teamId/macs`, bootstrap), push registrations and
+notify targets, team prefs, the reply mailbox, and the user hub. A device id
+held by another space is never found (404). Each build keeps its own id, and a
+device id is one install of one build, so `POST /v1/devices` of an id the
+caller holds in another space moves that device, with its push registration,
+into the caller's space: the other space's hub drops it (presence `removed`,
+its socket closed with 4002) and it is listed only in the new space. This is
+how a dev build that registered before build spaces (its row is in stable) or
+whose dev tag changed keeps working. An id another user holds in another space
+is refused with `409 build_space.device_conflict` and left alone. A
+dev space's hub is named `dev:<slug>|user:<owner key>`; the stable hub keeps
+`user:<owner key>`, so presence, `hello`, signaling admission and turn push
+coalescing never cross spaces. `DELETE /v1/me` from a dev build purges only its
+space; from a stable build it purges every space (the account is deleted).
+Cloud attention pushes go only to stable phones. Wire shapes do not change:
+no response carries the space.
 
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 
@@ -103,13 +161,16 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob),
+`build_space.invalid` (400), `build_space.not_allowed` (403) and
+`build_space.device_conflict` (409) ("Build spaces", 0.16.0), `store.schema_outdated` (503, 0.16.0: the
+Worker was deployed before its database migration; the message names it), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?, machineId?, siblingDeviceIds?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,machineId?,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`). `machineId` (added 2026-10-21, "Machine id" above; every Mac list, `hello` and `presence` carries it, and omits the key for a Mac that has none) is a Mac's only: 32 lowercase hex digits, else `400`; omitted keeps the stored one. `siblingDeviceIds` (with `machineId`, at most 16 UUIDs) are the device ids of other cmux builds found on the same Mac (their `device-id` files): each that is a Mac of the caller with no machine id yet gets this one, so a deleted build's record is listed as that computer's; another owner's device, a phone or a Mac that reported its own machine id is never changed |
-| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
@@ -119,7 +180,7 @@ echoes the token),
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, skipped?, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `POST /v1/diagnostics/connectivity-incidents` | One state of a major connectivity incident (0.15.0; "Connectivity incidents" below) → `202 {accepted:true, route:"team"\|"test", note?:"duplicate"\|"rate_limited"}`; `403 not_team` / `email_unverified` for anyone whose verified Stack email is not on a cmux team domain; `409 conflict` for an incident id another account used; `502 user_unavailable` when Stack cannot be asked (retry) |
@@ -201,8 +262,8 @@ device: a newer connection closes the older with code 4000 `replaced` (no
 offline presence in between); a Mac re-registered into another team is
 closed with 4001 `moved`.
 
-- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)
-- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId}}` (`machineId` added 2026-10-21; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
+- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId,quietMs?}]}` (the user's own Macs in the socket's team; `quietMs`: "Mac freshness" below)
+- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId,quietMs?}}` (`machineId` added 2026-10-21; `quietMs` added 2026-11-21, "Mac freshness" below; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
@@ -222,16 +283,25 @@ closed with 4001 `moved`.
     reach their TURN server over TCP or TLS (label `turn-tls`). `version`
     is the WireGuard protocol version: absent (0) from older peers, `2`
     from peers that never send relay frames and confirm routes with an
-    in-tunnel `reach` message (below). A roam's endpoint announcement
-    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?}`)
+    in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
+    sender can join the session's WebSocket relay ("WebSocket relay"
+    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
+    has no other path: no plain UDP and no TURN allocation, so the peer
+    joins at once too); absent from older peers, which never join, and
+    then neither does this side. A roam's endpoint announcement
+    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
-  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?}` (API
-    0.9.0): the same endpoint announcement a roaming side sends inside the
+  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}` (API
+    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below): the same endpoint announcement a roaming side sends inside the
     tunnel (below), also sent through signaling, because the peer may not
     receive anything from the new address yet (a NAT that filters by
     address). The receiver applies the newer generation of either copy.
     Older peers ignore it (an unknown kind).
+  - `wg-relay` `{}` (0.17.0): the sender joined the session's WebSocket
+    relay because nothing it sent reached the peer otherwise; the peer
+    joins too. Sent only to a peer whose `wg-init` / `wg-resp` carried
+    `relay`.
   - `bye` `{reason}`
 - Relay frames (retired in API 0.9.0). Binary frames
   `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]` used to
@@ -243,13 +313,16 @@ closed with 4001 `moved`.
   dial only on an error for that dial's session or one without
   `sessionId`). A frame shorter than 16 bytes is dropped silently. The
   hub keeps presence and signaling (introductions); it carries no
-  data. A WireGuard path without UDP is TURN over TLS (below).
+  data. A WireGuard path without UDP is TURN over TLS (below), and past
+  that the session's own WebSocket relay (0.17.0, "WebSocket relay"), a
+  separate object per session reached on its own route, never this socket.
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
   dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
 - WireGuard paths, in order: plain UDP (direct, hole-punched), then TURN
-  over UDP, then TURN over TLS on 443. When `/v1/ice` lists a TURN server
+  over UDP, then TURN over TLS on 443, then (0.17.0) cmux's WebSocket
+  relay on the service's own host ("WebSocket relay"). When `/v1/ice` lists a TURN server
   the dialer allocates a TURN relay and adds the relayed address to its
   `endpoints`. It tries `turn:...?transport=udp` first; when that gets no
   allocation it uses `turns:...:443?transport=tcp` (any other `turns:` URL,
@@ -261,8 +334,9 @@ closed with 4001 `moved`.
   UDP, so the Mac sends plain UDP to the relayed address like to any
   endpoint. On the stream every STUN message and ChannelData message is
   framed by its own length, ChannelData padded to 4 bytes (RFC 5766
-  §11.5). The TLS server name is the URL's host, checked against the
-  public web PKI. The dialer sends through its allocation to the Mac's
+  §11.5). The TLS server name is the URL's host, checked against the OS
+  trust store, and the TCP leg goes through the system's proxy for it
+  ("Corporate networks" below). The dialer sends through its allocation to the Mac's
   public endpoints and reports the path `turn`, or `turn-tls` when the
   allocation rides TCP or TLS. TURN servers sit on well-routed anycast
   addresses: on 2026-10-13 TURN over UDP measured 16 ms RTT against 240 to
@@ -365,6 +439,411 @@ is bound to the two devices of its first admitted signal. Since 0.10.0 the hub i
 user's device is not in it at all: a signal to it is refused `not_owner` whether that device is online or not
 (never `offline`, which would confirm it exists).
 
+### Mac freshness (added 2026-11-21, backward compatible)
+
+`online` says the Mac's signaling socket is open. A Mac that sleeps keeps it
+half open, so `online` can stay true for minutes. Every Mac listing (`hello`,
+`presence`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, and so
+`POST /v1/me/bootstrap`) now also carries `quietMs` for an online Mac: how
+many ms ago the hub last heard that socket, from its connect or its last
+application `ping` ("Connection setup"). The hub keeps the ping's time
+without waking, so this costs nothing per ping.
+
+- `quietMs` is relative to the hub's clock when it answered, so the phone's
+  clock does not matter. Absent when the Mac is offline, and from a hub that
+  predates it. Clients that do not know it ignore it.
+- The Mac host pings every 15 s. A Mac with `quietMs` under 18000 (the
+  link's `FRESH_WITHIN`, the hub's `FRESH_MS`) is awake: dial it now. One
+  past it is online but probably asleep.
+- A `presence` frame is sent only when a Mac connects, disconnects, or
+  changes its registration, never per ping. So `quietMs` in a frame is its
+  age at send time; it says nothing about later silence. The phone reads a
+  fresh listing (the next `hello` or Mac route) to learn it again.
+- The hub's `online` and its rules for closing sockets do not change.
+
+### Link stats (`link_stat`; added 2026-11-21, backward compatible)
+
+The phone reports which path its link to a Mac takes and how it performs,
+on its signaling socket, so production can see path, RTT, loss and setup
+time (`cmux-mobile-link/src/link_stat.rs`). Phone to service only; nothing
+is forwarded, and the service never answers it.
+
+```json
+{"type":"link_stat","v":1,"transport":"wireguard","path":"turn-tls","reason":"first",
+ "setupMs":812,"marks":{"signaling_open":120,"dial_start":130,"link_ready":700,"first_pong":812},
+ "rtt":{"n":3,"p50":41,"p95":77,"max":80},"pings":3,"lost":0,"switches":1,
+ "net":"cellular","upS":2,"lib":"0.1.0"}
+```
+
+- `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
+  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+- `reason`: `first` (once the link's first ping is answered, or 5 s after it
+  came up), `periodic` (every 60 s while up), `path` (the path changed; at
+  most one per 10 s, a change inside that only counts in `switches`), `end`
+  (the link closed; `end` is then `app`, `keepalive`, `transport` or `other`).
+- `setupMs` and `marks` (first stat only): ms from the app's `connect` to the
+  first pong (else `link_ready`), and the dial's step marks from a fixed list.
+- `rtt`: the link's ping round trips since the last stat (nearest-rank p50 and
+  p95, max; absent with no sample). `pings`: pings sent since the last stat;
+  `lost`: pings neither answered nor waiting, counted once (a pong that comes
+  after its ping was counted lost does not take it back). `switches`: path
+  changes since the link came up. `net`: `cellular` or `other` (the app's last
+  `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+  `egress` (optional): `proxy` or `inspected` when this network's link
+  connections left through a proxy, or one that inspects TLS ("Corporate
+  networks"); absent when direct.
+- `echo`, `ack`, `spikeCount`, `spikes` (added 2026-11-24; absent when no key
+  was typed): the keystroke round trips since the last stat, from the key's tap
+  (`cmux-mobile-link/src/key_echo.rs`). `echo` (n, p50, p95, p99, max): tap to
+  the first terminal output after it. `ack`: tap to the Mac's reply to its
+  `send` on the input lane. With `rtt` (a datagram, outside both streams) they
+  name the slow hop: `rtt` slow too is the network; `ack` slow with `rtt` fast
+  is the input stream or the Mac daemon; `echo` slow with `ack` fast is the
+  Mac's echo or the attach stream queued behind other output. `spikeCount`:
+  keys whose echo took over 150 ms; `spikes`: the six slowest, each
+  `[upS at the key, ack ms or -1 when the reply had not come, echo ms]`, so a
+  periodic stall shows its period.
+- Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
+  It names no user, device, session or address.
+- `portmap` (optional, added 2026-11-24): `{"by":"pcp"|"nat-pmp"|"upnp"|"unknown","used":bool}`,
+  present when the Mac offered a NAT-mapped endpoint ("Mapped endpoints"): which
+  protocol mapped it, and whether the link's direct route goes to it. The
+  service logs it as `portmapBy` and `portmapUsed`; `link-stats.py` counts a
+  direct link with `portmapUsed` as path `direct-mapped`. An older service
+  drops the field.
+
+The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
+socket's text rate limit, and drops silently (no error frame: a session-less
+error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
+one within 5 s of the socket's last (an `end` stat excepted). It writes one
+Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
+against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
+`rttMax`; `echo` and `ack` the same with `P99`; `spikes` at most six clamped
+triples), plus `kind`, `ingressColo`, `country` and `continent` (where the
+socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
+hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
+reads them back.
+
+A Worker older than the frame answers it `{"type":"error","code":"bad_request",
+"message":"unknown frame type"}` without `sessionId`. The phone takes that
+answer, within 30 s of a stat it sent, as the refusal of the stat: it never
+reaches a dial, and that socket sends no more stats.
+
+### Mapped endpoints (`mapped`; added 2026-11-24, backward compatible)
+
+The Mac asks its home router for a public UDP port that forwards to the
+session's WireGuard socket, with PCP (RFC 6887), else NAT-PMP (RFC 6886),
+else UPnP-IGD (`cmux-mobile-host/src/portmap.rs`), and offers the mapped
+address to the phone. A phone behind a NAT that maps per destination
+(symmetric NAT, a carrier's CGNAT) reaches a mapped port directly, where
+hole punching alone ends on TURN.
+
+- It never holds up a link: the Mac asks after `wg-resp`, in the
+  background, and announces the address when (if) the router grants it,
+  with the roaming announcement (`{"t":"endpoints",...}` in the tunnel and
+  `wg-endpoints` through signaling), as one more entry of `endpoints`.
+- `mapped` lists which of `endpoints` are mapped (at most 2; an entry not
+  among `endpoints` is ignored); `mappedBy` names the protocol: `pcp`,
+  `nat-pmp` or `upnp` (another word reads as unknown). Both are absent when
+  nothing is mapped.
+- Backward compatible both ways: an older phone ignores the two fields and
+  dials the address as any endpoint; a newer phone with an older Mac sees
+  neither and has nothing mapped. The phone sends neither (it maps
+  nothing).
+- The Mac renews a mapping at half its lifetime (asking for 3600 s), and
+  deletes it when the session closes or roams (a roam maps the new socket
+  and announces it), and every live one when hostd stops. A mapped address
+  that is not public (private, CGNAT 100.64/10: another NAT beyond the
+  router) is deleted and not offered. The protocol a router answered is
+  remembered per (gateway, local address), and a router that maps nothing
+  is not asked again until either changes.
+- `CMUX_MOBILE_PORTMAP=0` in hostd's environment turns it off.
+
+## WebSocket relay (API 0.17.0)
+
+The last way a WireGuard link reaches its peer, for a network that lets out
+only cmux's own hosts (an allowlist without the TURN host), or only real
+HTTP inside TLS (an inspecting proxy that drops TURN's stream): WireGuard
+datagrams in WebSocket binary messages, `wss://` on 443, on the host the
+app already signs in and signals through. Design, cost and why the old
+relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/phone-link-https-relay.md).
+
+- **Join:** `GET /v1/relay/:sessionId?deviceId=<id>`, a plain HTTP/1.1
+  `Upgrade: websocket` with `Authorization: Bearer <Stack token>` (or the
+  `bearer.` subprotocol entry, as for signaling), `x-cmux-relay-ticket:
+  <ticket>`, and the build space header of a dev build. The Worker selects
+  `cmux-relay.v1` when offered. It admits only a device the caller's own hub
+  bound to that session at its first admitted signal (the session's
+  initiator or responder, while the session lives: 24 h, or until `bye` or
+  the device's removal), in the caller's build space, presenting that
+  device's own ticket: anyone else gets `403 not_in_session`, a session no
+  signal opened, a missing or wrong ticket, or another device's ticket too.
+  `503 relay_off` when the Worker's `LINK_RELAY_MODE` is `off` (the kill
+  switch); an older Worker answers `404`. A malformed `%` escape in the path
+  is `400`.
+- **Tickets:** when a session opens the hub makes a random ticket (32 bytes,
+  base64url) for each of its two devices, and stamps `relayTicket` on every
+  `wg-*` signal it forwards, the recipient's own ticket, replacing any value
+  a client wrote. A device learns its ticket only from its own signaling
+  socket, so a join proves which of the user's devices it is as far as the
+  service can tell (the user's token plus that device's socket).
+- **Where:** one `LinkRelay` Durable Object per session, named by the owner
+  key, build space and session id (never a client value), created in the
+  region that makes the two ends' round trips through it least ("Relay
+  placement" below); the joiner's `locationHint` when the peer's location is
+  unknown. Hibernating sockets, no storage, one
+  socket per device (a newer join closes the older with 4000 `replaced`).
+- **Frames:** the overlay relay frame of `cmux_transport::relay_frame`
+  (`[u8 1][u8 kind][16-byte peer][payload ≤ 16 KiB]`, the shared golden
+  vectors), kind `datagrams` only: one or more `[u16 length][datagram]`
+  records, as many ready datagrams as fit in one message. The relay sends
+  each frame to the other party's socket with `peer` set to the sender's
+  device id (the UUID's 16 bytes) and never reads the payload. Malformed
+  frames, other kinds and frames past the per-socket limit (1500 frames and
+  8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
+  at most every 5 s. What a socket relays is first granted by the user's
+  hub (64 KiB, doubling up to 1 MiB per grant while the socket keeps
+  relaying), one budget per user and build space across all sessions
+  (`LINK_RELAY_USER_MIB_PER_MIN`, default 480: 8 MiB/s, kept in the hub's
+  storage so a wake grants no fresh minute); past it frames are dropped and
+  the sender hears `{"type":"error","code":"rate_limited"}`. A session asks
+  the hub one grant at a time (at most 256 frames wait for it); a refusal
+  holds for the hub's retry-after, and a hub that fails grants nothing for
+  1 s (fail closed), so frames past the budget cost no hub call each.
+- **Tail replay** (RFD 0142 R3): the relay keeps, in memory only, the frames
+  of the last 1 s it sent (or found no socket for) toward each device, at
+  most 256 KiB a session. When a device joins, after `joined`, those frames
+  go out on its new socket at once, oldest first, and leave the tail: what
+  went into a socket whose network had just gone (Wi-Fi to cell), or arrived
+  between two sockets, reaches the receiver one relay leg after it is back
+  instead of after the sender's retransmit timer. A client sees the same
+  WireGuard datagrams again; the ones it already had die in WireGuard's
+  replay window. A held frame spends the budget when it goes.
+  `LINK_RELAY_TAIL=off` turns it off.
+- **Closes:** the service closes a relay socket with 4000 `replaced` (the
+  same device joined again), 4001 `ended` (the session's `bye`, also when the
+  peer's signaling socket is closed, or the session passed its 24 h), 4002
+  `removed` (a device of the session, or the account, was removed) and 4003
+  `relay_off` (the kill switch, at the socket's next frame). A client does
+  not rejoin after 4001 to 4003 (the join would be refused).
+- **Text frames, relay → client:** `{"type":"joined","peer":bool}` (the
+  other party's socket is joined), then `{"type":"peer","online":bool}` when
+  it joins or leaves, or at most every 5 s while frames find it absent. A
+  client's `ping` is answered `pong` without waking the object.
+- **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
+  only when both sides offered `relay`. At once when either has no other
+  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  after its tunnel started or after it roamed (TURN over TLS is already
+  open by then: the dial races it from the start), when the phone's link
+  heard nothing for 16 s in the foreground, when its relay socket dies while
+  the session needs it, or when the peer asks (`wg-relay`). A side that
+  joins on its own asks the peer; one that heard the peer while its join
+  ran drops the unused socket (an asked one too, once another route is
+  confirmed both ways, and an ask that arrives then is ignored). A dead
+  socket is joined again at once only while nothing else reaches the peer,
+  and only a side that left the relay on its own (another route carried the
+  session) keeps it after joining again within 5 minutes. On joining, the phone sends its handshake
+  through the relay at once and the Mac 300 to 900 ms later (at random, and
+  only if nothing arrived meanwhile): two initiations that cross in step each
+  overwrite the other side's pending one. A failed join is retried after 1, 3, 10 and
+  30 s; `403`, `404` and `503` are not.
+- **On the tunnel:** the relay is one more carrier, a path of the path
+  selector like each TURN route, ranked below every direct path and, by
+  round trip, below a TURN path that answers. Until the peer confirms a
+  route, datagrams also go through the relay; route confirmation stays the
+  in-tunnel `reach` (`via: "relay"`, `from` the relay's placeholder
+  `0.0.0.0:443`), so the relay can never confirm a route itself. The path
+  is `https-relay` (`link_stat`, `phone_up`, `phone_path`).
+- **Leaving:** a side lets its relay socket go once another route has been
+  its confirmed one for 60 s. Plain UDP and TURN keep being probed while the
+  session rides the relay, so a roam to a network that allows them moves the
+  link off it. A side that still needs the relay (its route is the relay, or
+  nothing came from the peer for 5 s) and hears the peer left it
+  (`{"type":"peer","online":false}`) asks it back with `wg-relay` after 5 s,
+  then at most every 10 s. A session that joins again within 5 minutes of
+  leaving keeps the relay from then on.
+- Debug "Relay via cmux (HTTPS) only" (and simulator
+  `SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1`): no plain UDP, no TURN
+  allocation, the relay at once, never left; without the relay the dial
+  fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
+  `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
+
+### Early relay ticket
+
+A dialer whose gather left it no path but the relay (`relay: "now"`) used to
+learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
+upgrade, about three round trips to the edge) waited behind the Mac's gather
+and answer. Now it asks for the ticket at once:
+
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
+  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
+  own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
+  "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
+  dialer's ticket>}`. Only the service sends `wg-ticket`: it is not in the
+  kinds a client may send, so a client's is refused `unknown payload kind`.
+- **Join:** the dialer starts its relay join when `wg-ticket` arrives
+  (timeline `relay_early_join`) and keeps waiting for `wg-resp`; the relay
+  watch's first join takes that carrier instead of starting its own. A plan
+  that ends with no relay (the Mac offered none) aborts it.
+- **Old and new:** an older dialer never asks and never gets `wg-ticket`; a
+  new dialer with an older hub gets no `wg-ticket` and joins after `wg-resp`
+  as before. The ticket is the one `wg-resp` carries too.
+
+### Relay placement
+
+A Durable Object stays where it is first created, so the first reach of it
+(the hub's prewarm below, else the first join) decides where a session's
+relay lives for good (`backend/src/placement.ts`). The Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+The peer is the other party of the session, located by its live signal
+socket. Each end's cost to r is either:
+
+- its own measured round trip to r, from its netcheck; or
+- an estimate from Cloudflare's geolocation of its request (lat/lon rounded
+  to 0.1°): the great-circle distance to the region's assumed centre at
+  100 km per ms of round trip.
+
+When an end has neither, the relay takes the joiner's `locationHint`, as
+before. Regions within 2 ms of the least sum count as a tie; the more even
+split wins.
+
+- **Netcheck targets:** `GET /v1/netcheck/:region` (`wnam`, `enam`, `sam`,
+  `weur`, `eeur`, `apac`, `oc`, `afr`, `me`), a WebSocket upgrade with the
+  same bearer as signaling. It reaches one object per region and build
+  space, created with that region's hint. The object answers `ping` with
+  `pong` without waking; any other frame closes the socket with 1008. An
+  unknown region gets `404 unknown_region`, and `503 relay_off` comes with
+  the relay's kill switch.
+- **Reporting it:** a client that has measured adds
+  `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
+  a relay join). Entries that fail to parse are dropped. The hub keeps the
+  value with the socket and never stores it.
+- **Prewarm (added 2026-11-24, server-only, no version change):** when the
+  hub forwards a session's first `wg-init`, it creates the session's relay
+  object (the same name the relay route uses) without waiting for it, placed
+  from both ends' signal sockets (each one's ingress and netcheck), else at
+  the sender's `locationHint`. A later join finds the object made and placed,
+  so a fallback to the relay no longer pays for creation and a cold start.
+  Since the object stays where it is first created, this placement is the
+  session's; the join's own placement applies only when the prewarm did not
+  happen (the kill switch, a `webrtc-*` session, a failed prewarm). Nothing on
+  the wire changes: no frame, header or status is new, old and new clients
+  join and talk exactly as before, and an older Worker's relay object that
+  answers the prewarm with `426` is created all the same. A prewarmed object
+  holds no socket and no storage, so it is evicted soon after if nobody joins.
+
+### When no path works
+
+A WireGuard dial records what each way did: plain UDP (`blocked`: no STUN
+answer; `off`: a debug mode), TURN (`none_offered`, `no_allocation`, with
+the TURN host) and the relay (`unavailable`, `peer_cannot`, `refused` with
+the HTTP status, `off`, `proxy_refused` with the proxy's reason,
+`tls_rejected` with the TLS error, `unreachable`,
+`timeout`, `no_token`, `peer_absent`). When nothing from the Mac ever
+authenticated and the relay failed too (or the Mac's build has none), the
+dial ends with that record instead of waiting out its timeout: at once when
+the relay was the only way, else 8 s after the tunnel started at the latest.
+The FFI error is `Refused { code: "network_blocked", message: <the record
+as JSON> }`. The app shows one sentence the person can act on (another
+network, the Mac's update, or what IT must allow) with the hosts named, and
+retries on its own; it never shows "connecting" without a bound for it
+(`scripts/cmux-next/check-connection-notices.py`). What IT must allow:
+[network requirements](../web/data/next-docs/pages.ts) (cmux.com
+`/docs/nightly/next/network-requirements`).
+
+## Three-way hub (RFD 0142 R6, added 2026-11-24, backward compatible)
+
+One room per agent session where both sources of the session's events, the
+Mac and the AutoCloud VM, upload, and every viewer (the phone, another Mac)
+downloads each event once: whichever source is ahead carries the stream, and
+the other is a warm standby. When the Mac sleeps mid-turn, the VM's copies
+are already the newest and keep flowing with no reconnect.
+
+- **Join:** `GET /v1/hub/:sessionId?deviceId=<id>&role=mac|vm|viewer`, a
+  plain HTTP/1.1 `Upgrade: websocket` with the Stack token, as for the
+  relay. The Worker admits only a device registered to the caller (its own
+  hub, then the database; anyone else gets `403 not_owner`) and a source
+  role only from a Mac-kind device (the VM's daemon registers as one; a
+  phone gets `403 not_a_source`). `400` for a session id or device id that
+  is not a UUID or an unknown role, `503 hub_off` when the Worker's
+  `HUB_RELAY_MODE` is `off`. An older Worker answers `404`.
+- **Capability:** a hub client offers the `cmux-hub.v1` subprotocol and the
+  hub echoes it. A client falls back to its other paths (one link per Mac,
+  the WebSocket relay) on `404`/`405` (no route), `503` (off), any other
+  refusal, a `101` without the subprotocol, or the error `bad_frame:kind`,
+  which is what the two-party `LinkRelay`, and so every pre-hub relay,
+  answers a kind-5 frame with (`cmux_transport::hub::hub_join_outcome`,
+  `relay_error_means_no_hub`). Old clients never ask for the hub, and the
+  relay they use is unchanged.
+- **Where:** one `HubRelay` Durable Object (wrangler migration `v4`) per
+  session, named by the owner key, build space and session id
+  (`hubRoomName`), never a client value. Hibernating sockets, no storage
+  write per frame. One socket per source role and per viewer device (a
+  newer join closes the older with 4000 `replaced`). On join the socket
+  gets `{"type":"joined","hub":1,"sources":{"mac":bool,"vm":bool}}`; every
+  socket hears `{"type":"source","role","online"}` when a source comes or
+  goes (not when a newer socket of the same role replaced it).
+- **Frames:** relay frame kind `5` (`hub`; kind `4` is the
+  `LinkRelay`'s tagged datagrams, cmux#54189), golden vectors in
+  `cmux-tui/crates/cmux-transport/tests/vectors/relay-hub-frames.json`,
+  checked by the Rust crate and the backend tests. The payload is a 35-byte
+  clear header and a sealed body:
+  `[u8 1][16-byte session][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm]`.
+  The header is all the relay reads; a bad one is `bad_frame:bad_hub`.
+- **Seal (end to end, source to viewer):** XChaCha20-Poly1305 under
+  `BLAKE3 derive_key("cmux relay hub v1 session key", secret || session)`,
+  nonce `[source][to][epoch BE][seq BE][6 zero bytes]`, associated data the
+  clear header, plaintext `[session][epoch BE][seq BE][source][event]`. The
+  relay holds no key that decrypts or authenticates session content; an
+  edit to any header byte, or a header moved onto another body, fails to
+  open (`cmux_transport::hub::{seal, open}`).
+- **Relay rule** (`cmux_transport::hub::HubRelayRule`, the same in
+  `src/hub-relay.ts`): a frame `to` viewers whose `(epoch, seq)` is newer
+  than the highest the room forwarded goes to every viewer once, with
+  `peer` set to the sender's device; an older or equal one is dropped and
+  counted. A frame `to` a source (Mac-to-VM sync when the two have no direct
+  path) goes to that source as is, or the sender hears
+  `{"type":"source","role","online":false}`. A viewer may not send
+  (`bad_hub:viewer`); a source speaks only as its own role
+  (`bad_hub:role`) and for the room's session (`bad_hub:session`); other
+  kinds are `bad_frame:kind`. The high-water mark lives in memory: a wake
+  forgets it, which lets at most one more copy through. `{"type":"stats"}`
+  answers `{"type":"stats","forwarded","dropped"}`.
+- **Viewer** (`cmux_transport::hub_truth::TruthTracker`, sans-io): checks
+  that the clear header equals the sealed triple, delivers events in log
+  order with no duplicates, reports a hole inside an epoch as a `Gap` to
+  fill from the source with the higher head, and flags a `StalePick` when
+  the relay's copy trails the other source's known head by more than the
+  tolerance (4).
+
+## Relay-held sends (RFD 0142 R8, added 2026-11-25, off by default)
+
+A send the phone makes while the Mac is not joined to the session's WebSocket relay (asleep, offline,
+mid-redial) can ride the phone's relay socket and be held by the relay until the Mac joins. The backend turns it
+on with `LINK_RELAY_HOLD=on`; off, the relay answers every hold with `hold_refused` `off` and the phone routes the
+send as before (the store-and-forward mailbox, else it fails). Code: `backend/src/relay-hold.ts`,
+`cmux_mobile_link::relay_hold`.
+
+Text frames on the relay socket (JSON; binary relay frames are unchanged):
+
+- Phone to relay: `{"type":"hold","id","sealed"}`. `id` is a UUID (the composer's client message id, also inside
+  the signature); `sealed` is the store-and-forward item (`mailbox-send-v1`: signed by the phone's identity key,
+  sealed to the Mac's box key), base64url, at most 16384 characters.
+- Relay to phone: `{"type":"held","id","depth","expiresAt"}` at once (one relay RTT: the send is done as far as
+  the user sees), or `{"type":"hold_refused","id","code"}` with `off`, `bad` or `full` (64 items or 524288
+  sealed characters per session). The same id again answers its first `held` and holds nothing new; an id the
+  Mac already acked answers `held` with `"delivered":true`.
+- Relay to Mac: `{"type":"held_item","id","from","sealed","at","expiresAt"}`, oldest first, on every join and at
+  once for a hold made while it is joined. Delivery is at least once.
+- Mac to relay: `{"type":"held_ack","id"}` after the send is applied; the relay deletes it and tells the phone
+  `{"type":"delivered","id"}`.
+
+The Mac applies an id at most once (`HeldInbox`): it records the id in the same durable write as the send's
+effect, before its ack, so a redelivery, a lost ack or a killed process never applies it twice. Items expire
+10 minutes after the hold, with the P8 mailbox's default hold. The relay reads the id, the sender's device id,
+the sealed length and times; never the text (it holds no key). Nothing is written per keystroke: one storage
+write per send, one per ack.
+
 ## Link (inside either transport)
 
 A link is one reliable ordered byte stream, the main stream (WebRTC: data
@@ -381,6 +860,7 @@ most 16 KiB (readers still accept 256 KiB from older peers).
 | 1 `data` | raw bytes |
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
+| 5 `deflated data` | parked writes only, negotiated below. Original payload length (u32 BE) and one raw DEFLATE stream |
 
 A channel whose owner does not read it may hold the link reader for at
 most 3 s; then that channel is closed `overflow` on both sides and the rest
@@ -404,6 +884,49 @@ sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
 and the app's heartbeat probes a link with no traffic (only pings and pongs)
 on its 2.5 s foreground or 10 s background beat. No interval is longer than
 before.
+
+### Parked link (added 2026-11-16; backward compatible)
+
+When the app leaves the screen with a live WireGuard link, the phone asks
+the Mac to hold the link while iOS suspends it, so returning skips the
+full dial. It opens the service `_link.park` with `{"hold_ms": N}`. A Mac
+that knows parking answers `close` with code `parked` (a control frame) and
+holds for N ms, at most 10 minutes. An older Mac answers `unknown_service`,
+and the phone redials on return as before. While parked:
+
+- Neither side sends a link keepalive or closes the link for silence.
+- The tunnel is held (`cmux-wg` `WgNet::hold`): no TCP keepalive probe,
+  each link connection waits for the hold plus 30 s instead of its user
+  timeout, and no WireGuard keepalive (persistent or passive) goes out. The
+  Mac sends a suspended phone nothing at all.
+- The Mac writes only control frames. Channel data waits in each channel's
+  queue (up to its 256 KiB, then its writer waits, as on a slow link).
+- The app's heartbeat, foreground and presence probes are suspended: a
+  ping ends the park.
+
+A phone that can read type 5 adds `"encoding":"deflate-v1"` to its
+park request. For that park the Mac can encode each held data frame
+independently if it shrinks. Its original length (at most 16 KiB) counts
+towards the same queue limit. The phone restores each frame in channel
+order, including its original boundary. Other frames use their usual
+encoding. A Mac that predates the encoding ignores the argument, and a
+phone that omits it receives ordinary data.
+
+The park ends on the Mac at the phone's first ping, channel data or new
+channel (other than `_link.park`): a phone that sends a request (a
+notification action run in the background) is awake and waits for the
+answer. The phone parks no link a call is using, and a request it runs in
+the background resumes its link for the request, then parks it again. On
+the phone the park ends at the first frame from the Mac after `resume`. On return within the hold
+(less a 30 s margin, on the clock that runs while the device sleeps), the
+phone moves the tunnel onto a fresh socket, as for a network change, and
+probes once with a 1.5 s timeout. The first explicit probe starts on the
+ordered stream even when liveness datagrams are available, so its ping
+follows the park request and releases queued output on the Mac. The Mac
+queues its pong before releasing the writers. If the probe fails, the phone redials. If
+the hold passes with nothing heard, the Mac closes the link (`park
+expired`). A WebRTC link is never parked: ICE consent ends a silent data
+channel after 30 s whatever the link does.
 
 ### Lanes (added with the input lane; backward compatible)
 
@@ -633,6 +1156,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+- `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
+  upload or a file open as sealed, content-defined chunks (cmux-tui
+  `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
+  round trip and its manifest (36 bytes per ~64 KiB chunk) instead of its bytes.
+  Every message is `u32 BE length | bytes`; one that starts with `{` is JSON,
+  any other a `cmux-bundle` sync message (offer, want, chunks). A length past
+  4 MiB is refused. The Mac's first message is `{"v":1,"key":"<64 hex>"}`, the
+  pair's bundle secret: `blake3::derive_key("cmux-bundle v1 pair secret", the
+  Mac's box key (derived from its identity key) || phone device id)`, so the
+  same phone always gets the same key; chunk ids and seals derive from it, and
+  a relay cache never sees it. The phone keeps it per Mac and may offer before
+  reading it; the Mac takes one offer under a stale key and the next.
+  - `{"op":"put","name","size","cwd"?}` (as `upload`, needs what `upload`
+    needs): the phone offers; the Mac answers a want (the chunks it lacks); the
+    phone sends those chunks without waiting; the Mac publishes the file as
+    `upload` does and answers `{"path","size"}`, then `eof`.
+  - `{"op":"get","path"}` (as `file`: the same roots and open checks): the Mac
+    offers; the phone answers a want, or closes when it holds every chunk; the
+    Mac sends the chunks, then an empty message.
+  Files past 256 MiB are refused `too_large` (the phone uses `upload` or
+  `file`); a chunk that does not open to its id, an offer under another key, or
+  chunks the offer does not name are refused `bad_request`, and nothing is
+  published. Refusals are `{"error","message"}` before the close. The Mac keeps
+  chunks (ciphertext) under `<uploads>/bundle-chunks`, at most 2 GiB, least
+  recently used out first; the phone keeps its own per Mac in its Caches. An
+  older Mac closes `bundle` with `unknown_service`; the phone then uses
+  `upload` / `file` for the rest of the link.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -787,12 +1337,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
 - `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
-  2026-11-13 the phone's chrome takes only the accent and the terminal theme from it: its
-  own backgrounds stay the stock ones. Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
+  2026-11-22 the phone's chrome (backgrounds, surfaces, text, fills, accent) follows it again
+  and the wallpaper shows behind the sidebar and Home, while Match Mac theme is on (the
+  default); off, the phone's stock look (2026-11-13 to 11-22 the chrome stayed stock). Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
-  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
-  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  "accent_color"?, "background_opacity", "background_blur"?}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. Since 2026-11-22 `wallpaper` is what the Mac shows behind its windows' content: the
+  background chosen in cmux, else the Ghostty `background-image`, else, in a see-through window
+  (`background_opacity` < 1), the desktop picture under the window's tint; null only for an opaque
+  window with no picture. The phone draws it under the terminals too, which are then see-through
+  (`background-opacity = 0` on the phone's surfaces, as on the Mac), and blurs it by
+  `background_blur` (Ghostty's encoding: a radius in points, -1 regular and -2 clear Liquid Glass;
+  omitted for 0). `id` is the SHA-256 of the picture (hex). The phone derives the
   palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
   the accent is the same at launch and offline. Since 2026-11-13 a
   frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
@@ -801,8 +1358,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   selection, bold, contrast, faint and cursor opacity, palette generation, blending,
   colorspace, search colors). hostd drops any other key and any value that is not a plain
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
-  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
-  Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
+  of those keys and load these lines, live, whatever Mac the phone focuses, while its
+  Match Mac theme switch is on (the default; off, terminals show the phone's stock black,
+  since 2026-11-22); a frame without `terminal` (an
   older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
   `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
   phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
@@ -829,12 +1387,77 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Mac's `ThemeScope.shownWindowOpacity`), 1 without. A Mac at its defaults (Ghostty's
   colors `#282c34`/`#ffffff`, no picture, no bubble colors) sends no `chat`, and the phone
   keeps its stock chat. The phone draws it in the agent chat only while Match Mac theme is
-  on; the rest of its chrome stays stock.
+  on.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both. The phone
-  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
-  the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
+  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17 (the picture a frame's `chat` names) and since 2026-11-22
+  for any frame's `wallpaper` while Match Mac theme is on, once per id (size and SHA-256
+  checked, one kept).
+- `phone-frames` (`phone-frames-v1`, 2026-11-22): how smoothly the phone drew each terminal
+  scroll. The phone times every display frame of one pan of a terminal (the drag and its
+  fling) and, when the pan ends, sends one data frame per pan, then `eof`:
+  `{"v": 1, "kind": "tui" | "scrollback", "program"?, "app"?, "expected_ms", "intervals_ms":
+  [...], "rows"?, "bytes_in"?, "rtt_ms"?}` (`expected_ms` the display's nominal frame,
+  `intervals_ms` each frame interval, at most 1800; the load the pan ran under: `rows` the page
+  held when it began, `bytes_in` terminal output that arrived during it, `rtt_ms` the link's
+  last round trip). hostd (`phone_frames.rs`) summarizes it (frames, p50/p95/max ms, hitches:
+  intervals over 1.5 frames, frames dropped, hitch ms per second, and the load: `rows`,
+  `bytes_in`, `bytes_per_s`, `rtt_ms`) and appends one JSON line to
+  `phone-frames.jsonl` in its state folder (`~/Library/Application
+  Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
+  16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
+  nothing to a Mac without the capability. Phones only.
+  Each record also carries `path`, the link's route when it came, which hostd reads from the
+  link and the phone never sends: `direct-lan` (a direct path to a private, link-local or
+  unique-local peer address), `direct-wan` (direct, but routed: a public, CGNAT or tailnet
+  address), `direct` (direct, address unknown), `relay` (a TURN server) or `none`.
+  Mac redraw to iPhone paint (added 2026-11-22, same capability): hostd adds `"pseq": N` to
+  each terminal redraw line it splices to the phone (`output`, `agent-cli-frame`,
+  `agent-cli-lean`; an older phone ignores the field) and keeps, for the last 8192 of them,
+  when it read the line and when the link flushed the line's last byte to the socket. The
+  phone notes when each stamped line arrived and when the first frame that showed its bytes
+  was presented, and sends, on the same channel:
+  `{"kind": "clock", "t0"}` probes, each answered at once with `{"kind": "clock", "t0", "t1",
+  "t2"}` (Mac epoch ms; at most 32 per channel), then
+  `{"v": 1, "kind": "paint", "samples": [[seq, received, painted], ...], "clock": [[t0, t1,
+  t2, t3], ...], "program"?, "app"?, "load"?, "rtt_ms"?}` (phone epoch ms, at most 256
+  samples; the phone sends 200). hostd takes the clock offset from the probe with the
+  shortest round trip (NTP midpoint, error at most half that round trip), joins each sample
+  with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
+  "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
+  `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
+  the phone's receive, (c) `phone_paint` receive to present, and `total`.
+- `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
+  Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
+  content-addressed blobs. No open args; machines need the View grant. Both ways the
+  channel carries frames, each behind its 4-byte big-endian length; a frame is a 1-byte
+  kind, then a body (`cmux-tab-snapshots` `wire.rs`). Phone to Mac (JSON, camelCase):
+  `0x01 viewport {cardPixelWidth, cardAspect, displayScale, screenPixelW, screenPixelH}`,
+  `0x02 want [hash]` (priority order, replaces the last; each named blob is sent even if
+  sent before), `0x03 have [hash]` (once on link-up), `0x04 resume {epoch?, rev}` (first on
+  reconnect; an empty epoch asks for a manifest). Mac to phone: `0x11 manifest {epoch,
+  rev, rows}`, `0x12 delta {epoch, rev, baseRev, changed: [partial row], removed: [tabId],
+  order?}` and `0x13 blob` (binary: 32 raw SHA-256 bytes, 1 mime byte: 0 octet-stream, 1
+  JPEG, 2 PNG, 3 screen text, then the bytes; the phone checks the hash). A row is
+  `{tabId, title, kind ("browser", "terminal", "agent", or a kind the phone shows as
+  other), faviconHash?, thumbHash?, thumbW, thumbH, thumbMime, screenHash?, screenCols,
+  screenRows, frameHash?, capturedAtMs}`; in a partial row an absent field is unchanged
+  and a `null` hash is cleared. `tabId` is the tab's daemon surface id as a decimal
+  string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
+  the host process and the daemon run its tab ids came from: it is new at each hostd start
+  and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
+  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
+  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
+  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
+  "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
+  (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
+  by its magic bytes (any `mime` is ignored); others are logged and dropped. The app sends
+  one when a page's leave picture is taken (576 px wide at most, JPEG) or its favicon
+  changes (PNG), only for its own daemon's tabs that are not incognito, while a phone is
+  paired; it skips bytes it sent last for that tab and part, and resends the newest of each
+  to a new hostd.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -842,26 +1465,12 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   behind data, a reader that stalls on one full channel); the phone keeps
   the link and says "Update cmux on this Mac".
   Added 2026-10-14: `"capabilities": [...]`, what the host does that a
-  phone may rely on. `removal-v1` (the Mac host of manaflow-ai/cmux#20414):
-  after its owner removes it (signaling 4002 `removed`) the host stays off
-  until the person allows iPhone connections again on the Mac, so the
-  phone's removal copy can say so. Absent (older hosts): the Mac may add
-  itself back.
-  `file-preview-v1`: `file-preview` sends a size metadata frame before file bytes,
-  allowing a phone to check available storage without a separate stat/open race.
-  `browser-stream-v1`: the host streams browser tabs (`browser`); the Mac
-  build bundles a browser host (Release builds ship none yet). A host that
-  says `removal-v1` without it refuses `browser` with `no_browser_host`, and
-  the phone hides New Browser Tab for that Mac.
-  `browser-video-track-v1`: the host honors `browser {"video":"track"}`
-  (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
-  `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
-  (`surface`, below).
-  `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
-  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
-  and drive authenticated owner Cloud machines through the Mac carrier.
-  `cloud-desktop-v1` (2026-11-02): `surface` also streams an owned Cloud
-  machine's desktop, view only, on the key `c~<machine_id>~<team_id>` (below).
+  phone may rely on, each named in "Capabilities" below. `removal-v1` came
+  with the Mac host of manaflow-ai/cmux#20414, so the phone's removal copy
+  can say the Mac stays off. `browser-stream-v1` needs a browser host in the
+  Mac build (Release builds ship none yet); a host that says `removal-v1`
+  without it refuses `browser` with `no_browser_host`, and the phone hides
+  New Browser Tab for that Mac.
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
@@ -878,6 +1487,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
   (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
   view only: hostd sends the source no input from the phone.
+  With `mac-display-v1` (2026-11-23), `tab` may be `d~<display>`: this Mac's own
+  display (a CGDirectDisplayID in decimal, no leading zero; `d~0` the main display),
+  the Mac screen as rd/1 on this link with its video on the media lane, view only like
+  a Cloud desktop. hostd lists `mac-display-v1` only when the app's source captures
+  displays (`CMUX_MOBILE_MAC_DISPLAY=1`, else `no_surface_host`); the app starts a
+  capture only while Share This Mac is on (else the open fails `unavailable`) and
+  stops it when sharing turns off or the viewer goes.
   `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
@@ -922,6 +1538,44 @@ refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 `unavailable`. When the link itself drops, local channels see
 `link_closed`.
 
+### Capabilities
+
+Every capability name the link speaks: what hostd lists in `version`, and the
+cmux-tui daemon's names hostd itself declares or checks. Printed from
+`rust/crates/cmux-mobile-link/src/names.rs`; edit it there, not here.
+
+<!-- link-names:capabilities:begin (printed from cmux-mobile-link src/names.rs; CMUX_UPDATE_LINK_NAMES=1 cargo test -p cmux-mobile-link names rewrites it) -->
+| Name | Said by | Meaning |
+|---|---|---|
+| `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. |
+| `file-preview-v1` | hostd `version` | `file-preview` sends a size metadata frame before the file bytes, so the phone can check free storage first. |
+| `localhost-forward-v1` | hostd `version` | (2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback. |
+| `cloud-directory-v1` | hostd `version` | (2026-11-01) The host lists the owner's authenticated Cloud machines through the Mac carrier (`cloud-directory`). |
+| `cloud-acpmux-v1` | hostd `version` | (2026-11-01) The host drives an owned Cloud machine's agents through the Mac carrier (`cloud-acpmux`). |
+| `needs-you-v1` | hostd `version` | The host serves `needs-you`: the Mac app's own open Feed requests. |
+| `appearance-v1` | hostd `version` | (2026-11-12) The host serves `appearance` and `appearance-wallpaper`: the Mac's theme and wallpaper. |
+| `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
+| `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
+| `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
+| `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
+| `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
+| `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
+| `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
+| `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
+| `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
+| `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
+| `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
+| `agent-session-tabs-v1` | cmux-tui daemon | Declared in `set-client-info` on a `cloud-acpmux` carrier: agent session tabs read with their session source. |
+| `send-expect-agent-v1` | cmux-tui daemon | In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205). |
+| `agent-cli-hybrid-v1` | cmux-tui daemon | Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas. |
+| `agent-cli-hybrid-v2` | cmux-tui daemon | With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`. |
+| `terminal-shell-lines-v1` | cmux-tui daemon | With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program. |
+| `attach-output-coalesce-v1` | cmux-tui daemon | `output` at most once per display frame for a terminal that stays on PTY bytes (#43373). |
+| `terminal-full-screen-frames-v1` | cmux-tui daemon | With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565). |
+<!-- link-names:capabilities:end -->
+
 ## Pairing (`auth` service and the Mac app's control lines)
 
 The `auth` handshake is in `verify/phone-approvals.md` ("Pairing on every
@@ -948,6 +1602,23 @@ that phone device id first registered with the service (`createdAt` of `GET
 absent when the lookup failed or took over 3 s; the dialog then says the
 date is unknown.
 
+`bundle_id` (string; added 2026-11-17) is the phone app's bundle id as the
+phone states it in its `auth` args (`bundleId`, 1 to 155 ASCII letters,
+digits, `.` and `-`; the phone app sends `Bundle.main.bundleIdentifier`). hostd
+forwards it for phones only and drops a malformed one without refusing the
+link. It is a claim, not a proof: the app reads it only to auto-approve its own
+tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
+to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
+auto-approve"). An older phone sends none, an older hostd forwards none, and
+the app then asks as before.
+
+`auth` args may also carry `appBuild` (added 2026-11-22; the phone app's
+CFBundleVersion, 1 to 32 ASCII letters, digits, `.` and `-`). hostd keeps the
+phone's `bundleId` and `appBuild` in memory per device and logs one `phone app`
+line at each `auth` open (device, variant `appstore`/`testflight`/`dev`/`other`/
+`unknown`, bundle, build, link path). It refuses nothing on them; an older phone
+sends none.
+
 ### Mac identity (trust on first use)
 
 `auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's
@@ -964,6 +1635,27 @@ With both, the challenge frame adds `macKey` (the X9.63 point, hex) and
 pins `macKey` per Mac device id when pairing first passes, and from then on
 refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
 or none. Removing the Mac forgets the pin.
+
+#### Tunnel keys in the proofs (`proofVersion` 2)
+
+On a WireGuard link, both identity proofs also cover the tunnel's two static
+public keys, as each side's own tunnel handshook with them: `dialer` (the
+phone's, or a dialing Mac's) and `answerer` (the Mac's), base64 as in `wg-init`
+and `wg-resp`.
+
+- The phone's `auth` args add `proofVersion: "2"` on a WireGuard link.
+- A Mac that supports it answers on a WireGuard link with `proofVersion: "2"` in
+  the challenge, `macSignature` over
+  `cmux-mobile-mac-identity-v2 \0 mac \0 phone \0 macNonce \0 challenge \0 dialer \0 answerer`,
+  and checks the phone's signature over
+  `cmux-mobile-link-auth-v2 \0 mac \0 phone \0 nonce \0 identityKey \0 approvalKey \0 action \0 dialer \0 answerer`
+  (refused `unpaired` otherwise).
+- The phone checks the proof over its own tunnel's keys (refused
+  `mac_identity_changed`, before it signs). Once a Mac proved v2, the phone
+  remembers it beside the pin and refuses a v1 challenge from it on a WireGuard
+  link; a v2 challenge on a link with no tunnel keys is refused too.
+- A peer that sends no `proofVersion` (an older phone, or a WebRTC link) gets
+  the v1 proofs above; an older Mac ignores it and answers v1.
 
 ### Chief question answers
 
@@ -1042,8 +1734,9 @@ session"); "WebRTC only" is the earlier behavior unchanged: the link and
 browser video share one peer connection.
 
 Debug builds add Settings → Developer → "Relay only (simulate distant
-network)" and "Block UDP". Both are phone-side dial policies with no wire
-change, and changing either redials.
+network)", "Block UDP" and "Relay via cmux (HTTPS) only" ("WebSocket
+relay"). Each is a phone-side dial policy with no wire change, and changing
+one redials.
 
 - Relay only: WebRTC gathers only TURN relay candidates (path `turn`), and
   WireGuard never sends plain UDP: it offers only its TURN relayed address
@@ -1055,6 +1748,8 @@ change, and changing either redials.
   server the dial fails at once. The media session gets no candidates and
   fails, so browser video stays in the tunnel. The rig sets it without the
   app's settings: simulator `SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1`.
+- Proxy only and Drop WireGuard (WireGuard; WebRTC ignores them; they apply
+  at the next dial): the corporate networks below ("Corporate networks").
 - No media session (measurement): simulator
   `SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA=1` leaves `webrtc-media` out of
   `wg-init`, so browser video rides RTP in the tunnel ("WireGuard only").
@@ -1063,11 +1758,138 @@ change, and changing either redials.
   media session).
 
 The phone's link line names the path: "WireGuard direct", "WireGuard relay
-(TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's
-TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path as
-`direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
+(TURN)", "WireGuard relay (TURN over TLS)", "WireGuard relay (cmux, HTTPS)"
+(and the same for WebRTC's TURN). cmux-mobile-host reports the path as
+`direct`, `turn`, `turn-tls`, `https-relay` or `none` (`phone_up`, `phone_path`).
+
+## Corporate networks
+
+The link's own connections (the signaling WebSocket, the HTTP API, TURN
+over TLS or TCP, and the WebSocket relay's join, on the phone and on the
+Mac's hostd) leave the device the way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
+
+- **TLS inspection.** A company network that inspects TLS re-signs every
+  server's certificate with its own root, which an MDM profile (or Settings
+  → General → About → Certificate Trust Settings) made the OS trust. The
+  link verifies every server against the OS trust store
+  (`rustls-platform-verifier`: the Security framework on iOS and macOS, the
+  system bundle elsewhere), so it trusts that root as Safari does. A
+  certificate the OS does not trust still fails. This is safe for the link
+  because WireGuard authenticates and encrypts every byte end to end inside
+  that TLS (SECURITY.md "Link transport").
+  A chain the OS trusts but the public web PKI bundled in the app does not
+  marks its host **inspected** (`egress::tls::inspected`); the connection
+  goes on unchanged. The link's `link_stat` carries `egress: "inspected"`
+  (or `"proxy"` for a proxy that does not inspect; absent when every link
+  connection went direct), cleared at each network change.
+- **Proxy only.** A network whose only way out is its HTTP proxy. Each
+  connection asks the system for the proxies of its destination
+  (`CFNetworkCopyProxiesForURL` for `https://host:port/` on iOS and macOS: a
+  manual HTTP, HTTPS or SOCKS proxy, a PAC file or script, run by CFNetwork
+  itself, WPAD, an MDM global proxy; the `https_proxy`, `http_proxy`,
+  `all_proxy` and `no_proxy` variables elsewhere) and tries them in order. An
+  HTTP proxy carries the connection with `CONNECT host:port` (the TURN
+  server's name, unresolved: the proxy resolves it), a SOCKS proxy with SOCKS5.
+  Credentials the system's settings hold go along: HTTP Basic
+  (`Proxy-Authorization`) and SOCKS5 user name and password (RFC 1929). The
+  answer is cached for 30 s per destination and forgotten at a network change,
+  and a PAC file gets 4 s to answer (then direct, as CFNetwork does).
+  Loopback is never proxied. A destination name with a space or a control
+  character is refused before it reaches the proxy.
+  - A proxy that asks for **NTLM or Kerberos (Negotiate)** fails the dial at
+    once, before `wg-init`, with a sentence that names the proxy, the server
+    and the schemes it asked for. The link does not do those: Apple exposes no
+    API that hands an app a proxy-authenticated byte stream it can run TURN
+    on. `URLSessionStreamTask` (and `URLSessionWebSocketTask`) do follow the
+    system proxy and answer its challenges from the keychain, but only from
+    Swift, not the Rust core, and a stream task carries TCP for one host only,
+    so moving TURN's socket there means a Swift transport the language
+    boundary rules out; Network.framework's `ProxyConfiguration` (iOS 17)
+    takes a user name and password only (`applyCredential`), and
+    `NWConnection` does not follow the system proxy on its own. A Basic proxy
+    with no password in the settings, or one that refuses it, fails the same
+    way with its own sentence.
+  - A dial whose STUN never answered (or never resolved) and whose TURN over
+    TLS the proxy refused fails with that sentence instead of a timeout.
+- **A firewall that drops WireGuard.** Packet inspection that lets STUN and
+  TURN's own requests through (so UDP looks open and TURN over UDP grants an
+  allocation) but drops every datagram carrying a WireGuard message, bare or
+  inside TURN over UDP. A tunnel that has no route (nothing from its peer
+  authenticated) for 3 s on the dialing phone, 6 s on the answering Mac, from
+  its start or after a roam, takes a TURN allocation over TCP or TLS
+  (timeline mark `wg_silent_turn_tls`) and announces it as a roam does,
+  through signaling too (`wg-endpoints`), so the peer sends there. Until its
+  next roam that side takes TURN over TCP or TLS only. A side already on TURN
+  over TLS, or with no `turns:` or TCP `turn:` server, does nothing. Both
+  sides then send a handshake initiation at once (the escalating side on its
+  new allocation, the peer on the announcement); after answering the peer's,
+  a side with data queued waits for the peer's first data before it starts
+  another (cmux-wg `wait_for_handshake_until`), so the two crossing
+  handshakes complete instead of replacing each other.
+- **Then the WebSocket relay.** The relay's "nothing reached the peer" join
+  (WebSocket relay, above) waits while this fallback may still take TURN over
+  TLS: from the moment the tunnel has no route until a route comes, or the TLS
+  allocation came up and had 3 s (`RELAY_AFTER`) to carry a handshake
+  (`RelayClock::turn_window`). So a network that drops WireGuard links over
+  TURN over TLS, and joins the relay only when that fails too (TLS to TURN
+  blocked, or the proxy refuses it).
+
+Debug builds add Settings → Transport → Developer → "Proxy only" and "Drop
+WireGuard" (`DeveloperOptions.proxyOnlyKey`, `dropWireGuardKey`;
+`ConnectOptions.proxyOnly`, `dropWireguard`), read at each dial:
+
+- Proxy only: Block UDP, and TURN over TLS must leave through a proxy the
+  system's settings name for the TURN server; with none the dial fails at once
+  and says so.
+- Drop WireGuard: every UDP datagram carrying WireGuard is dropped on this
+  side, both ways, on the tunnel's socket and its TURN over UDP; STUN and TURN
+  requests pass. The link should come up on `turn-tls` within about 4 s.
+
+The rig sets them without the app's settings: simulator
+`SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1`,
+`SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1`, and
+`SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://user:pass@host:port` (or
+`socks5://...`, or `direct`) in place of the system's proxy settings. hostd
+reads the same three variables; `cmux-mobile-dial` takes `--proxy-only` and
+`--drop-wireguard`.
 
 ## Terminal size claims
+
+**Projection (2026-11-12, the default).** The phone keeps a VT model of the
+Mac terminal at the Mac's grid, fed the attach stream's bytes
+(`cmux-terminal-projection`, `TerminalProjectingSession`), and re-wraps its
+primary screen (a shell, an inline TUI such as Claude Code) at the phone's
+own width. On the primary screen the phone claims no size: it attaches
+without one and never sends `resize-surface`, so attach, an app switch, a
+lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
+re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
+it claims as below, only while the page claims, and releases when the
+program leaves the alternate screen.
+
+With Settings → Terminal → Zoom Full-Screen Apps on (off by default,
+`cmuxMobile.settings.terminalZoomFullScreenApps`, read when the page opens),
+the alternate screen claims no size either: the page shows the Mac's exact
+grid, zoomed (pinch snaps to fit width and to the reader's font size, double
+tap toggles them, one finger pans and is never sent to the program). The one
+exception (2026-11-17, `fit_policy`): the phone claims its grid as below once the person types text (3 printable characters; keys, mouse
+reports and replies never count) into a TUI: the alternate screen, or a
+named program that is not a shell drawing on the primary screen with its
+cursor hidden (Claude Code, Codex). The program's name (the terminal title,
+else the tab's) is remembered on the phone, so the next time it is in the
+foreground the phone claims at once and holds the program's frames at the
+Mac's grid until the `resized` replay arrives (1.5 s at most). The claim is
+released when the program leaves the foreground (the alternate screen ends,
+the cursor shows again, another program is named) or when the page stops
+claiming. The terminal's title menu toggles it by hand (Fit to Phone, Keep
+the Mac's Size); undoing forgets the program. On the primary screen, cursor position
+(`CSI 6n`) and text area (`CSI 18t`) reports are answered by the projection
+in the Mac's cells; on the alternate screen the phone's terminal gets the
+program's bytes unchanged and answers them itself (once). A rotation
+re-wraps the Mac's screen and two phone screens of scrollback above it
+(plus the lines being read); older lines are re-wrapped as the reader
+scrolls up to them.
+Settings → Terminal → Fit to Phone turns projection off: the rest of this
+section then applies to every screen.
 
 When the phone shows a Mac terminal, the shared PTY is sized for the phone too
 (cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
@@ -1260,7 +2082,16 @@ phone's registered `sandbox` or `production`, `status` is APNs' HTTP status
 `network` when no answer came, or `unknown` for any other body. It never
 carries the device token, the topic or an error's text. Without a failure the
 field is absent, so the rest of the answer is unchanged. Sends APNs reports as
-gone count in `dropped`, not here.
+gone count in `dropped`, not here: only a token-level answer (`BadDeviceToken`,
+`Unregistered`, `DeviceTokenNotForTopic`, or 410) drops a registration.
+
+A key- or topic-level answer (`TopicDisallowed`, `BadEnvironmentKeyInToken`,
+`InvalidProviderToken`, `ExpiredProviderToken`, `MissingTopic`, `BadTopic`)
+would be the same for every phone on that environment and topic, so the
+Worker does not send that event to the rest of them: they count in
+`skipped` (absent when 0), not in `failed` or `failures`, and keep their
+registrations. The Worker keeps at most 6 APNs sends in flight per event,
+each environment and topic's first send in the first six.
 
 Only `eventId` and `kind` are required. Any other field that is malformed
 (an id outside its pattern, a value of the wrong type, an unknown `state`, an
@@ -1346,6 +2177,16 @@ answers it on that Mac by typing into the terminal (`send`) while
 `read-screen` shows the question; see SECURITY.md "Answering a terminal
 agent's question from the phone".
 
+A Claude Code terminal's approval (its PermissionRequest hook, for any tool but
+AskUserQuestion and ExitPlanMode) rides the same way: the `list-notifications`
+row carries `approval` `{harness: "claude", tool, command?, target?,
+description?}` while the agent waits on it (memory only; cmux-tui
+`agent_hook_live_approval`, `session.journal.append` `live_approval`). The
+Feed shows it as a permission card with Allow once (types `1`) and Deny
+(Escape), sent only after its own `list-notifications` request still carries
+it and `read-screen` shows its dialog at the bottom of the screen; see SECURITY.md "Answering a terminal agent's
+approval from the phone".
+
 ### Phone actions
 
 | Identifier | Kind | Options | Delivery |
@@ -1414,9 +2255,10 @@ addition is optional: a phone or Mac without it keeps PR A's behavior.
 where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
 `personInstance` for an ask, so the phone can sign an answer offline) and
 `sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
-eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
-phones; `box` is base64url of at most 3072 characters (hostd trims the content
-to fit, and skips a phone whose box still would not). When every paired phone
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). One request
+carries at most 20 boxes (a bound on its body, not on phones); `box` is
+base64url of at most 3072 characters (hostd trims the content to fit, and
+skips a phone whose box still would not). When every paired phone
 has a push key the Mac sends no content fields, also when one box failed or
 its identity key has not arrived (those phones get the generic banner from
 the ids alone); a phone without a push key gets the v2 payload built from the
@@ -1430,6 +2272,26 @@ key, fills in the v2 content, category and thread, and keeps the v3 object
 (`cmuxMobileSealed`) beside them; the app opens that box again before any
 button acts. If it can't open it, the generic banner and no buttons stay. A
 push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+#### More than 20 phones: a lead and batches (API 0.16.0)
+
+There is no cap on how many phones get a push. The Worker sends a notify to
+every push registration of the Mac's owner that wants the kind and has not
+muted the Mac. A Mac with more than 20 boxes splits one event:
+
+- The **lead** is the notify as above with the first 20 boxes, plus
+  `batchedPhones: ["<phone device id>", ...]` (at most 10000), the phones
+  whose boxes come in batches. The Worker sends the lead to every target but
+  those phones. A Worker that takes batches answers with `batches: true`.
+- Each **batch** carries the routing ids, the next at most 20 boxes and
+  `batch: n` (1, 2, ...; at most 500). The Worker sends it only to the targets
+  it has a box for, never checks the turn-end window again (the lead did),
+  and counts it in its own rate bucket (`<mac>:batch:<n>`), so a phone past
+  the first 20 gets pushes at the same rate as the rest.
+- hostd posts the batches after the lead, and only when the lead's answer
+  has `batches: true` and no `coalesced: true`: an older Worker ignores
+  `batch` and would push a batch to every phone again. A malformed `batch`
+  or `batchedPhones` is refused (400), never dropped.
 
 ### Reply mailbox
 
@@ -1485,6 +2347,103 @@ push older than 15 minutes (`postedAt`) shows its text with no buttons.
   spent id's outcome on disk until it expires, and applies nothing while that
   file cannot be read.
 
+### Store and forward (`mailbox-send-v1`, API 0.18.0)
+
+A chat send or a composer queue action the phone makes while its Mac sleeps
+or is offline goes through the same mailbox, sealed and signed the same way,
+held for hours, and applied once, in order, when the Mac's signaling socket
+comes back. Every field below is optional on the wire: an older phone, hub or
+Mac keeps the reply mailbox above as it is.
+
+**Hub (Worker user hub).**
+
+- `POST /v1/devices/:macId/mailbox` takes `hold` (seconds, an integer from 1
+  to 86400; absent, 600). The answer adds `seq` and `expiresAt` (ms): a phone
+  that gets no `seq` talks to an older hub, which holds every item 10 minutes.
+- `seq` is per (Mac, phone): 1, 2, 3, ... in post order, never reused, also
+  after items expire or are settled. A retried post of the same item answers
+  its first `seq`.
+- Bounds: items with `hold` of at most 600 count against the 32 pending per
+  Mac as before. Longer holds count per (Mac, phone): at most 64 queued and
+  at most 524288 sealed characters (`429 rate_limited`, the phone's
+  `full`). An outcome stays readable 10 minutes past its item's expiry.
+- Delivery: `mailbox` items add `seq` (absent from an older hub). The hub
+  sends a Mac's queued items ordered by phone, then `seq`, at most 32 in one
+  frame, each once per socket; after each `mailbox_ack` it sends the next
+  page. An item posted while the socket is open goes at once unless 32 sent
+  items still wait for their ack on it. Items not acked are sent again on the
+  next socket.
+- `GET /v1/devices/:macId/mailbox/:id` adds `seq` and `expiresAt` for an item
+  that has them; `expired` is reported once `expiresAt` passed unsettled.
+
+**Mac (hostd).**
+
+- hostd keeps the highest settled `seq` per phone in
+  `<state>/mailbox-cursor.json` (0600), written after the item's outcome is
+  in `mailbox-spent.json` and before its ack is sent. An item whose `seq` is
+  at or under its phone's cursor is never applied: hostd answers its first
+  outcome from the spent file (signed), else `replayed`. With the spent file
+  claimed before applying, a redelivery, an ack lost on the way, a hub retry
+  or a hostd crash mid-apply never applies an item twice.
+- Order: a phone's items are applied in `seq` order. An item that cannot be
+  settled yet (`unavailable`) holds that phone's later items back, unacked,
+  until it settles; other phones' items go on.
+- An item with no `seq` (an older hub) is handled as before, by id alone.
+  Within a frame those go first, in frame order, then each phone's items by
+  `seq`; hostd handles one frame at a time. A held item's phone sends its
+  higher `seq`s to `later` until it settles; a hold not retried in 90 s
+  (its socket died) lapses.
+- The cursor moves only for an item that passed the seal, pairing, signature
+  and expiry checks: `seq` is the hub's and not signed, so a forged item
+  cannot move it. Gaps (an expired or unreadable item) are allowed.
+- An unreadable cursor file holds every item `unavailable`. An item under the
+  cursor whose spent record is still applying, or with an unreadable spent
+  file, is `unavailable`, not `replayed`. A failed cursor write is logged:
+  the spent file still stops a second apply.
+- Crash windows: after the spent claim and before its settle, a redelivery
+  answers `replayed` (as today); after the settle and before the cursor
+  write, it answers the first outcome signed and then moves the cursor.
+- hostd lists `mailbox-send-v1` in `version` when it takes the kinds below.
+  A phone routes a send to the mailbox only to a Mac that listed it on its
+  last link.
+
+**New kinds** (the sealed plaintext of "Reply mailbox"; `target.sessionId`
+required for both):
+
+- `send`: a chat message to an agent session. `action: {type: "text", text,
+  steer?}` (`steer` defaults to true, as Send in the chat). The mailbox item's
+  `id` is the composer's client message id, used as the acpmux `promptId`
+  (`resend: true`), so the same message sent over the link and through the
+  mailbox runs once whichever comes first.
+- `compose`: a composer queue action, keyed by its item id. `action: {type:
+  "queue", op: "update" | "remove" | "send_now" | "move", promptId, text?,
+  index?}` (`text` for `update`, `index` from 0 for `move`), applied as
+  `_acpmux/queue_edit` (`queue_remove` for `remove`). `text` (1 to 4096
+  bytes, not blank) is read only for `update` and `index` only for `move`. A
+  queued prompt that is gone (`_acpmux/info` fails, or the answer is
+  `{ok:false}` or `{removed:false}`) is `not_pending`. A `send` whose `steer`
+  is not a bool is refused; absent or null is true.
+- Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
+  `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps
+  600 s. The phone posts them with `hold` equal to its time left.
+
+**Phone (`cmux-mobile-link`, Rust).** One router decides each send: the link
+up and the Mac present goes the link; the link down or the Mac offline, with
+`mailbox-send-v1` from the Mac, goes the mailbox; neither, it fails as
+before. Both paths carry the same id, so a send that went the link and then
+the mailbox (or the reverse, after a link drop) runs once. Each item's state
+is `queued`, `applied`, `rejected` (with its reason) or `expired`; `applied`
+and `rejected` count only with the Mac's signed ack, else "Not confirmed by
+<Mac>".
+
+Phone details: it reads an item's state after 1, 2, 4 and 8 s, then every
+30 s until `expiresAt`. A `409` on a retried post counts as queued; its `seq`
+comes from the next read. A post answered with no `seq` came from an older
+hub: the phone takes `expiresAt` as its post time plus 600 s and never asks
+for a longer `hold` there. A `404` read before `expiresAt` (the hub lost the
+item) shows "Not confirmed by <Mac>", never a failure: the Mac may have
+applied it.
+
 ### Terminal replies
 
 The `daemon` policy allows `notification-reply {notification, text, reply_id?}`
@@ -1516,6 +2475,85 @@ sends it over the link, or through the mailbox with `kind` `terminal`, whose
 hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
 ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
 and ids only).
+
+## Relay snapshot seal (`cmux-relay-snapshot-v1`; RFD 0142 R2, relay serve behind `LINK_RELAY_CACHE`)
+
+The envelope a relay's Durable Object will store so a cold-opening phone gets first content from the edge
+while its live link dials. The relay holds ciphertext only. The one implementation is the Rust crate
+`cmux-tui/crates/cmux-relay-snapshot` (Mac, relay tooling and the phone's FFI all use it; Swift is a shim).
+The Durable Object store and serve are in the backend (`relay-cache.ts`, `/v1/relay-cache/...` below), off
+unless the Worker's `LINK_RELAY_CACHE=on`; the host publish path and the phone's open are the next PRs, each
+versioned and updated both sides at once.
+
+- Seal: the ECIES of "Sealed pushes" (P-256 ECDH, HKDF-SHA256 salted with `E_pub || R_pub`, AES-256-GCM) with
+  HKDF info and AAD `cmux-relay-snapshot-v1 \0 sourceKeyId \0 viewerKeyId \0 stream` (key ids are lowercase hex
+  SHA-256 of the X9.63 point), and the 130-byte header in the AAD.
+- Envelope: `version(1) epoch(u64) seq(u64) sourceKeyId(32) E_pub(65) nonce(12) ctLen(u32) ct||tag sig(64)`,
+  big endian. `sig` is the source identity key's ECDSA P-256 / SHA-256 (fixed 64 bytes) over
+  `cmux-relay-snapshot-sig-v1 \0 context \0 every byte before sig`.
+- Order: `(epoch, seq)` compared epoch first. The Durable Object keeps only the newest envelope per viewer and
+  stream; the viewer keeps the highest position it accepted and refuses an older one (`stale`), so a replay or
+  a rolled-back source never replaces newer state. Equal is a harmless replay.
+
+### Host replica sealed state (RFD 0163 row 7, off by default)
+
+The host replica (`cmux-tui-cloud-conversations::host_replica`) can seal every session and chief snapshot it
+publishes, and every answer to `snapshot.request`, before the relay stores it. Off by default: nothing sets a
+seal yet, so frames are unchanged. With a seal, a frame's `state` is replaced by
+
+```json
+{"sealed":"cmux-relay-snapshot-v1","source":"<hex source key id>","to":{"<hex viewer key id>":"<base64 envelope>"}}
+```
+
+- One `cmux-relay-snapshot-v1` envelope per viewer, at position `(0, seq)` where `seq` is the frame's seq, on the
+  frame's stream. The relay stores the object opaquely and sees only key ids, sizes and positions.
+- Viewers: every device in the Mac's pairing store, the set that already authorizes readers, by the key
+  agreement key it proved at pairing (its `pushKey`, "Keys at pairing", counted only while the store still
+  pairs it with the identity key that signed it); the app refreshes the set on pair and unpair. A device that
+  gave no push key gets no envelope. 1 to 16 keys, duplicates collapse. Source: the Mac identity key.
+- A seal that fails to build refuses the lease; a frame that fails to seal is not sent (the replica stays
+  online and says why). `require_seal` (default off) refuses any lease without a seal, so the host never
+  publishes state in the clear. A renewal cannot add or drop the seal.
+
+### Relay delta catch-up (RFD 0142 R9, relay serve behind `LINK_RELAY_CACHE`)
+
+A viewer that resumes after sleep asks the relay for the deltas it missed, so it catches up from the edge
+without waking the Mac. `cmux-relay-snapshot::delta` is the one implementation (Rust); the relay's
+`relay-cache.ts` mirrors its rules over Durable Object storage (Worker and Durable Object code is TypeScript,
+and the relay only reads clear headers, so it needs no crypto). Off unless `LINK_RELAY_CACHE=on`.
+
+- Each delta is a `cmux-relay-snapshot-v1` envelope on the stream `<stream>/delta`, so a snapshot never opens
+  as a delta and a delta never opens as a snapshot. Deltas count `seq` up by one within an epoch.
+- The relay keeps per session at most 512 deltas and 1 MiB, oldest evicted first; each expires 10 minutes
+  after it arrived (the P8 mailbox's expiry), and the log drains through what every viewer acknowledged. A
+  hole or a new epoch restarts the log; a retry of a held or older position changes nothing.
+- A catch-up request is one position, "after `(epoch, seq)`". The relay answers every delta after it, in
+  order, or `gap` (not covered: expired, evicted, another epoch, empty); it never serves a partial run. On
+  `gap` the viewer takes the snapshot or the live link, as before.
+- The viewer applies a delta only if it is exactly the next position after its floor and it opens; it stops
+  at the first that is not. With no floor it takes the snapshot first.
+- The relay sees the envelopes' sizes and positions and which position a viewer resumes after; nothing else.
+
+### Relay cache routes (`/v1/relay-cache/<sourceDeviceId>/...`, off unless `LINK_RELAY_CACHE=on`)
+
+One LinkRelay Durable Object per source device (`relayCacheRoomName(owner, space, source)`), not per link
+session, so a cold open reads it before any session exists and with the Mac asleep. Every call carries the
+caller's `?deviceId=`; both devices must be the caller's own, and the source a Mac or VM. Off, or with
+`LINK_RELAY_MODE=off`, every route answers 503 (`relay_cache_off`, `relay_off`) and clients keep the live link.
+
+- `PUT .../snapshot?deviceId=<source>&viewer=<id>&stream=<s>` (body: one envelope, at most 256 KiB plus
+  framing): the source only. `{ok, outcome: stored|stale}`; 400 `malformed`, 413 `too_large`, 507 `full`
+  (32 viewer-stream slots per source). Snapshots expire 24 hours after they were put.
+- `GET .../snapshot?deviceId=<viewer>&stream=<s>`: the viewer's own newest envelope, or 404.
+- `POST .../delta?deviceId=<source>&viewer=<id>&stream=<s>/delta` (body: one envelope): the source only.
+  `{ok, outcome: added|restarted|duplicate, evicted}`; 409 `wrong_source` for another source key.
+- `POST .../catch-up?deviceId=<viewer>` with `{surfaces: [{surface, after: {epoch, seq}}], budgetBytes}` (at
+  most 64 surfaces; budget default 64 KiB, at most 256 KiB) answers
+  `{fromRelay: true, surfaces: [{surface, sealed: [base64url envelope], head: {epoch, seq}}], cut: [surface]}`.
+  A gap or a surface the relay holds nothing for is in `cut`; the budget cuts whole surfaces in the order asked.
+  Positions are JSON numbers, or decimal strings past 2^53.
+- `POST .../ack?deviceId=<viewer>&stream=<s>` with `{through: {epoch, seq}}` drains the viewer's held deltas
+  through that position: `{drained}`.
 
 ## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
 
@@ -1672,7 +2710,13 @@ to a phone: it changes the Mac-wide preference only.
   horizontally (it follows the cursor while typing); shorter than the
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
-  It never reflows the host's output to its own width.
+  This applies to the alternate screen, and to every screen with Fit to
+  Phone on; with projection (the default, "Terminal size claims" above)
+  the primary screen is re-wrapped to the phone's width instead. With
+  Zoom Full-Screen Apps on, the alternate screen's grid also takes a zoom: it opens at fit width (the
+  whole width on the page), pinch and double tap reach the reader's font
+  size, and one finger pans in both directions; the letterbox and its note
+  follow the zoomed grid's height.
 
 ## Connectivity incidents (API 0.15.0)
 

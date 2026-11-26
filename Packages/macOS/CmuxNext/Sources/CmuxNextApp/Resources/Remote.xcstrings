@@ -1837,6 +1837,419 @@
         }
       }
     },
+    "remote.port.forwarded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forwarded port %1$d of %2$@ to %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d von %2$@ an %3$@ weitergeleitet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d de %2$@ redirigé vers %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة توجيه المنفذ %1$d من %2$@ إلى %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto %1$d de %2$@ reenviado a %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 %2$@ 的連接埠 %1$d 轉發至 %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %2$@ 的端口 %1$d 转发到 %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 포트 %1$d을(를) %3$@(으)로 포워딩했습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のポート %1$d を %3$@ に転送しました"
+          }
+        }
+      }
+    },
+    "remote.port.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No ports are forwarded from %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von %@ werden keine Ports weitergeleitet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun port n’est redirigé depuis %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد منافذ معاد توجيهها من %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay puertos reenviados desde %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有從 %@ 轉發的連接埠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有从 %@ 转发的端口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 포워딩 중인 포트가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から転送中のポートはありません。"
+          }
+        }
+      }
+    },
+    "remote.port.notForwarded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d of %2$@ is not forwarded."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d von %2$@ wird nicht weitergeleitet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le port %1$d de %2$@ n’est pas redirigé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنفذ %1$d من %2$@ غير معاد توجيهه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El puerto %1$d de %2$@ no está reenviado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 的連接埠 %1$d 未被轉發。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 的端口 %1$d 未被转发。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 포트 %1$d은(는) 포워딩되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のポート %1$d は転送されていません。"
+          }
+        }
+      }
+    },
+    "remote.port.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped forwarding port %1$d of %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterleitung von Port %1$d von %2$@ beendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redirection du port %1$d de %2$@ arrêtée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف إعادة توجيه المنفذ %1$d من %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se dejó de reenviar el puerto %1$d de %2$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止轉發 %2$@ 的連接埠 %1$d。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止转发 %2$@ 的端口 %1$d。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 포트 %1$d 포워딩을 중지했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のポート %1$d の転送を停止しました。"
+          }
+        }
+      }
+    },
+    "remote.port.needsPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --port N, a port from 1 to 65535."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib mit --port N einen Port von 1 bis 65535 an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez --port N, un port de 1 à 65535."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر --port N، وهو منفذ من 1 إلى 65535."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica --port N, un puerto de 1 a 65535."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入 --port N，連接埠範圍為 1 至 65535。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入 --port N，端口范围为 1 到 65535。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--port N으로 1에서 65535 사이의 포트를 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--port N に 1 から 65535 のポートを指定してください。"
+          }
+        }
+      }
+    },
+    "remote.port.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link to %@ did not answer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zu %@ hat nicht geantwortet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liaison avec %@ n’a pas répondu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب الاتصال بـ %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace con %@ no respondió."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 %@ 的連結沒有回應。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 %@ 的链接没有响应。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@와(과)의 링크가 응답하지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ へのリンクが応答しませんでした。"
+          }
+        }
+      }
+    },
+    "remote.switch.noHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No host is chosen. Pass --target machine:<id>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Host ausgewählt. Gib --target machine:<id> an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun hôte choisi. Indiquez --target machine:<id>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم اختيار مضيف. مرّر --target machine:<id>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha elegido ningún host. Indica --target machine:<id>."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未選擇主機。請傳入 --target machine:<id>。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未选择主机。请传入 --target machine:<id>。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택된 호스트가 없습니다. --target machine:<id>를 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストが選択されていません。--target machine:<id> を指定してください。"
+          }
+        }
+      }
+    },
     "remote.failed.noMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -5898,137 +6311,6 @@
         }
       }
     },
-    "remote.terminal.reconnecting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reconnecting to %@…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "جارٍ إعادة الاتصال بـ %@…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovno povezivanje na %@…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Genopretter forbindelse til %@…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verbindung zu %@ wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectando con %@…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconnexion à %@…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riconnessione a %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ に再接続しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងភ្ជាប់ឡើងវិញទៅ %@…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@에 다시 연결하는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kobler til %@ igjen…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponowne łączenie z %@…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectando a %@…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторное подключение к %@…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กำลังเชื่อมต่อกับ %@ อีกครั้ง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ile yeniden bağlanılıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторне підключення до %@…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang kết nối lại với %@…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在重新连接 %@…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在重新連線 %@…"
-          }
-        }
-      }
-    },
     "remote.terminal.offline": {
       "extractionState": "manual",
       "localizations": {
@@ -8387,137 +8669,6 @@
         }
       }
     },
-    "remote.machineBrowser.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្យាយាមម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重試"
-          }
-        }
-      }
-    },
     "remote.machineBrowser.thisMac": {
       "extractionState": "manual",
       "localizations": {
@@ -9048,127 +9199,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux on %@ is too old for browser tabs. Update it, then try again."
+            "value": "cmux on %@ is too old for browser tabs. Once it is updated there, this tab opens."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه، ثم أعد المحاولة."
+            "state": "translated",
+            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. بعد تحديثه هناك، تُفتح علامة التبويب هذه."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+            "state": "translated",
+            "value": "cmux na %@ je prestar za kartice preglednika. Kada se tamo ažurira, ova kartica se otvara."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+            "state": "translated",
+            "value": "cmux på %@ er for gammel til browserfaner. Når den er opdateret der, åbner denne fane."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+            "state": "translated",
+            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Sobald es dort aktualisiert ist, öffnet sich dieser Tab."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Actualízalo y vuelve a intentarlo."
+            "state": "translated",
+            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Cuando se actualice allí, esta pestaña se abre."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+            "state": "translated",
+            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Une fois mis à jour là-bas, cet onglet s’ouvre."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+            "state": "translated",
+            "value": "cmux su %@ è troppo vecchio per le schede del browser. Una volta aggiornato lì, questa scheda si apre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux はブラウザタブには古すぎます。アップデートしてから再試行してください。"
+            "value": "%@ の cmux はブラウザタブには古すぎます。そちらでアップデートされると、このタブが開きます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ អាប់ដេតវា រួចព្យាយាមម្តងទៀត។"
+            "state": "translated",
+            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ នៅពេលវាត្រូវបានអាប់ដេតនៅទីនោះ ផ្ទាំងនេះនឹងបើក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 업데이트한 다음 다시 시도하세요."
+            "state": "translated",
+            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 그곳에서 업데이트되면 이 탭이 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+            "state": "translated",
+            "value": "cmux på %@ er for gammel for nettleserfaner. Når den er oppdatert der, åpnes denne fanen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux na %@ jest za stary na karty przeglądarki. Zaktualizuj go, a potem spróbuj ponownie."
+            "state": "translated",
+            "value": "cmux na %@ jest za stary na karty przeglądarki. Gdy zostanie tam zaktualizowany, ta karta się otworzy."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux em %@ é antigo demais para abas do navegador. Atualize-o e tente de novo."
+            "state": "translated",
+            "value": "O cmux em %@ é antigo demais para abas do navegador. Quando for atualizado lá, esta aba abre."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+            "state": "translated",
+            "value": "cmux на %@ слишком старый для вкладок браузера. Когда его там обновят, эта вкладка откроется."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+            "state": "translated",
+            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ เมื่ออัปเดตที่นั่นแล้ว แท็บนี้จะเปิดขึ้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Güncelleyin, sonra yeniden deneyin."
+            "state": "translated",
+            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Orada güncellendiğinde bu sekme açılır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux на %@ застарий для вкладок браузера. Оновіть його і спробуйте ще раз."
+            "state": "translated",
+            "value": "cmux на %@ застарий для вкладок браузера. Щойно його там оновлять, ця вкладка відкриється."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+            "state": "translated",
+            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Khi được cập nhật ở đó, thẻ này sẽ mở."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。请更新后重试。"
+            "state": "translated",
+            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。在那里更新后，此标签页会打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。請更新後再試。"
+            "state": "translated",
+            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。在那裡更新後，此分頁會開啟。"
           }
         }
       }
@@ -11013,127 +11164,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home, conversation and app tabs cannot move to a workspace on another machine."
+            "value": "Chief, conversation and app tabs cannot move to a workspace on another machine."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن نقل علامات تبويب الصفحة الرئيسية والمحادثات والتطبيقات إلى مساحة عمل على جهاز آخر."
+            "value": "لا يمكن نقل علامات تبويب Chief والمحادثات والتطبيقات إلى مساحة عمل على جهاز آخر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kartice Home, razgovora i aplikacija ne mogu se premjestiti u radni prostor na drugom računaru."
+            "value": "Kartice Chief, razgovora i aplikacija ne mogu se premjestiti u radni prostor na drugom računaru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home-, samtale- og appfaner kan ikke flyttes til et arbejdsområde på en anden maskine."
+            "value": "Chief-, samtale- og appfaner kan ikke flyttes til et arbejdsområde på en anden maskine."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home-, Unterhaltungs- und App-Tabs können nicht in einen Arbeitsbereich auf einem anderen Gerät verschoben werden."
+            "value": "Chief-, Unterhaltungs- und App-Tabs können nicht in einen Arbeitsbereich auf einem anderen Gerät verschoben werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las pestañas de Home, de conversaciones y de apps no pueden moverse a un espacio de trabajo en otra máquina."
+            "value": "Las pestañas de Chief, de conversaciones y de apps no pueden moverse a un espacio de trabajo en otra máquina."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les onglets Home, de conversation et d’app ne peuvent pas être déplacés vers un espace de travail sur une autre machine."
+            "value": "Les onglets Chief, de conversation et d’app ne peuvent pas être déplacés vers un espace de travail sur une autre machine."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le schede Home, di conversazione e delle app non possono essere spostate in uno spazio di lavoro su un altro computer."
+            "value": "Le schede Chief, di conversazione e delle app non possono essere spostate in uno spazio di lavoro su un altro computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホーム、会話、アプリのタブは別のマシンのワークスペースへ移動できません。"
+            "value": "Chief、会話、アプリのタブは別のマシンのワークスペースへ移動できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំង Home ការសន្ទនា និងកម្មវិធី មិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការលើម៉ាស៊ីនផ្សេងទៀតបានទេ។"
+            "value": "ផ្ទាំង Chief ការសន្ទនា និងកម្មវិធី មិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការលើម៉ាស៊ីនផ្សេងទៀតបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈, 대화, 앱 탭은 다른 기기의 워크스페이스로 옮길 수 없습니다."
+            "value": "Chief, 대화, 앱 탭은 다른 기기의 워크스페이스로 옮길 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home-, samtale- og appfaner kan ikke flyttes til et arbeidsområde på en annen maskin."
+            "value": "Chief-, samtale- og appfaner kan ikke flyttes til et arbeidsområde på en annen maskin."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kart Home, rozmów i aplikacji nie można przenieść do obszaru roboczego na innym komputerze."
+            "value": "Kart Chief, rozmów i aplikacji nie można przenieść do obszaru roboczego na innym komputerze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abas da Home, de conversas e de apps não podem ser movidas para um espaço de trabalho em outra máquina."
+            "value": "Abas da Chief, de conversas e de apps não podem ser movidas para um espaço de trabalho em outra máquina."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки Home, бесед и приложений нельзя переместить в рабочее пространство на другом компьютере."
+            "value": "Вкладки Chief, бесед и приложений нельзя переместить в рабочее пространство на другом компьютере."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ย้ายแท็บ Home แท็บการสนทนา และแท็บแอปไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
+            "value": "ย้ายแท็บ Chief แท็บการสนทนา และแท็บแอปไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home, sohbet ve uygulama sekmeleri başka bir makinedeki çalışma alanına taşınamaz."
+            "value": "Chief, sohbet ve uygulama sekmeleri başka bir makinedeki çalışma alanına taşınamaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки Home, розмов і застосунків не можна перемістити до робочого простору на іншому комп’ютері."
+            "value": "Вкладки Chief, розмов і застосунків не можна перемістити до робочого простору на іншому комп’ютері."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể chuyển tab Home, tab hội thoại và tab ứng dụng sang không gian làm việc trên máy khác."
+            "value": "Không thể chuyển tab Chief, tab hội thoại và tab ứng dụng sang không gian làm việc trên máy khác."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页、对话和应用标签页无法移到另一台机器上的工作区。"
+            "value": "Chief、对话和应用标签页无法移到另一台机器上的工作区。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "首頁、對話和 App 分頁無法移到另一台機器上的工作區。"
+            "value": "Chief、對話和 App 分頁無法移到另一台機器上的工作區。"
           }
         }
       }

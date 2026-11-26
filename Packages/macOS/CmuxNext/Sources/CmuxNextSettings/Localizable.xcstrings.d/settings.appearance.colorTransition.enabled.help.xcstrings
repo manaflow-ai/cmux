@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.colorTransition.enabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Old colors blend into new ones on workspace and theme changes."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تمتزج الألوان القديمة بالجديدة عند تغيير مساحة العمل والسمة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stare boje prelaze u nove pri promjeni radnog prostora i teme."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gamle farver glider over i nye, når arbejdsområde og tema skifter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bei Wechseln von Arbeitsbereich und Design blenden die alten Farben in die neuen über."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los colores anteriores pasan suavemente a los nuevos al cambiar de espacio de trabajo o de tema."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les anciennes couleurs passent en fondu aux nouvelles lors des changements d’espace de travail et de thème."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I vecchi colori sfumano nei nuovi quando cambiano area di lavoro e tema."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースやテーマを変えると、古い色から新しい色へなめらかに変わります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌ចាស់លាយទៅពណ៌ថ្មី ពេលប្ដូរកន្លែងធ្វើការ និងស្បែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간과 테마가 바뀔 때 이전 색이 새 색으로 부드럽게 바뀝니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gamle farger glir over i nye ved bytte av arbeidsområde og tema."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stare kolory płynnie przechodzą w nowe przy zmianie obszaru roboczego i motywu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As cores antigas passam suavemente para as novas ao mudar de espaço de trabalho ou de tema."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Старые цвета плавно переходят в новые при смене рабочего пространства и темы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีเดิมจะค่อย ๆ ผสมเป็นสีใหม่เมื่อเปลี่ยนพื้นที่ทำงานและธีม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanı ve tema değişikliklerinde eski renkler yenilerine yumuşakça geçer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Під час зміни робочого простору й теми старі кольори плавно переходять у нові."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu cũ chuyển dần sang màu mới khi đổi không gian làm việc và chủ đề."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "切换工作区和主题时，旧颜色会平滑过渡到新颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "切換工作區和主題時，舊顏色會平順過渡到新顏色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

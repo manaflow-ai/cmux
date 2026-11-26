@@ -34,6 +34,8 @@ on:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # `workflows:` spells display names; these are the files behind them
   # (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml .github/workflows/cmux-tui-artifacts.yml
@@ -41,9 +43,18 @@ env:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
-    timeout-minutes: 75
+    # RFD 0021 route by need: attempt 1 takes the nightly's reserved label (no PR job may ask for it), a rerun cmux-linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Ten minutes, and its gh calls wait at most four of them for a rate limit (env below).
+    # 6,152 request jobs from 2026-11-11 to 2026-11-19 (controller timing records): p50 57 s,
+    # p95 83 s, p99 125 s; 12 ran past 10 minutes, every one a hung checkout fetch (up to
+    # 3,880 s) or the promotion waiting through a spent rate limit. The 75-minute bound let one
+    # hung tick (run 44517583850, 2026-11-19 11:49Z-13:04Z) hold the nightly control runner, so
+    # every tick behind it queued or was replaced and no NEXT nightly published. A tick cut
+    # short loses nothing: the next one (a landing, a finished build, or the cron) asks again.
+    timeout-minutes: 10
+    env:
+      GH_BUDGET_WAIT_MAX_SECONDS: "240"
     # One tick runs and the newest waits: GitHub replaces an older pending tick
     # with a newer one. A tick only asks main's nightly.yml for a promotion and
     # reads the branch tip when it starts, so a replaced pending tick loses
@@ -65,7 +76,20 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # p99.9 121 s; a hung fetch held the job for up to 3,880 s (runs 43922274429, 43973045206).
+      # A reset fetch is tried once more: tick 45696501186's successor (2026-11-25 21:37Z) died in
+      # checkout on "curl 56 connection reset", and no tick promoted for another 30 minutes.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
+          fetch-depth: 150
+      - if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
         with:
           persist-credentials: false
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
@@ -81,13 +105,15 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_next_train_dispatch.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
       # (2026-10-26, run 40325957281, while /rate_limit showed thousands of calls left).
       # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits instead: until the
-      # reset when a budget reads exhausted, else 60, 120, 240, then 300 s, at most an hour
-      # per job, each wait logged. The first refusal also logs GitHub's message and the
+      # reset when a budget reads exhausted, else 60, 120, 240, then 300 s, at most
+      # GH_BUDGET_WAIT_MAX_SECONDS (the job's env) in all, each wait logged. The first refusal also logs GitHub's message and the
       # token's /rate_limit headers then, to name the limiter.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
@@ -106,8 +132,20 @@ jobs:
           MODE: drive
         run: |
           set -euo pipefail
-          gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
-            || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+          # The helper invokes gh workflow run nightly-next-train.yml twice at most and
+          # writes the receipt even when the second dispatch fails.
+          python3 .tick-tooling/scripts/ci/nightly_next_train_dispatch.py \
+            --repo "$GITHUB_REPOSITORY" --workflow nightly-next-train.yml \
+            --ref feat-cmux-next --mode "$MODE" --receipt nightly-next-train-dispatch.json
+
+      - name: Keep the nightly-next train dispatch receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-train-dispatch-${{ github.run_id }}
+          path: nightly-next-train-dispatch.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on

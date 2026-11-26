@@ -29,9 +29,9 @@ fn a_retry_of_a_start_whose_machine_was_made_for_it_still_says_so() {
     let retry = plan(&path, &on(&mine));
     assert_eq!(retry["machine"], "vm-new");
     assert_eq!(retry["ensured"]["created"], true, "{retry}");
-    // Another send of the workspace that planned onto it was not made for it.
+    // Another send of the workspace reuses that machine, but it was not made for that send.
     let other = plan(&path, &on(&key()));
-    assert_eq!(other["machine"], "vm-new");
+    assert_eq!(other["machine"], "vm-new", "{other}");
     assert_eq!(other["ensured"], Value::Null, "{other}");
     // A repick pins a machine the person chose: never made for the send.
     let picked = key();

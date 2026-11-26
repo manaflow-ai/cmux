@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
 use cmux_device_kind::DeviceKind;
-use cmux_device_kind::screen::{self, Screen};
+use cmux_device_kind::screen::{self, NoScreen, Screen};
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -114,10 +114,19 @@ pub(crate) struct Device {
     /// may run chats here in Full access. None for every other row, which has no such setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
+    /// An acpmux peer down a day or more (acpmux `parked`): offline, retried hourly. The CLI
+    /// adds how to remove it (`print_listing`); `detail` itself stays plain for every surface.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub parked: bool,
     /// What the Screen Sharing page offers for it (`cmux_device_kind::screen::offer`): View, or
     /// nothing with the reason. None for a row that is not a machine (a person's login).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screen: Option<Screen>,
+    /// The device hub's id of this machine's screen host, when the hub lists one: what a viewer
+    /// opens (`cmux tab new-mac-screen --device`), so a row that offers View names the screen it
+    /// opens. None when the hub lists none or was not read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hub_device: Option<String>,
 }
 
 /// Where an available computer was found.
@@ -241,11 +250,22 @@ fn fold_pools(available: Vec<(bool, Available)>) -> (Vec<(bool, Available)>, Vec
     (kept, counts.into_iter().map(|(stem, count)| Pool { stem, count }).collect())
 }
 
-/// What a peer down for over a day says: it is not failing now, it is gone.
-fn parked_detail(name: &str) -> String {
-    format!(
-        "Not reachable for over a day; tried again hourly. If it is gone for good: cmux device remove {name}"
-    )
+/// What a peer down for over a day says: it is not failing now, it is gone quiet, and the last
+/// reason it failed stays visible, since a failure that lasted a day may be one to fix. Plain
+/// for every surface: the CLI adds its own remove hint (`print_listing`).
+fn parked_detail(error: Option<&str>) -> String {
+    let base = "Not reachable for over a day; tried again hourly.";
+    match error.filter(|e| !acpmux_parking_line(e)) {
+        Some(reason) => format!("{base} Last error: {reason}"),
+        None => base.to_owned(),
+    }
+}
+
+/// acpmux's own words for a parked link (this build's, and an older build's frozen
+/// countdown), not a reason the link failed.
+fn acpmux_parking_line(error: &str) -> bool {
+    error.starts_with("peer unreachable for over a day")
+        || error.starts_with("peer unavailable; next automatic retry")
 }
 
 /// The person's ssh config alias for network computer `node`: one whose
@@ -305,7 +325,15 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         } else {
             State::Offline
         };
-        let device = peer_device(peer, &url, node);
+        let hub = hub_screen(peer);
+        let device = peer_device(peer, &url, node, hub.as_ref());
+        let os = node
+            .map(|n| n.os.clone())
+            .filter(|os| !os.is_empty())
+            .or_else(|| hub.as_ref().and_then(HubScreen::platform).map(str::to_owned));
+        let screen = hub_refusal(hub.as_ref(), device).map(|reason| Screen::None {
+            reason: if connected { reason } else { NoScreen::Offline },
+        });
         devices.push(Device {
             id: format!("peer:{name}"),
             name: name.clone(),
@@ -314,19 +342,21 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state,
-            os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
+            os,
             reach: node.map(|n| reach_of(n, net_name)),
             via: vec![Via::Peer { name: name.clone() }],
             added_at: None,
             detail: if parked {
-                Some(parked_detail(&name))
+                Some(parked_detail(error.as_deref()))
             } else if state == State::Error {
                 error
             } else {
                 None
             },
             full_access: None,
-            screen: None,
+            parked,
+            screen,
+            hub_device: hub.as_ref().and_then(HubScreen::id).map(str::to_owned),
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -369,7 +399,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             detail: None,
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
+            parked: false,
             screen: None,
+            hub_device: None,
         });
     }
     for row in sources.joined.as_array().map(Vec::as_slice).unwrap_or_default() {
@@ -397,7 +429,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             added_at: text(row, "createdAt"),
             detail: None,
             full_access: None,
+            parked: false,
             screen: None,
+            hub_device: None,
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -442,7 +476,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             ));
         }
     }
-    for d in &mut devices {
+    for d in devices.iter_mut().filter(|d| d.screen.is_none()) {
         d.screen = screen_of(d);
     }
     devices.sort_by(|a, b| {
@@ -551,7 +585,9 @@ fn login_row(
         added_at,
         detail,
         full_access: None,
+        parked: false,
         screen: None,
+        hub_device: None,
     }
 }
 
@@ -581,14 +617,93 @@ fn reported(record: &Value) -> Option<DeviceKind> {
 }
 
 /// An acpmux peer's kind: a Cloud machine (a `ws://`/`wss://` peer, as the app's location picker
-/// tells them apart) by its source; else what the peer reported in its health; else its OS.
-fn peer_device(peer: &Value, url: &str, node: Option<&NetworkNode>) -> DeviceKind {
+/// tells them apart) by its source; else what the peer reported in its health; else, for a
+/// machine only the mesh hub reaches (no health), what the device hub says of it (a Linux one
+/// sharing its screen is a Linux desktop); else its OS.
+fn peer_device(
+    peer: &Value,
+    url: &str,
+    node: Option<&NetworkNode>,
+    hub: Option<&HubScreen>,
+) -> DeviceKind {
     if url.starts_with("ws://") || url.starts_with("wss://") {
         return DeviceKind::Cloud;
     }
     reported(&peer["health"])
         .or_else(|| reported(peer))
+        .or_else(|| match hub {
+            Some(HubScreen::Listed { platform, shared: true, .. })
+                if platform.eq_ignore_ascii_case("linux") =>
+            {
+                Some(DeviceKind::LinuxDesktop)
+            }
+            _ => None,
+        })
         .unwrap_or_else(|| node.map_or(DeviceKind::Generic, |n| DeviceKind::from_os(&n.os)))
+}
+
+/// What the device hub says of the screen of a machine only the mesh hub reaches: acpmux's
+/// `deviceHub` on its `peers` row, read from the hub's device list (`GET /v1/devices`) by the
+/// share host. Absent when nothing read that list (no share host runs here).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HubScreen {
+    /// No device hub record has its name: no screen host signed in for it.
+    Absent,
+    /// Its record: its hub id (empty from an acpmux before it sent one), the platform it
+    /// registered as, and whether it shares its screen.
+    Listed { id: String, platform: String, shared: bool },
+}
+
+impl HubScreen {
+    fn platform(&self) -> Option<&str> {
+        match self {
+            HubScreen::Listed { platform, .. } if !platform.is_empty() => Some(platform),
+            _ => None,
+        }
+    }
+
+    fn id(&self) -> Option<&str> {
+        match self {
+            HubScreen::Listed { id, .. } if !id.is_empty() => Some(id),
+            _ => None,
+        }
+    }
+}
+
+/// A peer row's [`HubScreen`]: a mesh host's (`via: "hub"`) or, from an acpmux that sends it,
+/// an ssh peer's. None for a row with no `deviceHub` (no share host read the hub's list).
+fn hub_screen(peer: &Value) -> Option<HubScreen> {
+    let hub = &peer["deviceHub"];
+    match hub["listed"].as_bool()? {
+        false => Some(HubScreen::Absent),
+        true => Some(HubScreen::Listed {
+            id: text(hub, "id").unwrap_or_default(),
+            platform: text(hub, "platform").unwrap_or_default(),
+            shared: hub["screenShared"].as_bool() == Some(true),
+        }),
+    }
+}
+
+/// Why a machine whose kind says nothing, or a Linux desktop, has no screen to view, when the
+/// device hub tells: no screen host signed in, or a Linux one with sharing off. None leaves it
+/// to its kind and OS (`screen::offer`). A Linux desktop's View opens only the screen host the hub
+/// lists (`macScreen.open` refuses any other), so a row the hub lists none for says why instead
+/// of offering a View that opens nothing (a Linux desktop read "view" while no share could open it,
+/// 2026-11-23). A Mac keeps its View: cmux Remote's screen worker there may register under
+/// another name than the peer's.
+fn hub_refusal(hub: Option<&HubScreen>, device: DeviceKind) -> Option<NoScreen> {
+    if !matches!(device, DeviceKind::Generic | DeviceKind::LinuxDesktop) {
+        return None;
+    }
+    match hub? {
+        HubScreen::Absent => Some(NoScreen::NoScreenHost),
+        HubScreen::Listed { platform, shared: false, .. }
+            if platform.eq_ignore_ascii_case("linux") =>
+        {
+            Some(NoScreen::SharingOff)
+        }
+        HubScreen::Listed { .. } => None,
+    }
 }
 
 /// A pairing's kind: what the device reported, else its OS, else an iPhone for a phone pairing.

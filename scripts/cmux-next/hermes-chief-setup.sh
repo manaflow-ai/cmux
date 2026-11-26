@@ -3,18 +3,20 @@
 #
 # usage: scripts/cmux-next/hermes-chief-setup.sh [--switch]
 #
-# 1. Installs Hermes with its ACP extra when `hermes` is not on PATH
-#    (`uv tool install 'hermes-agent[acp]'`).
+# 1. Stops with the install steps when `hermes` is not on PATH: Hermes installs
+#    only with its own installer, Docker or Nix (it refuses to build a wheel, so
+#    `uv tool install` and pip fail).
 # 2. Checks its ACP server (`hermes acp --check`).
 # 3. Makes sure acpmux lists the `hermes` harness: a new acpmux finds `hermes`
-#    on PATH; an older one gets ~/.config/cmux/harnesses/hermes.toml, then
+#    on PATH; an older one gets ~/.config/cmux/harnesses/hermes.toml (cmux-next on macOS), then
 #    `acpmux harness reload`.
 # 4. With --switch: sends Hermes one prompt (proof its provider and model
 #    work), then runs `optchat-chief engine set --harness hermes`.
 #
-# The script never picks a provider, types a key or signs in. Do that once
-# with `hermes model` (an API key such as OpenRouter or Anthropic, or a
-# provider sign-in such as Nous Portal), then run this script with --switch.
+# The Chief runs Hermes from its own home ($MUX_HOME/optchat/brains/hermes,
+# written at each Chief start): models through the team gateway, Hermes' own
+# cron, memory and logins off. Your own ~/.hermes is not used for Chief turns.
+# The --switch check below uses your own Hermes setup (`hermes model`).
 # Switch back with `optchat-chief engine set --harness claude`.
 set -euo pipefail
 
@@ -34,15 +36,17 @@ chief="$(command -v optchat-chief || true)"
 [[ -n "$chief" ]] || chief="$app_bin/optchat-chief"
 
 if ! command -v hermes >/dev/null 2>&1; then
-  command -v uv >/dev/null 2>&1 || { echo "Install uv first: https://docs.astral.sh/uv/" >&2; exit 1; }
-  echo "Installing Hermes Agent with ACP support..."
-  uv tool install 'hermes-agent[acp]'
+  echo "Hermes Agent is not installed. Install it with its official installer, then run this again:" >&2
+  echo "  https://hermes-agent.nousresearch.com/docs/getting-started/installation" >&2
+  exit 1
 fi
 echo "Hermes: $(hermes --version 2>&1 | head -1)"
 hermes acp --check
 
 if ! "$acpmux" harness list 2>/dev/null | grep -qE '^hermes[[:space:]]'; then
-  dir="${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses"
+  # cmux NEXT's config folder is `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+  next_dir=cmux; [[ "$(uname -s)" == Darwin ]] && next_dir=cmux-next
+  dir="${XDG_CONFIG_HOME:-$HOME/.config}/$next_dir/harnesses"
   mkdir -p "$dir"
   if [[ ! -e "$dir/hermes.toml" ]]; then
     cat > "$dir/hermes.toml" <<'EOF'

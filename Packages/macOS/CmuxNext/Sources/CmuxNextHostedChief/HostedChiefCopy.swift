@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -20,6 +21,8 @@ final class HostedChiefCopy {
     struct HTTP {
         let base: URL
         let token: @MainActor () async throws -> String
+        /// Headers every request carries besides the bearer: a tagged dev build's `X-Cmux-Build-Space`.
+        var headers: [String: String] = [:]
 
         /// The status and the decoded JSON object (empty when the body is not one).
         func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> (status: Int, json: [String: Any]) {
@@ -39,8 +42,9 @@ final class HostedChiefCopy {
             request.timeoutInterval = 60
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await token())", forHTTPHeaderField: "authorization")
+            for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
             request.httpBody = data
-            let (reply, response) = try await URLSession.shared.data(for: request)
+            let (reply, response) = try await CmuxEgress.shared(site: "CmuxNextHostedChief.HostedChiefCopy").data(for: request)
             return ((response as? HTTPURLResponse)?.statusCode ?? 0, reply)
         }
 

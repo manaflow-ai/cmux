@@ -58,3 +58,25 @@ struct DaemonDiagnosticKnobsTests {
         #expect(DaemonDiagnosticKnobs(processEnvironment: ["CMUX_TRACE_FLOWS": "/tmp/x"]).daemonEnvironment.isEmpty)
     }
 }
+
+/// The user: "prevent the Chief conversation process from talking to the nightly's backend space in dev builds".
+/// The Chief owner's filtered environment keeps the build's cloud space, so its conversations, automations and
+/// hands go to the dev build's own space; another build's identity still never reaches it.
+struct ChiefOwnerBuildSpaceEnvironmentTests {
+    @Test func theChiefOwnerKeepsTheBuildsSpace() {
+        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_BUILD_SPACE": "dev:my-tag",
+                                                           "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.my-tag",
+                                                           "CMUX_SOCKET_PATH": "/tmp/x.sock"])
+        #expect(environment["CMUX_BUILD_SPACE"] == "dev:my-tag")
+        #expect(environment["CMUX_BUNDLE_ID"] == nil)
+        #expect(environment["CMUX_SOCKET_PATH"] == nil)
+    }
+
+    @Test func aRefusingValueReachesTheChiefOwnerToo() {
+        #expect(DaemonLauncher.chiefEnvironment(["CMUX_BUILD_SPACE": "unusable"])["CMUX_BUILD_SPACE"] == "unusable")
+    }
+
+    @Test func nightlysChiefOwnerGetsNoSpace() {
+        #expect(DaemonLauncher.chiefEnvironment(["HOME": "/h"])["CMUX_BUILD_SPACE"] == nil)
+    }
+}

@@ -226,11 +226,21 @@ public nonisolated enum TabTunables {
         default: .full, code: "TabTunables.hoverPreviews")
     // @intent Leo 2026-11-07 asked whether the card should "morph together with the tab" ("goo ...
     // that water surface tension thing"): the three entrances side by side in the tab bar
-    // playground's Hover Card page; the card grows out of its tab by default.
+    // playground's Hover Card page. The card fades in where it rests by default: grown out of its tab
+    // it first drew a sliver over the tab's lower edge, then dropped and widened to its size, which
+    // read as a bounce (Leo 2026-11-18, a recording of the pointer resting on a tab: "the hover
+    // preview bounces for some reason"). Growing out of the tab stays an arm here.
     public static let hoverCardEntrance = Tunable<HoverCardEntrance>.choice(
         "tabs.hoverCardEntrance", .tabs, "Tab hover card entrance",
         help: "How a tab's hover card first shows: a fade, a fade and slide, or growing out of its tab.",
-        default: .morph, code: "TabTunables.hoverCardEntrance")
+        default: .fade, code: "TabTunables.hoverCardEntrance")
+    // @intent Leo 2026-11-18, "the hover preview bounces for some reason": the card slid and eased from tab
+    // to tab (the glide, Lawrence 2026-11-15 msg 34360). It switches in place by default; the three moves
+    // side by side in the tab bar playground's Hover Card page.
+    public static let hoverCardRetarget = Tunable<HoverCardRetarget>.choice(
+        "tabs.hoverCardRetarget", .tabs, "Tab hover card retarget",
+        help: "How a tab's hover card moves to the next tab: switched in place, switched with its content crossfading, or gliding.",
+        default: .jump, code: "TabTunables.hoverCardRetarget")
     /// Debug-only loading transition prototypes. Instant is the production
     /// default until one of the variants is selected for dogfood.
     public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
@@ -262,6 +272,7 @@ public nonisolated enum TabTunables {
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, hoverCardRetarget.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+            + GooTunables.all // the gooey tabs' knobs, a section per level (plans/cmux-next/gooey-tabs.md, "Knobs")
     }
 }

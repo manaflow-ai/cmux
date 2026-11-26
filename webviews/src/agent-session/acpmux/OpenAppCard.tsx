@@ -35,7 +35,7 @@ export function OpenAppCard({ enabled = true, ports: suppliedPorts, onOpen }: Pr
         <div className="acpmux-open-app-card" key={app.port}>
           <div className="acpmux-open-app-card__copy">
             <strong>{t("cloudPreview.openApp")}</strong>
-            <span className={errors[app.port] ? "acpmux-open-app-card__error" : undefined} title={errors[app.port]}>
+            <span className={errors[app.port] ? "acpmux-open-app-card__error" : undefined}>
               {errors[app.port] || (
                 <>
                   {t("cloudPreview.port", { port: app.port })}
@@ -50,17 +50,19 @@ export function OpenAppCard({ enabled = true, ports: suppliedPorts, onOpen }: Pr
             disabled={opening === app.port}
             onClick={() => void open(app.port)}
           >
+            {/* A failed open keeps Open, not "Retry": the click opens a browser tab, which is the person's
+                own act, and the error line above says what went wrong (Leo, 2026-11-22: no vacuous
+                "try again"). */}
             {(
               [
                 ["open", t("cloudPreview.open")],
                 ["opening", t("cloudPreview.opening")],
-                ["retry", t("cloudPreview.retry")],
               ] as const
             ).map(([state, label]) => (
               <span
                 key={state}
                 className="acpmux-open-app-card__button-label"
-                aria-hidden={state !== (opening === app.port ? "opening" : errors[app.port] ? "retry" : "open")}
+                aria-hidden={state !== (opening === app.port ? "opening" : "open")}
               >
                 {label}
               </span>

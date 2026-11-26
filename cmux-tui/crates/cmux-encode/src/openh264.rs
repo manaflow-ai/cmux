@@ -185,6 +185,8 @@ pub struct OpenH264 {
     /// The instance codes with screen usage now (else camera usage).
     screen: bool,
     motion: MotionGuard,
+    /// Why the last frame was an IDR nobody asked for (see [`H264Encoder::idr_cause`]).
+    idr_cause: Option<&'static str>,
 }
 
 /// Screen usage turns OpenH264's scene-change detection on whatever the settings say
@@ -254,6 +256,8 @@ pub struct OpenH264Options {
     /// 0 low (the default), 1 medium, 2 high.
     pub complexity: u8,
     pub min_qp: Option<u8>,
+    /// Camera usage's finest quantizer when `min_qp` is unset (see [`qp_range`]).
+    pub camera_min_qp: u8,
     pub max_qp: Option<u8>,
     pub adaptive_quant: bool,
     pub background_detection: bool,
@@ -275,9 +279,27 @@ pub enum Usage {
     Switch,
 }
 
-/// The shipped usage and long-term references for screen content.
+/// The shipped usage and long-term references for screen content (the Windows host, tests;
+/// the Linux host codes in [`LINUX_HOST_USAGE`]).
 pub const SHIPPED_USAGE: Usage = Usage::Switch;
 pub const SHIPPED_LTR: u8 = 0;
+
+/// The Linux host's usage for screen content: camera usage throughout. Screen usage's
+/// feature motion search cost a 1080p frame 3.7x camera usage's encode time on the same
+/// four cores (cmux#51662: page/scroll/drag/typing p50 6.8/9.1/7.9/6.4 ms against
+/// 1.8/2.0/1.6/1.5), up to 6.3x x264 ultrafast's, the Linux host's floor; camera usage is
+/// within 1.6x of it. The host's `CMUX_RD_OPENH264_USAGE=screen|switch` codes as before.
+pub const LINUX_HOST_USAGE: Usage = Usage::Camera;
+
+/// The Linux host's finest camera-usage quantizer. At OpenH264's 12 camera usage spent its
+/// bits making the unchanged text sharper than the eye reads (shown frames 52.6 dB on typing)
+/// and then skipped or ran late on the next line feed: codec-bench typing, 4 threads, median
+/// of seeds 1-3, on-time 24.1 fps and p95 latency 95 ms at 0 % loss, 22.3 fps and 119 ms at
+/// 2 %. At 24: 28.4 fps and 70 ms, 27.8 fps and 80 ms, with 40 % fewer bits (3.7 to 2.2
+/// Mbit/s), and what the viewer sees (screen PSNR-Y) the same or better in every scene (drag
+/// 37.1 to 40.9 dB, scroll 21.7 to 23.9, page 20.1 to 19.7). Shown frames still read 42.9 dB,
+/// above screen usage's 40.0. Frame skipping was not it: `frameskip=0` coded the same ticks.
+pub const LINUX_HOST_CAMERA_MIN_QP: u8 = 24;
 
 impl Default for OpenH264Options {
     fn default() -> Self {
@@ -288,6 +310,7 @@ impl Default for OpenH264Options {
             load_balancing: false,
             complexity: 0,
             min_qp: None,
+            camera_min_qp: CAMERA_MIN_QP,
             max_qp: None,
             adaptive_quant: false,
             background_detection: false,
@@ -298,9 +321,20 @@ impl Default for OpenH264Options {
 }
 
 impl OpenH264Options {
+    /// The Linux host's shipped settings: the default with [`LINUX_HOST_USAGE`] and
+    /// [`LINUX_HOST_CAMERA_MIN_QP`].
+    pub fn linux_host() -> Self {
+        Self { usage: LINUX_HOST_USAGE, camera_min_qp: LINUX_HOST_CAMERA_MIN_QP, ..Self::default() }
+    }
+
     /// Reads `key=value` pairs, comma separated, over the default.
     pub fn parse(s: &str) -> Res<Self> {
-        let mut o = Self::default();
+        Self::parse_over(Self::default(), s)
+    }
+
+    /// Reads `key=value` pairs, comma separated, over `base`.
+    pub fn parse_over(base: Self, s: &str) -> Res<Self> {
+        let mut o = base;
         for pair in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let (k, v) =
                 pair.split_once('=').ok_or(format!("openh264 options: {pair} is not key=value"))?;
@@ -312,6 +346,7 @@ impl OpenH264Options {
                 "lb" => o.load_balancing = num()? != 0,
                 "complexity" => o.complexity = num()?.min(2) as u8,
                 "minqp" => o.min_qp = Some(num()?.min(51) as u8),
+                "cameraminqp" => o.camera_min_qp = num()?.min(51) as u8,
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
                 "aq" => o.adaptive_quant = num()? != 0,
                 "bgd" => o.background_detection = num()? != 0,
@@ -352,6 +387,9 @@ impl OpenH264Options {
         if let Some(q) = self.max_qp {
             s.push(format!("maxqp={q}"));
         }
+        if self.camera_min_qp != d.camera_min_qp {
+            s.push(format!("cameraminqp={}", self.camera_min_qp));
+        }
         if self.adaptive_quant {
             s.push("aq=on".into());
         }
@@ -387,6 +425,7 @@ impl OpenH264 {
             opts: opts.clone(),
             screen: cfg.screen_content && opts.usage != Usage::Camera,
             motion: MotionGuard::default(),
+            idr_cause: None,
         };
         this.rebuild(this.screen)?;
         Ok(this)
@@ -540,10 +579,11 @@ unsafe fn init(
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
     p.bEnableAdaptiveQuant = opts.adaptive_quant;
-    if let Some(q) = opts.min_qp {
+    let (min_qp, max_qp) = qp_range(opts, screen);
+    if let Some(q) = min_qp {
         p.iMinQp = c_int::from(q);
     }
-    if let Some(q) = opts.max_qp {
+    if let Some(q) = max_qp {
         p.iMaxQp = c_int::from(q);
     }
     p.bEnableSceneChangeDetect = false;
@@ -558,6 +598,16 @@ unsafe fn init(
     l.iMaxSpatialBitrate = bitrate;
     l.uiProfileIdc = PRO_BASELINE;
     l.uiLevelIdc = LEVEL_UNKNOWN;
+    // The VUI says what the pictures are (crate::color::SCREEN), so a viewer converts them
+    // back with the same matrix and range instead of guessing.
+    let color = crate::color::SCREEN;
+    l.bVideoSignalTypePresent = true;
+    l.uiVideoFormat = 5; // unspecified
+    l.bFullRange = color.full_range;
+    l.bColorDescriptionPresent = true;
+    l.uiColorPrimaries = color.primaries;
+    l.uiTransferCharacteristics = color.transfer;
+    l.uiColorMatrix = color.matrix;
     let slices = opts.slices.unwrap_or(threads).max(1);
     if slices > 1 {
         l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
@@ -584,6 +634,27 @@ unsafe fn init(
     Ok(())
 }
 
+/// Camera usage's quantizer range (the Linux host's low end is [`LINUX_HOST_CAMERA_MIN_QP`]): OpenH264's own low end, and H.264's coarsest step at the top.
+pub const CAMERA_MIN_QP: u8 = 12;
+pub const CAMERA_MAX_QP: u8 = 51;
+
+/// The quantizer range an instance is initialized with (`None`: OpenH264's choice).
+///
+/// Screen usage keeps OpenH264's 26-35, so text stays sharp. Camera usage (full-screen motion,
+/// [`MOTION_CHANGE`]) gets [`CAMERA_MIN_QP`]-[`CAMERA_MAX_QP`] instead of OpenH264's 12-42:
+/// it applies 12-42 whenever either bound is unset. At 42 a 1080p frame of full-screen motion
+/// still costs ~150 KB, so at a 50 Mbit/s target the rate controller could only hold its rate by
+/// skipping every third frame: 43 fps, and a key press whose frame was skipped waited a frame
+/// longer (screen stream eval, lan 0 %: 37.5 fps and 38 ms p50 against 60 fps and 13 ms for an
+/// H.264 relay). Up to 51 it codes each frame coarser instead and keeps the frame rate. The
+/// bench's `minqp=`/`maxqp=` options win over both.
+fn qp_range(opts: &OpenH264Options, screen: bool) -> (Option<u8>, Option<u8>) {
+    if screen {
+        return (opts.min_qp, opts.max_qp);
+    }
+    (Some(opts.min_qp.unwrap_or(opts.camera_min_qp)), Some(opts.max_qp.unwrap_or(CAMERA_MAX_QP)))
+}
+
 /// A new instance's first frame (the share's start keyframe, or the one after a usage move)
 /// codes with frame skipping off, so its bits never enter the skip buffer. OpenH264 v2.6.0
 /// codes a new instance's first IDR at one QP from a bits-per-pixel table (RcCalculateIdrQp),
@@ -597,6 +668,16 @@ unsafe fn init(
 /// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
 /// on a running instance (the viewer's recovery after loss) keeps skipping as before: it
 /// comes on a lossy link, where frames skipped after it are bits the link can't carry.
+/// Why a coded frame is an IDR the caller did not force: a new instance's first frame (a
+/// usage move rebuilt the encoder), else the encoder's own scene-change decision.
+fn unasked_idr_cause(idr: bool, force_idr: bool, fresh: bool) -> Option<&'static str> {
+    match (idr && !force_idr, fresh) {
+        (false, _) => None,
+        (true, true) => Some("usage_switch"),
+        (true, false) => Some("scene_change"),
+    }
+}
+
 fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
     opts.frame_skip && fresh
 }
@@ -604,6 +685,8 @@ fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
+        // A skipped or failed frame keeps no earlier frame's cause.
+        self.idr_cause = None;
         self.pick_usage(pic);
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;
@@ -655,6 +738,7 @@ impl H264Encoder for OpenH264 {
         let idr = info.eFrameType == videoFrameTypeIDR;
         // A new instance's first IDR is the move's, not a scene change's.
         self.motion.self_idr = self.screen && idr && !force_idr && !self.motion.fresh;
+        self.idr_cause = unasked_idr_cause(idr, force_idr, self.motion.fresh);
         self.motion.fresh = false;
         Ok(idr)
     }
@@ -716,6 +800,14 @@ impl H264Encoder for OpenH264 {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn constrained_baseline(&self) -> bool {
+        true
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.idr_cause
     }
 }
 
@@ -830,6 +922,11 @@ mod bitrate_tests {
 pub struct OpenH264Decoder {
     api: OpenH264Api,
     dec: *mut ISVCDecoder,
+    /// The conversion the last SPS's VUI asks for (untagged until the first SPS).
+    color: crate::color::Yuv,
+    /// Refuses a High-profile stream, which OpenH264 decodes to wrong pictures with no error
+    /// (cmux#50591).
+    gate: crate::h264_profile::ProfileGate,
 }
 
 // SAFETY: the decoder instance is used from one thread at a time (owned by the viewer's loop).
@@ -843,7 +940,7 @@ impl OpenH264Decoder {
         if dec.is_null() {
             return Err("openh264 WelsCreateDecoder returned no decoder".into());
         }
-        let this = Self { api, dec };
+        let this = Self { api, dec, color: crate::color::UNTAGGED.yuv(), gate: Default::default() };
         // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
         let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
         param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
@@ -889,6 +986,10 @@ impl Drop for OpenH264Decoder {
 
 impl crate::VideoDecoder for OpenH264Decoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
+        if let Some(vui) = crate::color::sps_vui(au) {
+            self.color = vui.yuv();
+        }
+        self.gate.check(au)?;
         let decode =
             self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
         let mut planes = [std::ptr::null_mut::<u8>(); 3];
@@ -936,6 +1037,10 @@ impl crate::VideoDecoder for OpenH264Decoder {
     fn name(&self) -> String {
         "openh264 decoder".into()
     }
+
+    fn color(&self) -> crate::color::Yuv {
+        self.color
+    }
 }
 
 #[cfg(all(test, feature = "openh264-source"))]
@@ -975,5 +1080,40 @@ mod decoder_tests {
         assert_eq!((out.width, out.y.len()), (w, w * h));
         let err: u64 = out.y.iter().zip(&src.y).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
         assert!(err / (w * h) as u64 <= 8, "mean luma error {}", err / (w * h) as u64);
+    }
+}
+
+#[cfg(all(test, feature = "openh264-source"))]
+mod linux_host_tests {
+    use super::*;
+
+    /// The Linux host codes screen content in camera usage, says so in its name, and
+    /// `usage=screen` over its settings (the host's toggle) codes in screen usage again.
+    #[test]
+    fn linux_host_codes_in_camera_usage_and_toggles_back_to_screen() {
+        let cfg =
+            EncCfg { width: 64, height: 64, fps: 30, kbps: 500, threads: 1, screen_content: true };
+        let host = OpenH264Options::linux_host();
+        assert_eq!(host.usage, Usage::Camera);
+        let enc = OpenH264::with_options(&cfg, OpenH264Api::from_source(), &host).expect("encoder");
+        assert!(enc.name().contains("camera-realtime"), "{}", enc.name());
+        assert!(enc.name().ends_with("usage=camera"), "{}", enc.name());
+        assert_eq!(host.camera_min_qp, LINUX_HOST_CAMERA_MIN_QP);
+        assert_eq!(qp_range(&host, false), (Some(LINUX_HOST_CAMERA_MIN_QP), Some(CAMERA_MAX_QP)));
+        assert_eq!(qp_range(&OpenH264Options::default(), false).0, Some(CAMERA_MIN_QP));
+        let screen = OpenH264Options::parse_over(host, "usage=screen").expect("parse");
+        assert_eq!(
+            screen,
+            OpenH264Options {
+                usage: Usage::Screen,
+                camera_min_qp: LINUX_HOST_CAMERA_MIN_QP,
+                ..OpenH264Options::default()
+            }
+        );
+        // Screen usage keeps OpenH264's own range.
+        assert_eq!(qp_range(&screen, true), (None, None));
+        let enc =
+            OpenH264::with_options(&cfg, OpenH264Api::from_source(), &screen).expect("encoder");
+        assert!(enc.name().contains("screen-realtime"), "{}", enc.name());
     }
 }

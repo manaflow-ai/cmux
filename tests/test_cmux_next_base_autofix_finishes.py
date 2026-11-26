@@ -80,8 +80,12 @@ class BaseAutofixFinishes(unittest.TestCase):
     def test_a_deferred_run_is_not_red(self):
         # While the Mac runners are saturated most runs defer, and base-red-watch would blame each red one
         # on whoever pushed. A deferred run ends green and names the run that carries its exports.
-        self.assertNotIn("action-areas", DOC["jobs"]["autofix"]["needs"])
+        # autofix reads mac_busy only for the own-exports marker (base-autofix-since.sh), whose upload cannot fail
+        # the job; every repair runs whether or not the run deferred.
         for step in DOC["jobs"]["autofix"]["steps"]:
+            if "own-exports marker" in str(step.get("name", "")):
+                self.assertTrue(step.get("run") or step.get("continue-on-error") is True, step)
+                continue
             self.assertNotIn("mac_busy", str(step.get("if", "")))
         job = DOC["jobs"]["mac-exports-deferred"]
         self.assertEqual(job["name"], "Mac exports deferred")
@@ -451,9 +455,10 @@ class BaseAutofixFinishes(unittest.TestCase):
         # 2026-10-21: a push to feat-cmux-next added a test target without the graph (Tier routing red on
         # every PR) and the graph landed 90 minutes later: autofix, which made it, needed the Mac exports
         # job, 12-15 minutes in the owned queue and 15-26 running, and two of those runs' repairs were
-        # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
+        # held. The graph is made on Linux from the manifest alone, so its own job needs only the batch
+        # window (one Linux read, cmux#49308), never the Mac exports.
         job = DOC["jobs"]["target-graph"]
-        self.assertNotIn("needs", job)
+        self.assertIn(job.get("needs", "window"), ("window", ["window"]))
         cells = workflow_jobs.runs_on_cells(job)
         self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
         self.assertTrue(cells)
@@ -566,65 +571,88 @@ sys.exit(subprocess.run(["jq", "-r", jq], input=json.dumps(body), text=True).ret
         self.assertEqual(self.mac_busy({7: [("action exports (Mac)", "completed")]},
                                        self_run=9, older_only=True), "mac_busy=false\n")
 
-    def since(self, runs: list[tuple[int, str, list[tuple[str, str]] | None]], fail: bool = False) -> str:
-        """Runs base-autofix-since.sh with a gh stand-in: `runs` lists successful runs, newest first, as
-        (id, head sha, its (job, conclusion) list, or None when its jobs cannot be read)."""
+    def since(self, runs: list[tuple[int, str, bool]], fail: str = "", markers: list[int] | None = None
+              ) -> tuple[str, list[str]]:
+        """Runs base-autofix-since.sh with a gh stand-in. `runs` lists successful push runs, newest first, as (id,
+        head sha, whether its autofix job uploaded the own-exports marker); `markers` overrides the marker listing;
+        `fail` names a listing ("runs", "artifacts" or "all") that fails. Returns its output and the calls made."""
         work = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(work)])
         (work / "bin").mkdir()
         data = work / "runs.json"
-        data.write_text(json.dumps(runs))
+        data.write_text(json.dumps({"runs": runs, "markers": markers}))
+        log = work / "calls.log"
         gh = work / "bin/gh"
         gh.write_text(f"""#!/usr/bin/env python3
-import json, re, sys
-if {fail!r}:
-    sys.exit(1)
-runs = json.load(open({str(data)!r}))
+import json, sys
+data = json.load(open({str(data)!r}))
 path = sys.argv[2]
-m = re.search(r"/runs/(\\d+)/jobs", path)
-if m:
-    jobs = next(j for i, _, j in runs if str(i) == m.group(1))
-    if jobs is None:
+open({str(log)!r}, "a").write(path + "\\n")
+fail = {fail!r}
+if "/artifacts?" in path:
+    if fail in ("artifacts", "all"):
         sys.exit(1)
-    assert 'all(.jobs[]; .conclusion == "skipped")' in sys.argv[sys.argv.index("--jq") + 1], sys.argv
-    print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success")
-          + (1 if jobs and all(c == "skipped" for _, c in jobs) else 0))
-else:
+    assert "name=base-autofix-own-exports" in path, path
+    ids = data["markers"] if data["markers"] is not None else [i for i, _, own in data["runs"] if own]
+    for i in ids:
+        print(i)
+elif "/workflows/cmux-next-base-autofix.yml/runs?" in path:
+    if fail in ("runs", "all"):
+        sys.exit(1)
     assert "status=success" in path and "event=push" in path, path
-    for i, sha, _ in runs:
+    for i, sha, _ in data["runs"]:
         print(i, sha)
+else:
+    sys.exit(1)  # nothing else is a listing this script needs
 """)
         gh.chmod(0o755)
         done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-since.sh")], capture_output=True,
                               text=True, env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"})
         self.assertEqual(done.returncode, 0, done.stderr)
-        return done.stdout
+        return done.stdout, (log.read_text().splitlines() if log.exists() else [])
 
     def test_since_is_the_newest_successful_run_that_made_its_own_exports(self):
-        deferred = [("action export areas", "success"), ("Mac exports deferred", "success")]
-        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
-        self.assertEqual(self.since([(9, "c" * 40, deferred), (8, "b" * 40, deferred), (7, "a" * 40, made)]),
+        # A run that made its own exports (or had none to make) uploads the marker from its autofix job; a run that
+        # deferred them, and the run of the bot's own repair push (every job skipped), upload none.
+        self.assertEqual(self.since([(9, "c" * 40, False), (8, "b" * 40, False), (7, "a" * 40, True)])[0],
                          "a" * 40 + "\n")
-        self.assertEqual(self.since([(9, "c" * 40, made), (8, "b" * 40, deferred)]), "c" * 40 + "\n")
-        # A run with no Mac areas at all made nothing to defer.
-        self.assertEqual(self.since([(9, "c" * 40, [("action export areas", "success")])]), "c" * 40 + "\n")
+        self.assertEqual(self.since([(9, "c" * 40, True), (8, "b" * 40, False)])[0], "c" * 40 + "\n")
 
-    def test_since_passes_the_run_of_its_own_repair_push(self):
-        # An App-token repair push starts this workflow again; every job skips it (No loop), and that
-        # run must not move "since" past a human push whose run failed or still runs.
-        skipped = [("action export areas", "skipped"), ("CI target graph", "skipped"),
-                   ("autofix feat-cmux-next", "skipped")]
-        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
-        self.assertEqual(self.since([(9, "c" * 40, skipped), (7, "a" * 40, made)]), "a" * 40 + "\n")
+    def test_since_reads_two_listings_however_many_runs_deferred(self):
+        # 2026-11-22 01:14Z: all 30 listed runs had deferred, and each lookup read every run's jobs (31 GITHUB_TOKEN
+        # calls, twice a run) to print nothing. The marker listing names the runs that made their own exports.
+        runs = [(100 - n, f"{n:040x}", False) for n in range(30)]
+        out, calls = self.since(runs)
+        self.assertEqual(out, "")
+        self.assertEqual(len(calls), 2, calls)
+        out, calls = self.since(runs[:-1] + [(70, "f" * 40, True)])
+        self.assertEqual((out, len(calls)), ("f" * 40 + "\n", 2), calls)
 
-    def test_since_passes_a_run_whose_jobs_cannot_be_read(self):
-        self.assertEqual(self.since([(9, "c" * 40, None), (7, "a" * 40, [])]), "a" * 40 + "\n")
+    def test_since_ignores_a_marker_of_a_run_that_did_not_succeed(self):
+        # The marker is uploaded before the run ends: a run that failed after it is not in the success listing.
+        self.assertEqual(self.since([(9, "c" * 40, False), (7, "a" * 40, True)], markers=[11, 10, 7])[0],
+                         "a" * 40 + "\n")
 
     def test_since_is_empty_when_no_run_qualifies_or_github_cannot_be_read(self):
-        # The caller then runs every repair.
-        self.assertEqual(self.since([(9, "c" * 40, [("Mac exports deferred", "success")])]), "")
-        self.assertEqual(self.since([]), "")
-        self.assertEqual(self.since([(7, "a" * 40, [])], fail=True), "")
+        # The caller then runs every repair: a missing marker or an unread listing only widens the range.
+        self.assertEqual(self.since([(9, "c" * 40, False)])[0], "")
+        self.assertEqual(self.since([])[0], "")
+        for fail in ("runs", "artifacts", "all"):
+            with self.subTest(fail=fail):
+                self.assertEqual(self.since([(7, "a" * 40, True)], fail=fail)[0], "")
+
+    def test_only_a_run_that_kept_its_exports_uploads_the_marker(self):
+        # The marker's condition is the deferred job's, negated (mac-exports-deferred): autofix already skips the
+        # bot's own repair push and a cancelled run.
+        autofix = DOC["jobs"]["autofix"]
+        self.assertIn("action-areas", autofix["needs"])
+        (step,) = [s for s in autofix["steps"] if (s.get("with") or {}).get("name") == "base-autofix-own-exports"]
+        condition = re.sub(r"\s+", " ", str(step.get("if")))
+        self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", condition)
+        self.assertIn("needs.pushed-exports.outputs.deferred != 'true'", condition)
+        # A run its batch window held (cmux#49308) skips autofix, so it uploads no marker and "since" passes it.
+        self.assertIn("window", autofix["needs"])
+        self.assertIn("needs.window.outputs.run == 'true'", re.sub(r"\s+", " ", str(autofix["if"])))
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]

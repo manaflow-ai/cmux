@@ -77,6 +77,15 @@ elif [[ "${1:-}" == --nightly ]]; then
   bench_label=", nightly ($CMUX_NIGHTLY_NEXT_SWIFT_DEFINES)"
   shift
 fi
+if [[ "${1:-}" == --function-timings ]]; then
+  # Disposable explorer instrumentation: opt in after --nightly/--bench-hooks.
+  # Keep the complete compiler output as a fleet artifact, including sub-200ms bodies.
+  swift_other_flags+=' -Xfrontend -debug-time-function-bodies'
+  export CMUX_SWIFT_TYPECHECK_DIAGNOSTICS=1
+  export CMUX_BUILD_METRICS_DIR="$repo_root/.build/swift-function-timings"
+  echo "check-release-compile: full function-body type-check timing enabled"
+  shift
+fi
 if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
   # Keep the threshold high enough for a focused profile: the emitted warnings
   # identify the functions and expressions worth fixing without changing the
@@ -92,6 +101,10 @@ fi
 kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
+  kept_path=1
+elif [[ -n "${CMUX_DERIVED_DATA_SLOT:-}" ]]; then
+  # The runner's per-stream DerivedData slot (glaeda disk registry): kept, never removed.
+  derived_data="$CMUX_DERIVED_DATA_SLOT"
   kept_path=1
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-release-compile.XXXXXX")"
@@ -149,9 +162,10 @@ build() {
     log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
   fi
   "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-    xcodebuild -scheme CmuxNextApp -configuration Release \
+    xcodebuild -skipPackagePluginValidation -scheme CmuxNextApp -configuration Release \
     -destination 'generic/platform=macOS' \
     -derivedDataPath "$derived_data" \
+    ${package_update_args[@]+"${package_update_args[@]}"} \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
     OTHER_SWIFT_FLAGS="$swift_other_flags" \
@@ -160,12 +174,24 @@ build() {
   return "${PIPESTATUS[0]}"
 }
 SECONDS=0
+# -skipPackageUpdates once the guard resolved every pin from the kept packages
+# (xcode_binary_module_guard_offline): the build then asks github.com for nothing.
+package_update_args=()
+# The job's token for github.com package fetches (CMUX_GITHUB_GIT_TOKEN, the
+# workflow passes github.token): anonymous ones share the office's per-address
+# limit (scripts/ci/swiftpm-binary-module-guard.sh, github_git_auth_env).
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
+github_git_auth_env
 if (( kept_path )); then
   # A binary target's headers changed since the last build there: build cold
   # (scripts/ci/swiftpm-binary-module-guard.sh, xcode_binary_module_guard).
-  # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
-  source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
-  xcode_binary_module_guard "$repo_root/Packages/macOS/CmuxNext" "$derived_data" -scheme CmuxNextApp
+  xcode_binary_module_guard "$repo_root/Packages/macOS/CmuxNext" "$derived_data" -scheme CmuxNextApp || {
+    guard_status=$?
+    echo "${0##*/}: the packages did not resolve (exit $guard_status); no build ran" >&2
+    exit "$guard_status"
+  }
+  [[ "${xcode_binary_module_guard_offline:-0}" != 1 ]] || package_update_args=(-skipPackageUpdates)
 fi
 status=0
 build || status=$?

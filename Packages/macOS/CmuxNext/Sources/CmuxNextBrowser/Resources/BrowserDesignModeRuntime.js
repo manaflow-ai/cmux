@@ -108,6 +108,29 @@
   // Exclusive interaction modes: "select" picks elements, "draw" captures
   // freehand regions. Never both at once.
   let interactionMode = "select";
+
+  // Comments (cmux-next; David Beyer 2026-11-20: "I like the way Codex does it ... if I wanna do a
+  // lot of them, this would be visually messy"). A click opens one small comment bubble under the
+  // element, with no buttons: Return adds the pick with its comment, Shift-Return is a new line,
+  // Escape drops it. An added pick keeps a numbered pin; clicking it again edits its comment, and
+  // Delete on an emptied comment removes it. Only added picks are in snapshots, so the chat gets
+  // one card per pick, once, with its comment.
+  const maxCommentCharacters = 2000;
+  // The bubble's words, in the app's language (`configure`); English until then.
+  let strings = {
+    placeholder: "Add a comment", add: "Return to add", save: "Return to save",
+    send: "Command-Return to send to agent", sending: "Sending…", sent: "Sent", answered: "Agent replied",
+    failed: "Not answered", resolve: "Resolve",
+  };
+  // Comment threads (diff-comments-threads-v1): when the workspace's agent chat keeps them, Command-Return
+  // in a bubble adds the pick and asks the app to send it to the agent at once
+  // (`send_requested`), and the pick's thread card next to its pin shows "Sent", then the agent's
+  // reply, with Resolve (`thread_resolve`). Both are posted only for a real key or click. Off, the
+  // pick goes to the chat composer as a chip, as before.
+  let sendAvailable = false;
+  const maxReplyCharacters = 8000;
+  // The pick whose bubble is open: `{ reference, isNew }`, or null.
+  let draft = null;
   // The native composer card's viewport rect. The webview's tracking area
   // still receives mouse moves over the card (tracking ignores z-order), so
   // the runtime must treat that region as hover-dead itself.
@@ -699,17 +722,32 @@
     };
   };
 
+  // A pick is in snapshots once added (Return in its bubble), numbered as its pin is.
+  const addedReferences = () => selectedReferences.filter((reference) => reference.added !== false);
+
+  // The number a pick's pin shows: its place among added picks, or the next one for a new pick
+  // whose bubble is still open.
+  const pickNumber = (reference) => {
+    const index = addedReferences().indexOf(reference);
+    return index >= 0 ? index + 1 : addedReferences().length + 1;
+  };
+
   const selectionSnapshots = () => {
-    const elementItems = selectedReferences
-      .map((reference) => {
+    const elementItems = addedReferences()
+      .map((reference, index) => {
         const item = selectionSnapshotFor(reference);
-        if (item) item.color = selectionColor(reference.colorIndex || 0);
+        if (!item) return null;
+        item.color = selectionColor(reference.colorIndex || 0);
+        item.number = index + 1;
+        item.comment = reference.comment || "";
         return item;
       })
       .filter(Boolean);
-    const regionItems = regionReferences.map((region) => {
+    const regionItems = regionReferences.map((region, index) => {
       const item = regionSnapshotFor(region);
       item.color = selectionColor(region.colorIndex || 0);
+      item.number = elementItems.length + index + 1;
+      item.comment = "";
       return item;
     });
     return elementItems.concat(regionItems);
@@ -1098,7 +1136,35 @@
     strokePath.setAttribute("stroke", "rgb(229, 83, 75)");
     strokeSvg.append(strokePath);
 
+    // The pins and the comment bubble: styled in the closed root, so the page's CSS never reaches them.
+    const style = document.createElement("style");
+    style.textContent = bubbleStyles;
+    const pinLayer = document.createElement("div");
+    Object.assign(pinLayer.style, { position: "fixed", inset: "0", pointerEvents: "none" });
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.setAttribute("data-cmux-bubble", "");
+    bubble.setAttribute("role", "dialog");
+    const bubbleHead = document.createElement("div");
+    bubbleHead.className = "head";
+    const bubbleNumber = document.createElement("span");
+    bubbleNumber.className = "num";
+    const bubbleWhat = document.createElement("span");
+    bubbleWhat.className = "what";
+    bubbleHead.append(bubbleNumber, bubbleWhat);
+    const field = document.createElement("textarea");
+    field.rows = 1;
+    field.spellcheck = true;
+    field.setAttribute("aria-label", strings.placeholder);
+    const bubbleHint = document.createElement("div");
+    bubbleHint.className = "hint";
+    bubbleHint.setAttribute("aria-hidden", "true");
+    bubble.append(bubbleHead, field, bubbleHint);
+    const threadLayer = document.createElement("div");
+    Object.assign(threadLayer.style, { position: "fixed", inset: "0", pointerEvents: "none" });
+
     shadow.append(
+      style,
       shield,
       regionInkSvg,
       selectionLayer,
@@ -1109,14 +1175,80 @@
       padding,
       content,
       badge,
+      pinLayer,
+      threadLayer,
+      bubble,
     );
     document.documentElement.appendChild(overlayHost);
     overlay = {
-      shield, selectionLayer, selectionOutlines: [], regionOutlines: [], marqueeBox,
+      shadow, shield, selectionLayer, selectionOutlines: [], regionOutlines: [], marqueeBox,
       regionInkSvg, regionInkPaths: [], strokeSvg, strokePath,
       margin, border, padding, content, badge,
+      pinLayer, pins: [], threadLayer, threadCards: [], bubble, bubbleNumber, bubbleWhat, field, bubbleHint,
     };
   };
+
+  // The bubble and pins (emil-design-foundations / emil-animations): a system-font card with a
+  // hairline edge and a soft two-layer shadow, light and dark; it enters in 160 ms with a strong
+  // ease-out from 4 px above and 0.98 scale, and only fades when motion is reduced. Pins are the
+  // pick's own color with a white ring, so they read on any page.
+  const bubbleStyles = `
+    .bubble { position: fixed; display: none; box-sizing: border-box; width: 296px; max-width: calc(100vw - 16px);
+      padding: 9px 12px 8px; border-radius: 12px; background: rgba(255, 255, 255, 0.98); color: rgba(0, 0, 0, 0.88);
+      border: 0.5px solid rgba(0, 0, 0, 0.14); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.08);
+      font: 13px/18px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased;
+      pointer-events: auto; cursor: auto; text-align: left; transform-origin: var(--origin, top left); }
+    .bubble[data-open] { display: block; animation: cmux-bubble-in 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+    @keyframes cmux-bubble-in { from { opacity: 0; transform: translateY(var(--from, -4px)) scale(0.98); } to { opacity: 1; transform: none; } }
+    @keyframes cmux-bubble-fade { from { opacity: 0; } to { opacity: 1; } }
+    .head { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; font-size: 11px; line-height: 16px;
+      color: rgba(0, 0, 0, 0.5); }
+    .num { flex: none; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
+      font-weight: 600; font-size: 10px; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+    .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    textarea { display: block; box-sizing: border-box; width: 100%; height: 22px; max-height: 128px; margin: 0; padding: 2px 0;
+      border: 0; outline: none; resize: none; overflow-y: auto; background: transparent; color: inherit; font: inherit; }
+    textarea::placeholder { color: rgba(0, 0, 0, 0.36); }
+    .hint { margin-top: 2px; text-align: right; font-size: 11px; line-height: 14px; color: rgba(0, 0, 0, 0.38); }
+    .pin { position: fixed; display: none; box-sizing: border-box; min-width: 20px; height: 20px; padding: 0 5px;
+      border-radius: 10px; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.32);
+      font: 600 11px/16px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; text-align: center;
+      font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; pointer-events: none;
+      animation: cmux-pin-in 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+    .pin[data-draft] { opacity: 0.85; }
+    .thread { position: fixed; display: none; box-sizing: border-box; width: 264px; max-width: calc(100vw - 16px);
+      max-height: 220px; overflow-y: auto; padding: 7px 10px 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.98);
+      color: rgba(0, 0, 0, 0.88); border: 0.5px solid rgba(0, 0, 0, 0.14);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 1px 4px rgba(0, 0, 0, 0.08);
+      font: 12px/17px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased;
+      pointer-events: auto; cursor: auto; text-align: left; animation: cmux-bubble-fade 120ms ease-out; }
+    .thread .state { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 16px; font-weight: 600;
+      color: rgba(0, 0, 0, 0.5); }
+    .thread[data-state="sending"] .state::before, .thread[data-state="sent"] .state::before { content: ""; width: 6px; height: 6px;
+      border-radius: 3px; background: rgb(10, 132, 255); animation: cmux-thread-pulse 1.2s ease-in-out infinite; }
+    @keyframes cmux-thread-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+    .thread .reply { margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .thread .reply:empty { display: none; }
+    .thread .resolve { display: none; margin-top: 6px; padding: 2px 8px; border: 0.5px solid rgba(0, 0, 0, 0.2); border-radius: 6px;
+      background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
+    .thread[data-state="sent"] .resolve, .thread[data-state="answered"] .resolve, .thread[data-state="failed"] .resolve { display: inline-block; }
+    @keyframes cmux-pin-in { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+    @media (prefers-color-scheme: dark) {
+      .bubble { background: rgba(40, 40, 43, 0.98); color: rgba(255, 255, 255, 0.92); border-color: rgba(255, 255, 255, 0.16);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); }
+      .head { color: rgba(255, 255, 255, 0.55); }
+      textarea::placeholder { color: rgba(255, 255, 255, 0.36); }
+      .hint { color: rgba(255, 255, 255, 0.4); }
+      .thread { background: rgba(40, 40, 43, 0.98); color: rgba(255, 255, 255, 0.92); border-color: rgba(255, 255, 255, 0.16); }
+      .thread .state { color: rgba(255, 255, 255, 0.55); }
+      .thread .resolve { border-color: rgba(255, 255, 255, 0.24); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .bubble[data-open] { animation: cmux-bubble-fade 120ms ease-out; }
+      .pin { animation: none; }
+      .thread, .thread .state::before { animation: none; }
+    }
+  `;
 
   const hideOverlay = () => {
     if (!overlay) return;
@@ -1128,6 +1260,9 @@
     }
     for (const outline of overlay.selectionOutlines) outline.style.display = "none";
     for (const outline of overlay.regionOutlines) outline.style.display = "none";
+    for (const pin of overlay.pins) pin.style.display = "none";
+    for (const card of overlay.threadCards) card.style.display = "none";
+    overlay.bubble.style.display = "none";
     overlay.shield.style.display = enabled && !captureHidden ? "block" : "none";
   };
 
@@ -1192,6 +1327,121 @@
       place(outline, element.getBoundingClientRect());
     }
     refreshRegionOutlines();
+    refreshPins();
+    positionBubble();
+  };
+
+  // One numbered pin on each pick's top-left corner, kept inside the viewport.
+  const refreshPins = () => {
+    if (!overlay) return;
+    while (overlay.pins.length < selectedReferences.length) {
+      const pin = document.createElement("div");
+      pin.className = "pin";
+      pin.setAttribute("data-cmux-pin", "");
+      overlay.pins.push(pin);
+      overlay.pinLayer.append(pin);
+    }
+    for (let index = 0; index < overlay.pins.length; index += 1) {
+      const pin = overlay.pins[index];
+      const reference = selectedReferences[index];
+      const element = reference && referenceElement(reference, false);
+      if (!element) {
+        pin.style.display = "none";
+        continue;
+      }
+      const tint = selectionColor(reference.colorIndex || 0);
+      const rect = element.getBoundingClientRect();
+      pin.textContent = String(pickNumber(reference));
+      pin.style.background = tint;
+      pin.style.color = contrastingTextColor(tint);
+      pin.toggleAttribute("data-draft", reference.added === false);
+      pin.style.display = "block";
+      pin.style.left = `${Math.max(4, Math.min(rect.left - 9, (globalThis.innerWidth || 0) - 26))}px`;
+      pin.style.top = `${Math.max(4, Math.min(rect.top - 9, (globalThis.innerHeight || 0) - 24))}px`;
+    }
+    refreshThreads();
+  };
+
+  // A pick's thread card (`setThread`): beside its pin, inside the viewport.
+  const threadCard = () => {
+    const card = document.createElement("div");
+    card.className = "thread";
+    card.setAttribute("data-cmux-thread", "");
+    card.setAttribute("role", "status");
+    const state = document.createElement("div");
+    state.className = "state";
+    const reply = document.createElement("div");
+    reply.className = "reply";
+    const resolve = document.createElement("button");
+    resolve.className = "resolve";
+    resolve.type = "button";
+    resolve.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.isTrusted || !card.cmuxSelector) return;
+      try { handler?.postMessage({ type: "thread_resolve", selector: card.cmuxSelector }); } catch (_) {}
+    });
+    card.append(state, reply, resolve);
+    card.cmuxParts = { state, reply, resolve };
+    return card;
+  };
+
+  const refreshThreads = () => {
+    if (!overlay) return;
+    while (overlay.threadCards.length < selectedReferences.length) {
+      const card = threadCard();
+      overlay.threadCards.push(card);
+      overlay.threadLayer.append(card);
+    }
+    const viewWidth = globalThis.innerWidth || 0;
+    const viewHeight = globalThis.innerHeight || 0;
+    for (let index = 0; index < overlay.threadCards.length; index += 1) {
+      const card = overlay.threadCards[index];
+      const reference = selectedReferences[index];
+      const thread = reference?.thread;
+      const element = thread && referenceElement(reference, false);
+      if (!element) {
+        card.style.display = "none";
+        card.cmuxSelector = null;
+        continue;
+      }
+      const parts = card.cmuxParts;
+      card.cmuxSelector = reference.baseline?.selector || null;
+      card.setAttribute("data-state", thread.state);
+      parts.state.textContent = strings[thread.state] || strings.sent;
+      if (parts.reply.textContent !== thread.reply) parts.reply.textContent = thread.reply;
+      parts.resolve.textContent = strings.resolve;
+      card.style.display = "block";
+      const rect = element.getBoundingClientRect();
+      const width = card.offsetWidth || 264;
+      const height = card.offsetHeight || 40;
+      card.style.left = `${Math.max(8, Math.min(rect.left + 16, viewWidth - width - 8))}px`;
+      card.style.top = `${Math.max(8, Math.min(rect.top - 9, viewHeight - height - 8))}px`;
+    }
+  };
+
+  // The open bubble under its element (above when there is no room below), inside the viewport.
+  const positionBubble = () => {
+    if (!overlay) return;
+    const element = draft && referenceElement(draft.reference, false);
+    if (!element) {
+      overlay.bubble.style.display = "none";
+      return;
+    }
+    overlay.bubble.style.display = "";
+    const rect = element.getBoundingClientRect();
+    const width = overlay.bubble.offsetWidth || 296;
+    const height = overlay.bubble.offsetHeight || 72;
+    const viewWidth = globalThis.innerWidth || 0;
+    const viewHeight = globalThis.innerHeight || 0;
+    const below = rect.bottom + 8;
+    const fitsBelow = below + height <= viewHeight - 8;
+    const top = fitsBelow ? below : Math.max(8, rect.top - 8 - height);
+    const left = Math.max(8, Math.min(rect.left, viewWidth - width - 8));
+    overlay.bubble.style.left = `${left}px`;
+    overlay.bubble.style.top = `${Math.max(8, Math.min(top, viewHeight - height - 8))}px`;
+    overlay.bubble.style.setProperty("--from", fitsBelow ? "-4px" : "4px");
+    overlay.bubble.style.setProperty("--origin", fitsBelow ? "top left" : "bottom left");
   };
 
   const refreshRegionOutlines = () => {
@@ -1344,7 +1594,7 @@
       overlay.badge.style.display = "none";
       return;
     }
-    overlay.badge.textContent = truncateMiddle(xpathFor(element));
+    overlay.badge.textContent = truncateMiddle(elementLabel(element), 48);
     overlay.badge.style.display = "block";
     const badgeRect = overlay.badge.getBoundingClientRect();
     const badgeWidth = badgeRect.width || 120;
@@ -1528,6 +1778,7 @@
 
   const clearSelection = () => {
     resetPendingAnnotation(true);
+    draft = null;
     if (!selectedReferences.length && !regionReferences.length) return snapshot();
     restoreAll();
     selectedReferences.length = 0;
@@ -1565,6 +1816,13 @@
     if (reference === activeReference && edits.size) restoreAll();
     selectedReferences.splice(index, 1);
     hoveredSelectionIndex = null;
+    if (draft?.reference === reference) {
+      draft = null;
+      if (overlay) {
+        overlay.bubble.removeAttribute("data-open");
+        overlay.bubble.style.display = "none";
+      }
+    }
     if (reference === activeReference) {
       setActiveReference(selectedReferences[selectedReferences.length - 1]);
       selectionIdentityNeedsRefresh = false;
@@ -1572,7 +1830,8 @@
       cancelSelectionRecovery();
     }
     revision += 1;
-    scheduleOverlayRefresh();
+    // At once: the other pins renumber in the same frame the chat's chips do.
+    refreshOverlay();
     return emit();
   };
 
@@ -1635,8 +1894,173 @@
     return emit();
   };
 
+  // A short name for an element: its tag and its id or first class (`h1#title`, `p.lede`).
+  const elementLabel = (element) => {
+    const tag = element?.localName || "element";
+    if (element?.id && element.id.length <= 40) return `${tag}#${element.id}`;
+    const first = typeof element?.className === "string" ? element.className.trim().split(/\s+/)[0] : "";
+    return first && first.length <= 40 ? `${tag}.${first}` : tag;
+  };
+
+  // Whether a pointer event is over a pick's thread card: it belongs to the card (its reply's text,
+  // Resolve), never to picking or to the page.
+  const overThread = (event) => Boolean(overlay?.threadCards.some((card) => {
+    if (card.style.display === "none") return false;
+    const rect = card.getBoundingClientRect();
+    return rect.width > 0 && event.clientX >= rect.left && event.clientX <= rect.right
+      && event.clientY >= rect.top && event.clientY <= rect.bottom;
+  }));
+
+  const bubbleFocused = () => Boolean(draft && overlay && overlay.shadow.activeElement === overlay.field);
+
+  // Whether a pointer event is over the open bubble: it then belongs to the bubble (caret, text
+  // selection), never to picking or to the page.
+  const overBubble = (event) => {
+    if (overThread(event)) return true;
+    if (!draft || !overlay || overlay.bubble.style.display === "none") return false;
+    const rect = overlay.bubble.getBoundingClientRect();
+    return rect.width > 0 && event.clientX >= rect.left && event.clientX <= rect.right
+      && event.clientY >= rect.top && event.clientY <= rect.bottom;
+  };
+
+  const fitField = () => {
+    if (!overlay) return;
+    const field = overlay.field;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(128, Math.max(22, field.scrollHeight || 22))}px`;
+  };
+
+  // Opens `reference`'s bubble: a new pick (not added until Return) or an added one to edit.
+  const openDraft = (reference, isNew) => {
+    createOverlay();
+    draft = { reference, isNew };
+    const element = referenceElement(reference, false);
+    const tint = selectionColor(reference.colorIndex || 0);
+    overlay.bubbleNumber.textContent = String(pickNumber(reference));
+    overlay.bubbleNumber.style.background = tint;
+    overlay.bubbleNumber.style.color = contrastingTextColor(tint);
+    const words = (element?.textContent || "").replace(/\s+/g, " ").trim();
+    overlay.bubbleWhat.textContent = words
+      ? `${elementLabel(element)} · ${truncateMiddle(words, 56)}`
+      : elementLabel(element);
+    overlay.field.value = reference.comment || "";
+    overlay.field.placeholder = strings.placeholder;
+    overlay.field.setAttribute("aria-label", strings.placeholder);
+    overlay.bubbleHint.textContent = (isNew ? strings.add : strings.save) + (sendAvailable ? ` · ${strings.send}` : "");
+    overlay.bubble.removeAttribute("data-open");
+    // Restart the enter animation for each bubble, also when it moves from one pick to the next.
+    void overlay.bubble.offsetWidth;
+    overlay.bubble.setAttribute("data-open", "");
+    hoveredElement = null;
+    refreshOverlay();
+    fitField();
+    try { overlay.field.focus({ preventScroll: true }); } catch (_) { overlay.field.focus(); }
+    const end = overlay.field.value.length;
+    try { overlay.field.setSelectionRange(end, end); } catch (_) {}
+  };
+
+  // Closes the open bubble. `keep`: the pick is added (or its edit saved) with the typed comment;
+  // otherwise a new pick is dropped and an added one keeps its old comment.
+  const finishDraft = (keep) => {
+    if (!draft || !overlay) return snapshot();
+    const { reference, isNew } = draft;
+    const comment = bounded(overlay.field.value.trim(), maxCommentCharacters);
+    draft = null;
+    overlay.bubble.removeAttribute("data-open");
+    overlay.bubble.style.display = "none";
+    try { overlay.field.blur(); } catch (_) {}
+    if (keep) {
+      reference.comment = comment;
+      reference.added = true;
+    } else if (isNew) {
+      const index = selectedReferences.indexOf(reference);
+      if (index >= 0) return removeSelectionAt(index);
+    } else {
+      refreshOverlay();
+      return snapshot();
+    }
+    revision += 1;
+    refreshOverlay();
+    return emit();
+  };
+
+  // A click on `element`: it first settles the open bubble (a typed comment, or an edit, is kept;
+  // an empty new pick is dropped), then opens the bubble for the element: its own when it is
+  // already a pick, else a new pick's.
+  const pickElement = (element) => {
+    if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
+    if (draft) {
+      if (referenceElement(draft.reference, false) === element) {
+        try { overlay.field.focus({ preventScroll: true }); } catch (_) {}
+        return snapshot();
+      }
+      finishDraft(!draft.isNew || overlay.field.value.trim().length > 0);
+    }
+    const existing = selectedReferences.find((reference) => reference.element === element && reference.added !== false);
+    if (existing) {
+      openDraft(existing, false);
+      return snapshot();
+    }
+    const before = selectedReferences.length;
+    selectElement(element, true);
+    const reference = selectedReferences[selectedReferences.length - 1];
+    if (!reference || reference.element !== element) return snapshot();
+    if (selectedReferences.length > before) {
+      reference.added = false;
+      reference.comment = "";
+    }
+    openDraft(reference, reference.added === false);
+    return snapshot();
+  };
+
+  // Keys while the bubble has focus: Return adds, Shift-Return is a new line, Escape cancels,
+  // Delete on an emptied comment removes an added pick. None reaches the page.
+  const onBubbleKey = (event) => {
+    event.stopImmediatePropagation();
+    const composing = event.isComposing || event.keyCode === 229;
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !composing) {
+      // Command-Return: adds the pick, then asks the app to send it to the agent as a thread. Only a
+      // real key sends; without threads it adds the pick as Return does.
+      event.preventDefault();
+      const reference = draft.reference;
+      finishDraft(true);
+      const selector = reference.baseline?.selector;
+      if (sendAvailable && event.isTrusted && selector && reference.added) {
+        try { handler?.postMessage({ type: "send_requested", selector }); } catch (_) {}
+      }
+    } else if (event.key === "Enter" && !event.shiftKey && !composing) {
+      event.preventDefault();
+      finishDraft(true);
+    } else if (event.key === "Escape" && !composing) {
+      event.preventDefault();
+      finishDraft(false);
+    } else if ((event.key === "Backspace" || event.key === "Delete") && !draft.isNew && overlay.field.value === "") {
+      event.preventDefault();
+      const index = selectedReferences.indexOf(draft.reference);
+      draft = null;
+      overlay.bubble.removeAttribute("data-open");
+      overlay.bubble.style.display = "none";
+      if (index >= 0) removeSelectionAt(index);
+      refreshOverlay();
+    }
+  };
+
+  // Text events from the bubble stop at the document: the page never sees what is typed in it.
+  const onBubbleText = (event) => {
+    if (!enabled || !bubbleFocused()) return;
+    event.stopImmediatePropagation();
+    if (event.type === "input") fitField();
+  };
+
   const onPointerMove = (event) => {
     if (!enabled || captureHidden || pendingAnnotation) return;
+    if (overBubble(event)) {
+      if (hoveredElement) {
+        hoveredElement = null;
+        scheduleOverlayRefresh();
+      }
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1767,6 +2191,7 @@
   // a standalone synthetic click still selects (fallback for tests/automation).
   const onPointerDown = (event) => {
     if (!enabled || captureHidden || pendingAnnotation) return;
+    if (overBubble(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1789,6 +2214,7 @@
 
   const onPointerUp = (event) => {
     if (!enabled || captureHidden || pendingAnnotation) return;
+    if (overBubble(event) && !pendingPointer) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1812,6 +2238,7 @@
     if (interactionMode === "draw") {
       marqueePoints = [];
       annotationPhase = "idle";
+      interactionMode = "select";
       if (overlay) {
         overlay.strokeSvg.style.display = "none";
         overlay.strokePath.setAttribute("points", "");
@@ -1819,10 +2246,10 @@
       try { handler?.postMessage({ type: "annotation_cancelled", id: armed.annotationID }); } catch (_) {}
       return;
     }
-    // Clicks always stack: every picked element becomes another prompt
-    // token; tokens are removed in the composer (backspace or click-out).
+    // Clicks always stack: every click opens a comment bubble for its element
+    // (pickElement); an added pick leaves through its bubble or the chat.
     const candidate = elementUnderPoint(armed.x, armed.y);
-    if (candidate) selectElement(candidate, true);
+    if (candidate) pickElement(candidate);
   };
 
   const finalizeRegion = (rect, id) => {
@@ -1830,6 +2257,7 @@
     // vertical marks whose bounding box has a zero-sized minor axis.
     if (!id || Math.max(rect.width, rect.height) < 8) {
       annotationPhase = "idle";
+      interactionMode = "select";
       marqueePoints = [];
       if (overlay) {
         overlay.strokeSvg.style.display = "none";
@@ -1855,6 +2283,7 @@
 
   const onClickFallback = (event) => {
     if (!enabled || captureHidden) return;
+    if (overBubble(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1862,31 +2291,39 @@
     if ((globalThis.performance?.now?.() || 0) < suppressClicksUntil) return;
     if (interactionMode === "draw") return;
     const candidate = elementUnderPoint(event.clientX, event.clientY);
-    if (candidate) selectElement(candidate, true);
+    if (candidate) pickElement(candidate);
   };
 
   const blockPageGesture = (event) => {
     if (!enabled || captureHidden) return;
+    if (overBubble(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
   };
 
   const onKeyDown = (event) => {
-    if (!enabled || captureHidden || event.key !== "Escape") return;
+    if (!enabled || captureHidden) return;
+    if (bubbleFocused()) return onBubbleKey(event);
+    if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (pendingAnnotation || pendingPointer?.annotationID || selectedBaseline || regionReferences.length) {
-      // First Escape resets the whole prompt: selections here, and the
-      // composer clears its typed text on this message.
-      clearSelection();
-      handler?.postMessage({ type: "prompt_reset" });
+    if (pendingAnnotation || pendingPointer?.annotationID) {
+      resetPendingAnnotation(true);
+      interactionMode = "select";
       return;
     }
-    // Escape with nothing selected exits design mode entirely.
+    // An open bubble without focus (the page took it): Escape closes it as it would inside.
+    if (draft) {
+      finishDraft(false);
+      return;
+    }
+    // Escape with no bubble open leaves design mode; added picks stay in the chat's composer.
     handler?.postMessage({ type: "exit_requested" });
   };
+
+  const bubbleTextEvents = ["keyup", "keypress", "beforeinput", "input", "compositionstart", "compositionend", "paste", "copy", "cut"];
 
   const installListeners = () => {
     document.addEventListener("pointermove", onPointerMove, true);
@@ -1904,6 +2341,7 @@
       overlay?.shield.addEventListener(name, blockPageGesture, true);
     }
     document.addEventListener("keydown", onKeyDown, true);
+    for (const name of bubbleTextEvents) document.addEventListener(name, onBubbleText, true);
     globalThis.addEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.addEventListener("resize", scheduleOverlayRefresh, true);
     observer = new MutationObserver(onMutations);
@@ -1935,6 +2373,7 @@
     marqueeActive = false;
     marqueePoints = [];
     document.removeEventListener("keydown", onKeyDown, true);
+    for (const name of bubbleTextEvents) document.removeEventListener(name, onBubbleText, true);
     globalThis.removeEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.removeEventListener("resize", scheduleOverlayRefresh, true);
     observer?.disconnect();
@@ -1966,6 +2405,7 @@
       regionReferences.length = 0;
       pendingAnnotation = null;
       annotationPhase = "idle";
+      draft = null;
       setActiveReference(null);
       selectionIdentityNeedsRefresh = false;
       selectionRecoveryAttemptsRemaining = 0;
@@ -1988,6 +2428,29 @@
 
     clearSelection() {
       return clearSelection();
+    },
+
+    // The bubble's and thread cards' words in the app's language: `{placeholder, add, save, send,
+    // sending, sent, answered, failed, resolve}`.
+    configure(words) {
+      for (const key of ["placeholder", "add", "save", "send", "sending", "sent", "answered", "failed", "resolve"]) {
+        if (typeof words?.[key] === "string" && words[key]) strings[key] = bounded(words[key], 120);
+      }
+      return snapshot();
+    },
+
+    // The open bubble's text, as typed (automation and captures; a person types into the field).
+    draft(text) {
+      if (!draft || !overlay) return snapshot();
+      overlay.field.value = bounded(String(text ?? ""), maxCommentCharacters);
+      fitField();
+      positionBubble();
+      return snapshot();
+    },
+
+    // Return in the open bubble: adds the pick with its comment.
+    commit() {
+      return finishDraft(true);
     },
 
     setComposerFrame(x, y, width, height) {
@@ -2086,6 +2549,30 @@
 
     removeSelection(selection) {
       return removeSelectionAt(selectionIndex(selection));
+    },
+
+    // Whether Command-Return sends a pick to the agent as a comment thread (the app's chat keeps them).
+    setSendAvailable(available) {
+      sendAvailable = available === true;
+      if (draft && overlay) {
+        overlay.bubbleHint.textContent = (draft.isNew ? strings.add : strings.save) + (sendAvailable ? ` · ${strings.send}` : "");
+      }
+      return sendAvailable;
+    },
+
+    // The thread of the pick at `selection` (its selector): `{state, reply}` with state `sending`,
+    // `sent`, `answered` or `failed`, shown in a card beside its pin; null takes the card away.
+    // False when no pick has that selector.
+    setThread(selection, value) {
+      const index = selectionIndex(selection);
+      const reference = Number.isInteger(index) && index >= 0 ? selectedReferences[index] : null;
+      if (!reference) return false;
+      const states = ["sending", "sent", "answered", "failed"];
+      reference.thread = value && states.includes(value.state)
+        ? { state: value.state, reply: bounded(String(value.reply ?? ""), maxReplyCharacters) }
+        : null;
+      refreshOverlay();
+      return true;
     },
 
     applyStyle(property, value) {
@@ -2197,6 +2684,8 @@
       colorSequence += 1;
       pendingAnnotation = null;
       annotationPhase = "captured";
+      // cmux-next has no draw-mode control: the next click picks an element again.
+      interactionMode = "select";
       if (overlay) {
         overlay.strokeSvg.style.display = "none";
         overlay.strokePath.setAttribute("points", "");

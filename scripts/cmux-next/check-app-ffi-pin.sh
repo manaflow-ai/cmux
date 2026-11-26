@@ -98,7 +98,8 @@ while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
 # must not mark the pin stale; the app passes its own token values to the
 # motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
 # compares them with the spec's.
-paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
+# cmux-keymap embeds its table (include_str!), so a table edit changes the library.
+paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh schemas/keymap/key-styles.json)
 # The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
 # and Package.swift only for its one fixed loader block, whose checksum line
 # must equal the pin file's, and no pin of its own (the classifier, the repin
@@ -176,9 +177,21 @@ behind_since() {
     git fetch --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
   done
   git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || return 1
-  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}" | head -n 1)"
-  [[ "$first" =~ ^[0-9]+$ ]] || return 1
-  echo "$first"
+  # A treeless clone (app-ffi-repin.yml) fetches each commit's tree lazily here, and one stalled fetch fails the
+  # read (re-pin run 45714815881: "could not fetch ... from promisor remote"). Each try keeps the trees it got,
+  # so up to three tries; only a read that fails all three leaves the pin undated.
+  # CMUX_APP_FFI_PIN_RETRY_SLEEP: the wait between tries, for the test.
+  local try
+  for try in 1 2 3; do
+    if first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}")"; then
+      first="${first%%$'\n'*}"
+      [[ "$first" =~ ^[0-9]+$ ]] || return 1
+      echo "$first"
+      return 0
+    fi
+    (( try < 3 )) && sleep "${CMUX_APP_FFI_PIN_RETRY_SLEEP:-5}"
+  done
+  return 1
 }
 behind_note=""
 if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then

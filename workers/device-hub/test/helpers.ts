@@ -173,14 +173,18 @@ export async function rawCall(method: string, path: string, opts: { body?: unkno
   return { status: res.status, json: text ? (JSON.parse(text) as any) : null };
 }
 
+/** The build space header a dev build sends (src/buildSpace.ts). */
+export const BUILD_SPACE_HEADER = "x-cmux-build-space";
+
 /** Signs in a fresh (or given) Stack user and returns the hub session. */
 /** `sub` is the Stack user id; the returned `userId` is the hub's "<projectId>:<sub>". */
-export async function signIn(sub = `user-${crypto.randomUUID()}`, project = STACK_PROJECT) {
+/** `space` signs in as a dev build of that build space (`dev:<slug>`); every call of its devices then sends it. */
+export async function signIn(sub = `user-${crypto.randomUUID()}`, project = STACK_PROJECT, space?: string) {
   mockOutbound();
   const token = await stackToken(stackClaims(sub, {}, project));
-  const res = await rawCall("POST", "/v1/auth/stack", { body: { token } });
-  expect(res.status).toBe(200);
-  return { userId: res.json.userId as string, session: res.json.session as string, stackToken: token, sub };
+  const res = await rawCall("POST", "/v1/auth/stack", { body: { token }, headers: space ? { [BUILD_SPACE_HEADER]: space } : {} });
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  return { userId: res.json.userId as string, session: res.json.session as string, stackToken: token, sub, space };
 }
 
 // ---- WebSocket peer ----
@@ -253,12 +257,12 @@ export class Device {
   machine: string | undefined;
 
   private constructor(
-    readonly account: { userId: string; session: string },
+    readonly account: { userId: string; session: string; space?: string },
     readonly name: string,
-    readonly platform: "macos" | "ios" | "linux",
+    readonly platform: "macos" | "ios" | "linux" | "windows",
   ) {}
 
-  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" | "linux" = "macos") {
+  static async create(account: { userId: string; session: string; space?: string }, name = "Mac", platform: "macos" | "ios" | "linux" | "windows" = "macos") {
     const d = new Device(account, name, platform);
     d.signing = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     d.signingKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.signing.publicKey)) as ArrayBuffer));
@@ -278,10 +282,16 @@ export class Device {
     return { "x-device-id": opts.id ?? this.id, "x-device-ts": ts, "x-device-sig": sig };
   }
 
-  /** A device-signed API call. `replay` reuses a prior call's headers verbatim. */
-  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string; extraHeaders?: Record<string, string> } = {}) {
+  /** The account's build space header, or `space` (null: none) when given. */
+  spaceHeaders(space?: string | null): Record<string, string> {
+    const value = space === undefined ? this.account.space : space;
+    return value ? { [BUILD_SPACE_HEADER]: value } : {};
+  }
+
+  /** A device-signed API call. `replay` reuses a prior call's headers verbatim. `space` overrides the account's build space (null: none). */
+  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string; extraHeaders?: Record<string, string>; space?: string | null } = {}) {
     const bodyText = body === undefined ? "" : JSON.stringify(body);
-    const headers: Record<string, string> = { ...(opts.headers ?? (await this.headers(method, path, bodyText, opts))), ...(opts.extraHeaders ?? {}) };
+    const headers: Record<string, string> = { ...(opts.headers ?? (await this.headers(method, path, bodyText, opts))), ...this.spaceHeaders(opts.space), ...(opts.extraHeaders ?? {}) };
     headers.authorization = `Bearer ${opts.session ?? this.account.session}`;
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await worker.fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : bodyText });
@@ -303,7 +313,7 @@ export class Device {
   }
 
   async connect(): Promise<Peer> {
-    const headers = { ...(await this.headers("GET", "/v1/user/ws", "")), authorization: `Bearer ${this.account.session}`, upgrade: "websocket" };
+    const headers = { ...(await this.headers("GET", "/v1/user/ws", "")), ...this.spaceHeaders(), authorization: `Bearer ${this.account.session}`, upgrade: "websocket" };
     const res = await worker.fetch(`${BASE}/v1/user/ws`, { headers });
     expect(res.status, await (res.status === 101 ? Promise.resolve("") : res.clone().text())).toBe(101);
     this.user = new Peer(res.webSocket!);
@@ -319,7 +329,7 @@ export class Device {
   async signal(ticketMsg: { signalURL: string; ticket: string }, opts: { ticket?: string; ts?: number; id?: string; key?: CryptoKey } = {}) {
     const u = new URL(ticketMsg.signalURL);
     const pathAndQuery = `${u.pathname}?ticket=${encodeURIComponent(opts.ticket ?? ticketMsg.ticket)}`;
-    const headers = { ...(await this.headers("GET", pathAndQuery, "", opts)), upgrade: "websocket" };
+    const headers = { ...(await this.headers("GET", pathAndQuery, "", opts)), ...this.spaceHeaders(), upgrade: "websocket" };
     const res = await worker.fetch(`${BASE}${pathAndQuery}`, { headers });
     if (res.status !== 101) return { status: res.status, json: (await res.json()) as any, peer: null };
     return { status: 101, json: null, peer: new Peer(res.webSocket!) };

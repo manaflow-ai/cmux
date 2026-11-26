@@ -1,3 +1,5 @@
+import CmuxEgress
+public import CMUXAuthCore
 public import Foundation
 
 /// The account's registered devices on the mobile service (`GET /v1/me/devices`,
@@ -14,16 +16,19 @@ public struct MobileHostDeviceDirectory: Sendable {
     }
 
     public let baseURL: URL
+    /// A tagged dev build's cloud data space, on every request; none for nightly; a misconfigured dev build's requests throw.
+    public let buildSpace: CMUXBuildSpaceState
     private let send: Send
 
-    public init(baseURL: URL, send: @escaping Send = MobileHostDeviceDirectory.urlSession) {
+    public init(baseURL: URL, buildSpace: CMUXBuildSpaceState, send: @escaping Send = MobileHostDeviceDirectory.urlSession) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         self.send = send
     }
 
-    /// `URLSession.shared`; the status is 0 when the response is not HTTP.
+    /// `CmuxEgress.shared(site: "CmuxNextMobile.MobileHostDeviceDirectory")`; the status is 0 when the response is not HTTP.
     public static let urlSession: Send = { request in
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextMobile.MobileHostDeviceDirectory").data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
@@ -31,6 +36,7 @@ public struct MobileHostDeviceDirectory: Sendable {
     public func phones(token: String) async throws -> [MobileHostKnownPhone] {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/me/devices"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try buildSpace.apply(to: &request)
         let (data, status) = try await send(request)
         guard status == 200 else { throw Failure.status(status) }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -44,6 +50,7 @@ public struct MobileHostDeviceDirectory: Sendable {
             var request = URLRequest(url: baseURL.appendingPathComponent("v1/devices/\(id)"))
             request.httpMethod = "DELETE"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            try buildSpace.apply(to: &request)
             let (_, status) = try await send(request)
             guard status == 200 || status == 404 else { throw Failure.status(status) }
         }

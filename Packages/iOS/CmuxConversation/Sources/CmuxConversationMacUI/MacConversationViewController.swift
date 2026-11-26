@@ -22,7 +22,7 @@ final class MacTranscriptTableView: NSTableView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        interaction?.contextMenu(for: event, in: self)
+        NSMenu.systemFree(interaction?.contextMenu(for: event, in: self))
     }
 
     /// Bubble text takes clicks itself (selection, drag-out); a table only
@@ -691,6 +691,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let canRetry = store.canRetryUnsend(message)
         if canRetry {
             alert.informativeText = String(localized: "conversation.notUnsent.retryBody", defaultValue: "The original message will still be visible.", bundle: .module)
+            // retry-prompt-ok: retries an unsend, a side effect the person chooses
             alert.addButton(withTitle: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module))
             alert.addButton(withTitle: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module))
         } else {
@@ -1565,6 +1566,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 menu.addItem(scheduledItem)
             }
         } else if message.delivery?.isFailed == true {
+            // retry-prompt-ok: re-sends a failed message
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
             menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.deleteLocally([model.rowID]) })
         } else {
@@ -1588,6 +1590,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private func showRetryMenu(_ model: MacMessageRowModel, at point: NSPoint, in view: NSView) {
         let menu = NSMenu()
+        // retry-prompt-ok: re-sends a failed message
         menu.addItem(MacClosureMenuItem(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module)) { [weak self] in
             self?.store.retry(rowID: model.rowID)
         })

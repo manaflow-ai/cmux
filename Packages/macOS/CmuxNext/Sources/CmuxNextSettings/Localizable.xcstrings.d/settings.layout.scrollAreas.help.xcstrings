@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.layout.scrollAreas.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panes that do not fit scroll sideways instead of shrinking."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأجزاء التي لا تتسع تتمرر أفقيًا بدلًا من أن تصغر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Okna koja ne stanu pomiču se bočno umjesto da se smanjuju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ruder, der ikke er plads til, ruller sidelæns i stedet for at blive mindre."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bereiche, die nicht passen, scrollen seitlich, statt kleiner zu werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los paneles que no caben se desplazan en horizontal en lugar de encogerse."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les panneaux qui ne tiennent pas défilent horizontalement au lieu de rétrécir."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I riquadri che non entrano scorrono lateralmente invece di rimpicciolirsi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "収まらないペインは、縮めずに横にスクロールします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំងដែលមិនសម រំកិលទៅចំហៀង ជំនួសឱ្យការរួញតូច។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "들어가지 않는 창은 줄어들지 않고 가로로 스크롤됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ruter som ikke får plass, ruller sidelengs i stedet for å krympe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Panele, które się nie mieszczą, przewijają się w bok zamiast się zmniejszać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Painéis que não cabem rolam na horizontal em vez de encolher."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Панели, которые не помещаются, прокручиваются вбок, а не сжимаются."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บานหน้าต่างที่ไม่พอดีจะเลื่อนด้านข้างแทนการหดลง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sığmayan bölmeler küçülmek yerine yana kayar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Панелі, які не вміщуються, прокручуються вбік, а не зменшуються."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các khung không vừa sẽ cuộn ngang thay vì thu nhỏ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "放不下的窗格会横向滚动而不是缩小。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "放不下的窗格會橫向捲動而不是縮小。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

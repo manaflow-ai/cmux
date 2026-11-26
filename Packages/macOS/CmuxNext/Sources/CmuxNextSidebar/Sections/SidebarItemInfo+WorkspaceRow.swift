@@ -24,5 +24,6 @@ extension SidebarItemInfo {
             self.init(title: row.title, symbol: "textformat", color: row.icon == nil ? nil : color)
             textOnly = true
         }
+        iconFromShownTab = row.iconFromShownTab
     }
 }

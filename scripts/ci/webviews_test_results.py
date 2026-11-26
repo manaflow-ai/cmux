@@ -3,6 +3,8 @@
 
     webviews_test_results.py SUMMARY OUT.json     # write {name: passed}
     webviews_test_results.py --failed-files OUT.json  # print the files with a red, one a line
+    webviews_test_results.py --mark-unreached FILES OUT.json  # name in OUT.json the FILES it has no result for
+    webviews_test_results.py --first-replay-stop-at STARTED TIMEOUT_MINUTES RESERVE [NOW]  # the first base replay's stop
 
 SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `(fail)` tests as
 `FILE > TEST: false`; a complete failed file also lists its explicit `(pass)` tests as true. A file that timed out, or failed without naming a test (it did not load),
@@ -175,7 +177,29 @@ def states(summary: Path) -> dict[str, dict]:
 
 
 def failed_files(results: dict[str, bool]) -> list[str]:
-    return sorted({name.split(" > ", 1)[0] for name, ok in results.items() if not ok})
+    return sorted({name.split(" > ", 1)[0] for name, ok in results.items() if not name.startswith("_cmux_") and not ok})
+
+
+def mark_unreached(files: Path, out: Path) -> list[str]:
+    """Record in OUT (`_cmux_unreached`) each file of FILES that OUT has no result for, and return them.
+
+    A replay cut by CMUX_WEB_TEST_STOP_AT (react-apps-base-check's first base replay) leaves the files it did not reach
+    out of its results. guards_new_reds.py would read such a file's absence from a finished replay as "not red on the
+    base" and charge its head reds to the change; named here, they are "base result unavailable" instead. Unreadable
+    results are left alone (guards_new_reds.py already treats a base it cannot read as unavailable)."""
+    try:
+        results = json.loads(out.read_text(encoding="utf-8"))
+        wanted = [line.strip() for line in files.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, ValueError):
+        return []
+    if not isinstance(results, dict):
+        return []
+    reached = {name.split(" > ", 1)[0] for name in results if not name.startswith("_cmux_")}
+    unreached = sorted({file for file in wanted if file not in reached})
+    if unreached:
+        results["_cmux_unreached"] = sorted(set(results.get("_cmux_unreached") or []) | set(unreached))
+        out.write_text(json.dumps(results, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return unreached
 
 
 def tap_observations(summary: Path, *, log_dir: Path | None = None):
@@ -262,7 +286,35 @@ def tap_observations(summary: Path, *, log_dir: Path | None = None):
                 continue
 
 
+FILE_CEILING = 900  # run-webviews-tests.sh's per-file limit (CMUX_WEB_TEST_MAX_FILE_TIMEOUT's default)
+VERDICT_MARGIN = 120  # the head re-run's margin before the job's timeout
+
+
+def first_replay_stop_at(started: int, timeout_minutes: int, reserve: int, now: int) -> int | None:
+    """The epoch second react-apps-base-check's first base replay stops at (None: no job clock, no stop).
+
+    The first replay holds only the head's reds, so it is the base verdict: it always gets one whole file's time
+    from when it starts. A fixed reserve counted from the job's start let a slow setup use the replay's budget up
+    before its one file ran (cmux#53976, job 138896898305: NOT RUN ... past CMUX_WEB_TEST_STOP_AT), and a red from
+    the base then had no base verdict and failed the change. The reserve for the head re-run holds when there is
+    time for both; it never pushes the replay past the verdict's margin before the job's timeout.
+    """
+    if started <= 0:
+        return None
+    end = started + timeout_minutes * 60
+    return min(max(end - reserve, now + FILE_CEILING), end - VERDICT_MARGIN)
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) in (4, 5) and argv[0] == "--first-replay-stop-at":
+        try:
+            started, minutes, reserve = (int(value) for value in argv[1:4])
+            now = int(argv[4]) if len(argv) == 5 else int(__import__("time").time())
+        except ValueError:
+            started, minutes, reserve, now = 0, 0, 0, 0
+        stop = first_replay_stop_at(started, minutes, reserve, now)
+        print("" if stop is None else stop)
+        return 0
     if len(argv) == 2 and argv[0] == "--tap-markers":
         print("::group::TAP final named results")
         for row in tap_observations(Path(argv[1])):
@@ -271,6 +323,13 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 2 and argv[0] == "--failed-files":
         print("\n".join(failed_files(json.loads(Path(argv[1]).read_text(encoding="utf-8")))))
+        return 0
+    if len(argv) == 3 and argv[0] == "--mark-unreached":
+        unreached = mark_unreached(Path(argv[1]), Path(argv[2]))
+        if unreached:
+            print(f"the replay did not reach {len(unreached)} files (no base result):")
+            for file in unreached:
+                print(f"  {file}")
         return 0
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)

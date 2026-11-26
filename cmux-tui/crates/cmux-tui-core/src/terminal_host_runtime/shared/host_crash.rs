@@ -2,9 +2,10 @@
 //!
 //! A host panic is a bug. The panic hook writes `<terminal-id>.crash` next
 //! to the host's discovery record (message, location, thread, backtrace,
-//! incarnation) before the default hook runs. A panic does not always end
-//! the host (a caught parser panic publishes a normal exit; another thread's
-//! panic ends only that thread), so the owner reports it as context: "the
+//! incarnation, and `recent`: the host's newest flow hops, its PTY reads and
+//! writes, from `cmux_flow_trace`'s flight recorder) before the default hook
+//! runs. A panic does not always end the host (a caught parser panic
+//! publishes a normal exit; another thread's panic ends only that thread), so the owner reports it as context: "the
 //! host had panicked" next to the signals, in `terminal-losses.jsonl`, and
 //! as a flag in the tab's end. The owner removes the sidecar on every end of
 //! the host's incarnation.
@@ -39,7 +40,7 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "non-text panic payload".to_string());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
-        let mut backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let mut backtrace = cmux_panic_log::backtrace::force_capture();
         if backtrace.len() > MAX_BACKTRACE_BYTES {
             let mut end = MAX_BACKTRACE_BYTES;
             while !backtrace.is_char_boundary(end) {
@@ -60,6 +61,7 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
             "host_pid": std::process::id(),
             "at_ms": at_ms,
             "backtrace": backtrace,
+            "recent": cmux_panic_log::recent_hops(),
         });
         // Concurrent panics each write their own file and rename it over the
         // sidecar, so the sidecar is always one whole record.
