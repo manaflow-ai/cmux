@@ -39,6 +39,7 @@ struct BillingFailureCopy: Equatable {
         case .notEligible:
             L10n.string("mobile.billing.error.notEligible", defaultValue: "This account can't buy plans in the app.")
         case .store:
+            // retry-prompt-ok: a failed App Store purchase; buying again is the person's paid choice
             L10n.string("mobile.billing.error.store", defaultValue: "The App Store couldn't complete the request. Try again.")
         }
     }

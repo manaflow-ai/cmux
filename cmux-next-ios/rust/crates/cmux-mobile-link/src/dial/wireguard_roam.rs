@@ -168,12 +168,18 @@ impl EarlyJoin {
         ticket: Option<String>,
     ) -> Self {
         Self(Mutex::new(Some(tokio::spawn(async move {
-            use super::super::relay::{RelayCarrier, RelayFailure};
-            match RelayCarrier::join(&endpoint, &session, &peer, ticket.as_deref()).await {
+            use super::super::relay::{RelayFailure, RelayRung};
+            let rung = RelayRung {
+                endpoint: &endpoint,
+                session_id: &session,
+                peer_device: &peer,
+                ticket: ticket.as_deref(),
+            };
+            match rung.join().await {
                 Ok(carrier) => Some(carrier),
                 Err(RelayFailure::Refused { status: 403, .. }) => {
                     tokio::time::sleep(EARLY_JOIN_RETRY_AFTER).await;
-                    RelayCarrier::join(&endpoint, &session, &peer, ticket.as_deref()).await.ok()
+                    rung.join().await.ok()
                 }
                 Err(_) => None,
             }
