@@ -38,6 +38,21 @@ import Testing
         #expect(Self.cover(of: tab) == nil)
     }
 
+    /// cmux#57419: while the page loads (committed, no contentful paint yet) its cover is the picture at the picture's
+    /// own pixels per point, top-left, never stretched to the pane: a 640 px hover thumbnail stretched over a 2x pane
+    /// drew the loading page blurry and at the wrong size until it painted.
+    @Test func whileThePageLoadsItsPictureIsDrawnAtItsOwnScaleNotStretched() throws {
+        let rig = try CEFDevToolsStandInTests.Rig()
+        let tab = try rig.attachedTab()
+        defer { tab.close() }
+        #expect(tab.showStandIn(try Self.picture(), decoded: true, cap: .seconds(3), clock: ManualClock(), scale: 0.5))
+        rig.runtime.handle(.loadStart(browser: CEFDevToolsStandInTests.Rig.browser, url: "https://example.com/", fromPost: false))
+        tab.documentDidFirstPaint(contentful: false)
+        let layer = try #require(Self.cover(of: tab)?.layer, "the loading page has no cover")
+        #expect(layer.contentsGravity == .topLeft, "the loading page's picture is stretched (\(layer.contentsGravity.rawValue))")
+        #expect(layer.contentsScale == 0.5, "the loading page's picture is drawn at \(layer.contentsScale) pixels per point, not its own 0.5")
+    }
+
     @Test func thePictureGoesAtTheCap() async throws {
         let rig = try CEFDevToolsStandInTests.Rig()
         let tab = try rig.attachedTab()
