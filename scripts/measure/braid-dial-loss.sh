@@ -49,6 +49,14 @@ build() {
   [[ -x "$2/release/examples/braid_dial_bench" ]] || return 1
   echo "$2/release/examples/braid_dial_bench"
 }
+# Zig for ghostty-vt-sys, as hook-deadline.sh gets it: the repo's pinned installer, its CMUX_ZIG exported here.
+if ! command -v zig >/dev/null && [[ -z "${ZIG:-}${CMUX_ZIG:-}" ]]; then
+  [[ -e "$repo/ghostty-next/build.zig.zon" ]] || git -C "$repo" submodule update --init --depth 1 ghostty-next >&2
+  zig_env=$(mktemp)
+  (cd "$repo" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" GITHUB_PATH=/dev/null ./scripts/install-zig-ci.sh >&2)
+  zig_line=$(grep '^CMUX_ZIG=' "$zig_env" | tail -n 1 || true); rm -f "$zig_env"
+  [[ -n "$zig_line" ]] && export "$zig_line"
+fi
 bin=$(build "$repo" "$repo/cmux-tui/target") || { echo "braid-dial-loss.sh: bench build failed at HEAD" >&2; exit 1; }
 arms=(after); bins=("$bin"); shas=("$(git -C "$repo" rev-parse HEAD)")
 work=$(mktemp -d)
