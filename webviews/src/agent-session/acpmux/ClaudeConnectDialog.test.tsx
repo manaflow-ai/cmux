@@ -1,6 +1,7 @@
 // Connect your Claude subscription from the model picker (claudeConnect.ts): the token check shared
-// with Settings > Models, focus in the token field, Return submits once, Escape cancels, the host's
-// refusal shows, and a save closes the dialog and turns the picker row to Connected.
+// with Settings > Models; the paste dialog (kept for hosts that only take a token) focuses its field,
+// submits once and cancels on Escape; the picker's Connect opens the inline connect card
+// (ConnectCard.tsx), starts the one click and follows its progress line to Connected.
 import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,10 +16,12 @@ import {
   refusalText,
   setupConnect,
   type ClaudeConnect,
+  type ConnectProgress,
 } from "./claudeConnect";
 import type { CloudSetupAction } from "./cloudSetup";
 import { ClaudeConnectDialog } from "./ClaudeConnectDialog";
 import { ClaudeConnectRow, useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { ConnectCard } from "./ConnectCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -206,13 +209,25 @@ test("Escape cancels", async () => {
   expect(closed).toBe(1);
 });
 
-test("Connect opens the dialog; a save closes it and the row says Connected until the host catches up", async () => {
-  const added: unknown[][] = [];
+test("Connect opens the inline card already signing in; its progress line follows the host, then Connected", async () => {
+  let begun = 0;
+  let setProgress: (progress: ConnectProgress) => void = () => undefined;
   let setNeeded: (needed: boolean) => void = () => undefined;
   function Host() {
     const [needed, set] = useState(true);
+    const [progress, put] = useState<ConnectProgress>({ phase: null, error: null });
     setNeeded = set;
-    const host: ClaudeConnect = { needed, add: async (...args) => void added.push(args) };
+    setProgress = put;
+    const host: ClaudeConnect = {
+      needed,
+      progress,
+      begin: async () => {
+        begun++;
+        put({ phase: "starting", error: null });
+      },
+      cancel: () => put({ phase: null, error: null }),
+      add: async () => undefined,
+    };
     return (
       <ClaudeConnectContext.Provider value={host}>
         <Picker />
@@ -220,30 +235,124 @@ test("Connect opens the dialog; a save closes it and the row says Connected unti
     );
   }
   function Picker() {
-    const { row, dialog } = useClaudeConnectFlow();
+    const { row, card } = useClaudeConnectFlow();
     return (
       <>
         {row && <ClaudeConnectRow name="Claude Code" connected={row.connected} onConnect={row.onConnect} />}
-        {dialog}
+        {card}
       </>
     );
   }
   const doc = await mount(<Host />);
   const row = () => doc.querySelector<HTMLElement>(".acpmux-connect-claude-row");
+  const card = () => doc.querySelector<HTMLElement>("[data-connect-card]");
   expect(row()?.textContent).toContain("Link your Claude subscription to use Claude Code");
+  expect(card()).toBeNull();
   await act(async () => row()!.querySelector("button")!.click());
   await nextFrame();
-  expect(dialogOf(doc)).not.toBeNull();
-  await typeInto(field(doc, "token"), "sk-ant-oat01-abc");
-  await submit(doc);
-  expect(added).toEqual([["sk-ant-oat01-abc", undefined]]);
-  await nextFrame();
+  expect(begun).toBe(1);
   expect(dialogOf(doc)).toBeNull();
+  expect(card()?.textContent).toContain("Opening the Claude sign-in page…");
+  expect(card()?.querySelector('[data-connect-action="cancel"]')).not.toBeNull();
+  await act(async () => setProgress({ phase: "signing_in", error: null }));
+  expect(card()?.textContent).toContain("Waiting for you to sign in to Claude in the browser…");
+  await act(async () => setProgress({ phase: "saving", error: null }));
+  expect(card()?.textContent).toContain("Saving…");
+  await act(async () => setProgress({ phase: null, error: null }));
+  expect(card()?.textContent).toContain("Connected");
   expect(row()?.hasAttribute("data-connected")).toBe(true);
-  expect(row()?.textContent).toContain("Connected");
-  expect(row()?.querySelector("button")).toBeNull();
   await act(async () => setNeeded(false));
   expect(row()).toBeNull();
+  expect(card()).toBeNull();
+});
+
+test("Cancel on the inline card is not a save: the row keeps Connect, never Connected", async () => {
+  function Host() {
+    const [progress, put] = useState<ConnectProgress>({ phase: null, error: null });
+    const host: ClaudeConnect = {
+      needed: true,
+      progress,
+      begin: async () => put({ phase: "signing_in", error: null }),
+      cancel: () => put({ phase: null, error: null }),
+    };
+    return (
+      <ClaudeConnectContext.Provider value={host}>
+        <Picker />
+      </ClaudeConnectContext.Provider>
+    );
+  }
+  function Picker() {
+    const { row, card } = useClaudeConnectFlow();
+    return (
+      <>
+        {row && <ClaudeConnectRow name="Claude Code" connected={row.connected} onConnect={row.onConnect} />}
+        {card}
+      </>
+    );
+  }
+  const doc = await mount(<Host />);
+  const row = () => doc.querySelector<HTMLElement>(".acpmux-connect-claude-row");
+  const card = () => doc.querySelector<HTMLElement>("[data-connect-card]");
+  await act(async () => row()!.querySelector("button")!.click());
+  await nextFrame();
+  await act(async () => card()!.querySelector<HTMLButtonElement>('[data-connect-action="cancel"]')!.click());
+  await nextFrame();
+  expect(card()).toBeNull();
+  expect(row()?.hasAttribute("data-connected")).toBe(false);
+  expect(row()?.textContent).not.toContain("Connected");
+});
+
+test("the card shows the host's error with Try again, and Cancel withdraws a running sign-in", async () => {
+  let begun = 0;
+  let cancelled = 0;
+  const render = (progress: ConnectProgress) => (
+    <ConnectCard
+      family="claude"
+      progress={progress}
+      onBegin={() => void begun++}
+      onCancel={() => void cancelled++}
+      onPaste={async () => undefined}
+    />
+  );
+  const doc = await mount(render({ phase: null, error: "The sign-in page closed." }));
+  const alert = doc.querySelector('[role="alert"]');
+  expect(alert?.textContent).toBe("Couldn’t connect: The sign-in page closed.");
+  const retry = doc.querySelector<HTMLButtonElement>('[data-connect-action="retry"]')!;
+  expect(retry.textContent).toBe("Try again");
+  await act(async () => retry.click());
+  await nextFrame();
+  expect(begun).toBe(1);
+  await act(async () => root!.render(render({ phase: "signing_in", error: null })));
+  expect(doc.querySelector('[data-connect-action="retry"]')).toBeNull();
+  expect(doc.querySelector("[data-connect-paste]")).toBeNull();
+  await act(async () => doc.querySelector<HTMLButtonElement>('[data-connect-action="cancel"]')!.click());
+  expect(cancelled).toBe(1);
+});
+
+test("Paste a token instead and Use an API key instead stay collapsed and send the value trimmed", async () => {
+  const tokens: string[] = [];
+  const keys: string[] = [];
+  const doc = await mount(
+    <ConnectCard
+      family="claude"
+      progress={{ phase: null, error: null }}
+      onBegin={() => undefined}
+      onPaste={async (token) => void tokens.push(token)}
+      onApiKey={async (key) => void keys.push(key)}
+    />,
+  );
+  const token = doc.querySelector<HTMLDetailsElement>('[data-connect-paste="token"]')!;
+  const key = doc.querySelector<HTMLDetailsElement>('[data-connect-paste="key"]')!;
+  expect(token.open).toBe(false);
+  expect(key.open).toBe(false);
+  expect(token.querySelector("summary")?.textContent).toBe("Paste a token instead");
+  expect(key.querySelector("summary")?.textContent).toBe("Use an API key instead");
+  await typeInto(field(doc, "token"), " sk-ant-oat01-\nabc ");
+  await act(async () => token.querySelector("form")!.requestSubmit());
+  await typeInto(field(doc, "key"), "  sk-ant-api03-xyz\n");
+  await act(async () => key.querySelector("form")!.requestSubmit());
+  expect(tokens).toEqual(["sk-ant-oat01-abc"]);
+  expect(keys).toEqual(["sk-ant-api03-xyz"]);
 });
 
 test("without a host provider the picker gets no Connect row", async () => {
@@ -256,22 +365,26 @@ test("without a host provider the picker gets no Connect row", async () => {
   expect(seen).toBeUndefined();
 });
 
-test("the chat's Set up Cloud need gives the Connect row for its family; no need, or a wait out, gives none", () => {
+test("the chat's Set up Cloud need gives the one click for its family; while it waits, progress and Cancel", async () => {
   const ran: CloudSetupAction[] = [];
+  let cancelled = 0;
   const run = (action: CloudSetupAction) => void ran.push(action);
   expect(setupConnect(undefined, false, run)).toBeUndefined();
-  expect(setupConnect({ family: "claude" }, true, run)).toBeUndefined();
+  const waiting = setupConnect({ family: "claude" }, true, run, () => void cancelled++)!;
+  expect(waiting.progress).toEqual({ phase: "signing_in", error: null });
+  waiting.cancel!();
+  expect(cancelled).toBe(1);
   const claude = setupConnect({ family: "claude", model: "opus" }, false, run)!;
-  expect(claude).toMatchObject({ needed: true, brand: "claude" });
+  expect(claude).toMatchObject({ needed: true, brand: "claude", progress: { phase: null, error: null } });
   expect(claude.add).toBeUndefined();
-  claude.open!();
+  await claude.begin!();
   const codex = setupConnect({ family: "codex" }, false, run)!;
   expect(codex).toMatchObject({ needed: true, brand: "openai" });
-  codex.open!();
+  await codex.begin!();
   expect(ran).toEqual(["setUpClaude", "connectChatGPT"]);
 });
 
-test("a host with its own way in takes Connect there, with no dialog; Codex's row reads its ChatGPT way in", async () => {
+test("a Cloud need's Connect starts the family's one click in the inline card; Codex's card says ChatGPT", async () => {
   const ran: CloudSetupAction[] = [];
   let family: "claude" | "codex" = "codex";
   let rerender: () => void = () => undefined;
@@ -286,7 +399,7 @@ test("a host with its own way in takes Connect there, with no dialog; Codex's ro
   }
   let brand: string | undefined;
   function Picker() {
-    const { row, dialog } = useClaudeConnectFlow();
+    const { row, card } = useClaudeConnectFlow();
     brand = row?.brand;
     return (
       <>
@@ -298,22 +411,24 @@ test("a host with its own way in takes Connect there, with no dialog; Codex's ro
             onConnect={row.onConnect}
           />
         )}
-        {dialog}
+        {card}
       </>
     );
   }
   const doc = await mount(<Host />);
   const row = () => doc.querySelector<HTMLElement>(".acpmux-connect-claude-row");
+  const card = () => doc.querySelector<HTMLElement>("[data-connect-card]");
   expect(brand).toBe("openai");
   expect(row()?.textContent).toContain("Continue with ChatGPT");
   await act(async () => row()!.querySelector("button")!.click());
   await nextFrame();
   expect(dialogOf(doc)).toBeNull();
+  expect(card()?.getAttribute("data-family")).toBe("codex");
+  expect(card()?.textContent).toContain("Connect your ChatGPT plan to run Codex in Cloud");
   family = "claude";
   await act(async () => rerender());
-  expect(row()?.textContent).toContain("Link your Claude subscription to use Claude Code");
-  await act(async () => row()!.querySelector("button")!.click());
+  expect(card()?.getAttribute("data-family")).toBe("claude");
+  await act(async () => card()!.querySelector<HTMLButtonElement>('[data-connect-action="begin"]')!.click());
   await nextFrame();
-  expect(dialogOf(doc)).toBeNull();
   expect(ran).toEqual(["connectChatGPT", "setUpClaude"]);
 });

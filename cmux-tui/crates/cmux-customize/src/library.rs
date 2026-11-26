@@ -55,6 +55,7 @@ pub mod keys;
 pub mod overlay;
 mod put;
 pub mod recover;
+pub mod standup;
 mod text;
 
 pub use applies::{NoLongerApplies, Stale};
@@ -63,6 +64,7 @@ pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
+pub use standup::{Standup, StandupLine};
 pub use text::thumbnail;
 use text::{one_line, slug, unique_name};
 
@@ -437,6 +439,15 @@ impl Customize {
     /// The entries, top first, and every conflict among those that are on.
     pub fn library(&self) -> Result<Listing, Error> {
         Ok(listing(&self.read_library()?.entries))
+    }
+
+    /// The library as one line per entry for standup ([`standup::standup`]):
+    /// code first, then setup repos, then recipes. A setups file that cannot
+    /// be read names no repo; the lines are still there.
+    pub fn library_standup(&self, now_ms: u64) -> Result<Standup, Error> {
+        let listing = self.library()?;
+        let setups = self.setups().unwrap_or_default();
+        Ok(standup::standup(&listing, &setups, now_ms))
     }
 
     /// The app commit `refresh` last ran on ([`refresh_due`]).

@@ -12,6 +12,8 @@ use acpmux::auto_session::runtime::ManualClock;
 use acpmux::auto_session::{HolderHandle, HolderOptions, SessionImporter, spawn_holder_with};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
+use acpmux::rpc::Message;
+use acpmux::server::{Origin, serve_connection_with};
 use cmux_auto_session::AutoCloud;
 use cmux_auto_session::fake::FakeAutoCloud;
 use cmux_auto_session::wire::{Holder, MachineSetting, Manifest, SessionView};
@@ -130,6 +132,29 @@ impl Daemon {
     pub fn folder(&self, id: &str) -> PathBuf {
         self.hub.resolve(id).expect("the chat is here").meta().cwd
     }
+
+    /// One request to this daemon over a local connection of the person's own, as the app
+    /// sends it: its result, or its error.
+    pub async fn request(&self, method: &str, params: Value) -> Result<Value, Value> {
+        let (tx, in_rx) = tokio::sync::mpsc::channel(8);
+        let (out_tx, mut rx) = tokio::sync::mpsc::channel(4096);
+        tokio::spawn(serve_connection_with(self.hub.clone(), in_rx, out_tx, Origin::Local));
+        tx.send(Message::request(1, method, params).to_line()).await.expect("the daemon listens");
+        let reply = async {
+            loop {
+                let line = rx.recv().await.expect("the connection stays open");
+                let message: Value = serde_json::from_str(&line).expect("a JSON line");
+                if message.get("id") == Some(&json!(1)) && message.get("method").is_none() {
+                    return match message.get("error") {
+                        Some(error) => Err(error.clone()),
+                        None => Ok(message["result"].clone()),
+                    };
+                }
+            }
+        };
+        let in_time = tokio::time::timeout(super::logs::DEADLINE, reply).await;
+        in_time.unwrap_or_else(|_| panic!("no reply to {method}"))
+    }
 }
 
 pub struct World {
@@ -157,12 +182,23 @@ impl World {
 
     /// [`World::new`] with both daemons on the stand-in agent `agent`.
     pub async fn with_agent(agent: Agent) -> World {
+        World::build(agent, true).await
+    }
+
+    /// A store whose owner has no Auto machine: nothing can run a chat in the Cloud.
+    pub async fn with_no_auto_machine() -> World {
+        World::build(Agent::default(), false).await
+    }
+
+    async fn build(agent: Agent, auto_machine: bool) -> World {
         let dir = tempfile::tempdir().unwrap();
         let (origin, work) = checkout(dir.path());
         let phone = FakeAutoCloud::new();
         phone.set_now(T0);
-        let setting = MachineSetting { team: TEAM.into(), machine: VM.into() };
-        phone.set_machine(&setting).await.expect("the Auto machine");
+        if auto_machine {
+            let setting = MachineSetting { team: TEAM.into(), machine: VM.into() };
+            phone.set_machine(&setting).await.expect("the Auto machine");
+        }
 
         let machine_clock = ManualClock::new(T0);
         // Both daemons run on this one host and name the chat alike, and a daemon finds a

@@ -44,6 +44,9 @@ extension SidebarViewComponents {
         var pullRequests: UInt64
         /// Whether the drawn tree has any parents (`revealsSelection`: the lineage arriving opens the selection's folds).
         var treeHasParents: Bool
+        /// Agent-started rows retained by the current selection while the default hides them. A change here moves rows,
+        /// so selection painting cannot leave the previously selected helper visible.
+        var treeKeeps: Set<WorkspaceID>
         /// The session tree's chat history: Pinned and Earlier.
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
@@ -113,7 +116,9 @@ extension SidebarViewComponents {
             treeStates = SidebarSessionTree.shared.statesRevision
             treeParents = SidebarSessionTree.shared.parentsRevision
             pullRequests = SidebarSessionTree.shared.pullRequestsRevision
+            let drawnTree = SidebarSessionTree.shared.drawn(keeping: model.selection)
             treeHasParents = !(SidebarSessionTree.shared.state?.parents.isEmpty ?? true)
+            treeKeeps = drawnTree?.keeps ?? []
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
@@ -218,8 +223,9 @@ extension SidebarViewComponents {
         let tree = SidebarSessionTree.shared
         let treeChanged = lastState?.treeShape != state.treeShape
             || lastState?.treeStates != state.treeStates && tree.state != nil && !tree.collapsed.isEmpty
+        let treeSelectionChanged = lastState?.treeKeeps != state.treeKeeps
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences) || treeChanged
+            || state.preferences.changesList(from: lastState?.preferences) || treeChanged || treeSelectionChanged
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus
@@ -264,7 +270,7 @@ extension SidebarViewComponents {
                 showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
                 // A window's first draw (its seed wrote its space) lists a create's row as the reload below does: the row's measure ends here.
                 if lastState == nil { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
-            } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
+            } else if selectionChanged, rowsChanged, !treeSelectionChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it
                 // wait under the pointer like any change nobody asked for.

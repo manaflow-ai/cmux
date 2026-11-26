@@ -1,6 +1,7 @@
-/// A new Cloud chat's environment (image). The composer has no Environment chip: a Cloud chat runs on
-/// Auto unless its start names its own (chatCloudEnvironment.ts). Behind the launch flag
-/// CLOUD_ENVIRONMENTS_ENABLED (composerSettings.ts `cloudEnvironments`).
+/// A new Cloud chat's environment (image). The composer has no Environment chip any more
+/// (cmux#51731): Settings > Cloud > Default Image (`cloud.defaultImage`) names it, and a chat's start may
+/// name its own (chatCloudEnvironment.ts). Behind the launch flag CLOUD_ENVIRONMENTS_ENABLED
+/// (composerSettings.ts `cloudEnvironments`).
 ///
 /// - Auto is the default and sends no environment: `cloud.startChat` then boots the chat from the
 ///   repository's set-up snapshot in the person's Default environment, derived from the chat's

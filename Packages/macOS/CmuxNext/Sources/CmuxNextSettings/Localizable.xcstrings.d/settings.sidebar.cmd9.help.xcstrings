@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.cmd9.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينتقل إلى العنصر الأخير كما في المتصفحات، أو إلى العنصر التاسع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ide na posljednju stavku, kao u preglednicima, ili na devetu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Går til det sidste element som i browsere eller til det niende."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Springt wie in Browsern zum letzten Eintrag oder zum neunten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Goes to the last item, as in browsers, or to the ninth."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Va al último elemento, como en los navegadores, o al noveno."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Va au dernier élément, comme dans les navigateurs, ou au neuvième."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Va all’ultimo elemento, come nei browser, o al nono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ブラウザと同じく最後の項目、または 9 番目の項目に移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទៅធាតុចុងក្រោយ ដូចក្នុងកម្មវិធីរុករក ឬទៅធាតុទីប្រាំបួន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "브라우저처럼 마지막 항목 또는 아홉 번째 항목으로 이동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Går til det siste elementet, som i nettlesere, eller til det niende."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przechodzi do ostatniego elementu, jak w przeglądarkach, albo do dziewiątego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vai para o último item, como nos navegadores, ou para o nono."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переходит к последнему элементу, как в браузерах, или к девятому."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไปยังรายการสุดท้ายเหมือนในเบราว์เซอร์ หรือไปยังรายการที่เก้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tarayıcılardaki gibi son öğeye veya dokuzuncu öğeye gider."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переходить до останнього елемента, як у браузерах, або до дев’ятого."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đi tới mục cuối cùng như trong trình duyệt, hoặc tới mục thứ chín."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "像浏览器一样转到最后一项，或转到第九项。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "像瀏覽器一樣前往最後一項，或前往第九項。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
