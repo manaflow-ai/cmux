@@ -46,6 +46,17 @@ pub struct Job {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// A shell command to run instead of a sub-agent (a run VM, RFD 0144 piece 3,
+    /// [`super::run_vm`]): `sh -c` in `cwd`, its stdout and stderr streamed as [`Frame::Out`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Where the command runs (the agent's working directory, inside `checkout`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
+    /// The agent's `PATH`, so the command finds the same tools it would here (an ssh
+    /// session's `PATH` is a login default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// One line the fork writes back.
@@ -128,6 +139,9 @@ impl<L: ForkLink> SubRun for ForkRunner<L> {
             prompt: task.prompt.clone(),
             name: job_name(task),
             model: task.model.clone(),
+            command: None,
+            cwd: None,
+            path: None,
         };
         let mut lines =
             self.link.open(fork, &job).await.map_err(|e| format!("reaching the fork: {e}"))?;
@@ -314,6 +328,9 @@ pub async fn job_main() -> anyhow::Result<()> {
     tokio::io::AsyncReadExt::read_to_end(&mut tokio::io::stdin(), &mut input).await?;
     let mut stdout = tokio::io::stdout();
     match serde_json::from_slice::<Job>(&input) {
+        Ok(job) if job.command.is_some() => {
+            run_job(&job, &super::run_vm::ShellHarness, &mut stdout).await?
+        }
         Ok(job) => run_job(&job, &acpmux_harness(), &mut stdout).await?,
         Err(e) => {
             stdout.write_all(Frame::Error(format!("not a job: {e}")).line().as_bytes()).await?

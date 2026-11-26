@@ -363,6 +363,14 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
+        # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
+        # line counts how often an op outlives its request.
+        row = logs.line(event({"msg": "cloud.submit.cut_off", "machine": "vm_cutoff", "op": "start", "ms": 25001}))
+        self.assertEqual(row["log"], {"msg": "cloud.submit.cut_off", "machine": logs.base.tag("vm_cutoff"),
+                                      "op": "start", "ms": 25001})
+        self.assertNotIn("vm_cutoff", json.dumps(row))
+
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)
         self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)

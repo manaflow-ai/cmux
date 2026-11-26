@@ -126,7 +126,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
     case tool(ACPToolCall)
-    case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(AgentQuestion)
     /// Subagents started together (ids into `AgentChatStore.subagents`).
@@ -141,7 +140,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
-        case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"
         case .question(let question): "q-\(question.id)"
         }
@@ -195,8 +193,9 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
-    /// Messages with files on their way to the Mac, oldest first: each shows at once with its
-    /// upload's progress until the Mac echoes it (`userMessage`) or it comes back (`promptNotSent`).
+    /// Messages on their way to the Mac, oldest first: each shows at once (with files, its
+    /// upload's progress) until the Mac echoes or queues it (`userMessage`, `queued`) or it comes
+    /// back to the composer (`promptNotSent`).
     public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
@@ -222,7 +221,8 @@ public final class AgentChatStore {
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
-    /// shows them (kept from before) and says it is updating.
+    /// shows them (kept from before) and says nothing while it catches up (Leo, 2026-11-24:
+    /// "they dont need to know that it's updating before they KNOW it's updating").
     public private(set) var isLoadingHistory = false
     /// The first message this phone is sending has not shown in the transcript yet (New Task):
     /// the chat still says it is starting. Read live: the source's note goes once the send ends.
@@ -387,6 +387,9 @@ public final class AgentChatStore {
     /// The newest change was a replayed batch: views that animate on a value change
     /// (the permission bar, the queue) draw it in place.
     @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// The same attach replay can be delivered again after a reconnect. Equal batches do not
+    /// change the transcript, so they must not bump ``revision`` or redraw its rows.
+    @ObservationIgnored private var lastReplayBatch: [AgentSessionEvent]?
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
@@ -409,8 +412,9 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    /// Says when a dropped or catching-up chat may show its line (after 10 s);
-    /// its rows stay on screen the whole time.
+    /// Says when a dropped chat may show its line, or a chat with nothing kept its slow-load
+    /// words (after 10 s); kept rows stay on screen the whole time, and a catch-up over them
+    /// shows no line (``connectionLine``).
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
     /// The chat's one quiet status line by the composer: nil while live and for the first
@@ -423,7 +427,9 @@ public final class AgentChatStore {
     }
 
     /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
-    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes). A
+    /// history still loading on a live link does not feed it: its spinner says nothing, since a
+    /// waiting word there is the limbo Leo asked to drop (2026-11-24, #54994).
     private func updateQuietStatus() {
         quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
@@ -435,7 +441,10 @@ public final class AgentChatStore {
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
-        let stream = source.events()
+        // What the source already holds (a kept transcript) goes in now, so the chat's first
+        // frame draws it; the rest streams in.
+        let (head, stream) = source.eventsWithHead()
+        for event in head { receive(event) }
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
@@ -472,8 +481,6 @@ public final class AgentChatStore {
     public private(set) var pendingElevation: AgentElevationAsk?
     /// The sudo card's Approve is being signed and sent.
     public private(set) var sendingElevation = false
-    /// The running turn's latest plan.
-    public private(set) var runningPlanEntries: [ACPPlanEntry]?
     /// Turns before the newest that hold an edit (counted once per new turn).
     @ObservationIgnored private var editsBeforeLast: (count: Int, any: Bool) = (0, false)
 
@@ -485,7 +492,6 @@ public final class AgentChatStore {
         assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
-        assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
         let earlier = max(turns.count - 1, 0)
         if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
             editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
@@ -514,13 +520,6 @@ public final class AgentChatStore {
     nonisolated static func openQuestion(_ turn: AgentTurn) -> AgentQuestion? {
         for case .question(let question) in turn.items.reversed() where question.isPending {
             return question
-        }
-        return nil
-    }
-
-    nonisolated static func latestPlan(_ turn: AgentTurn) -> [ACPPlanEntry]? {
-        for item in turn.items.reversed() {
-            if case .plan(_, let entries) = item { return entries }
         }
         return nil
     }
@@ -559,6 +558,7 @@ public final class AgentChatStore {
         let chunks = pendingChunks
         pendingChunks = []
         chunkFlushes += 1
+        lastReplayBatch = nil
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
         updateQuietStatus()
@@ -619,7 +619,11 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
-        if !attachments.isEmpty, !outgoing.contains(where: { $0.id == promptID }) {
+        // Every message shows the moment Send is tapped, not when the Mac's echo comes back
+        // (Leo, 2026-11-24: "i think the send loading is... hm. i think we can maybe be more
+        // optimistic sometimes. it is a bit slow on ios."). A text-only one draws as a quiet
+        // pending bubble; the transcript's own copy takes its place at the echo.
+        if !outgoing.contains(where: { $0.id == promptID }) {
             outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
         }
         // One of the agent's own slash commands waits for the turn and runs as its own.
@@ -654,6 +658,9 @@ public final class AgentChatStore {
     /// never sent again under that id.
     private func reached(_ promptID: String) {
         seenPromptIDs.insert(promptID)
+        // It shows in the transcript or the queue now: its pending copy goes (a queued or
+        // replayed prompt has no `userMessage` echo yet).
+        if outgoing.contains(where: { $0.id == promptID }) { outgoing.removeAll { $0.id == promptID } }
         guard let pending = resendable, pending.promptID == promptID else { return }
         resendable = nil
         let draft = returnedDraft?.promptID == promptID ? returnedDraft : nil
@@ -924,10 +931,31 @@ public final class AgentChatStore {
     }
 
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
-    /// Stops a message's upload: it comes back to the composer (`promptNotSent`).
+    /// Stops a message on its way, at any stage (uploading, waiting for the link or a retry,
+    /// being written): it comes back to the composer (`promptNotSent`) to edit and send again,
+    /// as a new message.
     public func cancelSend(promptID: String) {
+        stoppedSends.insert(promptID)
         source.send(.cancelSend(promptID: promptID))
     }
+
+    /// Deletes a message on its way: its row goes now and nothing comes back to the composer.
+    public func deleteSend(promptID: String) {
+        deletedSends.insert(promptID)
+        outgoing.removeAll { $0.id == promptID }
+        source.send(.deleteSend(promptID: promptID))
+    }
+
+    /// Send now: a message waiting on a retry goes at once.
+    public func retrySend(promptID: String) {
+        source.send(.retrySend(promptID: promptID))
+    }
+
+    /// Messages the person stopped: one that comes back is sent again as a new message (a
+    /// stopped one may have been taken off the Mac's queue under its id).
+    @ObservationIgnored private var stoppedSends: Set<String> = []
+    /// Messages the person deleted: one that comes back anyway is dropped.
+    @ObservationIgnored private var deletedSends: Set<String> = []
 
     public func resumeQueue() {
         guard queuePaused else { return }
@@ -988,6 +1016,9 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        // Anything applied since a replay (a refused Full-access switch, a mode pick) may have
+        // moved the state that replay sets, so the next equal replay applies again.
+        if case .batch = event {} else { lastReplayBatch = nil }
         applyEvent(event)
         spillIfOffScreen()
         refreshDerived()
@@ -997,6 +1028,10 @@ public final class AgentChatStore {
 
     private func applyEvent(_ event: AgentSessionEvent) {
         if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
+        if case .batch(let events) = event {
+            guard events != lastReplayBatch else { return }
+            lastReplayBatch = events
+        }
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
@@ -1254,8 +1289,26 @@ public final class AgentChatStore {
             if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
                shown.sent > progress.sent, progress.phase == .sending { break }
             outgoing[index].progress = progress
+        case .pendingSends(let rows):
+            let shown = Dictionary(rows.map { ($0.promptID, $0) }, uniquingKeysWith: { first, _ in first })
+            // Every message stays until the Mac has it (`reached`) or it comes back
+            // (`promptNotSent`): a text one the outbox no longer marks waiting draws as a pending
+            // bubble again rather than leaving a gap until its echo.
+            for index in outgoing.indices {
+                let row = shown[outgoing[index].id]
+                outgoing[index].waiting = row?.waiting ?? false
+                outgoing[index].canSendNow = row?.canSendNow ?? false
+                outgoing[index].stopping = row?.stopping ?? false
+            }
+            for row in rows where !deletedSends.contains(row.promptID) && !outgoing.contains(where: { $0.id == row.promptID }) {
+                outgoing.append(OutgoingMessage(id: row.promptID, text: row.text, attachments: [],
+                                                waiting: row.waiting, canSendNow: row.canSendNow, stopping: row.stopping))
+            }
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             outgoing.removeAll { $0.id == promptID }
+            if deletedSends.remove(promptID) != nil { break }
+            let stopped = stoppedSends.remove(promptID) != nil
+            defer { if stopped, resendable?.promptID == promptID { resendable = nil } }
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
@@ -1814,7 +1867,11 @@ public final class AgentChatStore {
                 markdown += text
                 turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                // The same message going on after a row of its own between (an image it sent)
+                // takes a new id: two rows never share one.
+                var id = messageId ?? UUID().uuidString
+                if turns[last].items.contains(where: { $0.id == "m-\(id)" }) { id += "-#\(turns[last].items.count)" }
+                turns[last].items.append(.message(id: id, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false
@@ -1842,18 +1899,6 @@ public final class AgentChatStore {
                 if !call.isRunning, call.endedAt == nil { call.endedAt = Date() }
                 return call
             }
-        case .plan(let entries):
-            guard var turn = turns.last else { return }
-            if let index = turn.items.firstIndex(where: { if case .plan = $0 { return true }; return false }) {
-                if entries.isEmpty {
-                    turn.items.remove(at: index)
-                } else if case .plan(let id, _) = turn.items[index] {
-                    turn.items[index] = .plan(id: id, entries: entries)
-                }
-            } else if !entries.isEmpty {
-                turn.items.append(.plan(id: UUID().uuidString, entries: entries))
-            }
-            turns[turns.count - 1] = turn
         case .availableCommands(let commands):
             assign(\.availableCommands, commands)
         case .currentMode(let mode):
@@ -1956,18 +2001,32 @@ extension AgentChatStore {
     }
 }
 
-/// A message with files the phone is sending (``AgentChatStore/outgoing``).
+/// A message the phone is sending (``AgentChatStore/outgoing``): shown at once, until the Mac has it.
 public struct OutgoingMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public let text: String
     public let attachments: [AgentAttachment]
+    /// No files to upload.
+    public var isTextOnly: Bool { attachments.isEmpty }
+    /// A text message not waiting yet: a quiet pending bubble, with no status line or exits.
+    public var isQuietPending: Bool { isTextOnly && !waiting && !canSendNow && !stopping }
     /// The current file's upload; nil until its first step.
     public var progress: AgentUploadProgress?
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
 
-    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil) {
+    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil,
+                waiting: Bool = false, canSendNow: Bool = false, stopping: Bool = false) {
         self.id = id
         self.text = text
         self.attachments = attachments
         self.progress = progress
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
     }
 }

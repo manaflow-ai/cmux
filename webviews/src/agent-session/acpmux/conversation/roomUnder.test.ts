@@ -126,7 +126,7 @@ describe("roomUnder", () => {
     expect(roomUnder(pass({ following: false, held: { room: 300, reader: { followed: false } } })).room).toBe(300);
     const back = roomUnder(pass({ held: { room: 300, reader: { followed: false, left: true } } }));
     expect(back.room).toBe(300);
-    expect(back.kept).toEqual({ room: 300, prompt: "u1" });
+    expect(back.kept).toEqual({ room: 300, prompt: "u1", end: 300 });
     // A new prompt gives the kept room up.
     expect(
       roomUnderRows(

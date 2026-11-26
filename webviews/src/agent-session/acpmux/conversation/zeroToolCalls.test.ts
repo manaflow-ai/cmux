@@ -8,7 +8,7 @@ import { translate, type Translate } from "../i18n";
 import { withSubagentLines } from "../subagents/runningTray";
 import { SUBAGENT_DONE } from "../subagents/subagentRows";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { BACKGROUND_END, footerLabel, turnView, WORKED, workedLabel } from "./turns";
+import { BACKGROUND_END, footerLabel, turnSpan, turnView, WORKED, workedLabel } from "./turns";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 
@@ -68,4 +68,127 @@ test("a line with no time and no calls says nothing; with calls it counts them",
   // A footer with nothing to say draws no words.
   expect(footerLabel(t, row("summary", 1, "turnSummary", { status: "completed", toolCount: 0 }))).toBeUndefined();
   expect(footerLabel(t, row("summary", 1, "turnSummary", { status: "completed", toolCount: 2 }))).toBe("2 tool calls");
+});
+
+// cmux#54927, again: "Worked for 0s" over a turn whose one piece of work was a subagent. cmux#55191
+// dropped that fold, and the "Working for" that stood over the running turn then vanished at its end,
+// its rows loose (Leo, 2026-11-25: "i think it was replacing the "worked for" as it went. let's just
+// fix forward and improve it all"). The fold stays, and reads "<1s", never "0s".
+const agentNamed = (state: "completed" | "failed") =>
+  ({
+    id: "n3",
+    parent: null,
+    name: "N3 daemon wiring move",
+    kind: "general-purpose",
+    state,
+    startedAt: 2,
+    endedAt: 2,
+    background: false,
+    ...(state === "failed" && { error: "Agent terminated early due to an API error. 500" }),
+  }) as never;
+const spawnCall = (status: string) =>
+  ({
+    id: "call",
+    kind: "tool",
+    tool: {
+      id: "n3-call",
+      title: "Agent",
+      kind: "think",
+      status,
+      inputSummary: JSON.stringify({
+        description: "N3 daemon wiring move",
+        prompt: "move it",
+        subagent_type: "general-purpose",
+      }),
+    },
+  }) as never;
+
+for (const state of ["completed", "failed"] as const)
+  test(`a ${state} subagent's turn under a second keeps its fold, "Worked for <1s", never "0s"`, () => {
+    for (const agentFamily of ["claude", "codex"]) {
+      const rows: AcpmuxRow[] = [
+        row("prompt", 1, "user", { text: "Move the daemon wiring" }),
+        row("act", 2, "activity", { items: [spawnCall(state)] }),
+        row("group", 2, "subagents", { subagents: [agentNamed(state)] }),
+        row("summary", 2, "turnSummary", { status: "completed", toolCount: 1, durationMs: 0, turnStartedAtMs: 2 }),
+      ];
+      const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily });
+      const labels = view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry));
+      expect(labels).toHaveLength(1);
+      expect(labels[0]).toStartWith("Worked for <1s");
+      expect(labels.join()).not.toContain("0s");
+    }
+  });
+
+test("a quiet background turn of a subagent's end under a second reads <1s, never 0s", () => {
+  const rows = subagentOnlyTurn(true).map((entry) =>
+    entry.id === `${BACKGROUND_END}-bg` ? { ...entry, durationMs: 0, turnStartedAtMs: 12 } : entry,
+  );
+  const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
+  for (const entry of view.filter((entry) => entry.kind === WORKED)) expect(workedLabel(t, entry)).not.toContain("0s");
+});
+
+test("a turn's time never reads 0s: under a second is <1s", () => {
+  expect(turnSpan(0)).toBe("<1s");
+  expect(turnSpan(999)).toBe("<1s");
+  expect(turnSpan(1_000)).toBe("1s");
+  expect(turnSpan(76_000)).toBe("1m 16s");
+  expect(workedLabel(t, row("worked-x", 1, WORKED, { durationMs: 400, status: "completed" }))).toBe("Worked for <1s");
+});
+
+test("the same subagent turn that took 6s keeps its Worked for", () => {
+  const rows: AcpmuxRow[] = [
+    row("prompt", 1, "user", { text: "Move the daemon wiring" }),
+    row("act", 2_000, "activity", { items: [spawnCall("completed")] }),
+    row("group", 2_000, "subagents", { subagents: [agentNamed("completed")] }),
+    row("summary", 7_000, "turnSummary", {
+      status: "completed",
+      toolCount: 1,
+      durationMs: 6_000,
+      turnStartedAtMs: 1_000,
+    }),
+  ];
+  const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
+  expect(view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry))).toEqual([
+    "Worked for 6s",
+  ]);
+});
+
+// Review on #54927: an Agent call no subagent row answers (it failed before acpmux named one) is the
+// call's only trace. It never vanishes, even beside another subagent's row.
+test("an Agent call whose subagent never got a row keeps its fold and its row", () => {
+  const orphan = {
+    id: "orphan",
+    kind: "tool",
+    tool: {
+      id: "orphan-call",
+      title: "Agent",
+      kind: "think",
+      status: "failed",
+      inputSummary: JSON.stringify({ description: "Unknown kind", prompt: "go", subagent_type: "nope" }),
+    },
+  } as never;
+  const rows: AcpmuxRow[] = [
+    row("prompt", 1, "user", { text: "Two agents" }),
+    row("act", 2, "activity", { items: [spawnCall("completed"), orphan] }),
+    row("group", 2, "subagents", { subagents: [agentNamed("completed")] }),
+    row("summary", 2, "turnSummary", { status: "completed", toolCount: 2, durationMs: 0, turnStartedAtMs: 2 }),
+  ];
+  const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
+  expect(view.filter((entry) => entry.kind === WORKED)).toHaveLength(1);
+});
+
+test("a lone subagent's turn with no recorded time keeps its fold, and its footer says no count", () => {
+  const rows: AcpmuxRow[] = [
+    row("prompt", 1, "user", { text: "Move the daemon wiring" }),
+    row("act", 2, "activity", { items: [spawnCall("failed")] }),
+    row("group", 2, "subagents", { subagents: [agentNamed("failed")] }),
+    row("summary", 2, "turnSummary", { status: "completed", toolCount: 1 }),
+  ];
+  const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
+  expect(view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry))).toEqual([
+    "Worked for <1s",
+  ]);
+  const footer = view.find((entry) => entry.kind === "turnSummary")!;
+  expect(footerLabel(t, footer)).toBeUndefined();
 });

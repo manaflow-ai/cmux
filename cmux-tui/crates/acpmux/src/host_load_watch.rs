@@ -5,6 +5,11 @@
 //!
 //! - memory available under 25% (`warn`) and under 10% (`grow`) (`/proc/meminfo`);
 //! - any rise of the OOM-kill count (`/proc/vmstat` `oom_kill`);
+//! - memory stall: direct reclaim (an `allocstall_*` rise) or refaults of at least
+//!   10 MiB/s in 3 of the last 10 samples (`stall`), clear after 30 calm samples (`ok`).
+//!   This is PSI memory `some avg10 >= 30%` read from the counters every kernel keeps
+//!   (cmuxterm-hq RFD 0182 B1): the guest is short of memory before MemAvailable says so,
+//!   and with no swap the thrash shows as refaults, then the freeze;
 //! - CPU at least 90% busy with a run queue over the vCPU count, held 5 minutes
 //!   (`/proc/stat`: the aggregate `cpu` line between two samples, `procs_running`);
 //! - disk under 10% or 2 GiB free (`statvfs` of `$HOME`).
@@ -41,6 +46,12 @@ pub struct Lines {
     /// Free disk under this many bytes: a `low` event.
     #[arg(long, default_value_t = DISK_BYTES)]
     pub disk_bytes: u64,
+    /// Stalled samples, of the last [`STALL_WINDOW`], that make a memory `stall`.
+    #[arg(long, default_value_t = STALL_SAMPLES)]
+    pub stall_samples: u32,
+    /// Refaulted pages per sample that count as a stalled sample.
+    #[arg(long, default_value_t = REFAULT_PAGES)]
+    pub refault_pages: u64,
     /// Milliseconds between samples.
     #[arg(long, default_value_t = INTERVAL_MS)]
     pub interval_ms: u64,
@@ -53,6 +64,13 @@ pub const CPU_HOLD_SECS: u64 = 300;
 pub const DISK_FRACTION: f64 = 0.10;
 pub const DISK_BYTES: u64 = 2 << 30;
 pub const INTERVAL_MS: u64 = 1000;
+/// The memory-stall window, in samples (PSI's avg10 at one sample a second).
+pub const STALL_WINDOW: u32 = 10;
+pub const STALL_SAMPLES: u32 = 3;
+/// 10 MiB of 4 KiB pages read back in one sample.
+pub const REFAULT_PAGES: u64 = 2560;
+/// A memory stall clears after this many calm samples in a row.
+pub const STALL_CLEAR_SAMPLES: u32 = 30;
 /// A memory level clears this far above its line.
 pub const MEM_MARGIN: f64 = 0.05;
 /// Low disk clears this far above both of its lines.
@@ -60,6 +78,8 @@ pub const DISK_MARGIN_FRACTION: f64 = 0.02;
 pub const DISK_MARGIN_BYTES: u64 = 512 << 20;
 /// Saturated CPU clears after this long below its line.
 pub const CPU_CLEAR_SECS: u64 = 60;
+/// A fraction on a clear line counts as past it: `0.25 + 0.05` is `0.30000000000000004` in f64.
+const AT_LINE: f64 = 1e-9;
 
 impl Default for Lines {
     fn default() -> Self {
@@ -70,6 +90,8 @@ impl Default for Lines {
             cpu_hold_secs: CPU_HOLD_SECS,
             disk_fraction: DISK_FRACTION,
             disk_bytes: DISK_BYTES,
+            stall_samples: STALL_SAMPLES,
+            refault_pages: REFAULT_PAGES,
             interval_ms: INTERVAL_MS,
         }
     }
@@ -82,6 +104,8 @@ pub struct Sample {
     pub at: u64,
     pub mem_available_fraction: Option<f64>,
     pub oom_kills: Option<u64>,
+    /// `/proc/vmstat`'s reclaim counters since boot.
+    pub reclaim: Option<crate::host_pressure::Reclaim>,
     /// Busy share since the previous sample.
     pub cpu_busy: Option<f64>,
     /// Runnable tasks now (`procs_running`).
@@ -108,6 +132,18 @@ pub enum Event {
     Memory { at: u64, state: MemLevel, from: MemLevel, mem_available_fraction: f64 },
     #[serde(rename_all = "camelCase")]
     OomKill { at: u64, state: &'static str, oom_kills: u64, rise: u64 },
+    #[serde(rename_all = "camelCase")]
+    Reclaim {
+        at: u64,
+        /// `stall` or `ok`.
+        state: &'static str,
+        /// Stalled samples among the last `windowSamples`.
+        stalled_samples: u32,
+        window_samples: u32,
+        /// Allocation stalls and refaulted pages in this sample.
+        alloc_stalls: u64,
+        refaults: u64,
+    },
     #[serde(rename_all = "camelCase")]
     Cpu {
         at: u64,
@@ -136,6 +172,11 @@ pub struct Watch {
     pub lines: Lines,
     mem: MemLevel,
     oom_kills: Option<u64>,
+    reclaim: Option<crate::host_pressure::Reclaim>,
+    /// One bit per recent sample with reclaim read, newest lowest: set when it stalled.
+    stall_bits: u32,
+    stalled: bool,
+    calm_samples: u32,
     /// When the current saturated run began (ms), saturated or not yet held long enough.
     cpu_since: Option<u64>,
     cpu_fired: bool,
@@ -149,11 +190,12 @@ impl Watch {
         Self { lines, ..Self::default() }
     }
 
-    /// The events this sample crosses, in a fixed order: OOM, memory, CPU, disk.
+    /// The events this sample crosses, in a fixed order: OOM, memory, reclaim, CPU, disk.
     pub fn step(&mut self, s: &Sample) -> Vec<Event> {
         let mut out = Vec::new();
         self.oom(s, &mut out);
         self.memory(s, &mut out);
+        self.reclaim(s, &mut out);
         self.cpu(s, &mut out);
         self.disk(s, &mut out);
         out
@@ -190,9 +232,9 @@ impl Watch {
         } else {
             // Down only past the margin: grow clears to warn at grow + margin, warn to ok
             // at warn + margin.
-            let cleared = if v >= warn + MEM_MARGIN {
+            let cleared = if v + AT_LINE >= warn + MEM_MARGIN {
                 MemLevel::Ok
-            } else if v >= grow + MEM_MARGIN {
+            } else if v + AT_LINE >= grow + MEM_MARGIN {
                 MemLevel::Warn
             } else {
                 MemLevel::Grow
@@ -207,6 +249,40 @@ impl Watch {
                 mem_available_fraction: v,
             });
             self.mem = next;
+        }
+    }
+
+    fn reclaim(&mut self, s: &Sample, out: &mut Vec<Event>) {
+        let Some(now) = s.reclaim else { return };
+        let before = self.reclaim.replace(now);
+        // The first reading is the baseline; a counter that went down (a new boot) is one too.
+        let Some(before) =
+            before.filter(|b| now.alloc_stalls >= b.alloc_stalls && now.refaults >= b.refaults)
+        else {
+            return;
+        };
+        let stalls = now.alloc_stalls - before.alloc_stalls;
+        let refaults = now.refaults - before.refaults;
+        let stalled_now = stalls > 0 || refaults >= self.lines.refault_pages;
+        let window = (1u32 << STALL_WINDOW) - 1;
+        self.stall_bits = ((self.stall_bits << 1) | u32::from(stalled_now)) & window;
+        let stalled = self.stall_bits.count_ones();
+        self.calm_samples = if stalled_now { 0 } else { self.calm_samples.saturating_add(1) };
+        let next = if self.stalled {
+            self.calm_samples < STALL_CLEAR_SAMPLES
+        } else {
+            stalled >= self.lines.stall_samples.max(1)
+        };
+        if next != self.stalled {
+            self.stalled = next;
+            out.push(Event::Reclaim {
+                at: s.at,
+                state: if next { "stall" } else { "ok" },
+                stalled_samples: stalled,
+                window_samples: STALL_WINDOW,
+                alloc_stalls: stalls,
+                refaults,
+            });
         }
     }
 
@@ -259,7 +335,8 @@ impl Watch {
         let low =
             bytes < self.lines.disk_bytes || fraction.is_some_and(|f| f < self.lines.disk_fraction);
         let clear = bytes >= self.lines.disk_bytes.saturating_add(DISK_MARGIN_BYTES)
-            && fraction.is_none_or(|f| f >= self.lines.disk_fraction + DISK_MARGIN_FRACTION);
+            && fraction
+                .is_none_or(|f| f + AT_LINE >= self.lines.disk_fraction + DISK_MARGIN_FRACTION);
         let next = if self.disk_low { !clear } else { low };
         if next != self.disk_low {
             self.disk_low = next;
@@ -329,7 +406,10 @@ fn read(cpu_before: Option<(u64, u64)>) -> (Sample, Option<(u64, u64)>) {
         let read = |path: &str| std::fs::read_to_string(path).ok();
         sample.mem_available_fraction =
             read("/proc/meminfo").and_then(|s| p::parse_meminfo_available(&s));
-        sample.oom_kills = read("/proc/vmstat").and_then(|s| p::parse_vmstat_oom_kill(&s));
+        if let Some(vmstat) = read("/proc/vmstat") {
+            sample.oom_kills = p::parse_vmstat_oom_kill(&vmstat);
+            sample.reclaim = p::parse_vmstat_reclaim(&vmstat);
+        }
         if let Some(stat) = read("/proc/stat") {
             let now = p::parse_proc_stat_cpu(&stat);
             sample.cpu_busy = cpu_before.zip(now).and_then(|(a, b)| p::cpu_busy(a, b));
@@ -499,6 +579,50 @@ mod tests {
         assert_eq!(states(&w.step(&mem(1, 0.05))), ["memory:grow"]);
         assert!(w.step(&at(2)).is_empty(), "an unread sample does not clear it");
         assert!(w.step(&mem(3, 0.05)).is_empty());
+    }
+
+    fn reclaim(secs: u64, alloc_stalls: u64, refaults: u64) -> Sample {
+        let r = crate::host_pressure::Reclaim { alloc_stalls, direct_scanned: 0, refaults };
+        Sample { reclaim: Some(r), ..at(secs) }
+    }
+
+    #[test]
+    fn memory_stalls_on_three_stalled_samples_in_ten_and_clears_after_thirty_calm() {
+        let mut w = Watch::default();
+        assert!(w.step(&reclaim(0, 500, 9_000)).is_empty(), "the counts at start are the baseline");
+        assert!(w.step(&reclaim(1, 501, 9_000)).is_empty(), "one stall is not pressure");
+        assert!(w.step(&reclaim(2, 501, 9_000)).is_empty());
+        assert!(w.step(&reclaim(3, 501, 9_000 + 2559)).is_empty(), "under 10 MiB of refaults");
+        let e = w.step(&reclaim(4, 501, 9_000 + 2559 + 2560));
+        assert!(e.is_empty(), "two stalled samples");
+        let e = w.step(&reclaim(5, 504, 11_559 + 2560));
+        assert_eq!(
+            serde_json::to_value(&e[0]).unwrap(),
+            json!({"signal": "reclaim", "at": 5000, "state": "stall", "stalledSamples": 3,
+                   "windowSamples": 10, "allocStalls": 3, "refaults": 0})
+        );
+        assert!(w.step(&reclaim(6, 600, 14_119)).is_empty(), "no repeat while it holds");
+        let mut out = Vec::new();
+        for t in 7..=35 {
+            out.extend(w.step(&reclaim(t, 600, 14_119)));
+        }
+        assert!(out.is_empty(), "29 calm samples do not clear it");
+        assert_eq!(states(&w.step(&reclaim(36, 600, 14_119))), ["reclaim:ok"]);
+    }
+
+    #[test]
+    fn stalls_spread_wider_than_the_window_never_fire_and_a_reboot_rebaselines() {
+        let mut w = Watch::default();
+        let mut stalls = 0;
+        for t in 0..100 {
+            if t % 5 == 0 {
+                stalls += 1;
+            }
+            assert!(w.step(&reclaim(t, stalls, 0)).is_empty(), "two in ten at {t}s");
+        }
+        // Counters reset: the lower reading is a new baseline, not a huge rise.
+        assert!(w.step(&reclaim(100, 0, 0)).is_empty());
+        assert!(w.step(&Sample { reclaim: None, ..at(101) }).is_empty());
     }
 
     #[test]

@@ -257,7 +257,6 @@ final class WindowManager {
             // The feed handoff waited for this classification of incognito workspaces (#31210).
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
-            services.updater.afterimage?.newCopyDrew() // the last relaunch's pictures leave, under these windows (RelaunchAfterimage)
         }
         // A launch snapshot the daemon does not know (WindowRules+Launch): the window drops it, as a launch with nothing to restore.
         if let launch = launchWindowID, let state = controller(for: launch)?.state, WindowRules().launchSnapshotIsStale(snapshot: services.daemon.launchSnapshotRegistryID,
@@ -347,7 +346,7 @@ final class WindowManager {
            let landing = document.windows.first(where: { $0.id == front }).flatMap({ WindowRules().launchLanding(front: $0, workspace: services.workspace(id:)) }) {
             if case let .workspace(id, pane, tab) = landing, controller.state.workspaceID != id || controller.content?.workspace.id != id {
                 if let pane, let tab { controller.state.selection.select(tab, in: pane) }; select(id, in: controller.state); controller.showWorkspace(requested: id)
-            } else if landing == .home(why: "unknownWorkspace"), services.home.homeWorkspace != nil { AppActions.showHome(services) }
+            } else if landing == .home(why: "unknownWorkspace") { controller.state.watchRestore(); WindowRules().landHomeWhenReady({ [weak self, weak controller] in .init(window: front, active: self?.active?.state.id, windowOpen: self?.registry.value.window(front)?.isOpen == true, homeReady: self?.services.home.homeWorkspace != nil, moved: controller?.state.awayFromRestore ?? true, movedSinceRestore: controller?.state.restoreWatch?.left ?? true) }) { [weak self] in if let self, let state = self.controller(for: $0)?.state { AppActions.showHome(self.services, in: state) } } } // Home once listed (`launch::pending_home`), in the saved front window
         }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.

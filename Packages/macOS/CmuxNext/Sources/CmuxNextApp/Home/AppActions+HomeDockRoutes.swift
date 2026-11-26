@@ -18,20 +18,20 @@ extension AppActions {
         static func conversation(_ id: String) -> String { "/conversation/\(id)" }
     }
 
-    /// `home.show`: the active window's own Home in that window (cmux#27880: the store's home
+    /// `home.show`: `target`'s (else the active window's) own Home in that window (cmux#27880: the store's home
     /// when this window holds it or no other open window does, else a Home of the window's own,
     /// made on its first show; never another window's), else the store's home in a new window;
     /// classic Home shows its top page. `shown` runs with the Home once it is shown (a window's
     /// first Home after its creation). False when refused.
     @discardableResult
-    static func showHome(_ services: AppServices, then shown: (@MainActor (WorkspaceModel) -> Void)? = nil) -> Bool {
+    static func showHome(_ services: AppServices, in target: WindowState? = nil, then shown: (@MainActor (WorkspaceModel) -> Void)? = nil) -> Bool {
         let classic = services.home.dock.isClassic
-        if classic, TopPages.show(.home, services: services) != nil { return true }
+        if classic, TopPages.show(.home, services: services, in: target) != nil { return true }
         guard !classic || services.windows.active == nil, classic || ActionRunScope.viewChangeAllowed(), let home = services.home.homeWorkspace else {
             services.registry.refuse(classic || ActionRunScope.viewChangeAllowed() ? RefusalStrings.homeNotReady : RefusalStrings.homeNeedsFocus)
             return false
         }
-        guard !classic, let active = services.windows.active else {
+        guard !classic, let active = target.flatMap({ services.windows.controller(for: $0.id) }) ?? services.windows.active else {
             services.windows.reveal(workspaceID: home.id)
             shown?(home)
             return true

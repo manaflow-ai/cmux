@@ -60,6 +60,10 @@ pub(crate) fn terminal_notify(title: &str, body: &str) {
     let _ = out.flush();
 }
 
+/// `acpmux wait`'s default bound (Leo, 2026-11-25 ~04:15Z: "can't ci sometimes go indefinitely? or is
+/// there a timeout where it can always check again at some point"): an hour, as `pr-wait`'s.
+pub(crate) const WAIT_BOUND_S: u64 = 3600;
+
 pub(crate) struct WaitOpts {
     pub sessions: Vec<String>,
     pub until: Vec<String>,

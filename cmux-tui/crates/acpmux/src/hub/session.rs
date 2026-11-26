@@ -246,6 +246,11 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// The timers of the /loops its live agent armed, as that agent last said
+    /// (`agent_timer.rs`): `(due time, recurring)` each. Kept beside the goal, not in it: a
+    /// `goal_set` replaces the goal and left the timers unseen, and the saved goal outlives a
+    /// reboot that ended the agent holding them. Memory only, cleared with the agent.
+    pub(super) loop_timers: StdMutex<Option<Vec<(Option<u64>, bool)>>>,
     /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
     /// while none does (`asks_below.rs`).
     pub(super) asks_below: StdMutex<(u32, u64)>,
@@ -486,6 +491,20 @@ pub struct Session {
     /// of the same prompt id is answered as a duplicate, and that answer names the same kept
     /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
     pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
+    /// The acceptance each recent client prompt id's first run gave (its queue place, its turn,
+    /// its inbox receipt), newest last, at most `turns::KEPT_ACCEPTS`: a resend of the id answers
+    /// with it (`turns.rs`). Before, a resend whose first run had no turn yet (an inbox message
+    /// has none) heard a turnless duplicate the outbox could not count as taken, and waited for
+    /// the first run's end: every redelivery of an inbox message timed out, forever (2026-11-25).
+    pub(super) accepted_prompts:
+        StdMutex<std::collections::VecDeque<(String, usize, serde_json::Value)>>,
+    /// Pending first-run acceptances that fell out of the bounded receipt ring. They live only
+    /// while the matching prompt outcome is pending, so a burst cannot evict a live inbox receipt
+    /// and cannot grow this map after the prompt settles (`turns.rs`).
+    pub(super) pending_acceptances:
+        StdMutex<std::collections::HashMap<String, (usize, serde_json::Value)>>,
+    /// Bumped as a first run is accepted, for a resend waiting on it.
+    pub(super) accepted_seq: tokio::sync::watch::Sender<u64>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -553,6 +572,9 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time at which the idle reaper last tried to evict it and it stayed
+    /// (`evict.rs`), or 0: it is tried again one idle period after that, not on every pass.
+    pub(super) evict_tried_at: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
@@ -568,6 +590,9 @@ pub struct Session {
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,
+    /// The harness exited while it started, with the same error again: starts fail with it
+    /// until a bounded, doubling window passed (`launch_backoff.rs`).
+    pub(super) launch_backoff: super::launch_backoff::LaunchBackoff,
     /// The agent's own requests (a file read, a terminal, a permission) whose task has not
     /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
     pub(super) agent_requests: std::sync::atomic::AtomicUsize,
@@ -587,6 +612,9 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The person's own turn has had no token and no tool result yet: while they wait on it in a
+    /// chat they attend, its harness never yields the CPU (`hub/cpu_pressure.rs`).
+    pub(super) awaiting_reply: AtomicBool,
     /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
     pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
     /// The state update sections its log last kept (`update_repeats.rs`).
@@ -706,6 +734,7 @@ impl Session {
     pub(crate) fn person_wrote(&self) {
         self.person.store(true, Ordering::SeqCst);
         self.policy_refusal.clear();
+        self.launch_backoff.clear();
     }
 
     /// Fence untagged compaction metadata for this live session. Claude's

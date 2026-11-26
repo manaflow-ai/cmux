@@ -23,10 +23,13 @@ use cmux_json::JsonSet as _;
 
 pub mod actions;
 mod answering;
+mod capacity_wait;
+pub mod chat_find;
 mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+mod reconnect_wait;
 mod run;
 mod scheduler;
 mod state;
@@ -263,6 +266,8 @@ pub struct App {
     pub dialog_rect: Rect,
     /// The open answer flow of a pending agent question (answering.rs).
     pub answering: Option<Answering>,
+    /// The open find bar over the transcript (chat_find.rs), as GUI chats have.
+    pub find: Option<chat_find::Find>,
 }
 
 pub(crate) const DEFAULT_STATUS: &str = "";

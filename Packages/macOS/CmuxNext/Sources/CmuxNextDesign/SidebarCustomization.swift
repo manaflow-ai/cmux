@@ -43,6 +43,9 @@ public nonisolated struct SidebarRowDecoration: Hashable, Sendable {
     public var indicator: StatusIndicatorStyle?
     /// Short text the row shows as its status line.
     public var badge: String?
+    /// A particles glyph the row plays in place of its loading indicator while it works
+    /// (`indicator: {choreography, trigger}` or `"glyph"`); nil keeps the indicator.
+    public var glyph: SidebarRowGlyph?
 
     public enum Weight: String, Hashable, Sendable {
         case regular, medium, semibold, bold
@@ -57,17 +60,20 @@ public nonisolated struct SidebarRowDecoration: Hashable, Sendable {
         }
     }
 
-    public init(icon: String? = nil, weight: Weight? = nil, indicator: StatusIndicatorStyle? = nil, badge: String? = nil) {
+    public init(icon: String? = nil, weight: Weight? = nil, indicator: StatusIndicatorStyle? = nil, badge: String? = nil,
+                glyph: SidebarRowGlyph? = nil) {
         self.icon = icon
         self.weight = weight
         self.indicator = indicator
         self.badge = badge
+        self.glyph = glyph
     }
 
     /// Reads one decoration node's props (`row` or `title`, `icon`, `weight`, `indicator`,
     /// `badge`); the key is the row id, or `title:<title>` for a row named by its title. Nil
-    /// without either. Unknown values are ignored, never fatal.
-    public static func parse(_ props: [String: String]) -> (String, SidebarRowDecoration)? {
+    /// without either. Unknown values are ignored, never fatal. `glyph` is the `indicator` prop read
+    /// as a particles glyph (``SidebarRowGlyph``), which the app layer parses from the scene node.
+    public static func parse(_ props: [String: String], glyph: SidebarRowGlyph? = nil) -> (String, SidebarRowDecoration)? {
         let row = props["row"].flatMap { $0.isEmpty ? nil : $0 } ?? props["title"].flatMap { $0.isEmpty ? nil : "title:" + $0 }
         guard let row else { return nil }
         var decoration = SidebarRowDecoration()
@@ -75,8 +81,36 @@ public nonisolated struct SidebarRowDecoration: Hashable, Sendable {
         decoration.weight = props["weight"].flatMap(Weight.init(rawValue:))
         decoration.indicator = props["indicator"].flatMap { $0 == "default" ? nil : StatusIndicatorStyle(rawValue: $0) }
         decoration.badge = props["badge"].flatMap { $0.isEmpty ? nil : String($0.prefix(40)) }
+        decoration.glyph = glyph
         return (row, decoration)
     }
+}
+
+/// A sidebar row's particles glyph (`cmux.sidebar.rows/1` `indicator`; Leo, 2026-11-19: "the dots
+/// and the way it moves changes a lot"): a `cmux.particles/1` document the row plays while it works,
+/// in its loading indicator's place, with the native player (CmuxNextApps
+/// `AppSceneChoreographyGlyph`, one layer per dot on the window's motion clock). Either a document of
+/// its own (`indicator: {choreography, trigger}`, checked by the app host's validator with every scene)
+/// or the look's thinking glyph (`indicator: "glyph"`, the `agentPane.display.thinking.glyph` setting).
+public nonisolated struct SidebarRowGlyph: Hashable, Sendable {
+    /// The document as compact JSON; nil plays the look's `agentPane.display.thinking.glyph`.
+    public var document: String?
+    /// The document's trigger to play (an acpmux tool kind or session state); nil plays `cycle`.
+    public var trigger: String?
+
+    public init(document: String? = nil, trigger: String? = nil) {
+        self.document = document
+        self.trigger = trigger
+    }
+}
+
+/// Plays a ``SidebarRowGlyph`` in a view the indicator hosts (``StatusIndicatorView``).
+@MainActor
+public protocol SidebarRowGlyphPlayer: AnyObject {
+    var view: NSView { get }
+    /// Plays `glyph`; nil stops and clears it. `animates` is the indicator's own gate (window on
+    /// screen, not hidden, loops allowed); the player also follows ``Motion/appScenes``.
+    func play(_ glyph: SidebarRowGlyph?, animates: Bool)
 }
 
 

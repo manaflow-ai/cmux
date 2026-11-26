@@ -191,8 +191,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
-    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab: app health names a stuck
-    /// page by that tab's title and workspace (`AppHealthPlaces`).
+    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab.
     public var healthTabKey: @MainActor () -> String? = { nil }
     /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
     /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
@@ -686,6 +685,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             guard (oldValue == nil) != (paintedUptime == nil) else { return }
             // A new document draws again wherever it is; a page out of sight hides once it drew (AwayDrawing).
             if paintedUptime == nil { awayDrawing.drawnSize = nil }
+            awayDrawing.resetUnpaintedBound()
             setChromiumVisibility(true)
         }
     }

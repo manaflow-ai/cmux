@@ -124,6 +124,13 @@ public final class TerminalProjectingSession: TerminalSession {
     public var connectionState: TerminalConnectionState { inner.connectionState }
     public var clearsHistory: Bool { inner.clearsHistory }
     public var underlyingSession: AnyObject { inner.underlyingSession }
+    public var tuiTranscriptRowsAbove: Int { Int(projection.transcriptRowsAbove()) }
+
+    public func tuiTranscript() -> TerminalTUITranscript? {
+        projection.transcriptPaint().map {
+            TerminalTUITranscript(bytes: $0.bytes, rows: Int($0.rows), screenTop: Int($0.screenTop))
+        }
+    }
 
     /// The primary screen is the phone's own grid; the alternate screen the
     /// Mac's. While a full-screen app's claim is out (``claimHold``), the grid
@@ -315,6 +322,50 @@ public final class TerminalProjectingSession: TerminalSession {
 
     /// Mac scrollback rows each ``loadOlderHistory()`` re-wraps.
     static let olderChunkRows: UInt32 = 2_000
+
+    // MARK: Find
+
+    /// The Mac's `terminal-find` pages, their hits laid on the phone's re-wrapped rows
+    /// (`TerminalProjection.locate`, in Rust): `rowsFromBottom` and the columns are the phone's, and
+    /// the markers keep only their difference (the rows a match spans). Hits the projection does not
+    /// hold (older than its model) are left out. A full-screen app, and a Mac without the command,
+    /// answer nil: the page searches its own rows.
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? {
+        guard !shownAlternate, let page = try await inner.findPage(request) else { return nil }
+        return Self.relocated(page) { [projection] rows, column in
+            projection.locate(hostFromBottom: UInt64(clamping: rows), hostColumn: UInt32(clamping: column))
+                .map { (rowsFromBottom: Int(clamping: $0.fromBottom), column: Int($0.column)) }
+        }
+    }
+
+    /// The phone's rows are the projection's own, whole: no rows omitted or skipped.
+    public var findMirror: TerminalFindMirror? {
+        guard !shownAlternate, inner.findMirror != nil else { return nil }
+        return TerminalFindMirror(omitted: 0, skipped: 0, windowRows: nil)
+    }
+
+    /// A match older than the phone's rows: the projection re-wraps more of what it holds, then the
+    /// Mac's own replay (`loadOlderHistory`).
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { loadOlderHistory() }
+
+    /// `page` with every hit moved through `locate` (host rows from the bottom and column -> phone's).
+    /// Pure, so callers on any actor (its tests) can run it.
+    nonisolated static func relocated(
+        _ page: TerminalFindPage,
+        locate: (_ rowsFromBottom: Int, _ column: Int) -> (rowsFromBottom: Int, column: Int)?
+    ) -> TerminalFindPage {
+        var page = page
+        page.hits = page.hits.compactMap { hit in
+            let hostSpan = max(0, hit.end.marker - hit.start.marker)
+            guard let start = locate(hit.rowsFromBottom, hit.start.column),
+                  let end = locate(max(1, hit.rowsFromBottom - hostSpan), hit.end.column) else { return nil }
+            let span = max(0, start.rowsFromBottom - end.rowsFromBottom)
+            return TerminalFindPage.Hit(
+                start: .init(marker: 0, column: start.column), end: .init(marker: span, column: end.column),
+                rowsFromBottom: start.rowsFromBottom, snippet: hit.snippet)
+        }
+        return page
+    }
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }

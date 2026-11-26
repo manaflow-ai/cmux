@@ -46,10 +46,6 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_timing
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_animates
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_fade_seconds
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_ffi_abi_version
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_field
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_point
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_rim
-cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_style
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_resolve
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_spring_base
 cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_engine_call

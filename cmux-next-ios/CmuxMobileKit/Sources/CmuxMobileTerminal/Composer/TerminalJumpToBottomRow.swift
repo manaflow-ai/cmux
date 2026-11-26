@@ -61,7 +61,7 @@ struct TerminalJumpToBottomRow: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.cmuxPressFillInLabel)
-                .sensoryFeedback(.impact(weight: .light), trigger: taps)
+                .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
                 .accessibilityLabel("Scroll to bottom")
                 .accessibilityIdentifier("terminal.jumpToBottom")
                 // It rises out of the key row: up 14 pt from 92 % and
@@ -118,9 +118,13 @@ struct TerminalPillLook: Equatable {
     /// How much of the terminal's background the pill lays over the glass:
     /// enough that rows scrolling under it never read through the label, as
     /// the agent chat's jump circle (0.72 there, on the app's background).
-    static let fillOpacity: Double = 0.72
+    /// The composer card's number (``ComposerCardLook``): pills and card are one material.
+    static let fillOpacity = ComposerCardLook.fillOpacity
     /// The glass's own tint toward the terminal's background.
-    static let tintOpacity: Double = 0.35
+    static let tintOpacity = ComposerCardLook.tintOpacity
+
+    /// The composer card on these colors.
+    var card: ComposerCardLook { .theme(background: background, ink: ink) }
 }
 
 extension View {

@@ -16,6 +16,7 @@
     {"id": "sidebar-open", "title": "Sidebar or history opens", "stimulus": "tap the sidebar or history button", "response": "first frame the sidebar moves", "settle": "the sidebar rests open", "region": [0.0, 1.0], "edge": "horizontal"},
     {"id": "voice-start", "title": "Voice mode starts", "stimulus": "tap the voice button", "response": "first frame the screen changes", "settle": "the voice UI is still or idles in its loop", "region": [0.0, 1.0], "edge": null},
     {"id": "settings-open", "title": "Settings opens", "stimulus": "open settings", "response": "first frame the screen changes", "settle": "settings rests open", "region": [0.0, 1.0], "edge": "rising"},
+    {"id": "rotate", "title": "Rotate the phone", "stimulus": "turn the device to landscape (XCUIDevice orientation), then back", "response": "first frame the layout moves", "settle": "the layout stops in the new orientation", "region": [0.0, 1.0], "edge": null},
     {"id": "offline-error", "title": "Offline error", "stimulus": "send with the network off", "response": "first frame the app shows it failed or is offline", "settle": "the error rests", "region": [0.0, 1.0], "edge": null, "response_after_stimulus_change": true}
   ]
 }

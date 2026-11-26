@@ -6,17 +6,23 @@ when code names a host that has no row here, and when a row's host is gone from 
 
 ## Telemetry
 
-Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is on until
-you turn it off, and the `DisableTelemetry` managed policy turns it off for everyone on a managed Mac.
+Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is off until
+you turn it on (Settings > Privacy and Security > Send Crash Reports and Analytics, `app.sendAnonymousTelemetry`;
+the page asks before it turns it on), and the `DisableTelemetry` managed policy keeps it off for everyone on a
+managed Mac. A fresh install starts no crash reporter and no analytics (`FreshInstallSendsNothingTests`).
+Team usage sharing (`diagnostics.usageSharing`) is off until your team's admin enables it, you have seen its notice and
+acknowledged it (`diagnostics.usageSharingNoticeAck`), and you turned it on.
 
-- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`). Before a report
+- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`); unset means off.
+  On the Mac, the person's own write of the setting sets that preference, and crash reporting reads it at the next
+  launch. Reports carry no request URLs: network breadcrumbs and network tracking are off. Before a report
   leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber` and
   `SentryEventScrubber`) removes API keys and tokens, passwords, cookies and session ids, credentials in URLs,
   email addresses and your user name in file paths, from every field of the report: message, exception, stack
   frames, breadcrumbs, context, tags, request and user. `SeededSecretTests` puts known secrets in every field and
   checks that none of them is left in the report as it is sent.
 - A `cmux` CLI installed on its own (Linux, npm or PyPI; the copy inside the app sends nothing) sends its daemon's
-  panic and memory reports. It reads `app.sendAnonymousTelemetry: false` from `~/.config/cmux/cmux-next.json` (or the
+  panic and memory reports. It sends only when `app.sendAnonymousTelemetry: true` is set (unset is off); it reads it from `~/.config/cmux/cmux-next.json` (or the
   file `CMUX_NEXT_CONFIG_FILE` names), and also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
   Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
   backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
@@ -26,8 +32,9 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
   paths, URLs or names, and IP geolocation is off. A Chief on this Mac is known only by a random install id; a Cloud
   Chief, which runs on cmux's servers for a signed-in account, sends as that account's user id and team id, like
-  the server's own Cloud events. The same switches turn it off: `sendAnonymousTelemetry` in the app (the running
-  Chief re-reads it every few minutes), `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
+  the server's own Cloud events. It is off until the person turns it on: `sendAnonymousTelemetry` in the app (the
+  running Chief re-reads it every few minutes) or, with no app choice, `app.sendAnonymousTelemetry: true` in
+  `cmux-next.json`. These keep it off whatever the setting says: the
   `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
   waiting. Its panics go to the crash reporting host through the app with the location and backtrace only, never
   the panic message. The event list: [chief-product-analytics.md](posthog/chief-product-analytics.md).
@@ -53,14 +60,16 @@ ports and address ranges a client needs for relay and connectivity.
 
 The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
 HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
-looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
+looked up; the Mac and iPhone apps' Swift makes its sessions, WebSockets and network connections through the same
+gate's Swift side (`Packages/Shared/CmuxEgress`): in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
 site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
-reserved names pass. The gate's host list is generated from this page, so the two stay equal.
+reserved names, single-label names and private-network names (`.ts.net`, `.internal`, `.lan`) pass. Both gates'
+host lists are generated from this page, so they stay equal.
 
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
-(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
-shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
+pages' Content Security Policy comes next.
 
 ## Hosts
 
@@ -104,12 +113,14 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
+| `*.r2.cloudflarestorage.com` | connects | a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
-| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast and release notes |
+| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime |
 | `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
+| `codeload.github.com` | connects | a GitHub repository's archive at one commit, when you install an extension from it |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
@@ -140,6 +151,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
+| `api.tailscale.com` | connects | the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
@@ -255,6 +267,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `substack.com` | opens | a site the address bar suggests before it is in your history |
 | `tailscale.com` | opens | a Tailscale page, opened when you add a device |
 | `login.tailscale.com` | opens | a Tailscale page, opened when you add a device |
+| `controlplane.tailscale.com` | identifier | Tailscale's default control server, compared with the one a machine is already signed in to before cmux adds it to your tailnet; the machine's own `tailscale` connects to it, never the app |
 | `twitter.com` | opens | a site the address bar suggests before it is in your history |
 | `vercel.com` | opens | a site the address bar suggests; also a docs host an agent catalog entry may link to |
 | `x.com` | opens | cmux on X, a link in Settings |
@@ -320,6 +333,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `meet.google.com` | identifier | the Google Meet host name, so an agent finds the call you have open in a cmux browser tab to read its captions; never fetched by the app |
 | `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -348,6 +362,14 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
 | `me.uk` | identifier | a public suffix, so sites under it are told apart |
 | `plc.uk` | identifier | a public suffix, so sites under it are told apart |
+| `turn.cloudflare.com` | identifier | the TURN relay host the iPhone's blocked-network message asks IT to allow; the code never dials this name (the link's ICE servers come from the relay; config/network/allowlist.json lists it) |
+| `get.docker.com` | identifier | the Docker installer URL written into a migrated project's Cloud machine setup line; the machine runs it when it lacks Docker, the app never fetches it |
+| `mise.run` | identifier | the mise installer URL written into a migrated project's Cloud machine setup line; the machine runs it when it lacks mise, the app never fetches it |
+| `install.determinate.systems` | identifier | the Nix installer URL written into a migrated Nix project's Cloud machine setup line; the machine runs it when it lacks Nix, the app never fetches it |
+| `get.jetify.com` | identifier | the devbox installer URL written into a migrated devbox project's Cloud machine setup line; the app never fetches it |
+| `dot.net` | identifier | the .NET installer URL written into a Cloud machine setup line when a migrated devcontainer names the dotnet feature; the app never fetches it |
+| `aka.ms` | identifier | the Azure CLI installer URL written into a Cloud machine setup line when a migrated devcontainer names the azure-cli feature; the app never fetches it |
+| `git-lfs.github.com` | identifier | the version line of a Git LFS pointer file, matched when seeding a project, never fetched |
 
 ### Samples and placeholders
 
@@ -365,14 +387,19 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
+| `www.bbc.co.uk` | example | a sample site in the iPhone site-monogram gallery |
 
 ### Text that looks like a host name
 
 | Host | Kind | What for |
 |---|---|---|
 | `command.io` | not-a-host | an error code for a custom command's file error |
+| `acpmux.io` | not-a-host | an error code for a failed write to the local acpmux socket in the SSH benchmark |
+| `cmux.app` | not-a-host | the app bundle name `cmux app try` builds and copies |
+| `failed.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap fails |
 | `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
-| `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
+| `replaced.app` | not-a-host | the app bundle `cmux app try` sets aside when it replaces a copy |
+| `undone.app` | not-a-host | the app bundle `cmux app try undo` sets aside |
 | `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
 | `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
 | `task.ai` | not-a-host | a symbol or icon name |
@@ -380,6 +407,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `toast.detail.io` | not-a-host | a localized string key |
 | `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
+| `red.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
+| `green.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
+| `run.sh` | not-a-host | the runner script file name `cmux-repro` writes |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |
 | `arrow.up.forward.app` | not-a-host | a symbol or icon name |

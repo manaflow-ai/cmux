@@ -23,14 +23,14 @@
 
 use std::net::{IpAddr, SocketAddr};
 
+use cmux_braid_path::{IdPolicy, PathSet};
 use cmux_transport::{
-    LocalNetwork, Medium, PathId, PathKind, PathState, ProbeOutcome, Selector, SelectorConfig,
-    medium_of,
+    LocalNetwork, Medium, PathId, PathKind, PathState, SelectorConfig, medium_of,
 };
 use tokio::time::Instant;
 
 use crate::multipath::medium_for;
-use crate::probe_schedule::{PathWatch, ProbeConfig};
+use crate::probe_schedule::ProbeConfig;
 use crate::underlay::DueProbes;
 
 /// Paths one peer holds at most. A new address past it replaces the least
@@ -81,13 +81,9 @@ pub struct MeshPathView {
     pub current: bool,
 }
 
+/// What the mesh keeps per path beside the shared path set's own.
 #[derive(Debug)]
 struct MeshPath {
-    id: PathId,
-    address: SocketAddr,
-    kind: PathKind,
-    medium: Medium,
-    watch: PathWatch,
     /// Data may go here: the caller named it, the peer was heard from it,
     /// or a probe on it was answered.
     proven: bool,
@@ -96,11 +92,7 @@ struct MeshPath {
 
 #[derive(Debug)]
 pub(crate) struct MeshPaths {
-    selector: Selector,
-    paths: Vec<MeshPath>,
-    next_id: u16,
-    last_probe_id: u64,
-    probes: ProbeConfig,
+    paths: PathSet<SocketAddr, MeshPath>,
     /// The peer answered a probe: the selector decides from now on.
     answered: bool,
     /// The latest authenticated source, else the configured route: where
@@ -137,14 +129,12 @@ impl MeshPaths {
         now: Instant,
     ) -> Self {
         let mut paths = Self {
-            selector: Selector::new(SelectorConfig::default()),
-            paths: Vec::new(),
-            next_id: 0,
-            last_probe_id: random_probe_base(),
-            probes: ProbeConfig::default(),
+            paths: PathSet::new(SelectorConfig::default(), ProbeConfig::default())
+                .with_ids(IdPolicy { first: 0, renumber_at: Some(MAX_PATH_IDS) }),
             answered: false,
             latest: route.map(canonical),
         };
+        paths.paths.set_probe_base(random_probe_base());
         for candidate in candidates {
             paths.add(candidate.address, candidate.kind, true, networks, now);
         }
@@ -160,11 +150,7 @@ impl MeshPaths {
         self.latest
     }
 
-    fn find(&self, address: SocketAddr) -> Option<usize> {
-        self.paths.iter().position(|path| path.address == address)
-    }
-
-    /// The path at `address`, added when new. `None` when every path id
+    /// The path at `address`, added when new. `false` when every path id
     /// was used or nothing could make room.
     fn add(
         &mut self,
@@ -173,73 +159,36 @@ impl MeshPaths {
         proven: bool,
         networks: &[LocalNetwork],
         now: Instant,
-    ) -> Option<usize> {
+    ) -> bool {
         let address = canonical(address);
-        if let Some(index) = self.find(address) {
-            if let Some(path) = self.paths.get_mut(index) {
-                path.proven |= proven;
-            }
-            return Some(index);
+        if let Some(path) = self.paths.get_mut(&address) {
+            path.meta.proven |= proven;
+            return true;
         }
         if self.paths.len() >= MAX_PATHS && !self.evict(proven) {
-            return None;
+            return false;
         }
         let kind = kind.unwrap_or_else(|| direct_kind(address, networks));
         let medium = medium_for(networks, kind, Some(address));
-        if self.next_id >= MAX_PATH_IDS {
-            self.renumber();
-        }
-        let id = PathId(self.next_id);
-        self.next_id += 1;
-        self.selector.add_path_on(id, kind, medium).ok()?;
-        self.paths.push(MeshPath {
-            id,
-            address,
-            kind,
-            medium,
-            watch: PathWatch::default(),
-            proven,
-            heard_at: proven.then_some(now),
-        });
-        Some(self.paths.len() - 1)
-    }
-
-    /// Move every path to a fresh selector with ids from zero. Each path
-    /// starts probing again (data goes on every proven path until one
-    /// answers), and a pong for a probe sent before is ignored.
-    fn renumber(&mut self) {
-        self.selector = Selector::new(SelectorConfig::default());
-        for (index, path) in self.paths.iter_mut().enumerate() {
-            path.id = PathId(index as u16);
-            path.watch = PathWatch::default();
-            let _ = self.selector.add_path_on(path.id, path.kind, path.medium);
-        }
-        self.next_id = self.paths.len() as u16;
+        let meta = MeshPath { proven, heard_at: proven.then_some(now) };
+        self.paths.insert(address, kind, medium, meta, now).is_ok()
     }
 
     /// Drop the least useful path that is not the chosen one, to make room
     /// for a new one. An unproven newcomer replaces only a dead or unproven
     /// path, never one that carries data.
     fn evict(&mut self, for_proven: bool) -> bool {
-        let chosen = self.selector.chosen();
+        let chosen = self.paths.selector().chosen();
+        let dead = |id: PathId| self.paths.view(id).is_some_and(|v| v.state == PathState::Dead);
         let victim = self
             .paths
             .iter()
-            .enumerate()
-            .filter(|(_, path)| Some(path.id) != chosen)
-            .filter(|(_, path)| {
-                let dead = self.selector.path(path.id).is_some_and(|v| v.state == PathState::Dead);
-                for_proven || dead || !path.proven
-            })
-            .min_by_key(|(_, path)| {
-                let dead = self.selector.path(path.id).is_some_and(|v| v.state == PathState::Dead);
-                (!dead, path.proven, path.heard_at)
-            })
-            .map(|(index, _)| index);
-        let Some(index) = victim else { return false };
-        let path = self.paths.remove(index);
-        let _ = self.selector.remove_path(path.id);
-        true
+            .filter(|path| Some(path.id()) != chosen)
+            .filter(|path| for_proven || dead(path.id()) || !path.meta.proven)
+            .min_by_key(|path| (!dead(path.id()), path.meta.proven, path.meta.heard_at))
+            .map(|path| *path.route());
+        let Some(address) = victim else { return false };
+        self.paths.remove(&address).is_some()
     }
 
     /// An authenticated datagram of the peer came from `source`. Only
@@ -257,11 +206,11 @@ impl MeshPaths {
         if roams {
             self.latest = Some(source);
         }
-        if let Some(path) =
-            self.add(source, None, true, networks, now).and_then(|index| self.paths.get_mut(index))
+        if self.add(source, None, true, networks, now)
+            && let Some(path) = self.paths.get_mut(&source)
         {
             path.watch.heard();
-            path.heard_at = Some(now);
+            path.meta.heard_at = Some(now);
         }
     }
 
@@ -286,7 +235,7 @@ impl MeshPaths {
 
     /// Whether any datagram has somewhere to go.
     pub(crate) fn has_target(&self) -> bool {
-        self.latest.is_some() || self.paths.iter().any(|path| path.proven)
+        self.latest.is_some() || self.paths.iter().any(|path| path.meta.proven)
     }
 
     /// Call `send` with each address the next datagram goes to: the
@@ -307,12 +256,12 @@ impl MeshPaths {
 
     fn send_datagram(&mut self, now: Instant, initiation: bool, mut send: impl FnMut(SocketAddr)) {
         if self.answered {
-            let current = self.selector.current();
+            let current = self.paths.selector().current();
             let mut any = false;
-            for path in &mut self.paths {
-                if current.map_or(path.proven, |id| id == path.id) {
+            for path in self.paths.iter_mut() {
+                if current.map_or(path.meta.proven, |id| id == path.id()) {
                     path.watch.sent(now);
-                    send(path.address);
+                    send(*path.route());
                     any = true;
                 }
             }
@@ -322,63 +271,31 @@ impl MeshPaths {
         }
         let latest = self.latest.or_else(|| self.first_proven());
         if let Some(latest) = latest {
-            if let Some(path) = self.find(latest).and_then(|index| self.paths.get_mut(index)) {
+            if let Some(path) = self.paths.get_mut(&latest) {
                 path.watch.sent(now);
             }
             send(latest);
         }
         if initiation {
-            for path in self.paths.iter().filter(|path| path.proven && Some(path.address) != latest)
+            for path in
+                self.paths.iter().filter(|path| path.meta.proven && Some(*path.route()) != latest)
             {
-                send(path.address);
+                send(*path.route());
             }
         }
     }
 
     fn first_proven(&self) -> Option<SocketAddr> {
-        self.paths.iter().find(|path| path.proven).map(|path| path.address)
+        self.paths.iter().find(|path| path.meta.proven).map(|path| *path.route())
     }
 
     /// The pings due now and when the paths next need anything, with the
-    /// lost probes and quiet chosen paths already fed to the selector.
+    /// lost probes and quiet chosen paths already fed to the selector (and
+    /// every other path probed at once when the one in use lost its
+    /// standing, as in `Multipath`).
     pub(crate) fn poll(&mut self, now: Instant) -> DueProbes {
-        self.last_probe_id = random_probe_base();
-        let current = self.selector.current();
-        let chosen = self.selector.chosen();
-        let mut due = DueProbes::default();
-        let mut chosen_quiet = false;
-        for path in &mut self.paths {
-            let Some(view) = self.selector.path(path.id) else { continue };
-            let roles = (current == Some(path.id), chosen == Some(path.id));
-            let step = path.watch.step(&self.probes, &view, roles, &mut self.last_probe_id, now);
-            if step.lost {
-                let _ = self.selector.on_probe(path.id, ProbeOutcome::Lost);
-            }
-            if step.silent {
-                chosen_quiet |= chosen == Some(path.id);
-                let _ = self.selector.on_silence(path.id);
-            }
-            if let Some(probe) = step.ping {
-                due.pings.push((path.id, probe));
-            }
-            due.next = match (due.next, step.next) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
-        }
-        // As in `Multipath`: when the path we sent on loses its standing, by
-        // silence or by a lost probe, every other path is probed now rather
-        // than at its 30 s turn.
-        let left_current = current.is_some() && self.selector.current() != current;
-        if chosen_quiet || left_current {
-            for path in &mut self.paths {
-                if Some(path.id) != chosen {
-                    path.watch.probe_now(now);
-                }
-            }
-            due.next = Some(now);
-        }
-        due
+        self.paths.set_probe_base(random_probe_base());
+        self.paths.poll(now)
     }
 
     /// The interface table changed: read each path's medium again. A path
@@ -386,11 +303,10 @@ impl MeshPaths {
     /// rank it on the new medium (a Thunderbolt address learned before the
     /// bridge came up beats the routed path it was ranked with).
     pub(crate) fn reclassify(&mut self, networks: &[LocalNetwork], now: Instant) {
-        for path in &mut self.paths {
-            let medium = medium_for(networks, path.kind, Some(path.address));
-            if medium != path.medium {
-                path.medium = medium;
-                let _ = self.selector.set_medium(path.id, medium);
+        let changed =
+            self.paths.reclassify(|address, kind| medium_for(networks, kind, Some(*address)));
+        for id in changed {
+            if let Some(path) = self.paths.by_id_mut(id) {
                 path.watch.probe_now(now);
             }
         }
@@ -398,38 +314,39 @@ impl MeshPaths {
 
     /// Where probes on `id` go.
     pub(crate) fn address_of(&self, id: PathId) -> Option<SocketAddr> {
-        self.paths.iter().find(|path| path.id == id).map(|path| path.address)
+        self.paths.route_of(id).copied()
     }
 
     /// The pong for probe `probe` on path `id` arrived from `source`. It
     /// counts only from the address the probe went to: the id is random, so
     /// only that address could have read it.
     pub(crate) fn pong(&mut self, id: PathId, probe: u64, source: SocketAddr, now: Instant) {
-        let source = canonical(source);
-        let Some(path) = self.paths.iter_mut().find(|path| path.id == id) else { return };
-        if path.address != source {
+        if self.address_of(id) != Some(canonical(source)) {
             return;
         }
-        let Some(rtt_us) = path.watch.answer(&self.probes, probe, now) else { return };
-        path.proven = true;
+        if self.paths.answer(id, probe, now).is_none() {
+            return;
+        }
+        if let Some(path) = self.paths.by_id_mut(id) {
+            path.meta.proven = true;
+        }
         self.answered = true;
-        let _ = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us });
     }
 
     pub(crate) fn views(&self) -> Vec<MeshPathView> {
-        let current = if self.answered { self.selector.current() } else { None };
+        let current = if self.answered { self.paths.selector().current() } else { None };
         self.paths
             .iter()
             .filter_map(|path| {
-                let view = self.selector.path(path.id)?;
+                let view = self.paths.view(path.id())?;
                 Some(MeshPathView {
-                    address: path.address,
+                    address: *path.route(),
                     kind: view.kind,
                     medium: view.medium,
                     state: view.state,
                     rtt_us: view.rtt_us,
-                    current: current == Some(path.id)
-                        || (!self.answered && self.latest == Some(path.address)),
+                    current: current == Some(path.id())
+                        || (!self.answered && self.latest == Some(*path.route())),
                 })
             })
             .collect()

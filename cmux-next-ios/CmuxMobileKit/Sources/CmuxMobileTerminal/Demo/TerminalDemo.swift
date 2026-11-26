@@ -227,6 +227,16 @@ final class TerminalDemoDriver {
             await wait(1)
         }
         mark("wide ready " + (model.controller?.wideProbe ?? "-"))
+        // `-CmuxMobileTerminalDemoWideType`: Wide on, then a 120-column paste
+        // at the prompt: its echo carries the cursor far right of the page,
+        // and the page pans after it (TerminalWideOutputUITests).
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideType") {
+            model.setWide(true)
+            await wait(2)
+            model.controller?.surface.sendText(String(repeating: "x", count: 120), pressReturn: false)
+            await wait(1.5)
+            mark("wide typed " + (model.controller?.wideProbe ?? "-"))
+        }
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {
             model.demoNote = "wide ready " + (model.controller?.wideProbe ?? "-")
@@ -306,6 +316,10 @@ final class TerminalDemoDriver {
             ("claude-inline-long", "claudeinline 50 40 3000"),
             // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
             ("claude-full", "claudewheel 50"),
+            // Leo, 2026-11-24: "we can just treat the scroll like any pedestrian
+            // scroll". The same app's history the phone keeps, scrolled as a
+            // plain scroll view (TerminalTUIReader): no wheel, no round trip.
+            ("claude-reader", "claudewheel 50"),
         ]
         model.composerText = "stream 600 1"
         model.send()
@@ -317,15 +331,28 @@ final class TerminalDemoDriver {
                 model.send()
                 await wait(3)
             }
+            let reader = name == "claude-reader"
             let full = name == "claude-full"
-            if !full { model.scrollToBottom() }
+            if !full, !reader { model.scrollToBottom() }
             await wait(1)
+            if reader {
+                // Rows for the phone to keep: the app scrolls its transcript
+                // up and back (every frame it draws on the way is kept).
+                model.controller?.tuiFling(velocity: 3000)
+                await wait(1.6)
+                model.controller?.tuiFling(velocity: -3000)
+                await wait(1.6)
+            }
             let mock = model.session as? MockTerminalSession
             let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
             let sampler = FrameSampler()
             sampler.start()
             for _ in 0..<3 {
-                if full {
+                if reader {
+                    model.controller?.tuiReaderFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiReaderFling(velocity: -3000)
+                } else if full {
                     model.controller?.tuiFling(velocity: 3000)
                     await wait(1.6)
                     model.controller?.tuiFling(velocity: -3000)
@@ -337,6 +364,10 @@ final class TerminalDemoDriver {
                 await wait(1.6)
             }
             var line = "bench \(name) " + sampler.stop()
+            if reader {
+                let pacing = TerminalTUIReader.pacing
+                line += " kept=\(mock?.tuiTranscriptRowsAbove ?? 0) reader=\(model.controller?.tuiReader.isOpen == true ? "open" : "closed") readerframes=\(pacing.frames) readerhitches=\(pacing.hitches) readerlongest=\(String(format: "%.1f", pacing.longestMs))"
+            }
             if full, let mock {
                 line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
             }
