@@ -346,7 +346,7 @@ impl Content {
                 inner.names.insert(name, hash);
             }
         }
-                for entry in fs::read_dir(&recipes).ok()?.filter_map(Result::ok) {
+        for entry in fs::read_dir(&recipes).ok()?.filter_map(Result::ok) {
             let blob = entry.file_name().to_str().and_then(unhex);
             let recipe = fs::read(entry.path()).ok().and_then(|bytes| decode_recipe(&bytes));
             match (blob, recipe) {
