@@ -9,6 +9,5 @@ enum PlaceholderKnownOverBound {
     /// Flow -> its layout-shift ceiling (frames; the count may only fall) and the issue that fixes it.
     static let layoutShiftFlows: [String: (maxShiftFrames: Int, issue: String)] = [
         "offline-send": (maxShiftFrames: 4, issue: "https://github.com/manaflow-ai/cmux/issues/59189"),
-        "slow-history-chat": (maxShiftFrames: 11, issue: "https://github.com/manaflow-ai/cmux/issues/59189"),
     ]
 }
