@@ -39,7 +39,7 @@ const REMEMBERED: [&str; 5] = [
     "HOME",
     BASE_URL,
     "SHELL",
-    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.0,
+    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW_ENV,
 ];
 
 /// What one environment gives Claude Code.
