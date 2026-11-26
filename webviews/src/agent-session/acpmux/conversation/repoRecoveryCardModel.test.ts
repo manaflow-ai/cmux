@@ -1,6 +1,8 @@
 // l10n-allow-file: test fixtures, not shipped UI.
 // Every phase of the repository recovery card offers a one-click next step (or says what it waits
 // for, with its ETA); none is a dead end (Leo, 2026-11-09: "the ergonomic part is super big for us").
+// A missing link and an install GitHub hasn't reported are asked again on their own, so they offer no
+// Try again or Check again (Leo, 2026-11-22: "vacuous decisions like that should be just done").
 import { describe, expect, test } from "bun:test";
 import {
   repoRecoveryView,
@@ -42,10 +44,18 @@ describe("repository recovery: phase to next step", () => {
     expect(view?.actions[0]?.label).toEqual({ key: "cloudRepository.connect" });
   });
 
-  test("no link anywhere: retry the lookup, or check whether GitHub connected another way", () => {
+  test("no link anywhere: reads as getting one, no button; past the deadline one quiet still-trying line", () => {
     const view = repoRecoveryView(needsGithubNoUrl, { kind: "noLink" });
-    expect(view?.tone).toBe("error");
-    expect(ids(view)).toEqual(["getLink", "checkAgain"]);
+    expect(view?.tone).toBe("quiet");
+    expect(key(view)).toBe("cloudRepository.linking");
+    expect(ids(view)).toEqual([]);
+    const late = repoRecoveryView(needsGithubNoUrl, { kind: "noLink" }, undefined, true);
+    expect(late?.tone).toBe("quiet");
+    expect(key(late)).toBe("cloudRepository.stillLinking");
+    expect(ids(late)).toEqual([]);
+    expect(key(repoRecoveryView(needsGithubNoUrl, { kind: "linking" }, undefined, true))).toBe(
+      "cloudRepository.stillLinking",
+    );
   });
 
   test("waiting: says what it waits for, counts down, and can reopen the install page", () => {
@@ -55,12 +65,20 @@ describe("repository recovery: phase to next step", () => {
     expect(ids(view)).toEqual(["reopen"]);
   });
 
-  test("the connect didn't take: a clear message, Check again and the install page again", () => {
+  test("a wait started again on its own has no countdown", () => {
+    const view = repoRecoveryView(needsGithub, { kind: "waiting" });
+    expect(key(view)).toBe("cloudRepository.waitingGithub");
+    expect(view?.until).toBeUndefined();
+    expect(ids(view)).toEqual(["reopen"]);
+  });
+
+  test("the connect didn't take yet: the quiet wait goes on, with the install page again and no Check again", () => {
     const view = repoRecoveryView(needsGithub, { kind: "notConnected" });
-    expect(key(view)).toBe("cloudRepository.notConnectedYet");
-    expect(view?.tone).toBe("error");
-    expect(ids(view)).toEqual(["checkAgain", "reopen"]);
-    expect(ids(repoRecoveryView(needsGithubNoUrl, { kind: "notConnected" }))).toEqual(["checkAgain"]);
+    expect(key(view)).toBe("cloudRepository.waitingGithub");
+    expect(view?.tone).toBe("quiet");
+    expect(view?.until).toBeUndefined();
+    expect(ids(view)).toEqual(["reopen"]);
+    expect(ids(repoRecoveryView(needsGithubNoUrl, { kind: "notConnected" }))).toEqual([]);
   });
 
   test("failure names the repository and offers Try again", () => {
@@ -126,14 +144,8 @@ describe("repository recovery: phase to next step", () => {
     expect(choices?.actions.map((action) => action.repo)).toEqual(["a/x", "b/x"]);
   });
 
-  test("every phase a person can act in has an action; only in-flight calls have none", () => {
-    const phases: RepoRecoveryPhase[] = [
-      { kind: "idle" },
-      { kind: "noLink" },
-      { kind: "notConnected" },
-      { kind: "failed" },
-      { kind: "waiting", until: 1 },
-    ];
+  test("every phase a person can act in has an action; in-flight calls and the card's own asks have none", () => {
+    const phases: RepoRecoveryPhase[] = [{ kind: "idle" }, { kind: "failed" }, { kind: "waiting", until: 1 }];
     for (const recovery of [needsGithub, needsGithubNoUrl])
       for (const phase of phases) {
         const view = repoRecoveryView(recovery, phase);
