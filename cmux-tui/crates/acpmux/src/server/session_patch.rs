@@ -52,6 +52,10 @@ pub const VERSION: u64 = 2;
 /// next change goes out whole.
 pub(crate) const MAX_ROWS: usize = 256;
 
+/// The row field a change row leaves out when it has not changed (`views::CENSUS_LEAVES_OUT`,
+/// the time breakdown): left out, the reader keeps what it holds, so a patch never removes it.
+const KEPT_WHEN_LEFT_OUT: &str = crate::hub::views::CENSUS_LEAVES_OUT;
+
 /// A value as hashes: what a row was, without holding the row.
 #[derive(Debug)]
 enum Shape {
@@ -187,6 +191,27 @@ impl SentRows {
             && sent.full == full
             && !sent.resend
         {
+            // A change row that does not owe its time breakdown leaves it out, and its reader
+            // keeps the one it holds (`time_breakdown::State::row_snapshot`,
+            // `PeerRow::keeping_time_breakdown`). Diffed as a removal, it went out as
+            // `"timeBreakdown": null` and the next turn's chart, held nowhere here, went out
+            // whole: up to 512 spans, about 47 KB, every turn of a running chat, 80% of what a
+            // peer's link carried under load (transport pair matrix, duress, 2026-11-25). The
+            // held chart stays held, so the next one splices onto it.
+            let mut shape = shape;
+            if let (Shape::Object(held), Shape::Object(now)) = (&mut sent.shape, &mut shape)
+                && !now.contains_key(KEPT_WHEN_LEFT_OUT)
+                && let Some(chart) = held.remove(KEPT_WHEN_LEFT_OUT)
+            {
+                let patch = diff(&sent.shape, row);
+                now.insert(KEPT_WHEN_LEFT_OUT.to_owned(), chart);
+                sent.row_seq += 1;
+                sent.shape = shape;
+                return Change::Patch {
+                    patch: patch.unwrap_or_else(|| json!({})),
+                    row_seq: sent.row_seq,
+                };
+            }
             let patch = diff(&sent.shape, row).unwrap_or_else(|| json!({}));
             sent.row_seq += 1;
             sent.shape = shape;

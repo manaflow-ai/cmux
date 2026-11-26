@@ -170,6 +170,8 @@ class FakeGitHub:
                                     for job in self.jobs.values() if job["head_sha"] == HEAD]}]
         if "/actions/jobs/" in route:
             return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        if re.search(r"/check-runs/\d+/annotations$", route):
+            return []  # a lost runner's annotations (lost_runner_log's worker_crash): none, unless a test says so
         if route.endswith("/annotations?per_page=100"):
             # A job's check-run annotations (fixed_on_base_by_step's rollup reds): one per `##[error]` line, as the
             # runner makes them.
@@ -988,6 +990,9 @@ class GlaedaKeptLog(unittest.TestCase):
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
         "package_bisect.py": "not switched yet: follow-up to the glaeda job-log cache",
         "web_test_failure_census.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "cmux_tui_tree_request_rerun.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "ios_kit_base_red.py": "not switched yet: follow-up to the glaeda job-log cache",
+        "nightly_next_retry_exhausted.py": "not switched yet: follow-up to the glaeda job-log cache",
     }
 
     def test_every_job_log_reader_asks_glaeda_gh_first(self):
@@ -1885,6 +1890,38 @@ class Excusing(unittest.TestCase):
         self.gh.logs[2] = self.gh.logs[1]
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
+
+    def checkout_death_setup(self):
+        # cmux#51655 at fd3c0b17: 'changes' died fetching in actions/checkout (git exit 128), before any PR step ran.
+        checkout = "Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+        self.gh.jobs[1]["steps"] = [
+            {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1,
+             "started_at": "2026-11-25T19:16:17Z", "completed_at": "2026-11-25T19:16:18Z"},
+            {"name": checkout, "status": "completed", "conclusion": "failure", "number": 2,
+             "started_at": "2026-11-25T19:16:19Z", "completed_at": "2026-11-25T19:17:24Z"},
+            {"name": "Complete job", "status": "completed", "conclusion": "success", "number": 3,
+             "started_at": "2026-11-25T19:17:24Z", "completed_at": "2026-11-25T19:17:25Z"}]
+        self.gh.logs[1] = (ROOT / "tests/fixtures/test_reds/51655-changes-checkout-job-514215463833.log").read_text()
+
+    def test_a_checkout_death_is_rerun_never_the_prs_own_red(self):
+        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        self.checkout_death_setup()
+        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner's actions/checkout "
+                                                    r"step, .*Operation too slow.*it gets re-run, never excused"):
+            self.judge()
+
+    def test_a_checkout_death_a_submodule_pin_can_cause_stays_judged(self):
+        self.checkout_death_setup()
+        json_of = self.gh.json
+        for changed in ({"filename": ".gitmodules", "blob_url": "https://github.com/b", "patch": "+x"},
+                        {"filename": "ghostty-next", "blob_url": None, "patch": "+Subproject commit abc"}):
+            def json(route, *, paginate=False, changed=changed):
+                found = json_of(route, paginate=paginate)
+                return dict(found, files=[changed]) if f"/compare/feat-cmux-next...{HEAD}" in route else found
+            self.gh.json = json
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+            self.assertNotIn("actions/checkout step", str(said.exception))
 
     def test_a_job_with_no_steps_is_never_excused(self):
         self.gh.jobs[1]["steps"] = []
@@ -3104,6 +3141,9 @@ class WorkflowRedStatusesHaveAReader(unittest.TestCase):
         # A compile on the build fleet dispatched at one sha: failure is a real compile verdict (the PR's own) and
         # error is no verdict (re-run it); neither is ever a base red, so the plain refusal is right for both.
         "fleet/compile-check": "FAIL_CLOSED: a compile verdict or no verdict, never a base red",
+        # pr-router.yml posts the land tier's handoff as `pending` or `success` only (state="$STATE"), never a red,
+        # and it is not a required check: no red to read.
+        "cmux/land-tier": "FAIL_CLOSED: posts pending or success only, never a red; not a required check",
     }
     POST = re.compile(r"/statuses/")
     CONTEXTS = (re.compile(r"-f context=([^\s\"'$]+)"), re.compile(r"\bcontext: \"([^\"$]+)\""),
@@ -3670,6 +3710,178 @@ class WebShardBaseVerdict(unittest.TestCase):
                 self.assertIn(branch, pushes.get("branches") or [])
             pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
+
+
+PIPELINE_LINUX = "pr pipeline / linux"
+BASE_LINUX = "base linux"
+LINUX_STEP = "Run the routed linux steps (ci/steps.toml)"
+SINGLE_SIZE = ("FAIL: test_no_workflow_routes_to_a_single_size_blacksmith_label "
+               "(__main__.NoSingleSizePins.test_no_workflow_routes_to_a_single_size_blacksmith_label)")
+PERSISTED = "FAIL: test_repo_registry_is_clean (__main__.PersistedFormatsTest.test_repo_registry_is_clean)"
+PIPELINE_WEB_BROWSER = "pr pipeline / web-browser"
+BASE_WEB_BROWSER = "base web-browser"
+WEB_BROWSER_STEP = "Run the routed web-browser steps (ci/steps.toml)"
+# cmux#49399's and cmux#51550's red (2026-11-26, run 45798346304 and job 139823535345), one bun result each.
+COMPACTION_STEER = ("(fail) chromium > compaction-steer: the transcript and the composer stay inside the flow's "
+                    "shift budget [10411.33ms]")
+WEBKIT_SEND = "(fail) webkit > send: the transcript and the composer stay inside the flow's shift budget [8798.99ms]"
+
+
+def linux_log(job, *fails):
+    runs = [line for fail in fails for line in (fail, "Ran 10 tests in 0.100s", "FAILED (failures=1)")]
+    return log(job, LINUX_STEP, *runs, *(f"##[error]step {step} exited 1; see its log group"
+                                         for step in ("security-holes", "persisted-formats")[:len(fails)]),
+               "##[error]Process completed with exit code 1.")
+
+
+def web_browser_log(job, *fails):
+    lines = ["##[group]chat-flow-shift-budget", "bun test v1.4.4",
+             "##[group]test/chat-flow-shift-budget-browser.test.ts:"]
+    for fail in fails:
+        lines += ["error: expect(received).toEqual(expected)",
+                  '+   "compaction ends: stray 74.8px > 8px (article.acpmux-row[row compaction-219])",', fail]
+    lines += ["##[endgroup]", f" {len(fails)} fail", "##[endgroup]",
+              "##[error]step chat-flow-shift-budget exited 1; see its log group",
+              "##[error]Process completed with exit code 1."]
+    return log(job, WEB_BROWSER_STEP, *lines)
+
+
+class PipelineLinuxBaseGitHub(FakeGitHub):
+    """PR run 45794762063 (2026-11-26): the head's pr-router.yml run 10 (workflow 7) failed 'pr pipeline / linux' on
+    tests/test_ci_no_single_size_pins.py, a base red. pr-router.yml runs on pull requests only, so it has no
+    feat-cmux-next run; the same ci/steps.toml linux steps run on base pushes as cmux-next-base-linux.yml's
+    'base linux' (BASE_CHECK_FOR): its run 40 at PUSHED_BASE_SHA, after the merge-base, failed the same test."""
+
+    def __init__(self, head=(SINGLE_SIZE,), base=(SINGLE_SIZE,), names=(PIPELINE_LINUX, BASE_LINUX),
+                 step=LINUX_STEP, make_log=linux_log):
+        super().__init__()
+        pr_name, base_name = names
+        self.jobs = {1: failed_job(1, 10, HEAD, pr_name, step),
+                     4: failed_job(4, 40, PUSHED_BASE_SHA, base_name, step)}
+        self.logs = {1: make_log(pr_name, *head), 4: make_log(base_name, *base)}
+        if not base:
+            self.jobs[4].update(conclusion="success", steps=[
+                {"name": step, "status": "completed", "conclusion": "success"}])
+        self.base_runs = []
+        self.pushed_runs = [{"id": 40, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                             "conclusion": "failure" if base else "success", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-26T09:55:00Z"}]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            return {"merge_base_commit": {"sha": NEW_BASE_SHA}, "files": []}
+        if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+            return {"status": "ahead"}
+        if "/actions/workflows/cmux-next-base-linux.yml/runs?" in route:
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
+            return {"workflow_runs": copy.deepcopy(self.pushed_runs)}
+        if route.endswith("/actions/runs/10"):
+            return {"id": 10, "workflow_id": 7, "name": "pr router", "path": ".github/workflows/pr-router.yml"}
+        self.routes.pop()
+        return super().json(route, paginate=paginate)
+
+
+class PipelineLinuxBaseVerdict(unittest.TestCase):
+    """'pr pipeline / linux' is judged against cmux-next-base-linux.yml's 'base linux' (BASE_CHECK_FOR), test by
+    test, with the checked-in post-merge manifest (no batch suite takes it first)."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_the_mapping_is_the_base_push_run_of_the_same_step_table_job(self):
+        self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
+                                            PIPELINE_LINUX), ("cmux-next-base-linux.yml", BASE_LINUX))
+        self.assertIsNone(excuse.base_caller(REPO, "main", {"path": ".github/workflows/pr-router.yml"},
+                                             PIPELINE_LINUX))
+        self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
+                                            PIPELINE_WEB_BROWSER), ("cmux-next-base-linux.yml", BASE_WEB_BROWSER))
+        # The Mac and iOS step-table jobs have no base leg: no mapping, so their reds keep the no-verdict refusal.
+        self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
+                                             "pr pipeline / mac"))
+
+    def test_a_linux_step_red_the_base_linux_run_shares_is_a_base_red(self):
+        gh = PipelineLinuxBaseGitHub()
+        text = self.judge(gh)
+        self.assertIn(f"excused '{PIPELINE_LINUX}'", text)
+        self.assertIn("run 40", text)
+        self.assertTrue([route for route in gh.routes if "cmux-next-base-linux.yml" in route], gh.routes)
+
+    def test_a_failing_test_the_base_does_not_share_blocks(self):
+        # The comparison is by failing test, not by the whole job: base linux red on another test excuses nothing.
+        gh = PipelineLinuxBaseGitHub(head=(SINGLE_SIZE, PERSISTED), base=(SINGLE_SIZE,))
+        with self.assertRaisesRegex(excuse.Refused, "1 failing test\\(s\\) pass or do not run on feat-cmux-next run 40: "
+                                    "test_repo_registry_is_clean"):
+            self.judge(gh)
+
+    def test_a_web_browser_step_red_the_base_web_browser_leg_shares_is_a_base_red(self):
+        # cmux#49399 and cmux#51550: chat-flow-shift-budget red on the PR, read against the base leg of the same job.
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER,), base=(COMPACTION_STEER,),
+                                     names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        text = self.judge(gh)
+        self.assertIn(f"excused '{PIPELINE_WEB_BROWSER}'", text)
+        self.assertIn("run 40", text)
+
+    def test_a_web_browser_test_the_base_leg_passes_blocks(self):
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
+                                     names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        with self.assertRaisesRegex(excuse.Refused, "pass or do not run on feat-cmux-next run 40: .*webkit > send"):
+            self.judge(gh)
+
+    def test_a_green_base_linux_run_blocks(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 40 \\(success\\), workflow "
+                                    "cmux-next-base-linux.yml"):
+            self.judge(PipelineLinuxBaseGitHub(base=()))
+
+    def test_each_base_check_for_entry_names_the_same_step_table_job_on_base_pushes(self):
+        yaml = excuse.yaml_module()
+        self.assertTrue(excuse.BASE_CHECK_FOR)
+        for (branch, pr_file, check), (base_file, base_check) in excuse.BASE_CHECK_FOR.items():
+            pr = yaml.safe_load((excuse.WORKFLOWS / pr_file).read_text())
+            pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
+            # The PR check is '<caller name> / <callee job name>' of a pull-request-only caller.
+            callers = [(job, f"{job.get('name', job_id)} / ") for job_id, job in pr["jobs"].items()
+                       if isinstance(job, dict) and check.startswith(f"{job.get('name', job_id)} / ")
+                       and str(job.get("uses", "")).startswith("./.github/workflows/")]
+            self.assertEqual(len(callers), 1, check)
+            caller, prefix = callers[0]
+            callee = yaml.safe_load((excuse.WORKFLOWS.parent.parent / caller["uses"].removeprefix("./")).read_text())
+            callee_jobs = [job for job_id, job in callee["jobs"].items()
+                           if job.get("name", job_id) == check.removeprefix(prefix)]
+
+            def legs(job_id, job):
+                # A job, or each leg of its matrix (strategy.matrix.include), with `${{ matrix.KEY }}` resolved.
+                include = ((job.get("strategy") or {}).get("matrix") or {}).get("include") or [{}]
+                for leg in include:
+                    text = json.dumps(job)
+                    for key, value in leg.items():
+                        text = text.replace("${{ matrix.%s }}" % key, str(value))
+                    yield {**json.loads(text), "name": json.loads(text).get("name", job_id)}
+
+            pushed_jobs = [leg for job_id, job in pushed["jobs"].items() for leg in legs(job_id, job)
+                           if leg["name"] == base_check]
+            self.assertEqual((len(callee_jobs), len(pushed_jobs)), (1, 1), (check, base_check))
+
+            def step_table_jobs(job):
+                # `ci/run run --job NAME`, or `--job "$VAR"` with VAR set in the step's env.
+                found = set()
+                for step in job.get("steps") or []:
+                    for m in re.findall(r'ci/run run --job "?\$?(\w[\w-]*)"?', str(step.get("run") or "")):
+                        found.add(str((step.get("env") or {}).get(m, m)))
+                return found
+
+            # The same ci/steps.toml job, run by ci/run, on both sides.
+            self.assertTrue(step_table_jobs(callee_jobs[0]))
+            self.assertEqual(step_table_jobs(callee_jobs[0]), step_table_jobs(pushed_jobs[0]))
+            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+            self.assertIn(branch, pushes.get("branches") or [])
+            pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
+            self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
+            # No post-merge suite takes it first (batch_check), so the entry is the one read.
+            suites = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())["suites"]
+            self.assertIsNone(excuse.batch_check(REPO, branch, pr_file, check, None) if suites else None)
 
 
 REPLAY = "web / react-apps-base-check (4)"
@@ -4902,6 +5114,8 @@ class PoolStatusRed(unittest.TestCase):
         def json(route, *, paginate=False):
             if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": copy.deepcopy(self.twin)}]
+            if "/commits?sha=feat-cmux-next" in route:  # the base's statuses beside the refusal: none here
+                return []
             return original(route, paginate=paginate)
         self.gh.json = json
 
@@ -6098,6 +6312,7 @@ class InheritedCompileRed(unittest.TestCase):
 
     def setUp(self):
         self.receipts = {self.PR_HEAD: "fail", self.MERGE_BASE: "fail", self.TIP: "pass"}
+        self.superseded_by: dict[str, str] = {}
         self.status = {"context": "cmux-next/compile", "state": "failure", "target_url": self.SOURCE_RUN,
                        "description": "The app did not compile in SwiftPM Release (-Onone); see the log"}
         self.gh = FakeGitHub()
@@ -6119,6 +6334,14 @@ class InheritedCompileRed(unittest.TestCase):
                                f"commits/{self.PR_HEAD}/statuses?per_page=100&page=1")):
                 self.gh.routes.append(route)
                 return status_answer(route, [self.status])
+            # The GitHub path (github_compile_red), read only when the receipts gave no base verdict: this base has no
+            # cmux-next/compile status anywhere, so it cannot decide either and says so.
+            if "commits?sha=feat-cmux-next" in route:
+                self.gh.routes.append(route)
+                return []
+            if "/statuses?per_page=100&page=1" in route:
+                self.gh.routes.append(route)
+                return status_answer(route, [])
             return original(route, paginate=paginate)
 
         self.gh.json = json
@@ -6126,7 +6349,12 @@ class InheritedCompileRed(unittest.TestCase):
         def receipt(repo, sha):
             self.assertEqual(repo, REPO)
             state = self.receipts.get(sha)
-            return None if state is None else {"repo": repo, "sha": sha, "state": state}
+            if state is None:
+                return None
+            found = {"repo": repo, "sha": sha, "state": state}
+            if sha in self.superseded_by:
+                found["superseded_by"] = self.superseded_by[sha]
+            return found
 
         patch = unittest.mock.patch.object(excuse, "compile_receipt", receipt)
         patch.start()
@@ -6166,6 +6394,31 @@ class InheritedCompileRed(unittest.TestCase):
     def test_a_merge_base_with_no_receipt_does_not_excuse(self):
         del self.receipts[self.MERGE_BASE]
         with self.assertRaisesRegex(excuse.Refused, "reads no receipt"):
+            self.judge_status()
+
+    def test_a_merge_base_read_as_superseded_is_no_verdict_and_follows_the_tip_that_covers_it(self):
+        """cmux#50979 (2026-11-25): its head 2e7dd1d9 changed only Swift, the fleet receipt failed on a cmux-tui crate
+        the PR does not touch, and the merge-base fc7c32be read "superseded" -- the controller's word for a push tip it
+        will not check because a newer tip's check covers this commit (fleet_compile_result.judge). That is no verdict
+        about the merge-base, yet it was read as "the red is this head's". The receipt that covers it decides."""
+        covering = "d" * 40
+        self.receipts[self.MERGE_BASE] = "superseded"
+        self.superseded_by[self.MERGE_BASE] = covering
+        self.receipts[covering] = "fail"
+        audit = "\n".join(self.judge_status())
+        self.assertIn("excused 'cmux-next/compile'", audit)
+        self.assertIn(f"{covering[:12]}", audit)
+        self.assertIn(f"merge-base {self.MERGE_BASE[:12]}", audit)
+        # The covering tip compiled: then the red really is this head's.
+        self.receipts[covering] = "pass"
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge_status()
+
+    def test_a_superseded_merge_base_naming_no_covering_tip_lets_github_decide(self):
+        """No `superseded_by` to follow, so the receipts gave no base verdict: GitHub answers the same question
+        (github_compile_red) instead of the refusal claiming the red is the head's."""
+        self.receipts[self.MERGE_BASE] = "superseded"
+        with self.assertRaisesRegex(excuse.Refused, "names no covering tip"):
             self.judge_status()
 
     def test_an_unread_receipt_refuses(self):
@@ -6325,6 +6578,10 @@ class NoVerdictCompileStatus(InheritedCompileRed):
     no-verdict fleet job is; with none, it is refused, never compared with the base."""
 
     MAC = "cmux-next Release compile (Xcode 26)"
+    # The parent's superseded-merge-base cases (cmux#50979) judge a status that gave a verdict; a no-verdict status
+    # never reaches the merge-base read, so they are not this class's.
+    test_a_merge_base_read_as_superseded_is_no_verdict_and_follows_the_tip_that_covers_it = None
+    test_a_superseded_merge_base_naming_no_covering_tip_lets_github_decide = None
 
     def setUp(self):
         super().setUp()
@@ -7742,6 +7999,30 @@ class LostRunnerIsInfra(unittest.TestCase):
         github.log = lambda repo, job: self.fail("a lost runner's log is never read")
         with self.assertRaisesRegex(excuse.Infra, "infra, not a verdict .*still in_progress.*needs a re-run"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def worker_crash(self, job_id):
+        github = FakeGitHub()
+        real = json.loads((self.FIXTURES / f"runner-enospc-job-{job_id}.json").read_text())
+        notes = json.loads((self.FIXTURES / f"runner-enospc-annotations-{job_id}.json").read_text())
+        github.jobs[1] = dict(real, id=1, run_id=10, head_sha=HEAD)
+        plain = github.json
+
+        def json_(route, *, paginate=False):
+            if route == f"repos/{REPO}/check-runs/1/annotations":
+                return notes
+            return plain(route, paginate=paginate)
+        github.json = json_
+        github.log = lambda repo, job: self.fail("a crashed worker's log is never read")
+        return github
+
+    def test_a_runner_worker_crash_on_a_full_disk_is_rerun_never_the_prs_own_red(self):
+        # cmux#50809 (job 139341128013) and cmux#50827 (job 139340766008): react-apps-base-check's runner filled its
+        # disk and its worker died mid-step; glaeda-gh reruns "was refused at setup by its runner" once per (head, run).
+        for job_id in ("139341128013", "139340766008"):
+            with self.assertRaisesRegex(excuse.Refused, r"^'web / react-apps-base-check' was refused at setup by its "
+                                                        r"runner \(job 1: its runner's worker crashed \(No space left "
+                                                        r"on device .*/_diag/Worker_.*it gets re-run, never excused$"):
+                excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.worker_crash(job_id))
 
     def test_an_unstored_log_reads_the_annotations(self):
         github = self.lost()
@@ -12862,6 +13143,8 @@ RAW_LOG_READERS = {
                        "compares nothing and excuses nothing",
     "unplaced_signature": "an unplaced log's whole-log signature, compared only on identity (UnplacedSignature)",
     "refused_at_setup": "a gate: only refuses",
+    "checkout_death": "a gate: a checkout that died before any step of the change ran (test_reds.died_in_checkout); "
+                      "only refuses, for a rerun",
     "no_verdict": "a gate: a no-verdict compile is ignored only on another pass's proof (compile_pass_at)",
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
@@ -16579,6 +16862,8 @@ SCANNERS = {
     "base_red_excuse.mask_shas": lambda f: excuse.mask_shas(f.log),
     "base_red_excuse.normalise_error": lambda f: excuse.normalise_error(f.log),
     # A ws-check head's new failure lines, looked through for a path the PR changes (at most COMPARE_FILES_CAP).
+    # A ws-check run's own base pass (tools/ws-check discount_base_reds), read off the log's lines before AT.
+    "base_red_excuse.ws_check_own_base": lambda f: excuse.ws_check_own_base(f.lines, len(f.lines), ["ws-check"]),
     "base_red_excuse.ws_check_names_paths": lambda f: excuse.ws_check_names_paths(f.lines, ["tools/guards.py"] * 50),
     # A workflow `if:` is the head's own text: its parsers are timed on the log, nested parentheses and all.
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
@@ -17203,7 +17488,8 @@ class SpawnOwnerFixedOnBase(unittest.TestCase):
         own = next(line for line in said if line.startswith(f"excused '{OWN_CHANGE}': fixed on base ("))
         self.assertIn(f"passes at {SPAWN_BASE[:12]} in feat-cmux-next run {SPAWN_BASE_RUN}", own)
         self.assertIn("PR does not touch scripts/cmux-next/check-spawn-owner.py, "
-                      "scripts/cmux-next/spawn-owner-baseline.tsv, cmux-tui/crates/acpmux/", own)
+                      "scripts/cmux-next/spawn-owner-baseline.tsv, scripts/cmux-next/baseline_renames.py, "
+                      "cmux-tui/crates/acpmux/", own)
         self.assertIn("check-spawn-owner cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs: 1 spawn line(s) with "
                       "no owner (a new file)", own)
         tooling = next(line for line in said if line.startswith("excused 'tooling-tests': fixed on base ("))
@@ -17336,7 +17622,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
-            "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
+            "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
             "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
@@ -17361,18 +17647,25 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "docs-only-fallback.yml",
             # One router per push (RFD 0023): its route job lists changed files; it calls the routed workflows
             # (scripts/ci/pr_router.json), whose check names carry the `pr router / ` prefix, as the fallback's do.
-            "pr-router.yml"),
+            "pr-router.yml",
+            # Staging journeys, perf reports and the self-host chart, path-gated on the code they drive.
+            "app-store-shelf.yml", "chat-open-perf-report.yml", "cloud-chief-machine.yml", "cloud-chief-start.yml",
+            "cloud-chief-turn-proof.yml", "cloud-fork-placement.yml", "cloud-resume-matrix.yml",
+            "cloud-wake-echo.yml", "executor-journey.yml", "helm-chart.yml", "migrate-journey-pr.yml",
+            "repro-capsule-journey.yml", "rfd0135-gates.yml", "runnable-link.yml", "tailnet-stable-node-move.yml",
+            "vm-hassle.yml", "zero-to-going.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
-            "merge-freeze.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
-            "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
+            "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
             "cmux-next-chromium-currency.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
-            "cmux-vm-secrets-seal.yml"),
+            "cmux-vm-secrets-seal.yml",
+            # Closes the issues a feat-cmux-next merge fixes ("Fixes #N" closes only on main).
+            "cmux-next-closes-issues.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
-            "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
+            "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
             "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml",
             # The bundle-size budget (scripts/cmux-next/bundle-size-pr.py): reads the pull request's own diff and body.
@@ -18243,11 +18536,13 @@ class OtherPrPeerVerdict(unittest.TestCase):
     NOW = OtherPrSetupRed.NOW
     REFUSED = "no feat-cmux-next run of its workflow has a verdict"
 
-    def peer(self, index, *, number=None, changed=(), related="diverged", step="Join tailnet", base="feat-cmux-next"):
+    def peer(self, index, *, number=None, changed=(), related="diverged", step="Join tailnet", base="feat-cmux-next",
+             conclusion="failure"):
         """One other PR's run of iOS E2E: its 'backend' failed at STEP (None: no step failed), its head changes
         CHANGED, compares with this head as RELATED (shares_commits), into BASE."""
         return {"index": index, "number": 44000 + index if number is None else number, "sha": f"{index:x}" * 40
-                if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base}
+                if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base,
+                "conclusion": conclusion}
 
     def github(self, peers, *, changed=(), event="pull_request"):
         """EVENT: the pull-request event every run of the workflow has, and the one its `on:` names."""
@@ -18260,7 +18555,7 @@ class OtherPrPeerVerdict(unittest.TestCase):
         jobs, logs, runs = {head_job["id"]: head_job}, {head_job["id"]: head_log}, {}
         runs[self.HEAD_RUN] = {"id": self.HEAD_RUN, "head_sha": self.HEAD_SHA, "head_branch": "lane/chat-output-scroll-box",
                                "pull_requests": [{"number": 41892, "base": {"ref": "feat-cmux-next"}}],
-                               "created_at": "2026-11-15T16:52:56Z"}
+                               "created_at": "2026-11-15T16:52:56Z", "conclusion": "failure"}
         by_sha = {}
         for peer in peers:
             run_id, job_id = 50000 + peer["index"], 60000 + peer["index"]
@@ -18273,7 +18568,8 @@ class OtherPrPeerVerdict(unittest.TestCase):
             jobs[job_id], logs[job_id] = job, peer_log
             runs[run_id] = {"id": run_id, "head_sha": peer["sha"], "head_branch": f"lane/peer-{peer['index']}",
                             "pull_requests": [{"number": peer["number"], "base": {"ref": peer["base"]}}],
-                            "created_at": f"2026-11-15T16:{59 - peer['index']:02d}:00Z"}
+                            "created_at": f"2026-11-15T16:{59 - peer['index']:02d}:00Z",
+                            "conclusion": peer["conclusion"]}
             by_sha[peer["sha"]] = peer
 
         class Fake:
@@ -18298,10 +18594,11 @@ class OtherPrPeerVerdict(unittest.TestCase):
                     if f"event={event}&" not in route:
                         return {"workflow_runs": []}  # it never runs on feat-cmux-next, nor on the other PR event
                     return {"workflow_runs": [
-                        {"event": event, "status": "completed", "conclusion": "failure", "path": case.PATH,
+                        {"event": event, "status": "completed", "path": case.PATH,
                          "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
                          "html_url": f"https://github.com/{REPO}/actions/runs/{run['id']}", **run}
-                        for run in runs.values()]}
+                        for run in runs.values()
+                        if "status=failure" not in route or run["conclusion"] == "failure"]}  # GitHub's filter
                 if "/actions/runs/" in route and "/jobs?" in route:
                     run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
                     return [{"jobs": [copy.deepcopy(job) for job in jobs.values() if job["run_id"] == run]}]
@@ -18340,6 +18637,21 @@ class OtherPrPeerVerdict(unittest.TestCase):
         with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
             clock.now.return_value = excuse.datetime.fromisoformat(self.NOW)
             return "\n".join(excuse.judge(REPO, "feat-cmux-next", self.HEAD_SHA, [], github, checks=["backend"]))
+
+    def test_skipped_and_cancelled_runs_spend_no_read_and_hide_no_pr(self):
+        # pr-router.yml, 2026-11-26: 17 of its 30 newest completed pull_request runs were skipped (a label or edit
+        # event its `if:` turns away); each spent one of PR_ONLY_PEER_READS, so three failed peers behind ten of them
+        # were never read and cmux#58408's shared 'pr pipeline / linux' red was refused.
+        noise = [self.peer(i, step=None, conclusion=("skipped", "cancelled")[i % 2]) for i in range(1, 11)]
+        # #44011's newest run is a skipped one: its older failed run must still stand for it
+        noise.append(self.peer(11, number=44013, step=None, conclusion="skipped"))
+        github = self.github(noise + [self.peer(i) for i in (12, 13, 14)])
+        said = self.judge(github)
+        self.assertIn("excused 'backend': not this PR (its workflow's red on other PRs)", said)
+        self.assertIn(f"#44012 at {'c' * 12}, #44013 at {'d' * 12}, #44014 at {'e' * 12}", said)
+        self.assertFalse([route for route in github.routes if re.search(r"/actions/runs/5000\d/jobs", route)
+                          or "/actions/runs/50010/jobs" in route or "/actions/runs/50011/jobs" in route],
+                         github.routes)
 
     def test_three_matching_peers_excuse_it(self):
         said = self.judge(self.github([self.peer(i) for i in (1, 2, 3)]))

@@ -213,7 +213,7 @@ enum RemoteHandlers {
                     let detail = RemoteStrings.detail(session) ?? ""
                     let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
                         detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
-                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)
+                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)  // retry-prompt-ok: SSH sign-in: only failures the link does not redial itself (auth, host key, install) open this; another dial repeats a failed sign-in (server lockouts count them), so the person retries once they fixed it
                     recovery.present(spec, error: RemoteStrings.sshError(session) ?? detail, in: window)
                 }
             }

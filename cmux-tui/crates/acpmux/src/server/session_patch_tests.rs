@@ -64,6 +64,28 @@ fn spans_go_out_as_a_splice() {
     assert!(patch.to_string().len() < 400, "{patch}");
 }
 
+/// A change row that does not owe the chart leaves it out: the patch keeps it (no `null`),
+/// and the next turn's chart splices onto the held one instead of going out whole.
+#[test]
+fn a_left_out_breakdown_stays_held_and_the_next_one_splices() {
+    let mut rows = SentRows::default();
+    let first = json!({"title": "a", "timeBreakdown": {"totalMs": 1, "spans": spans(0..512, 511)}});
+    assert!(matches!(rows.change("s", true, &first), Change::Whole { .. }));
+    let mut held = first.clone();
+    let Change::Patch { patch, .. } = rows.change("s", true, &json!({"title": "b"})) else {
+        panic!("a patch")
+    };
+    assert_eq!(patch, json!({"title": "b"}), "no null for the left-out chart");
+    apply(&mut held, &patch);
+    assert_eq!(held["timeBreakdown"], first["timeBreakdown"]);
+    let next = json!({"title": "b", "timeBreakdown": {"totalMs": 2, "spans": spans(1..513, 512)}});
+    let Change::Patch { patch, .. } = rows.change("s", true, &next) else { panic!("a patch") };
+    assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][0], 1, "{patch}");
+    assert!(patch.to_string().len() < 400, "{patch}");
+    apply(&mut held, &patch);
+    assert_eq!(held, next);
+}
+
 #[test]
 fn a_new_kind_of_row_or_a_forgotten_one_goes_out_whole() {
     let mut rows = SentRows::default();

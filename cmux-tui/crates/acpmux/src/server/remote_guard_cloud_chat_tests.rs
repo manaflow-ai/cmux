@@ -10,6 +10,9 @@ fn cloud_peer_uses_a_durable_chat_folder() {
     let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
     assert_eq!(dir, home.join("chats/chat-1"));
     assert!(dir.is_dir());
+    assert!(dir.join(crate::trust::AGENT_HOME_MARKER).is_file(), "marked as acpmux's");
+    // A retry reuses the folder and keeps its marker.
+    assert_eq!(cloud_chat_folder_under(&home, "chat-1").unwrap(), dir);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
