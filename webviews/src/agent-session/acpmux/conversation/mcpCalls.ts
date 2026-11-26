@@ -39,18 +39,28 @@ const CLAUDE_NAME = /^mcp__(.+?)__(.+)$/;
 export function mcpCall(tool: Tool): McpCall | undefined {
   // Asked of every tool row on every reshape of the running turn, by several readers each; a row
   // that did not change keeps its object, so its input is parsed once, not on every record.
+  // The key is every field readMcpCall reads, so an edited row is read again.
   const kept = mcpCalls.get(tool);
-  if (kept && kept.title === tool.title && kept.inputSummary === tool.inputSummary && kept.command === tool.command)
+  if (
+    kept &&
+    kept.title === tool.title &&
+    kept.inputSummary === tool.inputSummary &&
+    kept.command === tool.command &&
+    kept.description === tool.description &&
+    kept.kind === tool.kind &&
+    kept.provenance === tool.provenance
+  )
     return kept.call;
   const call = readMcpCall(tool);
-  mcpCalls.set(tool, { title: tool.title, inputSummary: tool.inputSummary, command: tool.command, call });
+  const { title, inputSummary, command, description, kind, provenance } = tool;
+  mcpCalls.set(tool, { title, inputSummary, command, description, kind, provenance, call });
   return call;
 }
 
-const mcpCalls = new WeakMap<
-  Tool,
-  { title: string; inputSummary: string | undefined; command: string | undefined; call: McpCall | undefined }
->();
+type KeptCall = Pick<Tool, "title" | "inputSummary" | "command" | "description" | "kind" | "provenance"> & {
+  call: McpCall | undefined;
+};
+const mcpCalls = new WeakMap<Tool, KeptCall>();
 
 function readMcpCall(tool: Tool): McpCall | undefined {
   const name = CLAUDE_NAME.exec(tool.title.trim());
