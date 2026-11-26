@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { GUEST_CMUX, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { afterAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
+import { GUEST_CMUX, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -83,5 +88,52 @@ describe("idle decision per gap", () => {
     expect(line).toContain("39735");
     expect(line).toContain("\\|x");
     expect(gapLine("m", { turn: 1, gap_s: 20, resumed: false, resume_ms: null, reply_ms: null })).toBe("| m | 1 | 20 | n/a | n/a |");
+  });
+});
+
+// Run 45787132980: both arms were kept awake at every gap by {"why":"workload"} on the stub's port, owned by comm
+// python3 (the cmux-tui-pab-stub link never reached comm). The drill stops the stub for each gap and restarts it on
+// the same port with the next message, as the cloud journey's idle walk does (cmux#58030).
+describe("model stub around an idle gap", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pab-stub-"));
+  const d = join(dir, "pab-model-stub");
+  const sh = (cmd: string) => spawnSync("bash", ["-c", cmd], { encoding: "utf8", timeout: 30_000 });
+  const info = (port: number) => sh(`curl -fsS -m 2 http://127.0.0.1:${port}/__stub/info`);
+  afterAll(() => {
+    sh(`p=$(cat ${d}.pid 2>/dev/null); [ -n "$p" ] && kill "$p" 2>/dev/null; true`);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("stopped for the gap, nothing listens, back on its port with the next message", () => {
+    copyFileSync(MODEL_STUB_PY, `${d}.py`);
+    writeFileSync(`${d}.json`, JSON.stringify(JOURNEY_STUB_SCRIPT));
+    writeFileSync(`${d}.log`, '{"before":"gap"}\n');
+    // /usr/bin/python3 as on the guest (a dev machine's python3 may be a shim that cannot run a script by path).
+    symlinkSync(sh("[ -x /usr/bin/python3 ] && echo /usr/bin/python3 || command -v python3").stdout.trim(), join(dir, "cmux-tui-pab-stub"));
+    const up = sh(
+      `(nohup ${dir}/cmux-tui-pab-stub ${d}.py --port 0 --script ${d}.json --nonce n0nce --log ${d}.log --ready-file ${d}.ready >${d}.log.out 2>&1 & echo $! >${d}.pid); ` +
+        `for i in $(seq 50); do [ -s ${d}.ready ] && break; sleep 0.2; done; cat ${d}.ready`,
+    );
+    const port = JSON.parse(up.stdout).port as number;
+    expect(info(port).stdout).toContain("n0nce");
+
+    const stop = sh(stubStop(dir));
+    expect(stop.status).toBe(0);
+    expect(stop.stdout).toContain(`@@stopped ${port}`);
+    expect(sh(`ss -ltnH "sport = :${port}"`).stdout.trim()).toBe("");
+
+    const back = sh(`${stubRestart(port, "n0nce", dir)}echo sent`);
+    expect(back.status).toBe(0);
+    expect(back.stdout).toContain("sent");
+    expect(info(port).stdout).toContain("n0nce");
+    expect(readFileSync(`${d}.log`, "utf8")).toContain('{"before":"gap"}');
+  }, 30_000);
+
+  test("no recorded stub: the stop says so instead of a port", () => {
+    const empty = mkdtempSync(join(tmpdir(), "pab-nostub-"));
+    const r = sh(stubStop(empty));
+    rmSync(empty, { recursive: true, force: true });
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toContain("@@nostub");
   });
 });
