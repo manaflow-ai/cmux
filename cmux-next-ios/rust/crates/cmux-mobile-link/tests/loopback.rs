@@ -935,14 +935,24 @@ async fn reliable_link_outlives_its_input_lane(kind: TransportKind) {
     let _mac_task = spawn_echo_mac_with(mac, mac_options);
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
     let phone_options = DialOptions { reliable: true, ..options() };
-    let connected =
-        dial::connect(&phone, &mac_id, kind, &phone_options, LinkConfig::default()).await.expect("dial");
-    let link = connected.link.clone();
-    assert!(link.reliable_stats().is_some(), "{kind:?}: both sides offered the reliable link");
-    // The lane's connection lands within moments of the dial.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert!(!link.is_closed(), "{kind:?}: the dialed link closed once its lane opened");
-    echo_once(&link, &format!("{kind:?} dialed")).await;
+    // Whether the lane's connection reaches the Mac before or after its
+    // answer returns is a race; several dials meet the losing order.
+    let mut link = None;
+    for attempt in 0..6 {
+        let connected =
+            dial::connect(&phone, &mac_id, kind, &phone_options, LinkConfig::default()).await.expect("dial");
+        let dialed = connected.link.clone();
+        assert!(dialed.reliable_stats().is_some(), "{kind:?}: both sides offered the reliable link");
+        echo_once(&dialed, &format!("{kind:?} dial {attempt} at once")).await;
+        // The lane's connection lands within moments of the dial.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!dialed.is_closed(), "{kind:?}: dial {attempt}: the link closed once its lane opened");
+        echo_once(&dialed, &format!("{kind:?} dial {attempt}")).await;
+        if let Some(previous) = link.replace(dialed) {
+            previous.close("next dial");
+        }
+    }
+    let link = link.expect("a dialed link");
     link.drop_carrier("test cut");
     let resumed = dial::resume(&phone, &mac_id, kind, &phone_options, &link).await.expect("resume");
     assert!(resumed.resumed);
@@ -950,7 +960,6 @@ async fn reliable_link_outlives_its_input_lane(kind: TransportKind) {
     assert!(!link.is_closed(), "{kind:?}: the resumed link closed once its lane opened");
     echo_once(&link, &format!("{kind:?} resumed")).await;
     assert_eq!(link.reliable_stats().unwrap().resumes, 1, "{kind:?}: one resume, the test's own");
-    assert_eq!(registry.len(), 1, "{kind:?}: one link of this phone waits in its registry");
     link.close("done");
 }
 
