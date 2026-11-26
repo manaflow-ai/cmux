@@ -845,13 +845,11 @@ When the agent requests permission (ACP `session/request_permission`):
 
 - `PlanCard`: `surface` radius 20; header `list.bullet.clipboard` + "Plan" (`headline`) +
   trailing `meta` step count; body markdown capped at 10 lines with fade + "Show full plan"
-  (opens a `.large` sheet with the full plan and the same actions); todo-style plans render each
-  step with a 16 pt status glyph (`circle`, `circle.dotted` animated while in progress,
-  `checkmark.circle.fill` in `success`).
+  (opens a `.large` sheet with the full plan and the same actions). An agent's to-do list (ACP
+  `plan` updates) is not shown.
 - Actions when the agent awaits approval (ExitPlanMode / plan mode): "Approve plan"
   (`PrimaryCapsule.inline`), "Keep planning" (`SecondaryCapsule.inline`); the composer stays
   available to send feedback.
-- Live todo updates animate checkmarks with `.symbolEffect(.bounce)` once.
 
 ### 6.8 Diffs in the transcript
 
@@ -1409,7 +1407,6 @@ Every transition in the app. "System" means do not customize.
 | Tool row expand/collapse | `smooth`; chevron rotation 0 → 90 degrees | |
 | Permission card / question card arrival | Rise 16 pt + fade, `snappy`; composer ↔ action bar crossfade `snap` + height `smooth` | |
 | Card resolved → summary row | `smooth` height collapse + crossfade | |
-| Plan step check | `.symbolEffect(.bounce)` once | |
 | Jump-to-bottom show/hide | Scale 0.85 ↔ 1 + opacity, `snap`; emerges from composer via glass morph | |
 | Scroll to bottom | `.smooth(duration: 0.35)` | |
 | Copy confirmation | Symbol replace doc.on.doc → checkmark, revert after 1.5 s | |

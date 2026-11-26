@@ -724,10 +724,11 @@ class RegistryFindingsJudgedAgainstTheBase(unittest.TestCase):
         self.assertIn(added_by[:12], warning)
 
     def test_the_feat_cmux_next_step_warns_only_on_a_push(self) -> None:
-        text = NEXT_GUARDS_PATH.read_text(encoding="utf-8")
-        line = next(line for line in text.splitlines()
-                    if "validate_test_execution_registry.py --pr-lanes feat-cmux-next" in line)
-        self.assertIn("github.event_name == 'push' && '--warn-only'", line)
+        import yaml
+        steps = yaml.safe_load(NEXT_GUARDS_PATH.read_text(encoding="utf-8"))["jobs"]["tooling-tests"]["steps"]
+        step = next(s for s in steps if "validate_test_execution_registry.py --pr-lanes feat-cmux-next" in s.get("run", ""))
+        self.assertIn("$WARN_ONLY", step["run"])
+        self.assertEqual(step["env"]["WARN_ONLY"], "${{ github.event_name == 'push' && '--warn-only' || '' }}")
 
 
 LANE_TEST = """\

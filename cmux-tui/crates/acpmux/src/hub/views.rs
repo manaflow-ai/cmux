@@ -246,7 +246,7 @@ impl Hub {
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
-/// a pasted secret. So are the running turn's `activity` and `planStep`
+/// a pasted secret. So is the running turn's `activity`
 /// (`hub/activity.rs`): a tool call's title is often a command with its
 /// arguments. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
@@ -859,8 +859,6 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
-            // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
-            task_list: super::task_list::current_task_list(&m),
             approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
@@ -912,7 +910,6 @@ impl Hub {
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
                 activity: t.doing.activity,
-                plan_step: t.doing.plan_step,
             }),
             queue: session
                 .queue()
@@ -1077,6 +1074,9 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many of the daemon's background tasks it runs (`bg_tasks.rs`,
+        // `session-bg-facts-v1`): they stay here when it moves, so rebalance holds it.
+        summary.set("bgTasksRunning", json!(self.bg_running_count(session)));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         summary.set("heldMessages", super::native_messaging::held_messages(session));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
