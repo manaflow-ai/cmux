@@ -1044,8 +1044,32 @@ function fromTo(key: StringKey, args: string[]): Act | undefined {
   return paths.length === 2 ? { key, values: { from: baseName(paths[0]!), to: baseName(paths[1]!) } } : undefined;
 }
 
-/// What a command did, from the table; undefined for anything it does not list.
+/// Commands read so far, newest last: a command's action depends on its text alone (the table is
+/// fixed), and a live line asks again for the same running command on every render, a whole shell
+/// parse each time (2-3 ms a render of a streaming chat with one long command; settled-page bench,
+/// chat_switch stream). Bounded, oldest out.
+const ACTIONS_KEPT = 256;
+const actionsRead = new Map<string, CommandAction | undefined>();
+
+/// What a command did, from the table; undefined for anything it does not list. The result is
+/// shared between callers, so it is read, never changed.
 export function commandAction(command: string): CommandAction | undefined {
+  if (actionsRead.has(command)) {
+    const kept = actionsRead.get(command);
+    actionsRead.delete(command);
+    actionsRead.set(command, kept);
+    return kept;
+  }
+  const action = readCommandAction(command);
+  actionsRead.set(command, action);
+  if (actionsRead.size > ACTIONS_KEPT) actionsRead.delete(actionsRead.keys().next().value as string);
+  return action;
+}
+
+/// The cache size, for its test.
+export const commandActionsKept = () => actionsRead.size;
+
+function readCommandAction(command: string): CommandAction | undefined {
   const { step, more, loops, values } = mainStep(command);
   // The first stage names the step only when nothing else in it changes anything: no write to a
   // file, no code run inside a word, and only stages after it that trim what it printed (`curl … |
