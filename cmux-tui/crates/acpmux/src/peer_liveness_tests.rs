@@ -694,7 +694,12 @@ fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
 /// A ready link to `url` that hears nothing, with a 600 ms silence budget: how it ended, how
 /// long it took, and whether a replacement waits for the next connect.
 async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, Duration, bool) {
-    a_ready_link_that_goes_silent_then(url, |_theirs| async {}).await
+    // The peer's end stays open and says nothing: dropping it would reset the link.
+    a_ready_link_that_goes_silent_then(url, |theirs| async move {
+        let _held = theirs;
+        std::future::pending::<()>().await;
+    })
+    .await
 }
 
 /// `a_ready_link_that_goes_silent`, with the peer's end of the link handed to `peer`.
@@ -824,7 +829,16 @@ async fn a_backlog_frame_does_not_drop_the_replacement_dial() {
 async fn a_link_that_talks_again_stays_when_its_replacement_does_not_open() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    drop(listener);
+    // The dial reaches the peer but never opens: each connection is held 800 ms, then closed
+    // before the upgrade, so the backlog (from 650 ms) arrives while it still dials.
+    let server = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                drop(stream);
+            });
+        }
+    });
     let (tx, _rx) = mpsc::channel(8);
     let mut peer = Peer::new("p", &format!("ws://127.0.0.1:{port}"), None, None, tx);
     {
@@ -848,4 +862,5 @@ async fn a_link_that_talks_again_stays_when_its_replacement_does_not_open() {
     assert!(!serving.is_finished(), "a link that talks again was dropped: {:?}", serving.await);
     serving.abort();
     peer_side.abort();
+    server.abort();
 }
