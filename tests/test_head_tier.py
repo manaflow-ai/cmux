@@ -1069,10 +1069,35 @@ class LandHandoffOnlyTests(unittest.TestCase):
         decided = head_tier.tier("pull_request", ev, land_switch="1")
         return pr_router.route(ev, self.CALLEES, ["cmux-tui/src/a.rs"], decided=decided, land_update=land_update)[0]
 
-    def test_the_land_handoff_starts_it(self) -> None:
+    def test_the_land_handoff_skips_it_by_default(self) -> None:
+        """72 of 112 PR head builds (13-17Z 2026-11-26) were label handoffs no merge took: the train tip builds."""
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
-                self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), ["mc.yml"])
+                with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("CI_MC_HANDOFF_LABEL_SKIP", None)
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), [])
+                with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "1"}):
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), [])
+
+    def test_the_land_handoff_starts_it_when_the_skip_is_off(self) -> None:
+        with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "0"}):
+            for label in ("ready-to-land", "full-ci"):
+                with self.subTest(label=label):
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)),
+                                     ["mc.yml"])
+
+    def test_the_skip_leaves_other_callees_on_the_handoff(self) -> None:
+        callees = dict(self.CALLEES, **{"other.yml": {"types": ["opened", "synchronize", "reopened",
+                                                               "ready_for_review"]}})
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        start, why = pr_router.route(ev, callees, ["cmux-tui/src/a.rs"], decided=decided)
+        self.assertEqual(start, ["other.yml"])
+        self.assertIn("merge train", why["mc.yml"])
+
+    def test_pr_router_passes_the_switch(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
+        self.assertIn("CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}", text)
 
     def test_a_push_to_a_labeled_pr_does_not(self) -> None:
         for labels in (("ready-to-land",), ("full-ci",), ()):
