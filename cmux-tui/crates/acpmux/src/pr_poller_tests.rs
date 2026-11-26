@@ -272,6 +272,7 @@ fn include_output_parses() {
 /// the broker's `lane-gh call get` instead, whose answers carry no headers.
 #[tokio::test]
 #[cfg(unix)] // a shell-script stand-in for lane-gh
+#[cfg(unix)]
 async fn a_lane_vms_reads_go_through_the_broker() {
     assert!(no_login(
         "gh api gave no HTTP answer: To get started with GitHub CLI, please run:  gh auth login"
