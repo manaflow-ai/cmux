@@ -53,15 +53,18 @@ impl Hub {
                 .map(|(n, reason)| (n.clone(), reason.clone()))
                 .collect();
             // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
-                .lock()
-                .unwrap()
-                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            // changed/removed profiles (`model_lists`): their ACP list, read under another
+            // profile, is dropped, and their live list turns stale until its probe answers.
+            // Listeners, peers, store and policy stay put.
             self.known_efforts
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            for name in current.harnesses.keys() {
+                if current.harnesses.get(name) != next.harnesses.get(name) {
+                    self.model_lists.profile_changed(name);
+                }
+            }
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -84,6 +87,7 @@ impl Hub {
                 pool,
                 web_roots,
                 vm_host,
+                auto_cloud_enroll,
                 peers,
                 web_asking_modes,
                 agent_start_timeout_ms,
@@ -177,6 +181,7 @@ impl Hub {
             current.pool = pool;
             current.web_roots = web_roots;
             current.vm_host = vm_host;
+            current.auto_cloud_enroll = auto_cloud_enroll;
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
             // So does whether this Mac lends it GitHub (`github_broker.rs`).
@@ -209,6 +214,8 @@ impl Hub {
             // The next person's prompt to an idle chat reads it (`person_hold.rs`).
             current.person_hold = person_hold;
             // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            let names = super::inbox::page_rule::session_names(page_rule.as_ref());
+            *self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()) = names;
             current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
@@ -252,6 +259,8 @@ impl Hub {
             )
         };
         self.start_auto_evacuate().await;
+        // Enrollment turned on since: its timer starts (`owner_return.rs`).
+        self.start_owner_return().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
@@ -411,6 +420,23 @@ mod tests {
         changed.save().unwrap();
         hub.reload_catalog().await.unwrap();
         assert_eq!(gate.admit(7781).await.unwrap_err().reason, "service.off");
+    }
+
+    #[tokio::test]
+    async fn reload_replaces_and_clears_page_rule_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, hub) = hub_on_disk(root.path());
+        for name in [Some("old"), Some("new"), None] {
+            let mut config = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+            config.page_rule = name.map(|name| crate::config::PageRuleConfig {
+                sessions: vec![format!("host/{name}")],
+            });
+            config.save().unwrap();
+            hub.reload_catalog().await.unwrap();
+            let _config_writer = hub.config.write().await;
+            assert_eq!(hub.page_rule_lists(" old "), name == Some("old"));
+            assert_eq!(hub.page_rule_lists("host/new"), name == Some("new"));
+        }
     }
 
     /// The other settings a reload used to leave behind until a restart follow the file too.
