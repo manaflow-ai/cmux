@@ -1,0 +1,11 @@
+[package]
+name = "cmux-background-ready"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+workspace = "../cmux-app-ffi"
+description = "The owner of cmux NEXT's opt-in background ready copy decisions (app.backgroundReady): whether a quit stays hidden, how the hidden copy holds its windows, the login item, the launch path and the update exit, as a C ABI"
+
+[dependencies]
