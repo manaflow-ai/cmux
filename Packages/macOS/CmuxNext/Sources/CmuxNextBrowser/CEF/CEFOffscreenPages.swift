@@ -157,8 +157,12 @@ enum CEFOffscreenCallbacks {
 
     static let frame: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeRawPointer?) -> Void = { _, browser, raw in
         guard Thread.isMainThread, let raw else { return }
-        let frame = CEFOffscreenFrame(raw)
-        MainActor.assumeIsolated { pages.frameArrived(frame, browser: browser) } // main-proof: guarded by Thread.isMainThread above
+        // The frame (its IOSurface) is read on the main actor: the shim's struct lives for this call only.
+        let address = UInt(bitPattern: raw)
+        MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
+            guard let pointer = UnsafeRawPointer(bitPattern: address) else { return }
+            pages.frameArrived(CEFOffscreenFrame(pointer), browser: browser)
+        }
     }
 
     static let popupShow: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Void = { _, browser, show in
