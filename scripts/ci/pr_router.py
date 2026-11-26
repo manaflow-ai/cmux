@@ -28,7 +28,7 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
              a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
              on a full-tier head: a draft or idle head runs no Mac, as cmux-next.yml's path_route held;
-  labels     labels whose `labeled` event starts it whatever the paths (full-ci always does);
+  labels     labels whose `labeled` event starts it whatever the paths;
   land_handoff_only
              true for a workflow that starts only on a land's own heads: the `labeled` event that adds
              ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
@@ -36,7 +36,9 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
-A `full-ci` label on the pull request starts every callee its types allow.
+A `full-ci` label makes the head full tier (as ready-to-land does) and beats fast-track; its callees still
+start only when a changed file reaches them, or when the changed files are unknown. A lane VM's land handoff
+adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044).
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -152,14 +154,15 @@ def route(event: dict, callees: dict, files: list[str] | None,
     the head is GitHub's base merge into a ready-to-land PR (land_update_head), for `land_handoff_only` callees."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
+    # full-ci asks for the full tier, so it beats fast-track.
     fast = False
-    if not cheap and tier != "none" and files is not None and fast_track.enabled():
+    if not cheap and tier != "none" and files is not None and fast_track.enabled() and FULL_CI not in labels:
         fast, fast_reason = fast_track.classify(files)
         cheap = fast
     action = str(event.get("action") or "")
-    pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
     handoff = added in (head_tier.LAND_LABEL, FULL_CI)
     if handoff:
@@ -176,13 +179,9 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
                          f"update-branch head")
             continue
-        if added and (added == FULL_CI or added in config.get("labels", [])):
+        if added and added in config.get("labels", []):
             start.append(name)
             why[name] = f"label '{added}' added"
-            continue
-        if FULL_CI in labels:
-            start.append(name)
-            why[name] = "full-ci"
             continue
         if tier == "none":
             why[name] = tier_reason
