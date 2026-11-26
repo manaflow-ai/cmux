@@ -3,7 +3,7 @@
 //! prompt into the kernel changes no byte, and the Cloud Chief can drop its
 //! own copy (`chief-brain/prompts.ts`).
 
-use chief_kernel::render_system;
+use chief_kernel::{prompt::compactor_system_text, render_system};
 use serde_json::json;
 
 const PERSON: &str = "- Replies: short.\n- Default project is cmux-next.";
@@ -118,6 +118,16 @@ fn bad_input_is_an_error_not_a_prompt() {
     assert!(render_system("{}", "no-such-engine", "{}").is_err());
 }
 
+#[test]
+fn compactions_are_only_in_the_compactor_prompt() {
+    let chief = render_system("{}", "claude", r#"{"mode": "mcp"}"#).unwrap();
+    assert!(!chief.contains("# Compactions"));
+
+    let compactor = compactor_system_text();
+    assert!(compactor.contains("# Compactions"));
+    assert!(!compactor.contains("# Instructions"));
+}
+
 /// The Cloud Chief on pi-durable (a749, section 13 item 2): the cmux section
 /// names only the tools the Durable Object offers, carries no cmux CLI or Mac
 /// text, and holds the shared-chat owner rule of the TypeScript brain.
@@ -204,8 +214,8 @@ fn a_cloud_mode_needs_a_known_offered_list() {
 #[test]
 fn the_cloud_base_names_no_tool_it_does_not_offer() {
     let text = cloud(&["zoom", "date", "send", "reply", "stop"]).unwrap();
-    let before_compactions = text.split("# Compactions").next().unwrap();
-    let before_compactions = &flat(before_compactions);
+    let before_instructions = text.split("# Instructions").next().unwrap();
+    let before_instructions = &flat(before_instructions);
     for absent in [
         "sleep(",
         "subagent",
@@ -217,8 +227,8 @@ fn the_cloud_base_names_no_tool_it_does_not_offer() {
         "tell the",
     ] {
         assert!(
-            !before_compactions.contains(absent),
-            "{absent:?} named but not offered:\n{before_compactions}"
+            !before_instructions.contains(absent),
+            "{absent:?} named but not offered:\n{before_instructions}"
         );
     }
     for present in [
@@ -228,7 +238,7 @@ fn the_cloud_base_names_no_tool_it_does_not_offer() {
         "Decide, do not ask",
         "zoom",
     ] {
-        assert!(before_compactions.contains(present), "{present:?} missing");
+        assert!(before_instructions.contains(present), "{present:?} missing");
     }
 }
 
@@ -258,7 +268,8 @@ fn flat(text: &str) -> String {
 
 /// Both local engines (MCP and CLI) carry the agent-chat and workspace rules
 /// (https://github.com/manaflow-ai/cmux/issues/52990): "send Claude" is an agent chat in its
-/// own `<issue#>: <liner>` workspace at the top, on the harness's default model, checked
+/// own `<issue#>: <liner>` workspace at the top (https://github.com/manaflow-ai/cmux/issues/57789:
+/// an issue filed first, Claude on Opus 5.5 at medium effort, no helper chats), checked
 /// running before it is reported; workspaces are made, renamed, moved, split and closed by
 /// id, never by the user's `current` or `focused` selectors.
 #[test]
@@ -273,9 +284,18 @@ fn every_local_chief_knows_how_to_send_agents_and_drive_workspaces() {
             "start each one yourself as an agent chat (Agent chats, below)",
             "- Agent chats: \"send Claude\", \"send Codex\"",
             "Follow the `send-agents` skill.",
-            "`<issue#>: <3-5 word liner>`",
-            "cmux --json agents chat new --top --harness claude|codex",
-            "Leave out --model and --effort, so the harness's own default runs",
+            "cmux --json agents chat new --top --harness claude --model claude-opus-5-5 --effort medium",
+            "Claude on Opus 5.5 at medium effort",
+            "never through a helper chat or workspace",
+            "with no issue yet gets one first (`gh issue create`",
+            "titled exactly `<issue#>: <3-5 word liner>`",
+            "no \"#\", never the pull request's",
+            "Never `workspace create` first: it adds a terminal.",
+            "make a complete fix, not only an investigation",
+            "never move the user's focus",
+            "Squash-merge a ready pull request to `feat-cmux-next` once its change is verified",
+            "- Verify: say a thing is sent, done or fixed only after you saw it",
+            "diagnosis is a claim: check it against real data",
             "One agent per issue",
             "open a pull request in the right split of its own workspace and keep going until it is ready",
             "quit any dev build it launched",
@@ -296,14 +316,7 @@ fn every_local_chief_knows_how_to_send_agents_and_drive_workspaces() {
             .nth(1)
             .and_then(|rest| rest.split("- Processes:").next())
             .expect("the agent chat rule");
-        for word in [
-            "sr2",
-            "claude-opus",
-            "gpt-",
-            "Opus 5",
-            "--dangerously",
-            "cmuxterm-hq",
-        ] {
+        for word in ["sr2", "gpt-", "--dangerously", "cmuxterm-hq", "/Users/"] {
             assert!(
                 !rule.contains(word),
                 "{tools}: the agent chat rule names {word:?}"

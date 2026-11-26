@@ -16,7 +16,7 @@
 // experiment serves, and the sidebar's "N experiments on" mark (native, so a broken layer cannot
 // take it down) opens this card and turns them off too.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useLayoutEffect, useRef, useState, Fragment, memo, useContext, useMemo } from "react";
+import { Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { CardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
@@ -24,19 +24,19 @@ import { useStore } from "../context";
 import {
   beatenByEntry,
   beatenLine,
-  codeCanTurnOn,
-  codeTitle,
   entryDetail,
-  prUrl,
-  shortSha,
   sourceLabel,
   step,
   type Beaten,
+  codeCanTurnOn,
+  codeTitle,
+  prUrl,
+  shortSha,
 } from "../customizeLibrary";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
-import type { LibraryCode, LibraryEntry, LibraryListing, LibraryRun } from "../ops";
-import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
+import type { LibraryEntry, LibraryListing, LibraryRun, LibraryCode } from "../ops";
+import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
 import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
@@ -77,6 +77,8 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
         if (answer.library)
           queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
         setRefusal(answer.refusal);
+        // The Standup panel shares this library's words and must not retain the pre-change report.
+        void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
       })
       .finally(() => {
         setBusy(false);

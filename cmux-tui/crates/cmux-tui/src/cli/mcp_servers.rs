@@ -32,6 +32,9 @@ Usage:
   cmux mcp-servers reconnect <connection-id> [--return-to URL] [--json]
   cmux mcp-servers enable <connection-id> [--json]
 
+A server whose vendor takes only loopback redirects (Vercel) signs in through this Mac: connect and
+reconnect listen on http://127.0.0.1:47215/callback (CMUX_MCP_LOOPBACK_PORT) for up to 10 minutes.
+
 Every verb also takes --platform URL (else CMUX_PLATFORM_URL, else the platform of the app's sign-in),
 --team TEAM, and --token-file PATH | --token-command CMD (else CMUX_CLOUD_ACCESS_TOKEN, else the app's sign-in).
 ";
@@ -145,7 +148,11 @@ pub(super) fn parse(
         other => return Err(format!("unknown verb {other} (cmux mcp-servers --help)")),
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     let platform = match platform.or_else(|| env("CMUX_PLATFORM_URL")) {
         Some(p) => Some(
@@ -204,12 +211,24 @@ fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 pub(super) fn unavailable_text(reason: Option<&str>) -> String {
     match reason.unwrap_or_default() {
         "" => "Not available on this deployment yet.".into(),
-        "not_configured" => "Not set up on this deployment yet.".into(),
+        "not_configured" | "not_set_up" => "Not set up on this deployment yet.".into(),
         "team_policy" | "policy" => "Your team's policy turns this off.".into(),
         "plan" => "Not included in your plan.".into(),
         other if other.contains(' ') => clean(other, 120),
         other => format!("Not available here ({}).", clean(other, 60)),
     }
+}
+
+/// An RFC 3339 instant as the platform writes it (`2026-12-01T09:00:00Z`): a date, a `T`, at most 40
+/// characters of digits and separators. Anything else is dropped rather than shown.
+fn looks_like_time(at: &str) -> bool {
+    let b = at.as_bytes();
+    at.len() >= 20
+        && at.len() <= 40
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[10] == b'T'
+        && at.bytes().all(|c| c.is_ascii_digit() || b"-:.TZ+".contains(&c))
 }
 
 fn tools_label(count: u64) -> String {
@@ -234,12 +253,15 @@ pub(super) fn entry_view(entry: &Value) -> Value {
         "category": text(entry, "category"),
         "docsUrl": text(entry, "docsUrl").filter(|u| u.starts_with("https://")),
         "available": available,
+        "loopback": text(entry, "redirect") == Some("loopback"),
+        "upcoming": upcoming(entry),
         "keyField": false,
         "connectionId": null,
         "owner": null,
         "ownerLabel": null,
         "toolCount": null,
         "toolsLabel": null,
+        "expiresAt": null,
     });
     let Some(connection) = connection else {
         if !available {
@@ -265,6 +287,12 @@ pub(super) fn entry_view(entry: &Value) -> Value {
     put(&mut view, "ownerLabel", json!(if owner == "team" { "Team" } else { "Personal" }));
     put(&mut view, "toolCount", json!(count));
     put(&mut view, "toolsLabel", json!(tools_label(count)));
+    // When the provider's sign-in lapses (RFC 3339), so the card can offer Reconnect before it does.
+    put(
+        &mut view,
+        "expiresAt",
+        json!(text(connection, "expiresAt").filter(|at| looks_like_time(at))),
+    );
     let (state, status, button) = match text(connection, "status").unwrap_or("ready") {
         "ready" => ("connected", format!("Connected · {}", tools_label(count)), None),
         "changed" => {
@@ -280,23 +308,25 @@ pub(super) fn entry_view(entry: &Value) -> Value {
     view
 }
 
-/// The catalog answer as the card's view model: entries in rank order, then by title.
-/// Catalog servers the page leaves out: Slack and Google come to agents through the integrations
-/// hub's providers on the person's existing accounts, not as vendor MCP servers. One already
-/// connected still shows, so it can be disconnected.
-pub(super) fn hidden_here(entry: &Value) -> bool {
+/// Catalog servers the page shows only with Settings > Labs > Upcoming Connections on
+/// (`labs.connectionsUpcoming`, off by default): Slack and Google, which come to agents through the
+/// integrations hub's providers today and go live in the catalog once cmux's client for each is
+/// registered (until then the platform answers them `not_set_up`). One already connected always
+/// shows, so it can be disconnected.
+pub(super) fn upcoming(entry: &Value) -> bool {
     let name = text(entry, "name").unwrap_or_default();
     let vendor = name == "slack" || name == "gmail" || name.starts_with("google");
     vendor && entry.get("connection").is_none_or(Value::is_null)
 }
 
+/// The catalog answer as the card's view model: entries in rank order, then by title.
 pub(super) fn catalog_view(body: &Value) -> Value {
     let mut entries: Vec<Value> = body
         .get("entries")
         .and_then(Value::as_array)
         .map(|list| {
             list.iter()
-                .filter(|e| text(e, "name").is_some_and(valid_name) && !hidden_here(e))
+                .filter(|e| text(e, "name").is_some_and(valid_name))
                 .map(entry_view)
                 .collect()
         })
@@ -321,6 +351,10 @@ pub(super) fn api_error(status: u16, body: &Value) -> Value {
         }
         "mcp_servers.unavailable" => "That server is not available here.".into(),
         "mcp_servers.catalog_unknown" => "That server is not in the catalog.".into(),
+        "mcp_servers.loopback_required" => {
+            "That server signs in through this Mac; run `cmux mcp-servers connect NAME` to sign in."
+                .into()
+        }
         _ => format!("the cmux platform answered HTTP {status}"),
     });
     let mut error = error_json(&code, &message);
@@ -364,7 +398,7 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::mcp_servers")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(45))
@@ -385,44 +419,78 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
                 .collect::<String>(),
         );
     }
-    let mut builder = match method {
-        "POST" => http.post(url),
-        _ => http.get(url),
-    }
-    .bearer_auth(token.as_str())
-    .header("accept", "application/json");
-    if let Some(team) = &common.team {
-        builder = builder.header("x-cmux-team", team.as_str());
-    }
-    if method == "POST" {
-        let mut body = body.unwrap_or_else(|| json!({}));
-        if let Some(key) = &key {
-            put(&mut body, "key", json!(key.as_str()));
+    let send = |body: Option<Value>| {
+        let mut builder = match method {
+            "POST" => http.post(&url),
+            _ => http.get(&url),
         }
-        let sent = Zeroizing::new(body.to_string());
-        if let Some(map) = body.as_object_mut()
-            && let Some(Value::String(mut k)) = map.remove("key")
-        {
-            zeroize::Zeroize::zeroize(&mut k);
+        .bearer_auth(token.as_str())
+        .header("accept", "application/json");
+        if let Some(team) = &common.team {
+            builder = builder.header("x-cmux-team", team.as_str());
         }
-        builder = builder.header("content-type", "application/json").body(sent.as_str().to_owned());
-    }
-    let response = match builder.send().await {
-        Ok(r) => r,
-        Err(_) => return error_json("api.unreachable", "the cmux platform did not answer"),
+        if method == "POST" {
+            let mut body = body.unwrap_or_else(|| json!({}));
+            if let Some(key) = &key {
+                put(&mut body, "key", json!(key.as_str()));
+            }
+            let sent = Zeroizing::new(body.to_string());
+            if let Some(map) = body.as_object_mut()
+                && let Some(Value::String(mut k)) = map.remove("key")
+            {
+                zeroize::Zeroize::zeroize(&mut k);
+            }
+            builder =
+                builder.header("content-type", "application/json").body(sent.as_str().to_owned());
+        }
+        async move {
+            let response = match builder.send().await {
+                Ok(r) => r,
+                Err(_) => return error_json("api.unreachable", "the cmux platform did not answer"),
+            };
+            let status = response.status().as_u16();
+            let bytes = match response.bytes().await {
+                Ok(b) => b,
+                Err(_) => {
+                    return error_json("api.unreachable", "the cmux platform's answer was cut off");
+                }
+            };
+            match serde_json::from_slice::<Value>(&bytes) {
+                Ok(v) => answer(verb, status, &v),
+                Err(_) if status == 404 => answer(verb, status, &json!({})),
+                Err(_) => error_json(
+                    "api.bad_answer",
+                    &format!("the platform answered HTTP {status}, not JSON"),
+                ),
+            }
+        }
     };
-    let status = response.status().as_u16();
-    let bytes = match response.bytes().await {
-        Ok(b) => b,
-        Err(_) => return error_json("api.unreachable", "the cmux platform's answer was cut off"),
-    };
-    match serde_json::from_slice::<Value>(&bytes) {
-        Ok(v) => answer(verb, status, &v),
-        Err(_) if status == 404 => answer(verb, status, &json!({})),
-        Err(_) => {
-            error_json("api.bad_answer", &format!("the platform answered HTTP {status}, not JSON"))
-        }
+    let first = send(body.clone()).await;
+    if !loopback_required(verb, &first) {
+        return first;
     }
+    // A vendor that takes only loopback redirects (Vercel): listen on this Mac's fixed port, then
+    // ask again naming it (mcp_loopback.rs).
+    let port = super::mcp_loopback::port();
+    let forward = format!("{platform}{}", super::mcp_loopback::CALLBACK_PATH);
+    if let Err(message) = super::mcp_loopback::ensure(port, &forward) {
+        return error_json("cli.loopback_unavailable", &message);
+    }
+    send(Some(with_loopback_port(body, port))).await
+}
+
+/// A Connect or Reconnect the platform answered `mcp_servers.loopback_required`.
+pub(super) fn loopback_required(verb: &Verb, answer: &Value) -> bool {
+    matches!(verb, Verb::Connect { .. } | Verb::Reconnect { .. })
+        && answer.pointer("/error/code").and_then(Value::as_str)
+            == Some("mcp_servers.loopback_required")
+}
+
+/// The request body again, naming the port the sign-in comes back to.
+pub(super) fn with_loopback_port(body: Option<Value>, port: u16) -> Value {
+    let mut body = body.unwrap_or_else(|| json!({}));
+    put(&mut body, "loopback_port", json!(port));
+    body
 }
 
 /// The key from stdin (the app pipes it): trimmed, at most 4 KiB, never echoed.
@@ -485,6 +553,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         [h, rest @ ..] if h == "mcp-servers" => rest,
         _ => return None,
     };
+    if let [verb, serve_args @ ..] = rest {
+        if verb == "loopback-serve" {
+            return Some(super::mcp_loopback::serve_main(serve_args));
+        }
+    }
     if rest.is_empty()
         || rest.iter().any(|a| a == "--help" || a == "-h")
         || rest.first().is_some_and(|a| a == "help")

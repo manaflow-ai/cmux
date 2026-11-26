@@ -307,13 +307,149 @@
   }
 }
 
-/* ---------- Text swap (useTextSwap.ts) ---------- */
+/* ---------- Text roll (TextRoll.tsx) ---------- */
 
-/* The old words, laid over the line while they fade: never hit, selected or wrapped. */
-.ui-text-swap__ghost {
-  margin: 0;
+/* A one-line label that changes in place rolls (Leo, 2026-11-25, on a subagent activity row and the
+   thinking line: "the animation when it changes text ... is still quite jarring bc it doesn't fade at
+   the top/bottom when switching"): the old words roll up and out of a cell one line high as the new
+   roll up into it, and the cell's top and bottom edges fade (a mask), so words leave and arrive
+   through a soft edge instead of a hard cut. The edge eases back to nothing as the roll lands, so the
+   settled words are never dimmed and nothing pops when the roll ends. One clock for every label:
+   --ui-text-roll-ms (the house move step, 180 ms) on --ui-text-roll-ease; the gallery's arms
+   (textRoll.experiment.ts) set the pace and the edge's depth. Reduce Motion crossfades in place. */
+@property --ui-text-roll-edge {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+/* Registered, so a read of it (TextRoll's width ease) gets the resolved time, not the calc. */
+@property --ui-text-roll-ms {
+  syntax: "<time>";
+  inherits: true;
+  initial-value: 180ms;
+}
+:root {
+  --ui-text-roll-fade: 28%;
+  --ui-text-roll-pace: 1;
+}
+:root[data-text-roll-look="quick"] {
+  --ui-text-roll-fade: 20%;
+  --ui-text-roll-pace: 0.78;
+}
+:root[data-text-roll-look="soft"] {
+  --ui-text-roll-fade: 36%;
+  --ui-text-roll-pace: 1.22;
+}
+.ui-text-roll,
+[data-text-roll-host] {
+  --ui-text-roll-ms: calc(var(--agent-motion-move, var(--cmux-motion-standard, 180ms)) * var(--ui-text-roll-pace, 1));
+  --ui-text-roll-ease: var(--agent-ease-out, var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)));
+}
+/* The cell: the old and the new words share one grid cell one line high, which clips them. */
+.ui-text-roll {
+  display: inline-grid;
+  grid-template-columns: minmax(0, auto);
+  max-width: 100%;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.ui-text-roll > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-text-roll__out {
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
-  white-space: nowrap;
+}
+/* While a roll plays (`data-text-roll`, odd and even so a change restarts the edge): the soft edge. */
+:is(.ui-text-roll, [data-text-roll-host])[data-text-roll] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ui-text-roll-edge),
+    #000 calc(100% - var(--ui-text-roll-edge)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ui-text-roll-edge),
+    #000 calc(100% - var(--ui-text-roll-edge)),
+    transparent
+  );
+}
+:is(.ui-text-roll, [data-text-roll-host])[data-text-roll="odd"] {
+  animation: ui-text-roll-edge-odd var(--ui-text-roll-ms) linear both;
+}
+:is(.ui-text-roll, [data-text-roll-host])[data-text-roll="even"] {
+  animation: ui-text-roll-edge-even var(--ui-text-roll-ms) linear both;
+}
+.ui-text-roll[data-text-roll] > .ui-text-roll__in {
+  animation: ui-text-roll-in var(--ui-text-roll-ms) var(--ui-text-roll-ease) both;
+}
+.ui-text-roll[data-text-roll] > .ui-text-roll__out {
+  animation: ui-text-roll-out var(--ui-text-roll-ms) var(--ui-text-roll-ease) both;
+}
+/* Reduce Motion (TextRoll's `fade`): nothing moves; the old words fade out as the new fade in. */
+.ui-text-roll[data-text-roll-fade] > .ui-text-roll__in {
+  animation: ui-text-roll-fade-in var(--ui-text-roll-ms) var(--ui-text-roll-ease) both;
+}
+.ui-text-roll[data-text-roll-fade] > .ui-text-roll__out {
+  animation: ui-text-roll-fade-out var(--ui-text-roll-ms) var(--ui-text-roll-ease) both;
+}
+/* The edge holds its depth while the words cross it and eases to nothing as they land. Two names of
+   one keyframe list, swapped each change, so each change restarts it on the same element. */
+@keyframes ui-text-roll-edge-odd {
+  0%,
+  60% {
+    --ui-text-roll-edge: var(--ui-text-roll-fade, 28%);
+  }
+  100% {
+    --ui-text-roll-edge: 0%;
+  }
+}
+@keyframes ui-text-roll-edge-even {
+  0%,
+  60% {
+    --ui-text-roll-edge: var(--ui-text-roll-fade, 28%);
+  }
+  100% {
+    --ui-text-roll-edge: 0%;
+  }
+}
+@keyframes ui-text-roll-in {
+  from {
+    translate: 0 100%;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@keyframes ui-text-roll-out {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: 0 -100%;
+  }
+}
+@keyframes ui-text-roll-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ui-text-roll-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }

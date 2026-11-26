@@ -27,8 +27,18 @@ on:
         required: false
         default: false
         type: boolean
+      paused_reads:
+        description: Also time paused reads (listing, open, whole-tree search) through the files routes, n=30/30/5, no resume (RFD 0144 piece 2)
+        required: false
+        default: false
+        type: boolean
       egress_allowlist:
         description: Also run the egress allowlist red team (an allowlisted VM reaches api.anthropic.com, cannot POST to an outside host or raw IP)
+        required: false
+        default: false
+        type: boolean
+      npm_bench:
+        description: Also time one big npm install on a registry-only VM against one with public egress (the lock's cost; fails over 2 s)
         required: false
         default: false
         type: boolean
@@ -54,7 +64,7 @@ jobs:
   # no repository secret. Its binary crosses into the journey only after a
   # separate no-secret job verifies its published digest and provenance.
   public-installer-smoke:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -86,8 +96,8 @@ jobs:
   # artifact before its digest and source provenance pass.
   installer:
     needs: public-installer-smoke
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
     permissions:
       attestations: read
       contents: read
@@ -98,12 +108,47 @@ jobs:
           name: cloud-vm-dogfood-public-cmux
           path: ${{ runner.temp }}/public-cmux
 
-      - name: Checkout trusted main history
+      # Only the protected feat-cmux-next tip's scripts/ci, for the attestation helper (#48350 put it there and
+      # main never got it; run 45620842266 failed on a pool runner's apt gh 2.45 without it). A full-history
+      # fetch outran the job's 10 minutes on pool runners (runs 45596156615, 45596705573): ancestry against
+      # main is asked of GitHub below.
+      - name: Checkout the trusted CI helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
-          fetch-depth: 0
+          ref: refs/heads/feat-cmux-next
+          fetch-depth: 1
+          sparse-checkout: scripts/ci
           persist-credentials: false
+
+      # github.token is one actor for every workflow in the repo, and its "API rate limit exceeded for
+      # installation" 403 failed this step twice on 2026-11-26 (runs 45789408337, 45791953357), skipping the
+      # journey. The cmux-bot App is its own actor (scripts/ci/gh_app_token.sh, as nightly.yml does with the
+      # release App), with github.token as the fallback and a bounded back-off. Not the release App: its
+      # CMUX_RELEASE_APP_* secrets live only in the release and nightly environments, so in this job (no
+      # environment) the mint got an empty app-id and the step hit the same 403 (run 45814163539). cmux-bot's
+      # app id is a repository variable and its key a repository secret (pr-router.yml mints it the same way).
+      # The attestation gh goes on PATH first, so the wrapper wraps it rather than the pool VM's apt gh 2.45.
+      - name: Put a gh with the attestation command on PATH
+        run: source scripts/ci/ensure-gh-attestation.sh
+
+      - name: Mint the cmux-bot App token for this job's gh calls
+        id: gh-app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      - name: Send this job's gh calls as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install
 
       - name: Verify the public-installed cmux-tui binary
         env:
@@ -113,9 +158,11 @@ jobs:
           public="$RUNNER_TEMP/public-cmux/cmux"
           test -f "$public" && test ! -L "$public"
           attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
-          # A pool VM's apt gh (2.45) has no `gh attestation`; this checkout is main, which has the helper once it lands there.
-          if [[ -f scripts/ci/ensure-gh-attestation.sh ]]; then source scripts/ci/ensure-gh-attestation.sh; fi
-          gh attestation verify "$public" \
+          # A pool VM's apt gh (2.45) has no `gh attestation`; the helper installs a pinned gh that has it.
+          # It also defines gh_waiting_out_rate_limit: the repository's shared token budget ran out at
+          # this step on staging and production at once (runs 45682713296 and 45683201692).
+          source scripts/ci/ensure-gh-attestation.sh
+          gh_waiting_out_rate_limit attestation verify "$public" \
             --repo manaflow-ai/cmux \
             --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
             --source-ref refs/heads/main \
@@ -126,8 +173,9 @@ jobs:
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           [ "$workflow" = .github/workflows/cmux-tui-artifacts.yml ]
           [ "$ref" = refs/heads/main ]
-          git cat-file -e "$commit^{commit}"
-          git merge-base --is-ancestor "$commit" HEAD
+          # The attested commit is main itself or behind it (an ancestor of main's tip).
+          relation="$(gh_waiting_out_rate_limit api "repos/$GITHUB_REPOSITORY/compare/$commit...main" --jq .status)"
+          [[ "$relation" = ahead || "$relation" = identical ]]
           digest="$(sha256sum "$public" | awk '{print $1}')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           install_ms="$(cat "$RUNNER_TEMP/public-cmux/install-ms")"
@@ -149,10 +197,14 @@ jobs:
 
   journey:
     needs: installer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ inputs.lifecycle && 80 || 45 }}
-    # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys).
-    environment: cmux-vm-${{ inputs.target }}
+    # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys). Paused reads on staging run as the
+    # agent test account's Stack session instead: the files routes need vm:files, which the staging smoke key was not
+    # issued (run 45856090047 skipped the leg for it). cmux-next-vm-image-dev holds that account as CMUX_DOGFOOD_STACK_*
+    # (auto-journey.yml, cloud-composer-journey.yml); cmux-next-cloud-journey has no CMUX_STAGING_STACK_* pair for
+    # feat-cmux-next (run 45862366022 read both empty), so it is not used here.
+    environment: ${{ inputs.paused_reads && inputs.target == 'staging' && 'cmux-next-vm-image-dev' || format('cmux-vm-{0}', inputs.target) }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -198,13 +250,20 @@ jobs:
           PRODUCTION_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
           HAS_TENANT_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY != '' }}
           HAS_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' && vars.CMUX_VM_SMOKE_SERVICE_TEAM != '' }}
+          SESSION_AUTH: ${{ inputs.paused_reads && inputs.target == 'staging' }}
+          HAS_SESSION: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL != '' && secrets.CMUX_DOGFOOD_STACK_PASSWORD != '' }}
         run: |
           set -euo pipefail
           if [ "$TARGET" = "production" ] && [ "$CONFIRM_PRODUCTION" != "true" ]; then
             echo "::error::A production dogfood run requires confirm_production=true"
             exit 1
           fi
-          if [ "$HAS_TENANT_KEY" != true ] && [ "$HAS_SERVICE_KEY" != true ]; then
+          if [ "$SESSION_AUTH" = true ]; then
+            if [ "$HAS_SESSION" != true ]; then
+              echo "::error::cmux-next-vm-image-dev needs CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent account) for paused reads on staging"
+              exit 1
+            fi
+          elif [ "$HAS_TENANT_KEY" != true ] && [ "$HAS_SERVICE_KEY" != true ]; then
             echo "::error::cmux-vm-$TARGET needs CMUX_VM_SMOKE_API_KEY, or CMUX_VM_SMOKE_SERVICE_KEY with CMUX_VM_SMOKE_SERVICE_TEAM"
             exit 1
           fi
@@ -224,15 +283,23 @@ jobs:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
           LIFECYCLE: ${{ inputs.lifecycle }}
           EGRESS_ALLOWLIST: ${{ inputs.egress_allowlist }}
+          PAUSED_READS: ${{ inputs.paused_reads }}
+          NPM_BENCH: ${{ inputs.npm_bench }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
+          SESSION_AUTH: ${{ inputs.paused_reads && inputs.target == 'staging' }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ inputs.paused_reads && inputs.target == 'staging' && secrets.CMUX_DOGFOOD_STACK_EMAIL || '' }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ inputs.paused_reads && inputs.target == 'staging' && secrets.CMUX_DOGFOOD_STACK_PASSWORD || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood"
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
+          if [ "$SESSION_AUTH" = "true" ]; then args+=(--auth session); fi
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
           if [ "$EGRESS_ALLOWLIST" = "true" ]; then args+=(--egress-allowlist); fi
+          if [ "$PAUSED_READS" = "true" ]; then args+=(--paused-reads); fi
+          if [ "$NPM_BENCH" = "true" ]; then args+=(--npm-bench); fi
           if [ "$LIFECYCLE" = "true" ]; then
             args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
             # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
@@ -266,6 +333,7 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)"] | join(", ")) else empty end' "$result"
             jq -r 'if has("memoryKept") then "Memory kept across pause: \(.memoryKept)" else empty end' "$result"
+            jq -r 'if .pausedReads.listing then "Paused reads (ms, no resume; stayed paused: \(.pausedReads.stayedPaused), 429s: \(.pausedReads.rateLimited)): " + ([("listing", "open", "search") as $k | .pausedReads[$k] | "\($k) n=\(.n) p50=\(.p50) p95=\(.p95)"] | join("; ")) else empty end' "$result"
             jq -r '(.lifecycleApi, .lifecycleCli, .lifecycleCleanup) // empty | to_entries[] | "- \(.key): \(.value)"' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"

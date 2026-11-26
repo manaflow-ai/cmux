@@ -15,7 +15,7 @@ on:
       service:
         description: "Worker to read"
         type: choice
-        options: [cmux-platform-production, cmux-platform-staging, cmux-vm-production, cmux-vm-staging]
+        options: [cmux-platform-production, cmux-platform-staging, cmux-platform-development, cmux-vm-production, cmux-vm-staging]
         default: cmux-platform-production
       id:
         description: "One exact machine (vm_...) or team (team_...) id, or `window` (the only id for cmux-vm-*) for the whole window's id-free counts by minute, outcome, route, status and msg. Missing or conflicting identities are never kept."
@@ -47,7 +47,7 @@ env:
 jobs:
   logs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: cmux-next-production
     timeout-minutes: 10
     steps:
@@ -57,6 +57,7 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/cmux-platform-prod-logs.py
             scripts/cmux-next/cmux-api-prod-logs.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the private HQ issue store token

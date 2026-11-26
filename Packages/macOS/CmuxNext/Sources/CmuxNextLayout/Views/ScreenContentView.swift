@@ -53,6 +53,10 @@ final class ScreenContentView: NSView {
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
     var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval, sharedEdges: Bool)?
+    /// The frames are landing a divider's release (set with its `SplitMotion.seed`): they move on
+    /// ``releaseSpring`` until they land or a key resize press moves them again. A drag caught mid-landing keeps it: its
+    /// catch reads the same spring (`currentFrameSpring`).
+    var releaseLanding = false
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
     /// Each column whose rows overflow scrolls vertically with its own
@@ -413,6 +417,7 @@ final class ScreenContentView: NSView {
         if let released = releasedDivider {
             releasedDivider = nil
             if animateFrames, splits, let divider = dividerFrames[released.kind] {
+                releaseLanding = true
                 SplitMotion.seed(velocity: released.velocity, along: dividerViews[released.kind]?.axis ?? .horizontal, divider: divider,
                                  panes: &paneFrames, dividers: &dividerFrames, moved: Set(paneFrames.keys.filter { targetsBefore.panes[$0] != paneFrames[$0]?.targetRect }),
                                  movedDividers: Set(dividerFrames.keys.filter { targetsBefore.dividers[$0] != dividerFrames[$0]?.targetRect }), edges: released.sharedEdges ? targetsBefore : nil)

@@ -1,3 +1,4 @@
+import CmuxMobileDesignCore
 import Foundation
 import Observation
 
@@ -128,6 +129,48 @@ public enum FollowUpBehavior: String, CaseIterable, Identifiable, Sendable, Coda
     }
 }
 
+/// Settings → Browser → Open New Pages: where a browser page opened while linked to a Mac
+/// shows, the phone's own web view or the Mac's browser streamed. Read when a new
+/// browser tab appears (`BrowserPagePlacement`); the person's Open on iPhone /
+/// Mirror from Mac on a tab always wins over it afterwards.
+public enum BrowserOpenDefault: String, CaseIterable, Identifiable, Sendable, Codable {
+    /// The page's kind decides: a public web page or an HTML file opens on the phone; a
+    /// sign-in site, a private host or a Mac-only page streams from the Mac.
+    case automatic
+    /// On the phone whenever the phone can load it at all.
+    case phone
+    /// Always the Mac's browser, streamed (how every page opened before this setting).
+    case stream
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .automatic: String(localized: "Automatic")
+        case .phone: String(localized: "Always on iPhone")
+        case .stream: String(localized: "Always Stream from Mac")
+        }
+    }
+
+    /// The Settings root's short value.
+    public var shortTitle: String {
+        switch self {
+        case .automatic: String(localized: "Automatic")
+        case .phone: String(localized: "On iPhone")
+        case .stream: String(localized: "Stream")
+        }
+    }
+
+    public static let defaultsKey = "cmuxMobile.settings.browserOpenDefault"
+    /// An install that never chose.
+    public static let fallback: BrowserOpenDefault = .automatic
+
+    /// The saved choice (a launch argument `-cmuxMobile.settings.browserOpenDefault phone` too).
+    public static func current(_ defaults: UserDefaults = .standard) -> BrowserOpenDefault {
+        defaults.string(forKey: defaultsKey).flatMap(BrowserOpenDefault.init(rawValue:)) ?? fallback
+    }
+}
+
 /// Settings → Transport → Ultra mode: repair data sent with each group of
 /// datagrams so a lost one is rebuilt instead of waiting on a resend.
 public enum UltraConnection: String, CaseIterable, Identifiable, Sendable, Codable {
@@ -177,7 +220,7 @@ public final class SettingsStore {
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
-    /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default). Read by the terminal
+    /// Settings → Terminal → Plain Scroll in Full-Screen Apps (on by default). Read by the terminal
     /// (`CmuxMobilePreferences.terminalPlainScroll`) at each drag through the same key.
     public var terminalPlainScroll: Bool { didSet { save(terminalPlainScroll, "terminalPlainScroll") } }
     /// Settings → Terminal → Zoom Full-Screen Apps (off by default). Read by the terminal
@@ -185,7 +228,7 @@ public final class SettingsStore {
     public var terminalZoomFullScreenApps: Bool {
         didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
     }
-    /// Settings → Terminal → Find in Whole History (off by default). Read by the terminal
+    /// Settings → Terminal → Find in Whole History (on by default). Read by the terminal
     /// (`CmuxMobilePreferences.terminalHistoryFind`) at each search.
     public var terminalHistoryFind: Bool { didSet { save(terminalHistoryFind, "terminalHistoryFind") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
@@ -197,6 +240,9 @@ public final class SettingsStore {
     }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    /// Settings → Browser → Open New Pages. Read by the workspace tabs
+    /// (`BrowserOpenDefault.current`) through the same key when a new browser tab appears.
+    public var browserOpenDefault: BrowserOpenDefault { didSet { save(browserOpenDefault.rawValue, "browserOpenDefault") } }
     /// Settings → Cloud → AutoCloud (the Mac's `cloud.autoCloud`; off by default): Cloud chats lists the
     /// account's Auto chats, read and sent to through the Cloud service with no Mac
     /// (`plans/cmux-next/auto-mode/DESIGN.md`). This phone's own choice: it does not follow a Mac's.
@@ -217,6 +263,10 @@ public final class SettingsStore {
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
+    /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing views a Mac
+    /// that streams its display on the link (`mac-display-v1`) over that link, view only. Read by
+    /// Screen Sharing (`CmuxMobilePreferences.Key.macScreenOverLink`) through the same key.
+    public var macScreenOverLink: Bool { didSet { save(macScreenOverLink, "macScreenOverLink") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
@@ -268,13 +318,14 @@ public final class SettingsStore {
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         terminalPlainScroll = defaults.object(forKey: "cmuxMobile.settings.terminalPlainScroll") == nil
-            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
+            ? TerminalScrollDefault.plainScroll : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
         terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
-        terminalHistoryFind = bool("terminalHistoryFind", false)
+        terminalHistoryFind = bool("terminalHistoryFind", true)
         predictiveEcho = bool("predictiveEcho", true)
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        browserOpenDefault = string("browserOpenDefault").flatMap(BrowserOpenDefault.init(rawValue:)) ?? BrowserOpenDefault.fallback
         cloudAutoMode = bool("cloudAutoMode", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
@@ -286,6 +337,7 @@ public final class SettingsStore {
         lanDirect = bool("lanDirect", true)
         quietCloudConnect = bool("quietCloudConnect", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
+        macScreenOverLink = bool("macScreenOverLink", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)
