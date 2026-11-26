@@ -54,6 +54,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_apt_ensure.py yourself after changing the workflow steps it reads."
 
 [[test]]
+path = "tests/test_ci_apt_skips_baked_packages.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_base_red_skip.py"
 lane = "linux-guard"
 
@@ -384,6 +388,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_launch_budget_gate.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_light_jobs_pool_mirror_checkout.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py"
 
 [[test]]
 path = "tests/test_ci_linux_compile_runners.py"
@@ -1116,8 +1125,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_light_jobs_pool_mirror_checkout.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py"
