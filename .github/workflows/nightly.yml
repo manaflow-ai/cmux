@@ -7876,16 +7876,12 @@ jobs:
   published-in:
     needs: [published-build, publish-nightly-next-github, generate-nightly-deltas, republish-nightly-deltas]
     if: "!cancelled() && github.ref == 'refs/heads/nightly-next' && needs.published-build.outputs.comment == 'true' && needs.published-build.outputs.run_tail == 'true'"
-    # A paced job of up to five hours of GitHub API calls: it needs no Mac. On the nightly mini it held a Mac for
-    # hours (Leo, 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap"). Its token writes
-    # pull requests, so never the shared persistent cmux-linux pool: the owned one-job JIT VM on every attempt, like
-    # the other tail jobs (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS). Tail only (run_tail), so a VM start never
-    # holds the push group. Never Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
+    # A paced job of up to five hours, on the nightly mini like the rest of the nightly. Never Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
     # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
     # 250 min; leave room for reads. This runs after publication.
-    timeout-minutes: 420
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 420 || 300 }}
     continue-on-error: true
     permissions:
       contents: read
@@ -7900,7 +7896,6 @@ jobs:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
           persist-credentials: false
           sparse-checkout: scripts
-      - *ensure-gh
       - *wait-through-github-api-rate-l
 
       - name: Fetch the published span

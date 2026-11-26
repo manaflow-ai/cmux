@@ -61,7 +61,7 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
 # override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
 # jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github', 'published-in')
+                      'publish-nightly-next-github')
 # Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
 # jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
@@ -115,7 +115,7 @@ OWNED_SECRET_JOBS = {
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
 SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
-CONTROL_ANCHORS = {'decide', 'route-visual-gate-nightly', 'attest-nightly-remote-daemon'}
+CONTROL_ANCHORS = {'decide', 'route-visual-gate-nightly', 'attest-nightly-remote-daemon', 'published-in'}
 
 
 def runs_on_text(job, name=''):
@@ -1165,16 +1165,16 @@ class CredentialedControls(unittest.TestCase):
     def test_a_matrix_control_on_the_nightly_pool_stays_green(self):
         doc = copy.deepcopy(DOC)
         doc['jobs']['matrix-pool-control-fixture-nightly'] = {
-            'runs-on': '${{ matrix.runner }}', 'strategy': {'matrix': {'runner': [runs_on_text(DOC['jobs']['decide'], 'decide')]}},
+            'runs-on': '${{ matrix.runner }}', 'strategy': {'matrix': {'runner': [runs_on_text(DOC['jobs']['published-in'], 'published-in')]}},
             'permissions': {'issues': 'write'}, 'steps': [{'run': 'true'}]}
         self.assertIn('matrix-pool-control-fixture-nightly', credentialed_control_jobs(doc))
         self.assertEqual(control_route_failures(doc), {})
 
     def test_a_new_credentialed_control_on_the_nightly_pool_stays_green(self):
-        """The positive half: a bracket-secret control on decide's route takes no failure."""
+        """The positive half: a bracket-secret control on published-in's route takes no failure."""
         doc = copy.deepcopy(DOC)
         doc['jobs']['bracket-control-fixture-nightly'] = {
-            'runs-on': runs_on_text(DOC['jobs']['decide'], 'decide'), 'steps': [{'run': 'true'}],
+            'runs-on': runs_on_text(DOC['jobs']['published-in'], 'published-in'), 'steps': [{'run': 'true'}],
             'env': {'K': "${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}"}}
         self.assertIn('bracket-control-fixture-nightly', credentialed_control_jobs(doc))
         self.assertEqual(control_route_failures(doc), {})
@@ -1182,10 +1182,7 @@ class CredentialedControls(unittest.TestCase):
     def test_credential_permissions_remain_scoped_to_each_control(self):
         for job, (field, expected) in CONTROL_SCOPES.items():
             with self.subTest(job=job):
-                # published-in left the nightly pool for the one-job JIT VM (HOSTED_SECRET_JOBS); its write token
-                # stays scoped all the same.
-                if job not in HOSTED_SECRET_JOBS:
-                    self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
+                self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
                 self.assertEqual(DOC['jobs'][job][field], expected)
 
 
