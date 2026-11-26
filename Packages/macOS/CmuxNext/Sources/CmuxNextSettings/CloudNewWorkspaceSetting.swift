@@ -17,6 +17,11 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.inCloudPath)?.boolValue ?? Self.inCloudDefault
     }
 
+    /// Whether AutoCloud is on (`cloud.autoCloud`, Settings > Machines); a missing or non-boolean value is off.
+    public func autoCloud(in root: JSONValue) -> Bool {
+        root.value(at: Self.autoCloudPath)?.boolValue ?? Self.autoCloudDefault
+    }
+
     /// Whether a Cloud chat saves a whole-machine checkpoint between turns (`cloud.turnCheckpoints`);
     /// a missing or non-boolean value is off.
     public func turnCheckpoints(in root: JSONValue) -> Bool {

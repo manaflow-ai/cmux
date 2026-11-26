@@ -64,6 +64,7 @@ public nonisolated struct ImportCardDeck: Sendable {
             guard let count = finding.count else { return "" }
             return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(count)
         case .conductor: return ImportSuggestionStrings.workspaces(finding.count ?? 0)
+        case .autoCloud: return ImportSuggestionStrings.checkouts(finding.count ?? 0)
         case .iterm2: return ImportSuggestionStrings.profiles(finding.count ?? 0)
         case .ghostty: return ImportSuggestionStrings.inUse
         }
@@ -79,6 +80,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .codex: return ImportSuggestionStrings.codex
         case .cmuxClassic: return finding.offersNothingNew ? ImportSuggestionStrings.classicAgain : ImportSuggestionStrings.classic
         case .conductor: return ImportSuggestionStrings.conductor
+        case .autoCloud: return ImportSuggestionStrings.autoCloud
         case .iterm2: return ImportSuggestionStrings.iterm2
         case .ghostty: return ImportSuggestionStrings.ghostty
         }
@@ -90,6 +92,8 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .browser: .init(.start, ImportSuggestionStrings.importButton)
         case .claudeCode, .codex: .init(.start, ImportSuggestionStrings.showChats)
         case .cmuxClassic, .conductor: .init(.start, ImportSuggestionStrings.importWorkspaces)
+        // Review: the native plan preview asks before anything moves.
+        case .autoCloud: .init(.start, ImportSuggestionStrings.review)
         case .iterm2: .init(.start, ImportSuggestionStrings.importColors)
         case .ghostty: .init(.open, ImportSuggestionStrings.openConfig)
         }
@@ -162,7 +166,8 @@ public nonisolated struct ImportCardDeck: Sendable {
             case .cmuxClassic: card.primary = finding != nil ? .init(.start, ImportSuggestionStrings.importAgain) : nil
             // Again while Conductor's data is here; its ledger adopts nothing twice.
             case .conductor: card.primary = finding != nil ? .init(.start, ImportSuggestionStrings.importAgain) : nil
-            case .browser, .ghostty: card.primary = nil
+            // Moved projects stay recorded in `cmux migrate`'s ledger; a new checkout brings the card back.
+            case .browser, .ghostty, .autoCloud: card.primary = nil
             }
             card.secondary = [.init(.hide, ImportSuggestionStrings.done)]
         }
@@ -178,6 +183,7 @@ public nonisolated struct ImportCardDeck: Sendable {
             if job.opened == 0 { return ImportSuggestionStrings.done }
             return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
         case .conductor: return ImportSuggestionStrings.doneConductor
+        case .autoCloud: return job.opened.map(ImportSuggestionStrings.movedProjects) ?? ImportSuggestionStrings.done
         case .ghostty: return ImportSuggestionStrings.doneNothing
         case .browser:
             var parts: [String] = []
@@ -200,6 +206,7 @@ extension ImportSourceKind {
         case .iterm2: "iTerm2"
         case .cmuxClassic: "cmux Classic"
         case .conductor: "Conductor"
+        case .autoCloud: "AutoCloud"
         }
     }
 }
