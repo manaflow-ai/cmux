@@ -426,7 +426,8 @@ fn cpu_classes_are_off_by_default_and_change_nothing() {
 #[test]
 fn cpu_classes_give_sessions_four_times_their_builds_weight() {
     for word in ["1", "on", "TRUE", " true\n"] {
-        let on = reader(&[("ACPMUX_SESSION_CPU_CLASSES", word)]);
+        let pairs = [("ACPMUX_SESSION_CPU_CLASSES", word)];
+        let on = reader(&pairs);
         assert!(cpu_classes_on(&on), "{word:?}");
         let session = Budget::read(&on, &lane_host());
         let task = task_budget_from(&on, &lane_host());
