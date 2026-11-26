@@ -46,6 +46,7 @@ on:
       - "Packages/Shared/CmuxEgress/**"
       - "Packages/Shared/CmuxGhosttyKit/**"
       - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxLiveCode/**"
       - "Packages/Shared/CmuxScreenKit/**"
       - "Packages/Shared/CmuxSpinner/**"
       - "Packages/Shared/CmuxTheme/**"
