@@ -24,6 +24,7 @@ mod record;
 mod record_ffi;
 mod session;
 mod session_ffi;
+pub mod ui;
 mod upstream_ffi;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};

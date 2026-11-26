@@ -534,8 +534,19 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
 
+/* ---- Mac Screen and cmux Remote UI rules (stateless JSON calls) ----
+   A request is {"op": "<area>.<name>", "args": {...}}; the answer is
+   {"ok": <value>} or {"err": "<why>"} (src/ui/mod.rs lists the ops). No I/O,
+   no threads, no clock: a rule that needs the time takes now_ms. */
+/* CMUX_RD_OK with *out and *out_len set to the answer JSON, which the caller
+   frees with cmux_rd_ui_free; CMUX_RD_ERR_NULL / CMUX_RD_ERR_PANIC otherwise. */
+int32_t cmux_rd_ui_call(const uint8_t *json, size_t json_len, uint8_t **out, size_t *out_len);
+/* Frees one answer of cmux_rd_ui_call; NULL is ignored. */
+void cmux_rd_ui_free(uint8_t *ptr, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
+
 
 #endif /* CMUX_RD_FFI_H */
