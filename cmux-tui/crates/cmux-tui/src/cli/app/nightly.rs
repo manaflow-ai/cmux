@@ -483,8 +483,11 @@ fn which(pr: u64, output: OutputMode, messages: &NightlyMessages) -> i32 {
     let unreadable = |error: &str| {
         failure("nightly.feed", &messages.feed_unreadable.replace("{error}", error), output)
     };
-    let fetched = feed::fetch_all(&["pr-index.json".to_owned(), "index.json".to_owned()]);
-    let index = match &fetched[1] {
+    let mut fetched =
+        feed::fetch_all(&["pr-index.json".to_owned(), "index.json".to_owned()]).into_iter();
+    let pr_index = fetched.next().unwrap_or_else(|| Err("pr-index.json: no answer".to_owned()));
+    let index = fetched.next().unwrap_or_else(|| Err("index.json: no answer".to_owned()));
+    let index = match &index {
         Ok(feed::Fetched::Found(index)) => index.clone(),
         Ok(feed::Fetched::Missing) => return unreadable("notes/index.json: 404"),
         Err(error) => return unreadable(error),
@@ -495,7 +498,7 @@ fn which(pr: u64, output: OutputMode, messages: &NightlyMessages) -> i32 {
         .filter_map(|build| build.get_nonempty_str("build"))
         .min_by(|a, b| order(a, b))
         .map(str::to_owned);
-    let answer = match &fetched[0] {
+    let answer = match &pr_index {
         Ok(feed::Fetched::Found(pr_index)) => feed::which_from_pr_index(pr_index, pr),
         Err(error) => return unreadable(error),
         Ok(feed::Fetched::Missing) => {
