@@ -24,7 +24,14 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${server.address().port}/index.html`;
 
-const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+// No X display: on a host with DISPLAY set but no server behind it, the GPU process crashes on
+// xcb_connect and WebGL2 is off, so every card is black.
+const env = { ...process.env };
+delete env.DISPLAY;
+const browser = await chromium.launch({
+  env,
+  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ozone-platform=headless"],
+});
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 page.on("console", (m) => m.type() === "error" && console.error(m.text()));
 

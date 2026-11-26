@@ -329,6 +329,8 @@ from this run remain. Screenshots: `cmux-lawrence-2:~/hq48qp/{pre-1,prompt,post-
 
 ### 5.2 Fleet live test: `scripts/fleet-quit-persistence.sh` (owner: durable-sessions)
 
+The script now lives in the private repo.
+
 It runs on cmux-lawrence-2 against a tagged fleet build (`cmux-ci build cmux --ref <sha> --tag
 <tag>`). It drives the app only through its own sockets and records every PID it starts. It never
 uses pattern kills. Steps (each step is a command that exists today, from §2):

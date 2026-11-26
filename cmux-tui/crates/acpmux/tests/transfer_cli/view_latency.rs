@@ -43,6 +43,7 @@ async fn linked_pair(tag: &str, one_way_ms: u64) -> [Side; 2] {
         json!({}),
         "fake",
         true,
+        None,
         &vars,
         "approve-all",
     )
@@ -53,6 +54,7 @@ async fn linked_pair(tag: &str, one_way_ms: u64) -> [Side; 2] {
         json!({}),
         "fake",
         true,
+        None,
         &vars,
         "approve-all",
     )

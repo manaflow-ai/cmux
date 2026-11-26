@@ -114,12 +114,20 @@ test("a next-step ask past its cap offers Show more, which opens it in place abo
   expect(more).not.toBeNull();
   expect(more.getAttribute("aria-expanded")).toBe("false");
   const before = order(card);
-  expect(before).toEqual(["acpmux-next-step__text", "acpmux-next-step__more", "acpmux-next-step__answers"]);
+  expect(before).toEqual([
+    "acpmux-question-bar acpmux-next-step__bar",
+    "acpmux-next-step__text",
+    "acpmux-next-step__more",
+    "acpmux-next-step__answers",
+    "acpmux-question-footer acpmux-next-step__other",
+  ]);
   await act(async () => more.click());
   expect(card.querySelector(".acpmux-next-step__text")?.hasAttribute("data-whole")).toBe(true);
   expect(more.getAttribute("aria-expanded")).toBe("true");
   expect(order(card)).toEqual(before);
-  const answers = Array.from(card.querySelectorAll(".acpmux-next-step__answer")).map((button) => button.textContent);
+  const answers = Array.from(card.querySelectorAll(".acpmux-next-step__answer .acpmux-next-step__label")).map(
+    (label) => label.textContent,
+  );
   expect(answers).toEqual(["Yes", "Not now"]);
 });
 

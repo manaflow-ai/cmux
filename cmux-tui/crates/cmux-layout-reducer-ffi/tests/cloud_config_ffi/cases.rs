@@ -105,6 +105,26 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}),
     );
     assert_eq!(window["opensDefaultBrowser"], false);
+    let (_, window) = call(
+        c"cloud_auth_sign_in_window",
+        &json!({"window": "inApp", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(window["opensDefaultBrowser"], true);
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac", "inApp": true}),
+    );
+    assert_eq!(place["place"], "inApp");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(place["place"], "defaultBrowser");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "popup", "defaultBrowser": null, "inApp": true}),
+    );
+    assert_eq!(place["place"], "popup");
     let (_, scope) = call(
         c"cloud_auth_creation_scope",
         &json!({"previous": [null, null], "current": ["u", null]}),
@@ -290,6 +310,23 @@ fn the_device_list_answers_here() {
     assert_eq!(
         listed,
         json!({"thisDevice": ["nightly", "dev"], "others": [{"id": "air", "ids": ["air"]}]})
+    );
+}
+
+#[test]
+fn the_device_list_groups_by_machine_id_first() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly", "machineId": "m1"},
+                "devices": [{"id": "dev", "name": "Renamed", "platform": "macos", "machineId": "m1"},
+                            {"id": "mini", "name": "Desk Mac", "platform": "macos", "machineId": "m2"},
+                            {"id": "old", "name": "Laptop", "platform": "macos", "machineId": null}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"],
+               "others": [{"id": "mini", "ids": ["mini"]}, {"id": "old", "ids": ["old"]}]})
     );
 }
 

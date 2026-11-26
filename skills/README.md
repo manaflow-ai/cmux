@@ -57,6 +57,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |
 | Display a Markdown file in a viewer | [cmux-markdown](cmux-markdown/SKILL.md) |
 | Edit cmux's own web UI while it runs: saved edits show at once, no build | [cmux-live](cmux-live/SKILL.md) |
+| Doing UI work: live mode, a preview tab cmux pictures before and after each turn, how to try it at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |
 
 Start with diagnostics for a user's broken installation; use debugging when
 investigating or changing the source implementation. Similarly, Cloud VM operations

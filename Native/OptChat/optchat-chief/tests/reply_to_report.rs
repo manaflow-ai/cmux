@@ -119,7 +119,7 @@ fn report_line(h: &mut Harness) -> u64 {
     h.connect();
     h.say("user_local", "fix the sidebar flicker");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let sp = spawner(h);
     run(h, move || {

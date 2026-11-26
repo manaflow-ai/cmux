@@ -36,6 +36,7 @@ webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: .cv-agentmsg
 webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: :root[data-message-surfaces="bordered"] .cv-agentmsg__card { border-radius: 10px }
 webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: :root[data-message-surfaces="soft"] .cv-agentmsg__card { border-radius: 8px }
 webviews/src/agent-session/acpmux/conversation/MessageGroupHover.css: .ui-card.cv-group-hover__popup { border-radius: var(--ds-radius-popup) }
+webviews/src/agent-session/acpmux/conversation/PendingAsks.css: .acpmux-pending-ask__dismiss { border-radius: 6px }
 webviews/src/agent-session/acpmux/conversation/PromptCoachCard.css: .cv-coach__prompt { border-radius: 8px }
 webviews/src/agent-session/acpmux/conversation/conversation.css: .acpmux-render-card { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/conversation/conversation.css: .cv-tool-error-card { border-radius: var(--grid-cards-radius) }
@@ -62,7 +63,6 @@ webviews/src/agent-session/acpmux/styles.css: .acpmux-open-app-card { border-rad
 webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-panel .acpmux-permission-card { border-radius: 6px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-secret-card { border-radius: 12px }
 webviews/src/agent-session/acpmux/subagents/AgentCard.css: .cv-agent-card { border-radius: var(--grid-cards-radius) }
-webviews/src/agent-session/acpmux/subagents/subagents.css: .cv-subagent-of__close { border-radius: var(--ds-radius-sm) }
 webviews/src/agent-session/acpmux/subagents/subagents.css: .ui-card.acpmux-agent-card__popup { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/summary/WorkflowCard.css: .acpmux-workflow-card { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card { border-radius: var(--ui-popup-radius) }

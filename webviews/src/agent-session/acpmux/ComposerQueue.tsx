@@ -60,9 +60,10 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashComman
 import { type SkillWords, useSkillWords } from "./conversation/skillWords";
 import { answerPreview } from "./conversation/nextStepAsk";
 import { withSkillWords } from "./conversation/withSkillWords";
-import { type QueuedEntry, shownText, heldReason } from "./composerQueueModel";
+import { type QueuedEntry, shownText, heldReason, uniqueById, queueSummary } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { revealControls } from "../../ui/revealCover";
 import { focusRoute } from "../../ui/focusRoute";
 import { noteUnpopOrigin } from "./conversation/unpopMorph";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
@@ -184,7 +185,12 @@ function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | 
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
-  if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
+  // The actions that show on hover lie over the text's end (`.ui-reveal-text`): text under them is cut
+  // too. A one-line box's scrollWidth is never under its clientWidth, so a text that fits is measured
+  // by its own content's width.
+  const covered = parseFloat(getComputedStyle(text).getPropertyValue("--ui-reveal-controls-w")) || 0;
+  const cut = text.scrollWidth > text.clientWidth || (covered > 0 && contentWidth(text) > text.clientWidth - covered);
+  if (cut || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
   else button.removeAttribute("title");
 }
 
@@ -203,6 +209,13 @@ function QueuedPromptWords({ prompt, skills }: { prompt: string; skills: SkillWo
       <span className="acpmux-queued-quote">{answered.question}</span>
     </>
   );
+}
+
+/** The width `el`'s content lays out at, whatever its box cuts. */
+function contentWidth(el: Element): number {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return range.getBoundingClientRect?.().width ?? 0;
 }
 
 /// Bridge failures whose request may already have reached acpmux (it answered late, the socket
@@ -315,7 +328,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // Whether a long queue shows whole (the composer keys this component by chat).
   const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
   // The person's prompts only: another agent's message draws in the transcript.
-  const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
+  const shown = uniqueById(ownQueue(queue)).filter((entry) => !leaving.has(entry.id));
   // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
   // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
   // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
@@ -690,6 +703,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // `goes_in_by_itself`), and acpmux reads that hold as not paused, so no note stands over nothing of
   // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
   // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
+  // acpmux's own prompts (a surge digest, a subagent's resume) are never the person's rows: they list
+  // in Session Info's Background tasks (session-info/agentSide.ts; Leo, 2026-11-24).
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -962,7 +977,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     if (theirs(entry)) return null;
     const side = sideChat?.(entry);
     return (
-      <span className="acpmux-queued-actions">
+      <span className="acpmux-queued-actions" ref={revealControls}>
         {canSendNow(entry) && (
           <button
             type="button"
@@ -1069,7 +1084,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           }}
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
-          <span className="acpmux-queued-clamp">
+          <span className="acpmux-queued-clamp ui-reveal-text">
             {entry.author && <AuthorChip author={entry.author} inline />}
             {entry.next && (
               <span className="acpmux-queued-kind" data-kind="steer">
@@ -1150,6 +1165,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
+        title={queueSummary(shown.length, t)}
       >
         {paused && (
           <li className="acpmux-queue-paused">
@@ -1196,6 +1212,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
           <li
             className="acpmux-queued"
+            data-reveal-host=""
             key={entry.id}
             data-prompt-id={entry.id}
             aria-keyshortcuts={theirs(entry) ? undefined : "Enter Alt+ArrowUp Alt+ArrowDown Delete"}

@@ -7,6 +7,7 @@
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isCmuxExec, readAnswer } from "./cmuxExec";
 import { mcpCall } from "./mcpCalls";
+import { readRun } from "./customizeRun";
 import type { NextStepAsk, NextStepOption } from "./nextStepAsk";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -111,14 +112,21 @@ function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
   let options: NextStepOption[] = [];
   const actions = field(args, "actions");
   if (question) {
-    const labels = Array.isArray(actions)
-      ? actions
-          .map((action) => words(typeof action === "string" ? action : record(action)?.label))
-          .filter((label): label is string => label !== undefined && label.length <= MAX_LABEL)
-      : [];
-    const unique = [...new Set(labels)].slice(0, MAX_ACTIONS);
+    // An action is its label, or `{label, run}` (customizeRun.ts): a typed action keeps its run.
+    // A `run` the daemon would refuse is dropped, and the button stays an ordinary answer; a typed
+    // action with no label is named for its verb.
+    const VERB = { try: "Try it on", keep: "Keep", revert: "Revert" } as const; // l10n-allow: a prompt to the agent
+    const picked: NextStepOption[] = [];
+    for (const action of Array.isArray(actions) ? actions : []) {
+      const object = record(action);
+      const run = object ? readRun(object.run) : undefined;
+      const label = words(typeof action === "string" ? action : object?.label) ?? (run && VERB[run.customize]);
+      if (label === undefined || label.length > MAX_LABEL || picked.some((option) => option.label === label)) continue;
+      picked.push(run ? { label, run } : { label });
+    }
+    const unique = picked.slice(0, MAX_ACTIONS);
     options = unique.length
-      ? unique.map((label) => ({ label }))
+      ? unique
       : [
           { label: "Yes", key: "recap.yes" }, // l10n-allow: a prompt to the agent, not UI
           { label: "Not now", key: "recap.notNow" }, // l10n-allow: a prompt to the agent, not UI

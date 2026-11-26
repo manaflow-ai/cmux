@@ -23,7 +23,7 @@ pub(super) const SCHEMA: u64 = 1;
 pub(super) const TARGET: &str = "aarch64-apple-darwin";
 /// Overrides `https://files.cmux.com/cmux-tui/` (a test's `file://` folder, a mirror).
 pub(super) const BASE_ENV: &str = "CMUX_APP_TRY_FILES_BASE";
-/// Overrides `~/Library/Application Support/cmux/app-try`.
+/// Overrides `~/Library/Application Support/cmux-next/app-try`.
 pub(super) const STATE_ENV: &str = "CMUX_APP_TRY_STATE";
 /// Overrides the signed forward-only channel pointer (an isolated fixture can
 /// use `file://`; the default is the public nightly-live channel).
@@ -449,7 +449,7 @@ pub(super) fn sha256_file(path: &Path) -> Result<String, String> {
 
 // ------------------------------------------------------------------ the store
 
-/// `~/Library/Application Support/cmux/app-try`: every file a try put in or
+/// `~/Library/Application Support/cmux-next/app-try`: every file a try put in or
 /// took out, by sha256 (`builds/<sha256>/<file>`), and the receipts
 /// (`last.json`, `history.jsonl`).
 pub(super) struct Store {
@@ -465,7 +465,10 @@ impl Store {
             return Some(PathBuf::from(path));
         }
         let home = std::env::var_os("HOME").filter(|value| !value.is_empty())?;
-        let shared = PathBuf::from(home).join("Library").join("Application Support").join("cmux");
+        let shared = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(cmux_config::NEXT_DIR);
         let build = app.and_then(|app| {
             let cli = app.join(BIN).join("cmux");
             crate::app_identity::AppIdentity::detect(|_| None, Some(&cli))

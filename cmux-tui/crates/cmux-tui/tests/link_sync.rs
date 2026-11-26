@@ -775,6 +775,77 @@ fn a_pull_trusts_only_the_base_this_mac_kept() {
     assert_eq!(std::fs::read_to_string(repo.join("build/keep.o")).unwrap(), "mine\n", "{answer}");
 }
 
+/// The head file and revision of the one base kept in `state` (RFD 0140 item 5).
+fn kept_revision(state: &Path) -> (PathBuf, PathBuf) {
+    let dir = state.join("link-sync");
+    let heads: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "head"))
+        .collect();
+    assert_eq!(heads.len(), 1, "{heads:?}");
+    let id = std::fs::read_to_string(&heads[0]).unwrap().trim().to_owned();
+    (heads[0].clone(), dir.join("revisions").join(id))
+}
+
+#[test]
+fn a_delete_against_an_edit_is_a_conflict_both_ways() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    // This Mac deletes old.txt, the machine edits it; the machine deletes other.txt, this Mac
+    // edits it. The three-tree rule names both, and decides neither.
+    std::fs::remove_file(repo.join("old.txt")).unwrap();
+    std::fs::write(remote.join("old.txt"), "old\nedited there\n").unwrap();
+    std::fs::remove_file(remote.join("other.txt")).unwrap();
+    std::fs::write(repo.join("other.txt"), "other\nedited here\n").unwrap();
+
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], json!(["old.txt", "other.txt"]), "{answer}");
+    assert!(!repo.join("old.txt").exists(), "the pull brought the machine's file back");
+    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\nedited here\n");
+}
+
+#[test]
+fn the_base_is_a_content_addressed_revision_that_outlives_a_restart() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    let state = state_of(&socket);
+    let (head, revision) = kept_revision(&state);
+    let bytes = std::fs::read(&revision).unwrap();
+    assert_eq!(revision.file_name().unwrap().to_str().unwrap(), sha256_hex(&bytes));
+
+    // A new process (a daemon restart) reads the same base: the machine's edit comes back.
+    std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("notes.txt")).unwrap(),
+        "notes\nfrom the machine\n"
+    );
+    // The pull moved the head to a new revision; the old one is still there.
+    let (_, moved) = kept_revision(&state);
+    assert_ne!(moved, revision);
+    assert!(revision.exists());
+
+    // A head left on an older revision than the machine's record is a mismatch, never trusted.
+    std::fs::write(&head, format!("{}\n", revision.file_name().unwrap().to_str().unwrap()))
+        .unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_base_mismatch", "{answer}");
+
+    // A damaged revision is an error, never an empty base that would bring everything back.
+    std::fs::write(&moved, b"{}").unwrap();
+    std::fs::write(&head, format!("{}\n", moved.file_name().unwrap().to_str().unwrap())).unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_ne!(answer["error_code"], "sync_no_base", "{answer}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("notes.txt")).unwrap(),
+        "notes\nfrom the machine\n"
+    );
+}
+
 /// Plants the files of a bare repository's shape in `folder` on the
 /// machine: git run anywhere below it would read its `config` (and run
 /// `core.fsmonitor`), so none of it may come back.
@@ -1551,7 +1622,7 @@ fn serve_fs_counted(
 
 /// A push of a repository with many loose objects through a link with a
 /// round trip of `CMUX_SYNC_BENCH_RTT_MS` (default 20): prints its wall
-/// time, requests, `fs.write`s and bytes sent. `cargo test --test link_sync
+/// time, requests, `fs.write`s and bytes sent. `cargo test --test it
 /// -- --ignored --nocapture loose_object_push_bench`.
 #[test]
 #[ignore = "a benchmark"]

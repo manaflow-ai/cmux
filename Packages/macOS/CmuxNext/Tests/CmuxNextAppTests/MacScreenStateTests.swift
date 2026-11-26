@@ -183,6 +183,10 @@ struct MacScreenStateControlTests {
         // Nothing asked the hub: the read says so, rather than only "ended" and "no_answer".
         #expect(idle["hub_phase"]?.stringValue == "idle")
         #expect(idle["waits_to_show"]?.boolValue == false)
+        // No window on screen yet: nothing for a capture to find; no hub session streams.
+        #expect(idle["window_id"] == CmuxNextSettings.JSONValue.null && idle["window_pid"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["window_on_primary_display"]?.boolValue == false)
+        #expect(idle["hub_session"] == CmuxNextSettings.JSONValue.null && idle["session_scope"] == CmuxNextSettings.JSONValue.null)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)

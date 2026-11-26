@@ -1,11 +1,11 @@
-import { memo, useSyncExternalStore, useLayoutEffect, useRef } from "react";
-import { DismissButton } from "../../../ui/DismissButton";
+import type { AnswerBlock } from "../subagents/restart";
+import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import * as watch from "../layoutWatch";
 import type { AcpmuxRow } from "../model";
 import { NextStepCard } from "./NextStepCard";
 import { pinnedAsk } from "./nextStepAsk";
-import { askKey, answeredAsks, subscribeAnswers } from "./waitingAskStore";
+import { answeredAsks, askKey, subscribeAnswers } from "./waitingAskStore";
 import "./PendingAsks.css";
 
 /// Declares a move to the transcript motion model's watcher (layoutWatch.expect). It lands with the
@@ -16,22 +16,22 @@ const expectMove = (reason: string, rows: string[]) =>
     ms: 0,
   });
 
-/// The questions still waiting on the person (waitingAskStore.ts), pinned in the bottom stack above the
-/// composer, oldest first, each the transcript's own card (NextStepCard.tsx) in one stack card whose
-/// head row says "Needs your input" with the attention mark and closes with the shared × (Dismiss),
-/// as Claude desktop's recap card and Codex's review card put their × in the card's corner. Leo,
-/// 2026-11-19, on the line over a separate card: "odd looking". The card in the transcript stays
-/// where it was asked; this copy is the one in reach. An answer goes as the person's next message,
-/// which settles both. The newest takes the composer's ⌘↩. Looks compared:
-/// NeedsInputCardLooks.gallery.tsx.
+/// The question still waiting on the person (turns.ts `waitingAsks`: at most one per chat, its newest),
+/// pinned in the bottom stack above the composer: the transcript's own card (NextStepCard.tsx), whose
+/// "Needs your input" line carries the close that dismisses it. The card in the transcript stays where it
+/// was asked; this copy is the one in reach. An answer goes as the person's next message, which settles
+/// both. It takes the composer's ⌘↩.
 export const PendingAsks = memo(function PendingAsks({
   asks,
   onAnswer,
   registerKey,
   onDismiss,
   asker,
+  blocked,
 }: {
   asks: readonly AcpmuxRow[];
+  /// Why this pane cannot send, where `onAnswer` is absent (NextStepCard.tsx `blocked`).
+  blocked?: AnswerBlock;
   /// Sends an answer; absent where this pane cannot send.
   onAnswer?: (text: string) => Promise<unknown>;
   registerKey?: (fire: () => void) => () => void;
@@ -58,23 +58,13 @@ export const PendingAsks = memo(function PendingAsks({
         const step = row.nextStep;
         if (!step) return null;
         return (
-          <section
-            key={row.id}
-            className="acpmux-pending-ask acpmux-pending-ask--card ui-glass ui-glass-floats acpmux-stack-material"
-            aria-label={t("question.needsInput")}
-          >
-            <div className="acpmux-pending-ask__head" data-dock-clear="">
-              <span className="acpmux-pending-ask__mark" aria-hidden="true" />
-              <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
-              <DismissButton
-                className="acpmux-pending-ask__dismiss"
-                label={t("message.dismiss")}
-                onDismiss={() => onDismiss(askKey(row))}
-              />
-            </div>
+          <section key={row.id} className="acpmux-pending-ask" aria-label={t("question.needsInput")}>
             <NextStepCard
+              onDismiss={() => onDismiss(askKey(row))}
+              className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}
+              blocked={blocked}
               registerKey={index === shown.length - 1 ? registerKey : undefined}
               answerKey={askKey(row)}
               asker={asker}

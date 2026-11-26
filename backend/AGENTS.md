@@ -38,13 +38,13 @@ scripts/web-lint.sh                                          # ESLint on the web
 cd workers/cmux-vm && bun run typecheck && bun run lint && bun run openapi:check
 ```
 
-Leave to CI, or `cmux-ci test -- CMD` on Linux: the full `backend/apps/api` suite (`bun run test`, `test:node`), migrations
+Leave to CI: the full `backend/apps/api` suite (`bun run test`, `test:node`), migrations
 from zero plus `bun test test-pg` / `test-mysql` (scratch Postgres 17, MySQL 8.4 via `backend/db/scripts/mysql-scratch.sh up`),
 the dashboard build, `bun run vercel-build`, all web tests (`bun run test` with no file), `bun run check` in `workers/cmux-vm`.
 
 ## Local loop
 
-- API Worker, unmerged: `scripts/cmux-next/cloud-dev-stack.sh up --tag <slug>` (wrangler dev on the team dev VM; `down --tag <slug>` after). Details: skills/cmux-backend "Run your unmerged cmux-next API". `bun run dev` in `backend/apps/api` is `wrangler dev --env development`; in `backend/apps/dashboard` it serves port 3010.
+- API Worker, unmerged: `scripts/cmux-next/cloud-dev-stack.sh up --tag <slug>` (`down --tag <slug>` after). Details: skills/cmux-backend "Run your unmerged cmux-next API". `bun run dev` in `backend/apps/api` is `wrangler dev --env development`; in `backend/apps/dashboard` it serves port 3010.
 - `web/`: `bun dev` on Linux starts this worktree's Docker Postgres, migrates it and runs Next on `CMUX_PORT` (default 3777); `bun db:up`, `db:migrate`, `db:test`, `db:reset`, `db:down` ([web/README.md](../web/README.md)). No seed script exists.
 - Secrets: `~/.secrets/cmux.env` and `~/.secrets/cmuxterm-dev.env` (skills/cmux-backend "Secrets").
 

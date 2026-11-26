@@ -1,4 +1,4 @@
-import { Icon } from "../../agent-session/acpmux/icons/Icon";
+import { Icon } from "../../kit";
 import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import type { IconPack } from "../../agent-session/acpmux/icons/types";
@@ -107,6 +107,10 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "square.stack": "apps.stack",
   link: "link",
   "arrow.up.right": "link.external",
+  "arrow.triangle.2.circlepath": "action.sync",
+  gauge: "context.usage",
+  "gauge.with.needle": "context.usage",
+  "gauge.with.needle.fill": "context.usage",
   // The symbols `cmux ext new`'s templates and its design defaults (templates/common/DESIGN.md) use.
   circle: "task.status.todo",
   sparkles: "task.ai",
