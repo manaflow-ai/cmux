@@ -28,6 +28,10 @@ pub const SURFACE_KEYS: &[(&str, &[&str])] = &[
         "background and particles (`live:particles` is the drifting particle field; `live:ID` any live wallpaper)",
         &["appearance.background"],
     ),
+    (
+        "settings (`page` opens Settings over the whole window with its sections on the left)",
+        &["window.settingsPresentation"],
+    ),
 ];
 
 /// What to do for `ask`, given where things live and what is live now.

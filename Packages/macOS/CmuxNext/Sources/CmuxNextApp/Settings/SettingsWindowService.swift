@@ -77,13 +77,13 @@ final class SettingsWindowService: InternalPageProvider {
             return
         }
         let route = place?.route ?? pageRoute ?? SettingsDeepLink.route(section: target, setting: setting)
+        let asPage = services.settings.map { SettingsPresentationSetting().opensAsPage(in: $0.snapshot.root) } ?? false
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
-        if focus, let window = services.windows.active { revealSettingsTab(of: window) }
-        // A user run in a window whose workspace has no pane to hold a tab (an empty workspace,
-        // or Home standing for the home workspace) shows Settings as the window's top page
-        // (nxdog70: Cmd-, on Home with an empty workspace showed nothing).
-        if focus, let window = services.windows.active, !Self.holdsTab(window, services) {
+        if focus, !asPage, let window = services.windows.active { revealSettingsTab(of: window) }
+        // A look's `window.settingsPresentation` "page", or a user run in a window with no pane to hold a tab (an empty
+        // workspace, or Home; nxdog70: Cmd-, there showed nothing), shows Settings as the window's top page.
+        if focus, let window = services.windows.active, asPage || !Self.holdsTab(window, services) {
             waiting = nil
             showTopPage(in: window, route: route)
             return
