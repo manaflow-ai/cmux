@@ -147,8 +147,8 @@ jobs:
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages || 'false') }}
-      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.web) }}
-      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.agent_session_web) }}
+      web: ${{ (steps.tier.outputs.tier == 'none' || (steps.tier.outputs.tier == 'cheap' && steps.tier.outputs.affected != 'true')) && 'false' || (steps.detect.outputs.web) }}
+      agent_session_web: ${{ (steps.tier.outputs.tier == 'none' || (steps.tier.outputs.tier == 'cheap' && steps.tier.outputs.affected != 'true')) && 'false' || (steps.detect.outputs.agent_session_web) }}
       release_build: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
