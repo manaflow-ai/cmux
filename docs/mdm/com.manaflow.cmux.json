@@ -382,6 +382,12 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.subagentOf" : {
+      "default" : false,
+      "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
+      "title" : "Subagent Of in Header",
+      "type" : "boolean"
+    },
     "agentPane.display.thinking.glyph" : {
       "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
       "title" : "Thinking Glyph",
@@ -716,7 +722,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.minContextTokens" : {
-      "default" : 60000,
+      "default" : 20000,
       "description" : "Chats with at least this much context are compacted, whatever their window.",
       "maximum" : 500000,
       "minimum" : 10000,
@@ -2199,6 +2205,17 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.gooeyTabs" : {
+      "default" : "off",
+      "description" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.",
+      "enum" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "title" : "Gooey Tabs",
+      "type" : "string"
+    },
     "appearance.highlightColor" : {
       "description" : "The color of selected text everywhere. Unset uses the terminal theme's.",
       "title" : "Highlight Color",
@@ -3506,6 +3523,12 @@
       "description" : "Auto runs a new chat on this Mac when it has room, else on a Cloud machine.",
       "title" : "Auto Places Chats in Cloud",
       "type" : "boolean"
+    },
+    "cloud.defaultImage" : {
+      "default" : "auto",
+      "description" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.",
+      "title" : "Default Image",
+      "type" : "string"
     },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
@@ -7606,6 +7629,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.automatic" : {
+      "default" : "download",
+      "description" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
+      "enum" : [
+        "off",
+        "notify",
+        "download",
+        "idle"
+      ],
+      "title" : "Automatic Updates",
+      "type" : "string"
+    },
     "updates.channel" : {
       "default" : "nightly",
       "description" : "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -7617,12 +7652,6 @@
       ],
       "title" : "Update Channel",
       "type" : "string"
-    },
-    "updates.checkAutomatically" : {
-      "default" : true,
-      "description" : "updates.checkAutomatically",
-      "title" : "Check for Updates Automatically",
-      "type" : "boolean"
     },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
@@ -7641,12 +7670,6 @@
       ],
       "title" : "Live Background Updates",
       "type" : "string"
-    },
-    "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: cmux asks before downloading. It always asks before restarting.",
-      "title" : "Download Updates Automatically",
-      "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
       "default" : 600,
@@ -7668,12 +7691,6 @@
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
-      "type" : "boolean"
-    },
-    "updates.installWhenIdle" : {
-      "default" : false,
-      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
-      "title" : "Update When Idle",
       "type" : "boolean"
     },
     "updates.installWhenIdleMinutes" : {

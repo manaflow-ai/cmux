@@ -581,6 +581,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "serde",
  "serde_json",
 ]
 
