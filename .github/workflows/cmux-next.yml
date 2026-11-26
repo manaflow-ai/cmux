@@ -61,12 +61,14 @@ on:
       # Why: note-413
       - "!plans/cmux-next/**/*.md"
       - plans/cmux-next/actions.md
+      - plans/cmux-next/auto-mode/turncut/README.md
       - plans/cmux-next/browser-repl/README.md
       - plans/cmux-next/feed/prototypes/webkit-duplicate/README.md
       - plans/cmux-next/formal/README.md
       - plans/cmux-next/helium-density/README.md
       - plans/cmux-next/home-messaging-invites/REPORT.md
       - plans/cmux-next/markdown-omnibar-DESIGN.md
+      - plans/cmux-next/sidebar-owner/README.md
       - plans/cmux-next/spec-proposals/visuals/README.md
       - docs/mdm/**
       - docs/configuration.md
@@ -1550,6 +1552,9 @@ jobs:
             python3 tests/test_nightly_fallback_covers.py
             bash scripts/cmux-next/tests/fake-clock.test.sh
             bash scripts/cmux-next/tests/preview.test.sh
+            # Why: cmux#56291 moved agent-policy.json to agent-policy/ and nothing ran the Linux settings exporter's test, so every
+            # settings exports (Linux) job exited 2 and fell back to a Mac (cmux#56505).
+            bash scripts/cmux-next/tests/export-settings-linux.test.sh
             python3 tests/test_intent_familiar_warning.py
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
@@ -1580,6 +1585,7 @@ jobs:
             # Why: 2026-11-24-checks-18.md
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
+            python3 tests/test_ci_guard_base_verdicts.py
             python3 tests/test_unittest_results.py
             python3 tests/test_webviews_test_history.py
             python3 tests/test_app_symbol_map.py
@@ -3992,7 +3998,8 @@ jobs:
   swift-test:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # Why: note-46
-    if: ${{ (!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    # Why: 2026-11-26-mac-jobs-after-merge.md
+    if: ${{ (!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next swift test
     continue-on-error: false
     # Why: note-443
@@ -4175,7 +4182,7 @@ jobs:
       - name: Install Rust targets (sidebar layout reducer)
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         working-directory: cmux-tui
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        run: rustup target add aarch64-apple-darwin
 
       - name: Test sidebar layout reducer
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
@@ -4612,7 +4619,7 @@ jobs:
   daemon-test:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # Why: note-240
-    if: ${{ (inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci'))) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next daemon tests
     # Why: note-443
     concurrency:
@@ -5747,7 +5754,7 @@ jobs:
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast, pure-checks-coalesce]
-    if: ${{ (always() && !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next Release compile (Xcode 26)
     # Why: note-6
     continue-on-error: false
@@ -6116,7 +6123,7 @@ jobs:
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight, dev-daily-tree-wait, dev-daily-place, cmux-scheme-compile-fleet]
     # Why: note-294
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
     # Why: note-363
     concurrency:
@@ -7292,7 +7299,8 @@ jobs:
   push-attribution:
     needs: [checks, generated-files, generated-verdict, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, crash-ends-app]
     # Why: note-341
-    if: ${{ (failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push' || inputs.base_tier == true) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    # Why: 2026-11-26-tip-suite-attribution.md
+    if: ${{ (failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push' || inputs.base_tier == true || inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next push attribution
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name != 'pull_request') && vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable

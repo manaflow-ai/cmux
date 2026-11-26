@@ -74,7 +74,7 @@ def job_env(job: dict) -> dict:
     return workflow_jobs.resolve(job).env
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
-# Run on a pull request only with full-ci (HeavyMacCompilesBehindFullCi).
+# Run on a pull request only with full-ci, and never on one into feat-cmux-next (HeavyMacCompilesBehindFullCi).
 HEAVY_COMPILES = ("release-compile", "cmux-scheme-compile")
 GODFILES = ROOT / "scripts/cmux-next/check-no-godfiles.sh"
 JOB = "checks"
@@ -909,20 +909,27 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
         # A same-repository PR runs its routed tiers; full-ci is what a fork PR needs
         # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions).
-        for job_id in ("generated-files", "daemon-test"):
-            self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
-                          "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
+        self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
+                      "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs["generated-files"]["if"])
+        # daemon-test runs after merge on feat-cmux-next (2026-11-26: 518 PR runs over 30 days, 9 reds, 0 real
+        # catches; cmuxterm-hq docs/findings/2026-11-25-ci-value.md): a PR into another base keeps the old rule.
+        self.assertIn("(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
+                      "(github.event.pull_request.head.repo.full_name == github.repository || "
+                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))", jobs["daemon-test"]["if"])
         # A pull request's Swift canary is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556).
         self.assertIn("needs.path_route.outputs.swift_canary == 'true'", jobs["swift-canary"]["if"])
         self.assertIn("&& github.event_name != 'pull_request')", jobs["swift-canary"]["if"])
-        # The two heavy app compiles and swift-test are behind full-ci on every PR
-        # (HeavyMacCompilesBehindFullCi; swift-test since 2026-11-05: on every PR push it was
-        # cancelled or skipped and never passed, and the tip suite dispatch gives the base verdict).
-        # swift-test's gate names the base since #49046: a pull request into another base is not a cmux-next one.
-        for job_id, gate in [*((job_id, "github.event_name != 'pull_request' || ") for job_id in HEAVY_COMPILES),
-                             ("swift-test", "github.event_name != 'pull_request' || "
-                                            "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || ")]:
-            self.assertIn(gate + "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
+        # The two heavy app compiles are behind full-ci on a PR into another base, and full-ci no longer buys them
+        # into feat-cmux-next (HeavyMacCompilesBehindFullCi; 2026-11-26: over 30 days the Mac compile and Swift
+        # test jobs had 0 real catches in 518 PR runs each, cmuxterm-hq docs/findings/2026-11-25-ci-value.md). The
+        # base push, the tip suite dispatch and the nightly compile every merge.
+        # swift-test never runs on a PR into feat-cmux-next (its gate names the base since #49046).
+        for job_id in HEAVY_COMPILES:
+            self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
+                          "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
+        self.assertIn("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
+                      jobs["swift-test"]["if"])
+        for job_id in (*HEAVY_COMPILES, "swift-test"):
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
         # macos-placement places owned runners: same-repository pull requests only.
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", jobs["macos-placement"]["if"])
@@ -3421,20 +3428,27 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         return {name for name in self.TIER_JOBS + ("macos-placement", "checks") if evaluate(jobs[name]["if"], context)}
 
     def test_a_same_repository_pr_runs_every_routed_tier_without_a_label(self):
-        # Except the two heavy app compiles and swift-test, which need full-ci (HeavyMacCompilesBehindFullCi),
-        # and checks, which a pull request into feat-cmux-next skips without it (#49046; its push runs them).
+        # Except the two heavy app compiles, swift-test and daemon-test, which run after merge into feat-cmux-next
+        # with or without full-ci (HeavyMacCompilesBehindFullCi; 2026-11-26, cmuxterm-hq
+        # docs/findings/2026-11-25-ci-value.md: 0 real catches in 518 PR runs each over 30 days), and checks,
+        # which a pull request into feat-cmux-next skips without full-ci (#49046; its push runs them).
         # The Swift canary of a pull request is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556).
-        self.assertEqual(self.running(self.context()),
-                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) - {"swift-test", "swift-canary"} | {"macos-placement"})
+        after_merge = set(HEAVY_COMPILES) | {"swift-test", "daemon-test", "swift-canary"}
+        self.assertEqual(self.running(self.context()), set(self.TIER_JOBS) - after_merge | {"macos-placement"})
         self.assertEqual(self.running(self.context(labels=("full-ci",))),
-                         set(self.TIER_JOBS) - {"swift-canary"} | {"macos-placement", "checks"})
+                         set(self.TIER_JOBS) - after_merge | {"macos-placement", "checks"})
+        # Into another base the old rule holds: full-ci runs every tier.
+        other = self.context(labels=("full-ci",))
+        other["github.event.pull_request.base.ref"] = other["github.base_ref"] = "main"
+        self.assertEqual(self.running(other), set(self.TIER_JOBS) - {"swift-canary"} | {"macos-placement", "checks"})
 
     def test_a_fork_pr_still_needs_full_ci_and_never_places_an_owned_runner(self):
         fork = self.context(head_repo="someone/cmux")
         fork["needs.path_route.outputs.cmuxnext_swift"] = "false"
         self.assertEqual(self.running(fork), set())
         labeled = self.context(head_repo="someone/cmux", labels=("full-ci",))
-        self.assertEqual(self.running(labeled), set(self.TIER_JOBS) - {"swift-canary"} | {"checks"})
+        self.assertEqual(self.running(labeled), set(self.TIER_JOBS) - {"swift-canary", "swift-test", "daemon-test"}
+                         - set(HEAVY_COMPILES) | {"checks"})
 
     def test_a_dispatch_on_a_working_branch_runs_every_tier(self):
         for ref in ("refs/heads/issue-22303-next-pr-ci", "refs/heads/feat-cmux-next", "refs/heads/next-batch/abc"):
@@ -3673,7 +3687,23 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
                 self.assertEqual(self.compiling(self.context(fleet=fleet, mac_release="false")), set())
 
     def test_a_same_repository_pr_with_full_ci_runs_both(self):
+        # Into a base other than feat-cmux-next (this context names none).
         self.assertEqual(self.compiling(self.context(labels=("full-ci",))), set(HEAVY_COMPILES))
+
+    def test_full_ci_into_feat_cmux_next_compiles_after_merge(self):
+        """2026-11-26: full-ci no longer buys the Mac compiles on a pull request into feat-cmux-next. Over 30 days
+        the Release compile ran on 518 sampled heads with 2 reds and no real catch, nor had the scheme compile (cmuxterm-hq
+        docs/findings/2026-11-25-ci-value.md); the base push compiles every merge and base-red watch reverts."""
+        into_next = self.context(labels=("full-ci",))
+        into_next["github.event.pull_request.base.ref"] = "feat-cmux-next"
+        self.assertEqual(self.compiling(into_next), set())
+        # The Mac Release compile stays the PR's compile when the fleet gave no verdict.
+        into_next["needs.app-compile-fleet.outputs.verdict"] = "unavailable"
+        self.assertEqual(self.compiling(into_next), {"release-compile"})
+        # A member's dev-build head keeps its scheme compile (its dogfood app).
+        member = self.context(labels=("full-ci", "dev-build"), association="MEMBER")
+        member["github.event.pull_request.base.ref"] = "feat-cmux-next"
+        self.assertEqual(self.compiling(member), {"cmux-scheme-compile"})
 
     def test_a_member_dev_build_pr_keeps_its_scheme_compile(self):
         member = self.context(labels=("dev-build",), association="MEMBER")
