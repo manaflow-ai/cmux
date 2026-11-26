@@ -79,8 +79,6 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
         "edits it does not read); a skip after a title edit is unchanged since the budget landed"),
     ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "
         "edit until a change carrying Leo's label gates it (only his label lets this check change)"),
-    ("pr-body-checks.yml", "pull_request"): (ALL, "the description lints read the body, the perf section the "
-        "title too"),
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "its advisory job's PR size step reads the `Size:` "
         "line and UI review its section (the pick step runs only what the edit moved); none of its steps fails a "
         "pull request"),
