@@ -98,6 +98,9 @@ jobs:
             /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
+            /scripts/ci/detect_linux_guard_changes.py
+            /scripts/ci/workflow_guard_groups.py
+            /scripts/ci/workload_entrypoints.py
             /scripts/ci/fast-check-inputs.json
 
       - name: "Pool mirror: checkout the merge ref"

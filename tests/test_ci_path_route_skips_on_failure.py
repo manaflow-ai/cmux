@@ -109,6 +109,17 @@ class RouterFailureSkipsOnPullRequests(unittest.TestCase):
                                 "needs.changes.result == 'success' || needs.changes.result == 'skipped')", "changes"))
         self.assertTrue(guarded(f"!cancelled() && needs.changes.result == 'success' && {read}", "changes"))
 
+    def test_tui_spec_router_retries_its_checkout_and_prefetches_what_it_widens_to(self):
+        """cmux-tui-spec.yml `changes` widened with `git sparse-checkout set`: one lazy blob fetch that stalled whole."""
+        with open(os.path.join(WORKFLOWS, "cmux-tui-spec.yml"), encoding="utf-8") as fh:
+            block = jobs(fh.read())["changes"]
+        self.assertIn("with: &tui-spec-route-checkout", block)
+        self.assertEqual(block.count("with: *tui-spec-route-checkout"), 2)
+        self.assertEqual(len(re.findall(r"if: steps\.checkout\.outcome == 'failure'$", block, re.M)), 2)
+        self.assertNotIn("run: git sparse-checkout set", block)
+        self.assertIn("/scripts/ci/prefetch-sparse-checkout.sh\n", block)
+        self.assertIn("| bash scripts/ci/prefetch-sparse-checkout.sh", block)
+
 
 class PathRouteFailureSkipsOnPullRequests(unittest.TestCase):
     def setUp(self):
