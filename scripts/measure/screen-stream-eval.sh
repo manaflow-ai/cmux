@@ -321,8 +321,10 @@ if [[ -n "$prebuilt" ]]; then
   for tool in screen-eval-preflight screen-eval-scene screen-eval-ocr cmux-rd-marker; do
     cp "$prebuilt/$tool" "$EVAL_BIN/$tool" || { finish "prebuilt=: no $tool in $prebuilt"; exit 4; }
   done
+  # marker-locate places the source marker for calibrated OCR; older tool folders lack it (OCR then says why).
+  [[ ! -x "$prebuilt/screen-eval-marker-locate" ]] || cp "$prebuilt/screen-eval-marker-locate" "$EVAL_BIN/"
 else
-  for tool in preflight scene ocr; do
+  for tool in preflight scene ocr marker-locate; do
     swiftc -O -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || { finish "could not build $tool.swift"; exit 4; }
   done
   swiftc -O -o "$EVAL_BIN/cmux-rd-marker" "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" ||
@@ -689,6 +691,26 @@ PY
       # The crop receipt: same pixels on both sides, sizes checked above.
       python3 -I "$here/same_pixels.py" "$dir/ocr-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$cx,$cy,$cw,$ch" ||
         err "ocr $rep: same-pixel receipt failed"
+    elif [[ "$name" == apple-* && "$name" != apple-rfb && -x "$EVAL_BIN/screen-eval-marker-locate" &&
+      -s "$dir/source-scene-$rep.json" && -s "$raw.readiness.json" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      # Screen Sharing shows the host's display scaled and offset in its window: locate the source
+      # marker on both sides, map the scene's content rect through each, and bind the result to this
+      # repeat's source and selected window (ocr_calibration.py). Verified only when both markers read.
+      host_marker=$("$EVAL_BIN/screen-eval-marker-locate" "$dir/host-$rep.png" 2>/dev/null) || host_marker=""
+      viewer_marker=$("$EVAL_BIN/screen-eval-marker-locate" "$dir/viewer-frame-$rep" 2>/dev/null) || viewer_marker=""
+      if crops=$(python3 -I "$here/ocr_calibration.py" "$dir/source-scene-$rep.json" "$raw.readiness.json" \
+        "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$host_marker" "$viewer_marker" "$dir/ocr-calibration-$rep.json" \
+        2>"$EVAL_STATE/ocr-calibration-$rep.err"); then
+        read -r host_crop viewer_crop <<<"$crops"
+        "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" \
+          --host-crop "$host_crop" --viewer-crop "$viewer_crop" --calibration "$dir/ocr-calibration-$rep.json" \
+          --source-geometry "$dir/source-scene-$rep.json" --readiness "$raw.readiness.json" >"$dir/ocr-$rep.json" ||
+          err "ocr $rep: invalid calibrated crop"
+      else
+        python3 -I -c 'import json, sys; print(json.dumps({"cer": None, "comparison_ready": False, "reason": "OCR calibration not verified: " + json.load(open(sys.argv[1])).get("reason", "unknown")}))' \
+          "$dir/ocr-calibration-$rep.json" >"$dir/ocr-$rep.json" 2>/dev/null ||
+          printf '{"cer":null,"comparison_ready":false,"reason":"OCR calibration failed"}\n' >"$dir/ocr-$rep.json"
+      fi
     elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.
