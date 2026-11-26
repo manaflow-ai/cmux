@@ -11,8 +11,6 @@ import { NewTabOps } from "../../pages/apps/UseAsNewTab";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
-import { CodeRouterOps } from "../../pages/coderouter/types";
-import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
 import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
 import { PAINT_AFTER_NAME } from "../../pages/shared/paintGate";
@@ -21,7 +19,6 @@ import type {
   AppsPageVariant,
   ChangelogPageVariant,
   CloudPageVariant,
-  CodeRouterPageVariant,
   DiffFixtureFile,
   DiffPageVariant,
   EditorPageVariant,
@@ -491,23 +488,6 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
     clickLater(".cloud-machine");
     setTimeout(() => document.querySelector<HTMLElement>(".cloud-forward-share")?.click(), 320);
   }
-}
-
-export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {
-  const provider = new MockCodeRouterProvider({ signedIn: state.signedIn ?? true });
-  provider.providers = JSON.parse(JSON.stringify(state.providers));
-  const host = installMockHost(
-    pageOps(provider, [...Object.values(CodeRouterOps), "cmux.page.connection", "cmux.page.command"], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: CodeRouterOps.status,
-      error: state.error,
-    }),
-    ["cmux.page.connection", "cmux.page.command"],
-  );
-  host.delayMs = 0;
-  document.documentElement.dataset.cmuxPage = "coderouter";
-  document.documentElement.dataset.cmuxWebviewKind = "coderouter";
-  await import("../../pages/coderouter/main");
 }
 
 export async function mountChangelogPage(state: ChangelogPageVariant, _context: StageContext): Promise<void> {
