@@ -17,6 +17,9 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-phone-core`'s phone tab rules (`phone`: simctl, devicectl and adb
+//! output, phone ids, keyboard usages, touches, the screen mapping, the log
+//! tail and the UI Automator tree; the request's `op` picks one),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -178,6 +181,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
     let result = catch_unwind(AssertUnwindSafe(|| {
         let response = match operation {
             b"imessage" => imessage::respond(request)?,
+            b"phone" => cmux_phone_core::respond(request).map_err(|_| ERR_INVALID)?,
             b"base_y" => {
                 #[derive(serde::Deserialize)]
                 struct BaseY {

@@ -2547,6 +2547,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-pool-pod"
 version = "0.1.0"
 dependencies = [

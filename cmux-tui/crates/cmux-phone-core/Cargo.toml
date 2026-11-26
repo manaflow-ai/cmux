@@ -1,0 +1,16 @@
+[package]
+name = "cmux-phone-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The phone tab's rules for the cmux macOS app over the app FFI: simctl, devicectl and adb output parsing, phone ids, US keyboard HID usages, paced touches, the screen mapping, the device log tail and the UI Automator tree. Pure: the app runs the tools and passes their output"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true

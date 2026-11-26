@@ -483,6 +483,7 @@ dependencies = [
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
+ "cmux-phone-core",
  "cmux-tab-discard",
  "cmux-tasks-core",
  "cmux-window-rules",
@@ -523,6 +524,15 @@ dependencies = [
 [[package]]
 name = "cmux-pane-pictures"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-process"
