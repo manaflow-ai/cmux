@@ -121,11 +121,11 @@ final class TranscriptLinkElement: NSAccessibilityElement {
     override func isAccessibilityElement() -> Bool { true }
     /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
     /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
-    /// air-blue 2026-11-26: the same link with this override indexed, without it not).
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
     override func isAccessibilityEnabled() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
     /// AXPress in the element's AXActionNames, the list an AX client reads (AXUIElementCopyActionNames).
-    /// AppKit listed it before this override too (air-blue, 2026-11-26); the link stayed unindexed for
+    /// AppKit listed it before this override too (a fleet Mac, 2026-11-26); the link stayed unindexed for
     /// lack of AXEnabled (isAccessibilityEnabled above), not of an action.
     override func accessibilityActionNames() -> [NSAccessibility.Action] { [.press] }
     override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
