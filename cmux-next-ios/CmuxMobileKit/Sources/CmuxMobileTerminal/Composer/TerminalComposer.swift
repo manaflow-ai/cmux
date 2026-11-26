@@ -221,14 +221,7 @@ struct TerminalComposer: View {
                 fieldRef: model.composerField
             )
         } trailing: {
-            HStack(spacing: 0) {
-                // "Beside Send": a waveform just left of send, which stays send
-                // (Claude's and ChatGPT's composers keep voice next to send).
-                if voice.placement.voiceBesideSend, let source = voiceSource {
-                    besideSendVoiceButton(source)
-                }
-                primaryButton
-            }
+            primaryButton
         }
         .foregroundStyle(look.ink)
         // The card's own id (ComposerCard is one container element, #55113), so a test
@@ -239,31 +232,12 @@ struct TerminalComposer: View {
     /// The pane's colors: the Mac's terminal theme, else the app default.
     private var look: TerminalPillLook { TerminalPillLook(theme: model.hostTheme) }
 
-    /// "Beside Send": a plain waveform the size of the send circle, so the
-    /// field keeps one filled circle (send); voice mode on fills it.
-    private func besideSendVoiceButton(_ source: any AgentVoiceSource) -> some View {
-        let active = voice.isActive(source.voiceSourceID)
-        return Button {
-            voice.toggle(source)
-        } label: {
-            Image(systemName: "waveform")
-                .font(.system(size: 15, weight: active ? .bold : .regular))
-                .foregroundStyle(active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(look.ink))
-                .symbolEffect(.variableColor.iterative, isActive: active)
-                .composerControlCircle(active ? AnyShapeStyle(Color.cmuxMobileAccent) : AnyShapeStyle(Color.clear))
-        }
-        .buttonStyle(.cmuxPressFillInLabel)
-        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
-        .accessibilityIdentifier("terminal.composer.voice")
-    }
-
     /// Send, or with "In Send Button" and nothing to send, voice mode (the
     /// ChatGPT composer): one circle, never a disabled send beside a mic.
     @ViewBuilder private var primaryButton: some View {
         let empty = !model.composerHasText && model.attachments.isEmpty
-        if let source = voiceSource,
-           voice.placement.sendCircleIsVoice(nothingToSend: empty && !model.isUploading,
-                                             voiceActive: voice.isActive(source.voiceSourceID)) {
+        if voice.placement == .sendButton, let source = voiceSource,
+           (empty && !model.isUploading) || voice.isActive(source.voiceSourceID) {
             sendCircleVoiceButton(source)
         } else {
             sendButton

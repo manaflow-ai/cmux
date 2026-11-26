@@ -362,12 +362,9 @@ struct ChatComposer: View {
                 // dictates into the field): with no draft, the send circle is the voice
                 // button (ChatGPT's composer); while the agent runs it sits beside Stop.
                 // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
-                // hiding this by default"); "Left of Field" puts it after +; "Beside
-                // Send" keeps it just left of send, which always shows (Claude's and
-                // ChatGPT's composers keep voice next to send).
+                // hiding this by default"); "Left of Field" puts it after +.
                 let voiceInSend = voice.placement == .sendButton
                 if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
-                if voice.placement.voiceBesideSend { voiceButton }
                 if primaryState != .empty || !voiceInSend { primaryButton }
             }
         }
@@ -616,9 +613,7 @@ struct ChatComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
-            // Beside Send, send always shows: the waveform is the plain glyph.
-            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop || voice.placement.voiceBesideSend,
-                                           active: active)
+            let style = ComposerVoiceStyle(primaryIsVisible: primaryState == .stop, active: active)
             Image(systemName: "waveform")
                 .font(.system(size: style.isFilled ? 15 : 17, weight: style.isFilled ? .semibold : .regular))
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
@@ -674,7 +669,6 @@ struct ChatComposer: View {
             }
         }
         .accessibilityLabel(state == .stop ? "Stop" : "Send")
-        .accessibilityIdentifier("agentChat.composer.send")
     }
 
     /// A hardware Return: what the send button would do with a draft (never Stop).
