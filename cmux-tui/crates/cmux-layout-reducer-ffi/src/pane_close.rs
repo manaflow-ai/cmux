@@ -10,14 +10,18 @@
 //! - `pane_close_note_landed` `{old, new, closes, landedPanes, landed, sizing}` -> `{landed}`
 //! - `pane_close_flush` `{screens, closing, landed}` -> `{ratios, widths, landed}`
 //! - `pane_close_sizing` `{old, new, landed, sizing}` -> `{ratios, widths}`
+//! - `pane_close_split_changes` `{old, new, pane}` -> `{changes}` (the even ratios `pane`'s close
+//!   leaves its chain, `CloseSizing.splitChanges`)
+//! - `pane_close_column_resizes` `{old, new}` -> `{resizes}` (fit-screen widths, `CloseSizing.columnResizes`)
 //!
 //! `sizing` is `{even, fits}`; `landed` (sizes) is `{ratios: {split: r}, widths: {column: w}}`;
 //! a screen is `{id, zoomed, layout}`; a layout is `crate::screen_layout`'s JSON.
 
 use crate::ERR_INVALID;
 use cmux_layout_reducer::pane_close::{
-    Landed, Screen, Sizing, close_sizing, flush_landed_close_sizes, note_landed_closes,
-    overlaying_pane_closes, removing_split_pane, show, successor,
+    Landed, Screen, Sizing, close_sizing, column_resizes, flush_landed_close_sizes,
+    note_landed_closes, overlaying_pane_closes, removing_split_pane, show, split_changes,
+    successor,
 };
 use cmux_layout_reducer::screen_layout::Layout;
 use serde::Deserialize;
@@ -82,6 +86,14 @@ struct SizingRequest {
     sizing: Sizing,
 }
 
+#[derive(Deserialize)]
+struct ChangeRequest {
+    old: Layout,
+    new: Layout,
+    #[serde(default)]
+    pane: String,
+}
+
 fn parse<T: DeserializeOwned>(request: &[u8]) -> Result<T, i32> {
     serde_json::from_slice(request).map_err(|_| ERR_INVALID)
 }
@@ -118,6 +130,14 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let r: SizingRequest = parse(request)?;
             serde_json::to_value(close_sizing(&r.old, &r.new, &r.landed, r.sizing))
                 .map_err(|_| ERR_INVALID)?
+        }
+        b"pane_close_split_changes" => {
+            let r: ChangeRequest = parse(request)?;
+            json!({ "changes": split_changes(&r.old, &r.new, &r.pane) })
+        }
+        b"pane_close_column_resizes" => {
+            let r: ChangeRequest = parse(request)?;
+            json!({ "resizes": column_resizes(&r.old, &r.new) })
         }
         _ => return Err(ERR_INVALID),
     };
