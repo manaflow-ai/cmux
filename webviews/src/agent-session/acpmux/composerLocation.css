@@ -1605,7 +1605,7 @@
      than the GPT icon, the full access icon too, and the mic a bit too big). A chip's chevron is
      one smaller step. */
   --acpmux-composer-glyph: calc(16px * var(--acpmux-density));
-  --acpmux-composer-chevron: calc(var(--ds-space-3) * var(--acpmux-density));
+  --acpmux-composer-chevron: calc(12px * var(--acpmux-density));
   /* The boxes two leading glyphs drew in before the one glyph size, and half of what each differs
      from it: the shield's 18 px and New Tab's + (18), a location icon's 14 (the column rules below). */
   --acpmux-shield-box: calc(18px * var(--acpmux-density));

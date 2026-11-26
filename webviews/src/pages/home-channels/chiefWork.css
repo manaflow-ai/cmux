@@ -163,14 +163,14 @@
   font-variant-numeric: tabular-nums;
 }
 .hc-chief-work__plan {
-  margin: var(--ds-space-2) 0 0;
+  margin: calc(var(--ds-space-1) + var(--grid-half-step)) 0 0;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;
 }
 .hc-chief-work__plan[data-look="inline"] {
   display: flex;
-  gap: var(--ds-space-2);
+  gap: calc(var(--ds-space-1) + var(--grid-half-step));
   min-width: 0;
 }
 .hc-chief-work__plan-count {
@@ -187,8 +187,8 @@
 .hc-chief-work__plan progress {
   display: block;
   width: 100%;
-  height: var(--grid-half-step);
-  margin: 0 0 var(--ds-space-2);
+  height: calc(var(--grid-half-step) + var(--grid-half-step) / 2);
+  margin: 0 0 calc(var(--ds-space-1) + var(--grid-half-step));
   border: 0;
   border-radius: var(--grid-half-step);
   appearance: none;
