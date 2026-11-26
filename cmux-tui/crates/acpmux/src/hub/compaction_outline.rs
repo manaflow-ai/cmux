@@ -249,9 +249,12 @@ impl Hub {
         } else {
             self.outline_answer(session, &pack, params)?
         };
-        answer["session"] = json!(session.id);
-        answer["packedThroughSeq"] = json!(through);
-        answer["ms"] = json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("session".into(), json!(session.id));
+            fields.insert("packedThroughSeq".into(), json!(through));
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            fields.insert("ms".into(), json!(ms));
+        }
         Ok(answer)
     }
 
