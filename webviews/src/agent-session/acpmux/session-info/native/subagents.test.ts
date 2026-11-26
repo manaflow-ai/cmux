@@ -42,12 +42,12 @@ describe("Session Info's native Subagents: Resume on a stopped one", () => {
 
   test("busy disables it, a refusal says why on the row, and no Resume without the chat's action", () => {
     const busy: ResumeRun = { version: "v", busy: true };
-    const refused: ResumeRun = { version: "v", key: "retry.busy" };
+    const refused: ResumeRun = { version: "v", key: "retry.gone" };
     const busyRow = rows([agent({ resumable: true })], { capabilities, run: () => {}, shown: () => busy }).rows[1];
     expect(busyRow?.buttons?.[0]?.disabled).toBe(true);
     const refusedRow = rows([agent({ resumable: true })], { capabilities, run: () => {}, shown: () => refused })
       .rows[1];
-    expect(refusedRow?.detail).toBe("retry.busy");
+    expect(refusedRow?.detail).toBe("retry.gone");
     expect(rows([agent({ resumable: true })], undefined).rows[1]?.buttons).toBeUndefined();
     expect(
       rows([agent({ resumable: true, harness: "codex" })], { capabilities, run: () => {}, shown: () => undefined })
