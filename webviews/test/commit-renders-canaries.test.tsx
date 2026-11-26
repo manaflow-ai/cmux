@@ -2,8 +2,8 @@
 // Canaries for the row render counter (support/commitRenders.ts), the one counter every list lane
 // uses: each is a way a row really renders that a counter can miss, and the counter must count it;
 // and a memo bail-out, which it must not. A counter that compares a row's props object read 0 for a
-// row re-rendered by its own state, a context read alone, or a store, and for Settings' Browse More
-// Art, whose 36 tiles redrew on every keystroke (the compiler gives up on it). Each case runs as
+// row re-rendered by its own state, a context read alone, or a store. Settings' Browse More Art redrew
+// its 36 tiles on every keystroke until #46364 (a change redraws only its row); the counter reads 0 now. Each case runs as
 // written and compiled by the React Compiler (babel-plugin-react-compiler, as the app builds).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { transformSync } from "@babel/core";
@@ -287,7 +287,7 @@ for (const compiled of [false, true])
     });
   });
 
-test("Settings' Browse More Art: one keystroke counts all 36 tiles it redraws", async () => {
+test("Settings' Browse More Art: one keystroke redraws none of its 36 tiles (#46364)", async () => {
   const { ArtBrowser } = await import("../src/pages/settings/components/ArtBrowser");
   const { SettingsContext } = await import("../src/pages/settings/context");
   const results = Array.from({ length: 36 }, (_, index) => ({
@@ -315,5 +315,5 @@ test("Settings' Browse More Art: one keystroke counts all 36 tiles it redraws", 
   const renders = rowRenders();
   renders.begin(host, ".backdrop-tile");
   act(() => type(input, "sunflowers!"));
-  expect(renders.end()).toEqual({ rerendered: 36, wasted: 36, added: 0, maxRenders: 1 });
+  expect(renders.end()).toEqual({ rerendered: 0, wasted: 0, added: 0, maxRenders: 0 });
 });
