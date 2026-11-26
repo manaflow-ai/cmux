@@ -16,10 +16,10 @@ pub mod approval;
 pub mod draft;
 #[path = "tabs_group_drop.rs"]
 pub mod group_drop;
-#[path = "tabs_page_closes.rs"]
-pub mod page_closes;
 #[path = "tabs_groups.rs"]
 pub mod groups;
+#[path = "tabs_page_closes.rs"]
+pub mod page_closes;
 #[path = "tabs_panes.rs"]
 pub mod panes;
 #[path = "tabs_place.rs"]
