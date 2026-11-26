@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.agentGlow.help" : {
+      "comment" : "Settings row help for React to Agents.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هادئة ما دام الوكلاء خاملين، وتوهج خفيف بلون الجهاز عندما يحتاجك وكيل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mirno dok agenti miruju; blagi sjaj u boji mašine kada te agent treba."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Roligt, mens agenter er inaktive; en blød glød i maskinens farve, når en agent har brug for dig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ruhig, solange Agenten untätig sind; ein sanftes Leuchten in der Farbe des Rechners, wenn ein Agent dich braucht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En calma mientras los agentes están inactivos; un brillo suave del color de la máquina cuando un agente te necesita."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calme tant que les agents sont inactifs ; une douce lueur de la couleur de la machine quand un agent a besoin de vous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calmo quando gli agenti sono inattivi; un leggero bagliore del colore della macchina quando un agente ha bisogno di te."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントが待機中は落ち着いた表示に。エージェントが呼んでいるときは、マシンの色でやさしく光ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្ងប់ពេលភ្នាក់ងារទំនេរ ហើយភ្លឺស្រាលៗតាមពណ៌ម៉ាស៊ីន ពេលភ្នាក់ងារត្រូវការអ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트가 쉬는 동안은 차분하게, 에이전트가 당신을 필요로 하면 기기 색으로 은은하게 빛납니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rolig mens agenter er inaktive; en myk glød i maskinens farge når en agent trenger deg."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spokojne, gdy agenci są bezczynni; delikatna poświata w kolorze maszyny, gdy agent cię potrzebuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calmo enquanto os agentes estão ociosos; um brilho suave na cor da máquina quando um agente precisa de você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спокойный фон, пока агенты простаивают; мягкое свечение цветом машины, когда агенту нужны вы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สงบเมื่อเอเจนต์ว่าง และเรืองแสงอ่อนๆ ตามสีของเครื่องเมื่อเอเจนต์ต้องการคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajanlar boştayken sakin; bir ajanın sana ihtiyacı olduğunda makinenin renginde yumuşak bir parıltı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спокійне тло, поки агенти бездіяльні; м'яке сяйво кольором машини, коли агентові потрібні ви."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yên tĩnh khi các tác tử rảnh; ánh sáng dịu theo màu của máy khi một tác tử cần bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能体空闲时保持平静；有智能体需要你时，以机器的颜色柔和发光。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理程式閒置時保持平靜；有代理程式需要你時，以機器的顏色柔和發光。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

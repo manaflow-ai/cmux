@@ -374,6 +374,7 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
+            terminal_warm_compact: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
@@ -480,6 +481,7 @@ impl Mux {
             ),
             terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
+            launch_snapshot_flush: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),

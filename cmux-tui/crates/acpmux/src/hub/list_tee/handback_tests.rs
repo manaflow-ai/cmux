@@ -23,6 +23,7 @@ fn v1_hub() -> Arc<Hub> {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, DEFAULT_SIZE_STEP, defaultSizeProblem, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
+import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, createWithRoom, DEFAULT_SIZE_STEP, defaultSizeProblem, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -87,8 +87,8 @@ describe("a failed step after create reads the machine's facts before anything i
   test("a claimed machine answering 503 vm_unavailable: the first exec says so, the facts are read, then the delete", () => {
     const { steps, probe, log } = runJourney({ spare: "report", exec: "unavailable" });
     const failed = steps.filter((s) => s.status === "fail");
-    // The agent start is now the first step to reach the machine: it names the unavailable machine.
-    expect(failed[0].step).toBe("start agent (claude)");
+    // The owner-kind wait is now the first step to reach the machine: it names the unavailable machine.
+    expect(failed[0].step).toBe("machine kind owner");
     expect(failed[0].detail).toContain("did not take its first exec");
     expect(failed[0].detail).toContain("vm_unavailable");
     // The journey-only checks still ran, and `first exec` still fails on it.
@@ -134,6 +134,24 @@ describe("the cold create cell reads a person's own create at its asked size (cm
     expect(log.indexOf("delete cold")).toBeGreaterThan(log.indexOf("exec cold"));
     expect(steps.findIndex((s) => s.step === COLD_CREATE_STEP)).toBeGreaterThan(steps.findIndex((s) => s.step === "first exec"));
     expect(probe.outcome).toBe("ok");
+  });
+
+  test("a create the team's machine cap refuses waits for room, each attempt under its own key; other errors and a full budget throw", async () => {
+    const full = 'cloud.machine.create: HTTP 200 {"code":"cloud.quota.exceeded","message":"this plan allows 5 active machines"}';
+    let clock = 0;
+    const pause = async (ms: number) => { clock += ms; };
+    const now = () => clock;
+    const keys: number[] = [];
+    const ok = await createWithRoom(async (n) => { keys.push(n); if (n < 2) throw new Error(full); return "vm"; }, 240_000, pause, now);
+    expect(ok).toEqual({ value: "vm", waitedMs: 30_000, refusals: 2 });
+    expect(keys).toEqual([0, 1, 2]);
+    clock = 0;
+    await expect(createWithRoom(async () => { throw new Error(full); }, 60_000, pause, now)).rejects.toThrow(/cloud\.quota\.exceeded.*no room after 60 s, 5 refusals/);
+    clock = 0;
+    let calls = 0;
+    await expect(createWithRoom(async () => { calls++; throw new Error("cloud.machine.create: HTTP 503 cloud.provider.unavailable"); }, 240_000, pause, now)).rejects.toThrow("cloud.provider.unavailable");
+    expect(calls).toBe(1);
+    expect(await createWithRoom(async () => 1, 240_000, pause, now)).toEqual({ value: 1, waitedMs: 0, refusals: 0 });
   });
 
   test("a cold machine at the image's size fails the cell, and the checks after it still run", () => {

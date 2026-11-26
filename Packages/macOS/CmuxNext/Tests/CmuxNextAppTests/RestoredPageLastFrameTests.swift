@@ -213,4 +213,20 @@ import Testing
         frames.remove("a")
         #expect(!frames.keys.contains("a"))
     }
+
+    /// cmux#56141: after a relaunch no browser tab's hover card showed a picture. A tab not shown since has no page
+    /// (Chromium makes it on the first show) and no picture in memory, so `previewImage` gave nil though its last
+    /// picture was on disk. The card now shows that picture, scaled to the card, and hovering never hands it out: the
+    /// tab's first show still covers its page with it.
+    @Test func aTabNotShownSinceTheRelaunchHoverCardShowsItsLastPicture() async throws {
+        let cache = cache()
+        let tab = restoredTab(43)
+        let (frames, folder) = try await frames(with: tab.id)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        cache.pageFrames = frames
+        #expect(cache.existingBrowser(tab.id) == nil, "the tab has no page")
+        let picture = try #require(await cache.previewImage(for: tab.id, maxPixelSize: CGSize(width: 60, height: 60)))
+        #expect(picture.width == 60 && picture.height == 45, "scaled to the card")
+        #expect(frames.hasPicture(tab.id), "a hover never hands out the picture the first show covers the page with")
+    }
 }

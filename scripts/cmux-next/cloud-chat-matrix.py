@@ -63,7 +63,25 @@ from app_launch_env import launch_env  # noqa: E402
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
+              "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names",
+              "public-remote", "heavy", "case-rename", "large-binaries", "media")
+# RFD 0007's folder kinds (Leo, 2026-11-25: "how is projectionfs? for bare non-gited folders, ones with git, etc";
+# "there's various other situations you guys need to be testing esp with projectionfs and intended read
+# behaviour") and the cell that measures each: `--only kinds` runs just these.
+KIND_CELLS = {
+    "1 bare non-git folder": "big-plain", "2 git, public remote": "public-remote",
+    "3 git, private remote": "private-remote", "4 local-only repo": "small-repo", "5 huge monorepo": "monorepo",
+    "6 node_modules / build output": "heavy", "7 symlinks, case-only renames": "case-rename",
+    "8 empty folder": "empty", "9 large binaries": "large-binaries", "10 media (MP4)": "media",
+}
+# The cells whose largest file the machine reads (first byte, then whole), timed, before the tree's hash
+# reads everything: a projected folder's read is a lazy fault, so this is its intended read behaviour.
+READ_PROBE_CELLS = ("big-plain", "public-remote", "private-remote", "small-repo", "monorepo", "heavy",
+                    "case-rename", "empty", "large-binaries", "media")
+# large-binaries: a few files past 100 MB (random, so no link compresses them away).
+LARGE_BINARY_MB = (128, 160, 200)
+# media: MP4-shaped files (an ftyp box, then random payload), 2-48 MB, as a phone's export folder holds.
+MEDIA_MB = (2, 8, 24, 48)
 # The production projection matrix is deliberately a small, stable set.  Keep this separate from the
 # historical workspace list above so adding a fixture here never changes the nightly proof's coverage.
 PROJECTION_KINDS = ("bare-folder", "public-remote", "private-remote", "local-only-repo", "huge-monorepo",
@@ -325,6 +343,48 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         if kind == "huge-parent-repos":
             with open(path / "disk.img", "wb") as sparse:
                 sparse.truncate(HUGE_PLAIN_BYTES)
+    elif kind == "public-remote":
+        small_repo(path)
+        git(path, "remote", "add", "origin", "https://github.com/octocat/Hello-World.git")
+    elif kind == "heavy":
+        # A JS project as it sits after `npm install` and a build: node_modules and build/ stay on the Mac.
+        small_repo(path)
+        write(path / "package.json", '{"name": "heavy", "scripts": {"build": "true"}}\n')
+        for index in range(3000):
+            write(path / "node_modules" / f"pkg{index % 300:03d}" / f"f{index:04d}.js", "module.exports = 1;\n" * 40)
+        for index in range(200):
+            write(path / "build" / f"chunk{index:03d}.js", "x" * 20000)
+        write(path / "dist/bundle.js", os.urandom(4 * 1024 * 1024))
+        write(path / ".gitignore", "*.log\nnode_modules/\nbuild/\ndist/\n")
+        git(path, "add", "-A")
+        git(path, "commit", "-qm", "ignore the build")
+    elif kind == "case-rename":
+        # Symlinks, and a file renamed by case only (a case-insensitive Mac keeps one name; Linux sees the new one).
+        small_repo(path)
+        write(path / "Docs/Readme.md", "case\n")
+        git(path, "add", "-A")
+        git(path, "commit", "-qm", "Readme")
+        git(path, "mv", "Docs/Readme.md", "Docs/tmp.md")
+        git(path, "mv", "Docs/tmp.md", "Docs/README.md")
+        git(path, "commit", "-qm", "rename by case only")
+        os.symlink("src/main.py", path / "link-inside")
+        os.symlink("/etc/hosts", path / "link-outside")
+        os.symlink("nowhere", path / "link-broken")
+        os.symlink("Docs", path / "docs-link")
+    elif kind == "large-binaries":
+        path.mkdir(parents=True)
+        write(path / "README.txt", "model weights\n")
+        for index, size in enumerate(LARGE_BINARY_MB):
+            with open(path / f"weights{index}.bin", "wb") as out:
+                for _ in range(size):
+                    out.write(os.urandom(1024 * 1024))
+    elif kind == "media":
+        path.mkdir(parents=True)
+        for index, size in enumerate(MEDIA_MB):
+            with open(path / f"clip{index}.mp4", "wb") as out:
+                out.write(b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
+                for _ in range(size):
+                    out.write(os.urandom(1024 * 1024))
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -503,7 +563,10 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
     CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
     ~/.config/cmux/cmux-next.json that the person's other apps read."""
     argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
-            "--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
+            "--env", f"CMUX_NEXT_CONFIG_FILE={config}",
+            # A NIGHTLY's SingleInstanceGuard otherwise hands off to the copy already running and exits
+            # before binding the socket (proof run 45821171663).
+            "--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"]
     if credentials_file:
         argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
                  "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
@@ -517,7 +580,9 @@ def start_login(agent: str, login: str) -> list[str]:
     """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
     on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
     leave it signed out (its login is the Mac's broker)."""
-    return ["--login", login] if login and agent == "claude" else []
+    # `cmux cloud start-chat` has no --login any more (a machine's agents reach models through the Cloud model route;
+    # run 45643863592 died on `unexpected argument "--login"`), so no value is passed on.
+    return []
 
 
 def list_unread(message: str) -> bool:
@@ -549,6 +614,8 @@ class Matrix:
         self.claude_token = claude_login_cache.token_from(self.env) if args.cache_claude_login else ""
         self.env.pop(claude_login_cache.TOKEN_ENV, None)
         self.cached_logins: list[str] = []
+        # The Claude connections this run added (claude_login_cache.connect), removed with the logins.
+        self.added_connections: list[dict] = []
         self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -623,6 +690,14 @@ class Matrix:
                 return value
         return {}
 
+    def list_why(self) -> str:
+        """Why the app's machine list never loaded: `cloud.machines`' own last error and link route (a tagged
+        build's `app call`). A bare `{"loaded": false}` after 300 s said nothing (run 45665771439, prod)."""
+        code, out, _ = self.cmux("app", "call", "cloud.machines", "--json", timeout=30)
+        value = self.parsed(out) if code == 0 else {}
+        facts = {k: value.get(k) for k in ("last_error", "link_route") if value.get(k)}
+        return f"; cloud.machines {clean(json.dumps(facts), 300)}" if facts else ""
+
     def launch(self) -> str:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
@@ -656,6 +731,8 @@ class Matrix:
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
+                    if name == "cloud list-machines":
+                        last += self.list_why()
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
         if args.cache_claude_login:
@@ -668,6 +745,16 @@ class Matrix:
                 code, err = claude_login_cache.store(self.cli, self.env, entry, self.claude_token)
                 if code != 0:
                     return f"cache claude login: exit {code} ({clean(err, 300)})"
+            # A cached login is not a connection: the start gate runs a Claude chat only when one serves Cloud
+            # (or the team's gateway does). Add it as this account's Claude connection, as Set up Claude does.
+            code, err, added = claude_login_cache.connect(self.cli, self.env, self.claude_token,
+                                                          f"matrix {self.args.tag}")
+            if added:
+                self.added_connections.append(added)
+            elif code != 0:
+                return f"add claude connection: exit {code} ({clean(err, 300)})"
+            else:
+                return "add claude connection: the answer named no connection"
         return ""
 
     def remove_logins(self) -> list[str]:
@@ -678,6 +765,11 @@ class Matrix:
             code, err = claude_login_cache.remove(self.cli, self.env, entry)
             if code != 0:
                 left.append(f"{entry}: exit {code} ({clean(err, 200)})")
+        while self.added_connections:
+            added = self.added_connections.pop()
+            code, err = claude_login_cache.disconnect(self.cli, self.env, added)
+            if code != 0:
+                left.append(f"connection {added['id']}: exit {code} ({clean(err, 200)})")
         return left
 
     def quit(self) -> None:
@@ -873,7 +965,7 @@ class Matrix:
         if moved is not None:
             cell["bytes_moved"] = moved
             cell["bytes_moved_source"] = moved_source
-        for key in ("stages_ms", "stages_detail_ms", "ready_ms", "copy", "seed", "mode", "skipped_counts"):
+        for key in ("stages_ms", "stages_detail_ms", "ready_ms", "copy", "seed", "mode", "skipped_counts", "projected"):
             if isinstance(answer.get(key), (dict, list, int, str)):
                 cell.setdefault("answer_timing", {})[key] = json.loads(clean(json.dumps(answer[key]), 4000)) \
                     if not EVIDENCE_SCAN.search(json.dumps(answer[key])) else "[left out]"
@@ -893,6 +985,16 @@ class Matrix:
             "text": clean(reply.replace(canary, "[canary]") if canary else reply, 300),
         }
         cell["remote_folder"] = clean(remote, 300)
+        # What the start moved before anything read the tree, then the intended read on the machine.
+        cell["projection_log"] = projection_log(folder)
+        if machine and remote and name in READ_PROBE_CELLS:
+            probe = base64.b64encode(READ_PROBE_PY.encode()).decode()
+            got, problem = self.exec_json(machine, f"echo {probe} | base64 -d > /tmp/cwm-read.py && "
+                                                   f"python3 /tmp/cwm-read.py {shlex_quote(remote)}", timeout=900)
+            cell["read_probe"] = got or {"error": problem}
+            after = projection_log(folder)
+            if isinstance(after.get("sent"), dict):
+                cell["projection_log"]["sent_after_read"] = after["sent"]
         if projection and remote and machine and not read_only:
             # The agent actions are checked on the machine before cleanup.  Bring Back's full
             # three-way correctness is covered by the companion Rust matrix, which runs the same
@@ -961,6 +1063,68 @@ def _left_on_mac(self, answer: dict, machine: str, remote: str) -> int:
 
 
 Matrix.left_on_mac = _left_on_mac
+
+
+# Run on the machine: time a listing of the folder, then the first byte and the whole of its largest file.
+READ_PROBE_PY = r"""
+import json, os, sys, time
+root = sys.argv[1]
+t = time.monotonic(); entries = 0; largest = (0, "")
+for top, dirs, files in os.walk(root):
+    dirs[:] = [d for d in dirs if d != ".git"]
+    for name in files:
+        entries += 1
+        p = os.path.join(top, name)
+        try:
+            st = os.lstat(p)
+        except OSError:
+            continue
+        if not os.path.islink(p) and st.st_size > largest[0]:
+            largest = (st.st_size, p)
+out = {"entries": entries, "list_ms": round((time.monotonic() - t) * 1000)}
+if largest[1]:
+    out["largest_bytes"] = largest[0]
+    out["largest"] = os.path.relpath(largest[1], root)
+    t = time.monotonic()
+    with open(largest[1], "rb") as f:
+        f.read(1)
+        out["first_byte_ms"] = round((time.monotonic() - t) * 1000)
+        while f.read(1 << 20):
+            pass
+    out["whole_ms"] = round((time.monotonic() - t) * 1000)
+out["mounted"] = any(line.split()[1] == root or root.startswith(line.split()[1] + "/")
+                     for line in open("/proc/mounts") if "fuse" in line.split()[2])
+print(json.dumps(out))
+"""
+
+
+def projection_log(folder: Path) -> dict:
+    """The Mac-side projection server's own record of FOLDER's start (link/sync_cli/project.rs): its `ready`
+    timing (entries, listed_ms, manifest_bytes, ready_ms, mount_ms) and its last `sent` line (file reads and bytes
+    answered). {} when no server serves the folder: the start was a copy or seed, not a projection."""
+    roots = [Path(os.environ[key]) for key in ("CMUX_TUI_STATE_DIR",) if os.environ.get(key)]
+    roots.append(Path.home() / "Library/Application Support/cmux-tui/sessions")
+    roots.append(Path.home() / ".local/state/cmux-tui/sessions")
+    want = str(folder.resolve())
+    for root in roots:
+        for served in (root / "link-sync" / "projections").glob("*.served"):
+            try:
+                local = served.read_bytes().split(b"\0", 2)[-1].decode()
+                if local != want:
+                    continue
+                found: dict = {"server": served.stem}
+                for line in served.with_suffix(".log").read_text(errors="replace").splitlines():
+                    for key in ("ready", "sent"):
+                        prefix = f"cmux link project: {key} "
+                        if line.startswith(prefix):
+                            try:
+                                found[key] = json.loads(line[len(prefix):])
+                            except json.JSONDecodeError:
+                                pass
+                return found
+            except OSError:
+                continue
+    return {}
 
 
 def shlex_quote(text: str) -> str:
@@ -1050,14 +1214,23 @@ def verdict(cell: dict, canary: str) -> str:
 
 
 def grid(cells: list[dict]) -> str:
-    rows = ["| Workspace | Agent | Result | First token | Bytes moved | Round trip | Create to reply | Files (here / there) | Hash | Git | Secrets | Reply |",
-            "|---|---|---|---:|---:|---|---:|---|---|---|---|---|"]
+    rows = ["| Workspace | Agent | Result | First token | Bytes moved | Round trip | Create to reply | Mode | Ready ms | Manifest B | Sent at start | List ms | "
+            "Largest: first byte / whole ms | Sent after read | Files (here / there) | Hash | Git | Secrets | Reply |",
+            "|---|---|---|---:|---:|---|---:|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for cell in cells:
         local, remote = cell.get("local") or {}, cell.get("remote") or {}
         hash_text = {True: "match", False: "differs", None: "-"}[cell.get("hash_match")]
         git_text = {True: "match", False: "differs", None: "-"}[cell.get("git_match")]
         leak = "LEAK" if (cell.get("canary_on_machine") or (cell.get("reply") or {}).get("canary_in_reply")) else (
             "none leaked" if cell["workspace"] == "secrets" else "-")
+        projection = cell.get("projection_log") or {}
+        ready = projection.get("ready") or {}
+        probe = cell.get("read_probe") or {}
+        mode = (cell.get("answer_timing") or {}).get("mode") or ("projected" if ready else "-")
+        sent = (projection.get("sent") or {}).get("bytes", "-")
+        sent_after = (projection.get("sent_after_read") or {}).get("bytes", "-")
+        largest = (f"{probe.get('largest_bytes', '-')} B: {probe.get('first_byte_ms', '-')} / {probe.get('whole_ms', '-')}"
+                   if probe.get("largest_bytes") else "-")
         first = cell.get("first_text_s")
         first_text = f"{first:.3f} s" if isinstance(first, (int, float)) else "-"
         moved = cell.get("bytes_moved")
@@ -1067,7 +1240,8 @@ def grid(cells: list[dict]) -> str:
         if cell.get("projection"):
             round_trip += "; conflict/no-loss: Rust"
         rows.append(f"| {cell['workspace']} | {cell['agent']} | {cell['result']} | {first_text} | {moved_text} | {round_trip} | "
-                    f"{cell.get('create_to_reply_s', '-')} s | {local.get('files', '-')} / {remote.get('files', '-')} | "
+                    f"{cell.get('create_to_reply_s', '-')} s | {mode} | {ready.get('ready_ms', '-')} | "
+                    f"{ready.get('manifest_bytes', '-')} | {sent} | {probe.get('list_ms', '-')} | {largest} | {sent_after} | {local.get('files', '-')} / {remote.get('files', '-')} | "
                     f"{hash_text} | {git_text} | {leak} | {(cell.get('reply') or {}).get('text', '-')[:80]} |")
     return "\n".join(rows) + "\n"
 
@@ -1078,6 +1252,8 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     agents = [agent for agent in args.agents.split(",") if agent]
     only = {name for name in args.only.split(",") if name}
+    if "kinds" in only:  # RFD 0007's folder kinds
+        only = (only - {"kinds"}) | set(KIND_CELLS.values())
     selected = PROJECTION_KINDS if args.projection_kinds else WORKSPACES
     kinds = [kind for kind in selected if not only or kind in only]
     root = Path(tempfile.mkdtemp(prefix="cmux-matrix-"))

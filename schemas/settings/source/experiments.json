@@ -81,6 +81,28 @@
           ]
         },
         {
+          "key": "experiments.startedTaskTitleChip",
+          "note": "Taste prototype: a started task in an agent chat's Suggested Tasks card opens its chat and lights from its title chip only, as a returned result's line does; the rest of the row lights nothing (webviews useExperimentSwitch(\"startedTaskTitleChip\"), SuggestedTasks.tsx). Off by default; off keeps today's whole-row button.",
+          "title": {
+            "key": "settings.experiments.startedTaskTitleChip",
+            "text": "Started Tasks: Title Opens Chat"
+          },
+          "help": {
+            "key": "settings.experiments.startedTaskTitleChip.help",
+            "text": "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "suggested tasks",
+            "subagent",
+            "started",
+            "hover",
+            "highlight",
+            "title"
+          ]
+        },
+        {
           "key": "experiments.composerV2",
           "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
           "title": {
@@ -313,6 +335,33 @@
           ]
         },
         {
+          "key": "experiments.transcriptWorkLog",
+          "note": "Taste prototype: a finished agent turn reads as a work log. Its steps stay in the closed Worked for, the edited-files card reads Changed N files +N -N over the session's branch with Preview, a sent file's chip says added to context, and hairline low-contrast borders replace fills (webviews useExperimentSwitch(\"transcriptWorkLog\"), conversation/transcriptWorkLog.css). Off by default; off keeps today's transcript.",
+          "title": {
+            "key": "settings.experiments.transcriptWorkLog",
+            "text": "Transcript Work Log"
+          },
+          "help": {
+            "key": "settings.experiments.transcriptWorkLog.help",
+            "text": "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "agent",
+            "chat",
+            "transcript",
+            "work log",
+            "worked for",
+            "diff",
+            "changed files",
+            "context"
+          ]
+        },
+        {
           "key": "experiments.terminalAgentMark",
           "note": "Leo 2026-11-24 (\"terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats\"): an agent running in a terminal tab (Claude Code, Codex as a CLI) draws its mark on a soft rounded square of its tint (CmuxNextTabs TabAgentMarkCache terminal:, TabStripMetrics.terminalAgentMarks; DesignSettings.terminalAgentMarks; iPhone AgentAvatarMark.terminalShapeEnabled reads the same key from UserDefaults). A GUI agent chat keeps its bare mark (Mac) or circle (iPhone). Picked from a 4-variant gallery (cmux#53018: cut-out badge, dark tile, label, rounded square). Off by default; off keeps today's marks.",
           "title": {
@@ -387,7 +436,7 @@
         },
         {
           "key": "experiments.composerHatGroups",
-          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks, and aligns the hat's leading column with the composer's plus glyph (webviews experiments subagent-tray-fold-head, arm groups, and subagent-tray-column, arm glyph). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally and chip look (hostSettings.ts SETTING_OFF_ARMS).",
+          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks (webviews experiment subagent-tray-fold-head, arm groups). The hat's leading column always centres its marks on the composer's plus glyph and starts its words at the prompt's (cmux#56151 retired the subagent-tray-column experiment, whose glyph arm offset it twice). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally header (hostSettings.ts SETTING_OFF_ARMS).",
           "title": {
             "key": "settings.experiments.composerHatGroups",
             "text": "Composer Hat: Two Groups"
@@ -409,6 +458,29 @@
             "background",
             "groups",
             "glyph"
+          ]
+        },
+        {
+          "key": "experiments.forumCallCard",
+          "note": "Forum Tool Calls: a call to the agent forum (agent-forum search, show, list, ask, post, reply, topic, close) draws as a forum row in the chat, its line in the forum's words and the threads it found, read or posted as links, in place of the shell row (webviews experiment forum-call-card, arm card; forumShellCalls.ts). Off by default; off keeps the shell row. A cmux-forum MCP post, reply or search draws its card either way (forumCalls.ts). Leo, 2026-11-22: \"i wonder if that's also grounds for a new type of tool call appearance in the gui\".",
+          "title": {
+            "key": "settings.experiments.forumCallCard",
+            "text": "Forum Tool Calls"
+          },
+          "help": {
+            "key": "settings.experiments.forumCallCard.help",
+            "text": "Agent forum searches, reads and posts show as forum rows with links to their threads."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "forum",
+            "agent forum",
+            "tool call",
+            "threads",
+            "labs"
           ]
         },
         {
@@ -435,8 +507,56 @@
           ]
         },
         {
+          "key": "experiments.themedPrompts",
+          "note": "Prompts that float over every app (the join consent, the device-control prompt, App Health, cmux Remote's device-control banner and Computer Use question) draw the theme-tinted prompt glass (SurfaceRole.prompt) with inks fit over any app, a small icon beside the title, a quieter note, and the join consent's Settings… button (CmuxDialogView.overApps, DesignSettings.experiment(\"themedPrompts\"); cmux Remote reads the theme the app writes to prompt-theme.json only while this is on). Off by default (Leo's UI merge hold, 2026-11-24); off keeps today's system-glass prompts, unchanged.",
+          "title": {
+            "key": "settings.experiments.themedPrompts",
+            "text": "Themed Floating Prompts"
+          },
+          "help": {
+            "key": "settings.experiments.themedPrompts.help",
+            "text": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "prompt",
+            "consent",
+            "control",
+            "screen sharing",
+            "glass",
+            "theme"
+          ]
+        },
+        {
+          "key": "experiments.toastGlass",
+          "note": "Taste prototype: stack toasts in web pages sit on the App's own toast glass where the App draws it (the agent pane), as its native toasts do, instead of the page's floating material (webviews experiment toast-glass, arm host, hostSettings.ts SETTING_ARMS; Notice data-host-glass role toast). A page with no App glass under it keeps the floating material. Off by default; off keeps today's toasts.",
+          "title": {
+            "key": "settings.experiments.toastGlass",
+            "text": "Toast Glass"
+          },
+          "help": {
+            "key": "settings.experiments.toastGlass.help",
+            "text": "Toasts in chats sit on the same glass as the app's own toasts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiments",
+            "experimental",
+            "toasts",
+            "toast",
+            "glass",
+            "notice"
+          ]
+        },
+        {
           "key": "experiments.terminalHistoryFind",
-          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps Ghostty's own screen search, unchanged. Applies to terminals opened after the switch.",
+          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). On by default (Leo asked for it, cmux#53180: \"can we have better cmd f find for terminal gui chats? maybe terminals in general\"); off keeps Ghostty's own screen search. Applies to terminals opened after the switch.",
           "title": {
             "key": "settings.experiments.terminalHistoryFind",
             "text": "Terminal History Find"
@@ -446,7 +566,7 @@
             "text": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "experiments",
             "experimental",
@@ -482,6 +602,105 @@
             "widget",
             "tool",
             "card"
+          ]
+        },
+        {
+          "key": "experiments.expandedEditsEstimate",
+          "note": "Agent chat estimates an opened \"Edited N files\" group at its files' diff cards (conversation/editDiffBox.ts) instead of its 22 px closed line, so no gap opens under it before it mounts (model.ts editsEstimateOn, from experimentSwitchOn(\"expandedEditsEstimate\")). Off by default (Leo's UI hold, 2026-11-24, ask-82b08b7ed7); off keeps the old estimate.",
+          "title": {
+            "key": "settings.experiments.expandedEditsEstimate",
+            "text": "Expanded Edits Estimate"
+          },
+          "help": {
+            "key": "settings.experiments.expandedEditsEstimate.help",
+            "text": "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "labs",
+            "agent",
+            "chat",
+            "edits",
+            "diff",
+            "gap",
+            "scroll"
+          ]
+        },
+        {
+          "key": "experiments.introWalk",
+          "note": "Make cmux Yours as the intro walk's four screens (hq RFD 0057): look bundles with light and dark faces and a Tidy switch, how you work, trust and noise (agents' permission, banners and sound), then tune (density, background). The onboarding page reads it from its state (MakeItYoursStepModel.introWalk; webviews onboarding walk.ts). Off by default; off keeps today's one Make cmux Yours screen.",
+          "title": {
+            "key": "settings.experiments.introWalk",
+            "text": "Intro Walk"
+          },
+          "help": {
+            "key": "settings.experiments.introWalk.help",
+            "text": "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "onboarding",
+            "intro",
+            "first run",
+            "walk",
+            "look",
+            "bundle",
+            "trust",
+            "permission",
+            "notifications"
+          ]
+        },
+        {
+          "key": "experiments.appsTier",
+          "note": "RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.",
+          "title": {
+            "key": "settings.experiments.appsTier",
+            "text": "Publish Previews as Apps"
+          },
+          "help": {
+            "key": "settings.experiments.appsTier.help",
+            "text": "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "apps",
+            "publish",
+            "preview",
+            "cloud",
+            "version"
+          ]
+        },
+        {
+          "key": "experiments.chatInstantUnderLoad",
+          "note": "Perf experiment (docs/design/chat-instant-under-load.md, the idle lane): once the chat list shared with new tabs (webviews newtab/chatStore.ts) holds a list, a page writes a changed list from its idle lane (acpmux/schedule) instead of at once, so the write never shares a task with a key or a transcript frame; the newest list still wins and a page that hides still writes at once (webviews experimentSwitchOn(\"chatInstantUnderLoad\")). Off by default; off keeps today's timing.",
+          "title": {
+            "key": "settings.experiments.chatInstantUnderLoad",
+            "text": "Prioritize Chat Input"
+          },
+          "help": {
+            "key": "settings.experiments.chatInstantUnderLoad.help",
+            "text": "While you type or a reply streams, wait for a pause before saving the chat list new tabs show."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "chat",
+            "typing",
+            "streaming",
+            "performance"
           ]
         },
         {
@@ -658,6 +877,55 @@
             "storage",
             "bar",
             "caches"
+          ]
+        },
+        {
+          "key": "experiments.browserProfileCard",
+          "note": "Browser Profile Card: the browser toolbar's profile menu opens as Helium's, a card with the profile's large avatar first, a Signed in as row (Accounts), avatars on the other profiles, and the profile's own rows in Customize Profile (BrowserProfileMenuStyle.card, BrowserToolbarHandlers.profileMenu). Off by default: today's menu (Leo's UI hold, 2026-11-25).",
+          "title": {
+            "key": "settings.experiments.browserProfileCard",
+            "text": "Browser Profile Card"
+          },
+          "help": {
+            "key": "settings.experiments.browserProfileCard.help",
+            "text": "The browser's profile menu opens with a profile card."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "browser",
+            "profile",
+            "menu",
+            "card",
+            "account",
+            "helium",
+            "labs"
+          ]
+        },
+        {
+          "key": "experiments.appStoreFeatures",
+          "note": "App Store Features: the App Store's Features tab, every built-in feature (backgrounds, Chief pet, Now Playing, every Lab and Experiment) as a switch on its own setting (cmux-tui server/app_features.rs, webviews pages/apps/FeaturesView.tsx). Leo, 2026-10-21: \"have that app store area as a sort of way to, like, toggle things on and off\". Off by default (Leo's UI rule: merge default-off); off draws no tab and apps.features.* lists nothing and refuses writes.",
+          "title": {
+            "key": "settings.experiments.appStoreFeatures",
+            "text": "App Store Features"
+          },
+          "help": {
+            "key": "settings.experiments.appStoreFeatures.help",
+            "text": "The App Store gets a Features tab where built-in features turn on and off."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "app",
+            "store",
+            "features",
+            "switches",
+            "toggles"
           ]
         }
       ]

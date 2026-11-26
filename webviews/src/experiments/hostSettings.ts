@@ -18,23 +18,19 @@ type SettingArmEntry = SettingArm | readonly SettingArm[];
 export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
-  composerHatGroups: [
-    { experiment: "subagent-tray-fold-head", arm: "groups" },
-    { experiment: "subagent-tray-column", arm: "glyph" },
-  ],
+  toastGlass: { experiment: "toast-glass", arm: "host" },
+  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "line" },
+  forumCallCard: { experiment: "forum-call-card", arm: "card" },
 };
 
 /**
  * The arm(s) a switch that is on by default runs when the person turns it off. Its on arms are the
  * experiments' defaults, so a page with no host (the gallery, tests) draws the shipped look.
  * composerHatGroups: on by default since Leo, 2026-11-25 ("did u guys fix the composer hat yet :( let's
- * go ahead on those"); off keeps the earlier tally header and the + chip's column.
+ * go ahead on those"); off keeps the earlier tally header.
  */
 export const SETTING_OFF_ARMS: Readonly<Record<string, SettingArmEntry>> = {
-  composerHatGroups: [
-    { experiment: "subagent-tray-fold-head", arm: "tally" },
-    { experiment: "subagent-tray-column", arm: "chip" },
-  ],
+  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "tally" },
 };
 
 function armsFor(entry: SettingArmEntry): readonly SettingArm[] {

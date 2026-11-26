@@ -86,6 +86,8 @@ use serde_json::{Map, Value, json};
 pub mod claude_plugin_dirs;
 mod cmux_mcp;
 pub mod project_mcp;
+#[cfg(unix)]
+pub mod shared_servers;
 mod upstreams;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
@@ -768,7 +770,19 @@ pub fn acp_servers_for(
     }
     let tools = acp_tools_with(current(), env, session_id, all_tools, codex);
     let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
-    tools.acp_servers()
+    let servers = tools.acp_servers();
+    // The person's own Codex servers they share run once for every chat (`mcp_pool.rs`).
+    #[cfg(unix)]
+    let servers = match (codex, servers) {
+        (Some(_), Value::Array(mut list)) => {
+            let taken: std::collections::BTreeSet<String> =
+                list.iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect();
+            list.extend(shared_servers::codex(env, cwd, &taken, &crate::config::home()));
+            Value::Array(list)
+        }
+        (_, servers) => servers,
+    };
+    servers
 }
 
 /// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
@@ -1068,9 +1082,20 @@ pub(crate) fn claude_args_and_hooks_for(
     let strict = args.iter().any(|a| a == "--strict-mcp-config");
     let project_servers =
         if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    // The person's own servers they share run once for every chat (`mcp_pool.rs`); a server
+    // wrapped for a checkout still filling stays wrapped.
+    #[cfg(unix)]
+    let shared = if remote_origin || strict {
+        Map::new()
+    } else {
+        let taken = project_servers.keys().cloned().collect();
+        shared_servers::claude(env, cwd, &taken, &crate::config::home())
+    };
+    #[cfg(not(unix))]
+    let shared = Map::new();
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
-        if project_servers.is_empty() {
+        if project_servers.is_empty() && shared.is_empty() {
             return (Vec::new(), None, false);
         }
         AgentTools::default()
@@ -1090,6 +1115,13 @@ pub(crate) fn claude_args_and_hooks_for(
         tools.via_gateway(session_id, cwd)
     };
     let callbacks = tools.plugin_dir.is_some();
+    let mut project_servers = project_servers;
+    for (name, entry) in shared {
+        // cmux's own server of a name keeps it.
+        if !tools.servers.iter().any(|s| s.name == name) && !tools.http.contains_key(&name) {
+            project_servers.entry(name).or_insert(entry);
+        }
+    }
     let args = AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id));
     (args, prompt, callbacks)

@@ -10,6 +10,14 @@
 # cmux-tui turned on acpmux's hub-carrier feature (#43753) every one of them
 # linked the hub carrier, which filled an 8-vCPU runner's disk on every run
 # from 171c1fa97a7 ("No space left on device", cmux-tui-artifacts run 43758800604).
+# A member with `autotests = false` names its test targets as `[[test]]`
+# entries: a file under tests/ goes to the entry whose path is that file, or the
+# tests/DIR.rs or tests/DIR/main.rs entry of its folder, else to the member's one
+# tests/DIR/main.rs entry that gathers the undeclared files (cmux-tui's `it`,
+# #56677). Before that mapping, cmux-tui's `autotests = false` (#56928,
+# 2026-11-25 21:42Z) sent the job back to every test target of every member,
+# acpmux's ~300 included, and each window's run died "No space left on device"
+# on the pool: the feat-cmux-next channel stayed at 2b2b65097 (22:57Z).
 # Falls back to the members alone (all their test targets) when a match is in
 # a file it cannot place in one target, and to `--workspace` when a match is
 # outside a member it can name.
@@ -17,6 +25,28 @@
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)/cmux-tui"
 cd "$root"
+# The [[test]] target of an `autotests = false` member that builds tests/... file REL, or nothing.
+declared_test() {
+  local manifest="$1" rel="$2" top entries name path gather="" gathers=0
+  top="${rel#tests/}"; top="${top%%/*}"; top="${top%.rs}"
+  # One "name<TAB>path" line per [[test]] entry; a missing path is cargo's tests/NAME.rs.
+  entries="$(awk '
+    function emit() { if (inside && name != "") print name "\t" (path != "" ? path : "tests/" name ".rs") }
+    /^\[\[test\]\]/ { emit(); inside = 1; name = ""; path = ""; next }
+    /^\[/ { emit(); inside = 0; next }
+    inside && /^name *=/ { v = $0; sub(/^[^"]*"/, "", v); sub(/".*$/, "", v); name = v }
+    inside && /^path *=/ { v = $0; sub(/^[^"]*"/, "", v); sub(/".*$/, "", v); sub(/^\.\//, "", v); path = v }
+    END { emit() }' "$manifest")"
+  while IFS=$'\t' read -r name path; do
+    [[ -n "$name" ]] || continue
+    if [[ "$path" == "$rel" || "$path" == "tests/$top.rs" || "$path" == "tests/$top/main.rs" ]]; then
+      printf '%s\n' "$name"; return 0
+    fi
+    if [[ "$path" == tests/*/main.rs ]]; then gather="$name"; gathers=$((gathers + 1)); fi
+  done <<<"$entries"
+  (( gathers == 1 )) && printf '%s\n' "$gather"
+  return 0
+}
 packages=()
 targets=()
 placed=1
@@ -32,9 +62,18 @@ while IFS= read -r file; do
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
-  # A member that names its own test targets may not map tests/NAME.rs to NAME.
-  if grep -qE '^autotests *= *false' "$dir/Cargo.toml"; then placed=0; continue; fi
   rel="${file#"$dir"/}"
+  # A member that names its own test targets: place the file through its [[test]] entries.
+  if grep -qE '^autotests *= *false' "$dir/Cargo.toml"; then
+    case "$rel" in
+      src/*) targets+=("--lib" "--bins"); continue ;;
+      tests/*) ;;
+      *) placed=0; continue ;;
+    esac
+    test_name="$(declared_test "$dir/Cargo.toml" "$rel")"
+    if [[ -n "$test_name" ]]; then targets+=("--test" "$test_name"); else placed=0; fi
+    continue
+  fi
   case "$rel" in
     src/*) targets+=("--lib" "--bins") ;;
     tests/*)

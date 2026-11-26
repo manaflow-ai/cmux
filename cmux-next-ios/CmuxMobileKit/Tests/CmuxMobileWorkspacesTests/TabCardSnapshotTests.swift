@@ -50,9 +50,13 @@ import UIKit
         }
     }
 
+    /// Polls until `done`, up to 30 s. The simulator leg runs the kit's ~2900 tests in parallel
+    /// (`cmux-next-ios-sim.sh test`), and this store's encodes, reads and writes run off the main
+    /// thread at utility priority: on 2026-11-25 a save and a Mac thumbnail read each missed a
+    /// 5 s bound there while passing alone. A path that never finishes still fails.
     static func wait(_ what: String, until done: @MainActor () -> Bool) async throws {
-        for _ in 0..<500 where !done() { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(done(), "\(what) within 5 s")
+        for _ in 0..<3000 where !done() { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(done(), "\(what) within 30 s")
     }
 
     @Test func aPictureIsStoredOnceByItsHashAndReadBack() {
@@ -231,6 +235,26 @@ import UIKit
         #expect(next.entry(Self.key("clean")).image != nil)
     }
 
+    /// Leo, 2026-11-24: "there are too many empty previews in the safari grid thing". A page with
+    /// little on it (a short chat) is a picture of its tab, not a placeholder: a few thin strokes
+    /// anywhere on a page-sized picture keep it, though a 64-pixel copy of it reads as one colour.
+    @Test func aSparsePageIsAPictureNotAPlaceholder() {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 1206, height: 2622)
+        for mark in [CGRect(x: 611, y: 1307, width: 2, height: 2), CGRect(x: 1203, y: 2619, width: 3, height: 1),
+                     CGRect(x: 0, y: 0, width: 1, height: 1)] {
+            let page = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+                UIColor.white.setFill()
+                context.fill(mark)
+            }
+            #expect(!CardPictureGate.isPlaceholder(page), "a page with \(mark) drawn is a picture")
+        }
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.black, width: 1206, height: 2622)))
+    }
+
     /// Leo, 2026-11-24, on a grid of black cards: "wer need to chase all these placeholders doen and
     /// prevent them". A picture of one solid colour (a capture of a page that had drawn nothing) is
     /// neither shown nor saved, from the phone or the Mac; the card keeps its last real picture.
@@ -324,10 +348,53 @@ import UIKit
         rasterizer.setIdle(true)
         rasterizer.frame()
         rasterizer.setIdle(false)
-        try #require(feed.raster != nil)
+        let raster = try #require(feed.raster)
+        // A raster the gate calls a placeholder is never saved: say so rather than time out below.
+        #expect(!CardPictureGate.isPlaceholder(raster.image), "the agent card's picture reads as a placeholder")
         #expect(snapshots.entry(Self.key("agent")).image != nil)
         try await Self.wait("the picture is written") { snapshots.saves == 1 }
         #expect(snapshots.store.record(Self.key("agent"))?.pixelWidth == 402)
+    }
+
+    /// A chat shorter than its page rests on the composer, below the part of the page a card
+    /// shows: its card was one flat colour and was never kept (Leo, 2026-11-24: "there are too
+    /// many empty previews in the safari grid thing"; measured on the fleet simulator, 402x566,
+    /// 0 pixels off the background, while the whole page drew its text). In a card its rows sit
+    /// inside the slice.
+    @Test func aShortChatsCardShowsItsRows() throws {
+        var turn = AgentTurn(id: "t", prompt: "Card", promptAt: Date(timeIntervalSince1970: 0))
+        turn.items = [.message(id: "m", markdown: "Reply")]
+        turn.status = .completed
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        let page = CGSize(width: 402, height: 874)
+        for scheme in [ColorScheme.dark, .light] {
+            let key = AgentCardRasterKey.current(feed, turns: [turn], colorScheme: scheme, page: page, visibleHeight: 566,
+                                                 topInset: 70, bottomInset: 110, scale: 1)
+            let image = try #require(AgentCardRasterizer.render(feed, key))
+            #expect(!CardPictureGate.isPlaceholder(image), "a short chat's card is one flat colour (\(scheme))")
+        }
+    }
+
+    /// Where a card's rows rest: on the slice's bottom edge when the page would rest them below
+    /// it, under the header when they are taller than the slice, and as the page (no move on
+    /// open) once they fill the page.
+    @Test func aCardsRowsRestInsideItsSlice() {
+        func top(_ rows: CGFloat, slice: CGFloat? = 566) -> CGFloat {
+            AgentChatPreviewPlacement.rowsTop(pageHeight: 874, rowsHeight: rows, topInset: 70, bottomInset: 110, cardSlice: slice)
+        }
+        // The page at rest (no slice): on the composer's gap.
+        #expect(top(100, slice: nil) == 664)
+        // A short chat: wholly inside the slice, on its bottom edge.
+        #expect(top(100) + 100 <= 566 && top(100) >= 70)
+        let onTheSlicesEdge: CGFloat = 566 - 8 - 100
+        #expect(top(100) == onTheSlicesEdge)
+        // Taller than the slice: from under the header.
+        #expect(top(600) == 70)
+        // Filling the page: as the page rests it.
+        #expect(top(700) == 64)
+        #expect(top(3000) == top(3000, slice: nil))
+        // No step between the cases.
+        #expect(abs(top(487) - top(489)) <= 2 && abs(top(693) - top(695)) <= 2)
     }
 
     /// What a card draws: a still whenever one exists, the live page of transcript only when none does.
@@ -542,6 +609,91 @@ import UIKit
         // Blobs are named by content: a row of the new epoch that names one shows it from disk.
         next.cards([(tabID: "s1", info: MacCardInfo(title: "zsh", kind: "terminal")), (tabID: "s9", info: web)], epoch: "run-2", macID: "mac-1")
         try await Self.wait("the kept favicon fills the tab that names it") { next.entry(Self.key("s9")).favicon != nil }
+    }
+
+    /// `info` kept as tab `s1` of `mac-1` under epoch `run-1`, then read back by the next launch:
+    /// its favicon and its picture are showing.
+    static func kept(_ info: MacCardInfo, favicon: Data, thumb: Data) async throws -> (MacTabCards, TabCardSnapshots) {
+        let folder = Self.directory()
+        let (first, _) = Self.cards(folder)
+        first.cards([(tabID: "s1", info: info)], epoch: "run-1", macID: "mac-1")
+        for bytes in [favicon, thumb] {
+            first.save(bytes, hash: Self.hash(bytes), macID: "mac-1")
+            await first.blobArrived(hash: Self.hash(bytes), tabIDs: ["s1"], macID: "mac-1")?.value
+        }
+        let store = first.store
+        try await Self.wait("rows, epoch and blobs are written") {
+            let disk = store.macDisk(accountID: "user-1", macID: "mac-1")
+            return disk.names.count == 2 && disk.cards.count == 1 && disk.epoch == "run-1"
+        }
+        let (next, pictures) = Self.cards(folder)
+        await next.warm(macID: "mac-1")?.value
+        try await Self.wait("the favicon and the thumbnail are read") {
+            next.entry(Self.key("s1")).favicon != nil && pictures.entry(Self.key("s1")).image != nil
+        }
+        return (next, pictures)
+    }
+
+    @Test func aNewEpochKeepsACardWhoseTabKeyMatchesWhateverItsTitle() async throws {
+        let favicon = try Self.png(.systemBlue), thumb = try Self.png(.systemGreen)
+        let web = MacCardInfo(title: "Docs", kind: "browser", faviconHash: Self.hash(favicon), thumbHash: Self.hash(thumb),
+                              capturedAtMs: 50, tabKey: "res-1")
+        let (cards, pictures) = try await Self.kept(web, favicon: favicon, thumb: thumb)
+        // The Mac's daemon restarted: the same tab, another title, no blob in common yet.
+        let renamed = MacCardInfo(title: "News", kind: "browser", tabKey: "res-1")
+        #expect(!MacTabCards.sameTab(MacCardInfo(title: "Docs", kind: "browser"), MacCardInfo(title: "News", kind: "browser")),
+                "without keys the title rule would forget it")
+        cards.cards([(tabID: "s1", info: renamed)], epoch: "run-2", macID: "mac-1")
+        #expect(cards.entry(Self.key("s1")).info?.title == "News")
+        #expect(pictures.entry(Self.key("s1")).image != nil, "the same durable tab keeps its picture")
+    }
+
+    @Test func aNewEpochForgetsACardWhoseTabKeyDiffersEvenUnderTheSameTitle() async throws {
+        let favicon = try Self.png(.systemBlue), thumb = try Self.png(.systemGreen)
+        let web = MacCardInfo(title: "Docs", kind: "browser", faviconHash: Self.hash(favicon), thumbHash: Self.hash(thumb),
+                              capturedAtMs: 50, tabKey: "res-1")
+        let (cards, pictures) = try await Self.kept(web, favicon: favicon, thumb: thumb)
+        let entry = cards.entry(Self.key("s1"))
+        // `s1` now names another tab that happens to read the same title.
+        let other = MacCardInfo(title: "Docs", kind: "browser", tabKey: "res-2")
+        #expect(MacTabCards.sameTab(MacCardInfo(title: "Docs", kind: "browser"), MacCardInfo(title: "Docs", kind: "browser")),
+                "without keys the title rule would keep it")
+        cards.cards([(tabID: "s1", info: other)], epoch: "run-2", macID: "mac-1")
+        #expect(cards.entry(Self.key("s1")) === entry, "the card's views keep observing the same entry")
+        #expect(entry.favicon == nil, "the other tab's favicon is gone")
+        #expect(pictures.entry(Self.key("s1")).image == nil, "the other tab's picture is gone")
+    }
+
+    @Test func cardsWithoutATabKeyOnBothSidesKeepTheTitleAndBlobRule() {
+        let web = MacCardInfo(title: "Docs", kind: "browser", faviconHash: Self.hash(Data("f".utf8)))
+        let keyed = MacCardInfo(title: "Docs", kind: "browser", tabKey: "res-1")
+        // Both keyed: the key decides, and the kind still must match.
+        #expect(MacTabCards.sameTab(keyed, MacCardInfo(title: "Other", kind: "browser", tabKey: "res-1")))
+        #expect(!MacTabCards.sameTab(keyed, MacCardInfo(title: "Docs", kind: "browser", tabKey: "res-2")))
+        #expect(!MacTabCards.sameTab(keyed, MacCardInfo(title: "Docs", kind: "terminal", tabKey: "res-1")))
+        // A key on one side only (an older Mac, or a row kept before keys): today's rule.
+        #expect(MacTabCards.sameTab(web, keyed), "same title")
+        #expect(MacTabCards.sameTab(keyed, web), "same title")
+        #expect(!MacTabCards.sameTab(MacCardInfo(title: "News", kind: "browser", tabKey: "res-1"), web))
+        #expect(MacTabCards.sameTab(web, MacCardInfo(title: "News", kind: "browser", faviconHash: web.faviconHash, tabKey: "res-1")),
+                "a blob in common")
+        // Neither keyed: unchanged.
+        #expect(MacTabCards.sameTab(web, MacCardInfo(title: "Docs", kind: "browser")))
+        #expect(!MacTabCards.sameTab(web, MacCardInfo(title: "News", kind: "browser")))
+    }
+
+    @Test func rowsSavedBeforeTabKeysStillLoad() throws {
+        let directory = Self.directory()
+        let store = TabSnapshotStore(directory: directory)
+        let url = store.macCardsURL(accountID: "user-1", macID: "mac-1")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let old = #"{"s1":{"title":"Docs","kind":"browser","faviconHash":"ab","screenColumns":0,"screenRows":0,"capturedAtMs":5}}"#
+        try Data(old.utf8).write(to: url)
+        let cards = store.macCards(accountID: "user-1", macID: "mac-1")
+        #expect(cards["s1"]?.title == "Docs")
+        #expect(cards["s1"]?.tabKey == "")
+        store.putMacCards(["s1": MacCardInfo(title: "Docs", kind: "browser", tabKey: "res-1")], accountID: "user-1", macID: "mac-1")
+        #expect(store.macCards(accountID: "user-1", macID: "mac-1")["s1"]?.tabKey == "res-1")
     }
 }
 #endif

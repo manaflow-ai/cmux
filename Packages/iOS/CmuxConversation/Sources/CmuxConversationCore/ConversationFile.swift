@@ -115,3 +115,17 @@ extension ConversationBackend {
         throw ConversationBackendError(code: -1, message: "file attachments are not supported")
     }
 }
+
+/// Upload progress of the send in flight. ``ConversationStore`` binds
+/// ``report`` around each attachment's upload; a backend that moves bytes
+/// calls it with the fraction of that attachment sent so far (0...1), and the
+/// sending row shows it ("Uploading 42%"). Unbound, reports go nowhere.
+public struct ConversationUploadProgress {
+    public init() {}
+    @TaskLocal public static var report: (@Sendable (Double) -> Void)?
+
+    /// Reports `fraction` (clamped to 0...1) to the send in flight, if any.
+    public static func send(_ fraction: Double) {
+        report?(min(1, max(0, fraction)))
+    }
+}

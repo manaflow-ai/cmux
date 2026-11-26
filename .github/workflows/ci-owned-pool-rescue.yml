@@ -70,7 +70,7 @@ on:
       - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
-      - cmux-next PR autofix
+      - cmux-next PR autofix (advisory)
       - cmux-next CEF shim C++ tests
       - cmux-next car guards
       - cmux-next
@@ -85,6 +85,7 @@ on:
       - SSH remote daemon
       - Terminal hang diagnostics
       - Feed reply provider verification
+      - Cloud chat proof (staging and production, tagged DEV app)
     types: [requested, completed]
   workflow_dispatch:
     inputs:
@@ -143,6 +144,7 @@ env:
     .github/workflows/remote-daemon.yml
     .github/workflows/terminal-hang-diagnostics.yml
     .github/workflows/test-feed-reply-providers.yml
+    .github/workflows/cloud-chat-proof.yml
 
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}

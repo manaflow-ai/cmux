@@ -49,7 +49,7 @@ const still = (steps: StepTrace[], what: string): string[] => {
     .filter((step) => settled(rowsOf(step)).join(" ") !== first)
     .map((step) => `${what}: rows changed at "${step.label}"`);
 };
-/** Each row that landed above a row already drawn while its turn ran (the checklist and the live line stay last, so
+/** Each row that landed above a row already drawn while its turn ran (the live line stays last, so
  *  landing over them is no landing). A reader's own step (opening a fold) is theirs. */
 const landings = (run: SimResult): { label: string; id: string; kind: string; above: string }[] => {
   const out: { label: string; id: string; kind: string; above: string }[] = [];
@@ -59,7 +59,7 @@ const landings = (run: SimResult): { label: string; id: string; kind: string; ab
     before = step;
     if (!was?.rows || !step.rows || !was.working || !step.working || was.turn !== step.turn) continue;
     if (step.label.startsWith("reader ")) continue;
-    const pinned = (row: RowProbe) => row.live || row.kind === "plan";
+    const pinned = (row: RowProbe) => row.live;
     const old = new Set(was.rows.filter((row) => !pinned(row)).map((row) => row.id));
     const now = step.rows.filter((row) => !pinned(row));
     const lastOld = now.reduce((found, row, at) => (old.has(row.id) ? at : found), -1);
@@ -144,7 +144,7 @@ export const EVERYWHERE: {
   {
     id: "rows-only-append",
     expected:
-      "While a turn runs, a new row lands under the rows already drawn (over the checklist and the live line, which stay last): never between or above them, which pushes drawn rows down. The turn's header line has its own entry (header-arrives-late).",
+      "While a turn runs, a new row lands under the rows already drawn (over the live line, which stays last): never between or above them, which pushes drawn rows down. The turn's header line has its own entry (header-arrives-late).",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
       "received-sent-as-activity": "received-drawn-late",
@@ -158,7 +158,10 @@ export const EVERYWHERE: {
     check: (run) => {
       const end = run.traces.at(-1);
       if (!end?.rows || end.working || !end.turnEnded) return [];
-      return want(end.rows.at(-1)?.kind === "turnSummary", `the chat rests on ${end.rows.at(-1)?.kind}, not a footer`);
+      // A fork's own boundary notice ("forked from …") closes its copy of the chat, under the cut turn's
+      // footer (fork-mid-stream); it is not running.
+      const rows = end.rows.filter((row, at) => !(at === end.rows!.length - 1 && row.id.startsWith("forked-from-")));
+      return want(rows.at(-1)?.kind === "turnSummary", `the chat rests on ${rows.at(-1)?.kind}, not a footer`);
     },
   },
 ];
@@ -200,6 +203,14 @@ export const MAP: MapEntry[] = [
     wrong: 'Leo, 2026-11-22: "an unnecessary gap due to being a recieved message".',
     expected: "Received and Sent to rows stand exactly a tool row's gap, at every step.",
     scenario: "received-sent-as-activity",
+  },
+  {
+    id: "messages-steer-mid-turn",
+    when: "Other agents' messages steer into a running turn between its commands, two back to back.",
+    wrong:
+      'Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it\'s the message recieving not properly getting treated like the tool call ish thing it should be".',
+    expected: "Rule d: each received line sits on the tool rows' pitch, at most a step's gap from its neighbours.",
+    scenario: "messages-mid-turn",
   },
   {
     id: "background-shell",
@@ -318,9 +329,13 @@ export const MAP: MapEntry[] = [
   {
     id: "turn-with-one-thing",
     when: "A turn that only thinks, one that only runs a command, one that only replies.",
-    wrong: "A turn with no reply drew nothing under its prompt, or a footer with no line over it.",
+    wrong:
+      'A turn with no reply drew nothing under its prompt, or a footer with no line over it. A reply-only turn\'s "Working for" stood over the reply while it ran and went at the end, which pulled the reply up into its place.',
+    // A reply-only turn keeps its heading (#51896). This entry said "no Worked for line" when it was written (#52246),
+    // as the pane then drew it; Leo, 2026-11-22: "accounting for space for the worked for/working heading should
+    // always be there anyways so it disappearing means there's multiple problems".
     expected:
-      "Thought-only and command-only turns draw their Worked for line; a reply-only turn draws the reply with no Worked for line.",
+      "Thought-only and command-only turns draw their Worked for line; a reply-only turn draws its Worked for line, closed over nothing, then the reply.",
     scenario: "thought-only-turn",
     check: (run) => {
       const kinds = (turn: number) =>
@@ -331,7 +346,7 @@ export const MAP: MapEntry[] = [
       return [
         ...want(kinds(1) === "user worked turnSummary", `the thought-only turn draws: ${kinds(1)}`),
         ...want(kinds(2) === "user worked turnSummary", `the command-only turn draws: ${kinds(2)}`),
-        ...want(kinds(3) === "user assistant turnSummary", `the reply-only turn draws: ${kinds(3)}`),
+        ...want(kinds(3) === "user worked assistant turnSummary", `the reply-only turn draws: ${kinds(3)}`),
       ];
     },
   },
@@ -433,41 +448,7 @@ export const MAP: MapEntry[] = [
       ...want(!last(run).some((row) => row.running), "a command reads as running after the turn ended"),
     ],
   },
-  {
-    id: "checklist",
-    when: "A turn writes a checklist, ticks it off between commands, and the next turn clears it.",
-    wrong: "Each update drew another checklist, or the list jumped about the turn as rows came.",
-    expected:
-      "One checklist a turn, always the last row over the live line while the turn runs; it stays in its turn after, and a cleared list draws none in the next.",
-    scenario: "plan-checklist",
-    check: (run) => {
-      const out: string[] = [];
-      for (const step of run.traces) {
-        const rows = rowsOf(step).filter((row) => row.turn === step.turn);
-        const plans = rows.filter((row) => row.kind === "plan");
-        if (plans.length > 1) out.push(`${step.label}: ${plans.length} checklists in one turn`);
-        if (
-          step.turn === 1 &&
-          step.working &&
-          plans.length === 1 &&
-          rows.filter((row) => !row.live).at(-1) !== plans[0]
-        )
-          out.push(`${step.label}: the checklist is not the last row over the live line`);
-      }
-      const rows = last(run);
-      return [
-        ...out,
-        ...want(
-          rows.filter((row) => row.kind === "plan" && row.turn === 1).length === 1,
-          "the first turn lost its checklist",
-        ),
-        ...want(
-          !rows.some((row) => row.kind === "plan" && row.turn === 2),
-          "the cleared checklist is drawn in the next turn",
-        ),
-      ];
-    },
-  },
+
   {
     id: "incoming-burst",
     when: "Five notices and messages from other agents in a row: some answered in a line, one with a command.",
@@ -579,7 +560,7 @@ export const MAP: MapEntry[] = [
       ),
   },
 
-  // ---- Rows that land late: found by rows-only-append on the scenarios above. Each is open. ----
+  // ---- Rows that land late: found by rows-only-append on the scenarios above. Each is open but the header's. ----
   {
     id: "header-arrives-late",
     when: "A turn opens with text (or a compaction line) and starts its first command after.",
@@ -587,8 +568,9 @@ export const MAP: MapEntry[] = [
       'The "Working for" line is drawn only once the turn\'s first command or thought starts, above the text already there, which moves down by a line.',
     expected: "The turn's header line never lands above a row the turn already drew.",
     scenario: "subagent",
+    // The pane added the header with the turn's first work row (long-turn-messages, subagent, compaction-at-end and
+    // codex-turn showed it); the person's prompt now draws it from the turn's first row (#51896).
     check: (run) => landed(landings(run).filter((each) => isHeader(each.kind))),
-    open: "The pane adds the header with the turn's first work row: long-turn-messages, subagent, compaction-at-end and codex-turn all show it.",
   },
   {
     id: "received-drawn-late",
@@ -639,6 +621,36 @@ export const MAP: MapEntry[] = [
     open: "No scenario writes host_notice or failover records. A later page's read is checked: every scenario is also played from the turn that opens nearest its middle (test/chat-sim-map.test.ts), as the pane's pages split (before a turn's opening record). A read cut inside a turn, which no page makes, leaves the typing placeholder over the turn's rows.",
   },
   {
+    id: "send-after-settle",
+    when: "A turn with work settles under its Worked for; the person sends a prompt the agent answers with a thought and a short reply, no calls.",
+    wrong:
+      'Leo, 2026-11-22: "when i sent that message it was as if briefliy the worked for disappeared and then reappeared ... accounting for space for the worked for/working heading should always be there anyways".',
+    expected:
+      "The settled turn's Worked for stays, closed, at every step after the send; the new turn's heading stands from its first running step to its end, where it reads Worked for in the same place.",
+    scenario: "send-after-settle",
+    check: (run) => {
+      const sent = stepAt(run, "prompt: thanks");
+      if (sent < 1) return ["the scenario no longer sends a prompt after the settled turn"];
+      const heading = (step: StepTrace, turn: number) =>
+        rowsOf(step).filter((row) => row.turn === turn && isHeader(row.kind));
+      const out: string[] = [];
+      for (const step of run.traces.slice(sent).filter((each) => each.rows)) {
+        const settledLine = heading(step, 1).map((row) => row.fold);
+        if (settledLine.join(" ") !== "closed")
+          out.push(`${step.label}: the settled turn's heading reads [${settledLine.join(" ")}]`);
+        if (step.working && step.turn === 2 && heading(step, 2).length !== 1)
+          out.push(`${step.label}: the new turn draws ${heading(step, 2).length} headings`);
+      }
+      return [
+        ...out,
+        ...want(
+          heading(run.traces.at(-1)!, 2).length === 1,
+          "the new turn ends with no Worked for line in its heading's place",
+        ),
+      ];
+    },
+  },
+  {
     id: "busy-turn-churn",
     when: "A busy coordinator turn: quick commands, thoughts, steers that land mid-turn, subagents in and out, another agent's message, then a prompt right after the turn settles.",
     wrong:
@@ -660,6 +672,14 @@ export const MAP: MapEntry[] = [
     wrong: "A card landed between a run and its reply and broke the fold, or stood the wrong gap.",
     expected: "A card is a block: 24 over it, and it folds nothing.",
     open: "Not played: session_offer, secret_request, memory_offer, subsession, forked.",
+  },
+  {
+    id: "fork-mid-stream",
+    when: "A chat is forked while its reply streams (Fork Conversation on a working chat).",
+    wrong: "The fork lost turns its agent holds, or drew the cut-off reply as still running (#50021, #50094).",
+    expected:
+      "The fork draws the turns its records hold, the cut-off reply with its footer, then its forked-from notice; nothing is live.",
+    scenario: "fork-mid-stream",
   },
   {
     id: "drawn-size",

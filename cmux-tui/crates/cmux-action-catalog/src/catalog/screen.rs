@@ -396,7 +396,7 @@ pub static ACTIONS: &[Action] = &[
         category: "screen",
         symbol: "arrow.left",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("screen", "move", 300).folder("move").label(t("Localizable", "menu.object.moveLeft", "Move Left"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["screen"],
         cli_name: "screen move-left",
         ..Action::DEFAULT
@@ -409,7 +409,7 @@ pub static ACTIONS: &[Action] = &[
         category: "screen",
         symbol: "arrow.right",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("screen", "move", 301).folder("move").label(t("Localizable", "menu.object.moveRight", "Move Right"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["screen"],
         cli_name: "screen move-right",
         ..Action::DEFAULT

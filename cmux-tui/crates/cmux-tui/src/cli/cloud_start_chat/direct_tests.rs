@@ -22,6 +22,9 @@ fn row(id: &str, name: &str, status: &str, host: Option<&str>) -> Row {
         name: Some(name.into()),
         status: status.into(),
         host: host.map(Into::into),
+        created_at: None,
+        running_since: None,
+        size: None,
     }
 }
 
@@ -162,6 +165,63 @@ fn a_name_no_machine_has_is_made_once_and_waited_on() {
     // A session that answered no id is the name it was started with.
     assert!(answer["session_id"].as_str().unwrap().starts_with("chat-"), "{answer}");
     assert_eq!(cloud.asked.iter().filter(|a| a.starts_with("create lane-x")).count(), 1);
+    // The fake says nothing of a claim: the answer says so rather than guessing.
+    assert_eq!(answer["machine_origin"], json!({"from": "unknown"}), "{answer}");
+}
+
+#[test]
+fn an_existing_machine_answers_that_it_existed() {
+    let asked = request(&["--name", "dev"]);
+    let mut inner = Fake::new(vec![]);
+    let mut cloud = FakeCloud {
+        rows: vec![row("vm-1", "dev", "running", Some("h-1"))],
+        asked: Vec::new(),
+        execs: VecDeque::from([out("@@session s\n"), out("@@cwd\n")]),
+        commands: Vec::new(),
+    };
+    let done = run(&mut DirectRunner { inner: &mut inner, cloud: &mut cloud }, &asked);
+    let Outcome::Done(answer) = done else { panic!("{done:?}") };
+    assert_eq!(
+        answer["machine_origin"],
+        json!({"from": "existing", "status_before": "running"}),
+        "{answer}"
+    );
+}
+
+#[test]
+fn a_reused_machine_records_its_uptime_age_and_size() {
+    let now = 1_800_000_000_000;
+    let mut vm = row("vm-1", "dev", "running", Some("h-1"));
+    vm.created_at = Some(now - 7_200_000);
+    vm.running_since = Some(now - 600_000);
+    vm.size = Some(json!({"cpu": 2, "memory_mb": 4096, "disk_mb": 20480}));
+    assert_eq!(
+        vm.reused(now),
+        json!({"from": "existing", "status_before": "running", "uptime_s": 600, "age_s": 7200,
+            "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 20480}})
+    );
+    // A paused machine has no uptime (it is resumed for the start); a clock behind the
+    // platform's records no negative age.
+    vm.status = "paused".into();
+    assert_eq!(vm.reused(now)["uptime_s"], Value::Null);
+    assert_eq!(vm.reused(now - 10_000_000)["age_s"], Value::Null);
+}
+
+#[test]
+fn spare_origin_reads_the_create_answer_claim() {
+    use super::super::direct::spare_origin;
+    let spare = json!({"machine": {}, "spare_path": "running", "spare_fallback": null,
+        "claim": {"path": "running", "fallback": null, "ms": 412}});
+    assert_eq!(spare_origin(&spare), json!({"from": "spare", "path": "running", "claim_ms": 412}));
+    let resumed = json!({"claim": {"path": "resumed", "fallback": null, "ms": 1900}});
+    assert_eq!(spare_origin(&resumed)["from"], "spare");
+    let fresh = json!({"spare_fallback": "no_spare", "claim": {"path": "created", "fallback": "no_spare", "ms": 30}});
+    assert_eq!(
+        spare_origin(&fresh),
+        json!({"from": "fresh", "path": "created", "fallback": "no_spare", "claim_ms": 30})
+    );
+    // An answer with no claim (a replay, a caller the platform hands no spare).
+    assert_eq!(spare_origin(&json!({"machine": {}})), json!({"from": "unknown"}));
 }
 
 #[test]
@@ -256,7 +316,7 @@ fn kill_needs_yes_and_every_verb_needs_a_target() {
     for name in ["pause-machine", "resume-machine", "kill-machine"] {
         let (refused, _) = verb(&mut cloud, &["cloud", name, "--yes"]);
         assert_eq!(refused.unwrap_err()["code"], "usage.invalid", "{name}");
-        let (refused, _) = verb(&mut cloud, &["cloud", name, "--target", "workspace:3", "--yes"]);
+        let (refused, _) = verb(&mut cloud, &["cloud", name, "--target", "ws:main", "--yes"]);
         assert_eq!(refused.unwrap_err()["code"], "usage.invalid", "{name}");
     }
     assert!(cloud.asked.is_empty(), "{:?}", cloud.asked);
