@@ -656,6 +656,10 @@ fn run_response(
                     {
                         error = outdated;
                     }
+                    // An unknown id that was closed says so and names its reopen.
+                    if global.output != OutputMode::Quiet {
+                        super::closed_hint::annotate_not_found(plan, reader, &mut error);
+                    }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
@@ -704,6 +708,7 @@ fn run_response(
                         Err(error) => return print_operation_error(&error, global.output),
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    let result = super::closed_hint::mark_closed_read(plan, reader, result);
                     // The agent status words come from terminal_talk, which is unix
                     // only; elsewhere the program's own records stay as they are.
                     #[cfg(unix)]

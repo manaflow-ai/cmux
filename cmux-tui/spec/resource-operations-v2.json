@@ -42082,6 +42082,7 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal.closed",
         "validation.invalid"
       ]
     },
@@ -42150,6 +42151,7 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal.closed",
         "validation.invalid"
       ]
     },
@@ -42267,6 +42269,7 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal.closed",
         "validation.invalid"
       ]
     },
@@ -42359,6 +42362,7 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "terminal.closed",
         "validation.invalid"
       ]
     },

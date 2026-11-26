@@ -76,6 +76,7 @@ mod chat_start;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
+mod closed_hint;
 #[cfg(unix)]
 mod cloud_agent;
 #[cfg(unix)]
