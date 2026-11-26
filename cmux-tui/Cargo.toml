@@ -114,6 +114,7 @@ members = [
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
+    "crates/cmux-cloud-phone-acp",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
@@ -286,6 +287,7 @@ default-members = [
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
+    "crates/cmux-cloud-phone-acp",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
@@ -434,6 +436,7 @@ cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-cloud-phone-acp = { path = "crates/cmux-cloud-phone-acp" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }

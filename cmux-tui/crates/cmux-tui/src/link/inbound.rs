@@ -46,6 +46,9 @@ pub(super) enum InboundRefused {
     /// No live, proven acpmux listener (`acpmux::listener_record`); no byte
     /// of the stream was sent anywhere.
     AcpmuxNotLive(acpmux::listener_record::NotLive),
+    /// A phone chat whose daemon carrier failed (handshake, a bad line) or
+    /// whose phone sent a frame the adapter refuses.
+    PhoneCarrier(cmux_cloud_phone_acp::Fault),
 }
 
 pub(super) use super::paired_streams::Revocations;
@@ -225,6 +228,17 @@ where
             .await,
             false,
         ),
+        // The owner's phone, the Mac off: a mobile client of the daemon's local socket.
+        Some(ServiceHello { service: Service::PhoneChat, link_token: None, epoch: None }) => (
+            while_paired(
+                revocations.as_mut(),
+                peer_key,
+                &peer,
+                super::phone_chat::serve(&mut stream, &peer, owner, session_socket),
+            )
+            .await,
+            true,
+        ),
         // The peer's link adopted its node key: its record moves to the key it names.
         Some(ServiceHello { service: Service::Rekey, link_token: None, epoch: None }) => (
             while_paired(
@@ -285,7 +299,7 @@ where
 }
 
 /// Connect to `socket` and require that its listener runs as `uid`.
-async fn connect_same_uid(
+pub(super) async fn connect_same_uid(
     socket: &Path,
     uid: u32,
 ) -> Result<tokio::net::UnixStream, InboundRefused> {

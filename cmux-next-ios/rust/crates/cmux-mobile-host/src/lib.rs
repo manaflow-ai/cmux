@@ -21,7 +21,6 @@ pub mod bundle;
 pub mod catch_up;
 pub mod chief_answers;
 pub mod chief_policy;
-pub(crate) mod cloud_acp;
 pub mod config;
 pub mod control;
 pub mod dial_mailbox;
