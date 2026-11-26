@@ -101,7 +101,10 @@ impl ChatService {
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
         let (changes, _) = broadcast::channel(256);
-        let text = text::ChatText::new(text_path(&sources));
+        let text = text::ChatText::with_legacy(
+            text_path(&sources),
+            sources.acpmux_home.join("chat-index/text-v1.json"),
+        );
         let service = Arc::new(Self {
             sources,
             state: Mutex::new(State {
@@ -577,7 +580,7 @@ fn cache_path(sources: &ChatSources) -> PathBuf {
 }
 
 fn text_path(sources: &ChatSources) -> PathBuf {
-    sources.acpmux_home.join("chat-index/text-v1.json")
+    sources.acpmux_home.join("chat-index/text-v2.bin")
 }
 
 /// The text thread reads changed chats this long after a change, so a chat being written is read
