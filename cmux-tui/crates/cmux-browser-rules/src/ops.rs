@@ -14,6 +14,7 @@
 //! | `browser_rules_cef_link_placement` | `{disposition, userGesture, click, now, mapping}` | [`LinkPlacement`] |
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
+//! | `browser_rules_automation_*` | see [`crate::automation_ops`] | |
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
@@ -116,6 +117,9 @@ pub fn serves(op: &str) -> bool {
 /// Runs `op` on `request` (a JSON object; null means `{}`).
 pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
     let request = if request.is_null() { json!({}) } else { request };
+    if let Some(answer) = crate::automation_ops::call(op, request.clone()) {
+        return answer;
+    }
     match op {
         "browser_rules_is_top_level_domain" => {
             let TldRequest { label, labels } = parse(request)?;

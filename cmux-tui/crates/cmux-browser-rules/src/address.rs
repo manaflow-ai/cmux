@@ -131,7 +131,7 @@ pub fn is_certificate_error(domain: &str, code: i64) -> bool {
     match domain {
         CHROMIUM_NET_ERROR_DOMAIN => is_chromium_certificate_code(code),
         // NSURLErrorServerCertificateHasBadDate ... NSURLErrorServerCertificateNotYetValid.
-        NSURL_ERROR_DOMAIN => matches!(code, -1201 | -1202 | -1203 | -1204),
+        NSURL_ERROR_DOMAIN => matches!(code, -1204..=-1201),
         _ => false,
     }
 }
