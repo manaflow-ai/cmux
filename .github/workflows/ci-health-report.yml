@@ -54,7 +54,7 @@ jobs:
       issues: write
       contents: read
     name: Report CI health
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Measured against this repo: a window's run listings plus ~160 job
     # listings is a few hundred calls, and the Actions API answers each one
     # in seconds on a repo this size. 15 minutes was not enough headroom.
