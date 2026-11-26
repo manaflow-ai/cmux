@@ -1,4 +1,4 @@
-import { Icon } from "../../agent-session/acpmux/icons/Icon";
+import { Icon } from "../../kit";
 import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import type { IconPack } from "../../agent-session/acpmux/icons/types";
