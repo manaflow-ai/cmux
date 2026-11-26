@@ -131,8 +131,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
     /// Work waiting for the layout to be still (``whenStill(_:on:_:)``), by key, with the queue it runs on.
     var stillWork: [String: (queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
-    /// Work waiting for its changes to settle (``whenSettled(_:after:on:_:)``), by key, with its timer.
-    var settlingWork: [String: (timer: DemandTimer, queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
+    /// Work waiting for its changes to settle (``whenSettled(_:after:on:_:)``), by key, with its timer, its delay and
+    /// whether the timer runs (a request during a layout motion arms it when the motion lands).
+    var settlingWork: [String: SettlingWork] = [:]
 
     /// A split or a pane close is springing on some screen: the panes it resizes change size every
     /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
