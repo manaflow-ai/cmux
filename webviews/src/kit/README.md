@@ -8,6 +8,12 @@ In cmux webviews, import the components from `kit/index.ts`. They follow the act
 and design scale, and provide the app’s menus, popovers and focus behavior. For an installed
 sidebar customization or extension, use the [scene API for that host](#which-kit-do-i-use).
 
+The installed CLI includes the web component registry. Run `cmux customize components show Row`
+to see its props, or `cmux customize components test Button '{"size":"sm","variant":"subtle"}'`
+to check prop names before writing a view. Run `cmux customize tokens test 8 --as spacing` to
+look up a value on the design scale. The same queries are available through the
+`customize_components` and `customize_tokens` MCP tools.
+
 | Piece                            | What it is                                                                                                                                                                                    |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Row`                            | One list row: leading mark, title, optional second line, trailing column. With `onSelect` the whole row is the open target. `compact` 28, `comfortable` 32.                                   |
