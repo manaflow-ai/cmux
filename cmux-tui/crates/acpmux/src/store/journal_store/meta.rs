@@ -668,7 +668,7 @@ impl Inner {
         };
         let image = match &parts {
             Some(parts) => meta_parts::to_vec(meta, parts)?,
-            None => meta_parts::to_vec(meta, &meta_parts::fingerprint(meta))?,
+            None => meta_parts::to_vec(meta, &self.local.parts.fingerprint(meta))?,
         };
         // The file there now, stamped before the appends' lock: only the store's own writes
         // change it meanwhile, and a stamp of a file the store wrote is harmless (the replay
