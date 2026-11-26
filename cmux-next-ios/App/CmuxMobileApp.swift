@@ -26,7 +26,12 @@ struct CmuxMobileApp: App {
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        // Main-thread hangs: sampled stacks, hang files in Library/hangs, MetricKit (HangWatch).
+        HangWatch.start()
         #if DEBUG
+        // Offline duress (`CmuxMobileDuress` = a `cmux-duress gen` folder; unset: nothing runs). First,
+        // so the list rig reads the folder's workspace count (cmux-next-ios/design/duress-sim.md).
+        MobileDuress.startIfRequested()
         // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
         ResumeMarks.startIfRequested()
         #endif
@@ -106,6 +111,8 @@ struct CmuxMobileApp: App {
                 LiveCodeProbeRoot()
             } else if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
+            } else if BrowserPlacementDemoRoot.isRequested {
+                BrowserPlacementDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {

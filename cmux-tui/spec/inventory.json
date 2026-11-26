@@ -72,6 +72,7 @@
     "cloud.machine.chief_start",
     "cloud.machine.fork",
     "cloud.machine.io",
+    "cloud.machine.setup_desktop",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
@@ -1328,6 +1329,12 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "apps-cloud-machine",
       "streams": [
         "control"
       ]

@@ -19,6 +19,10 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::Instant;
 
+/// Every ssh of a peer shares its host's master (`ssh_command`).
+#[path = "peer_ssh_master.rs"]
+mod ssh_master;
+
 /// How long one ask keeps the peer wanted.
 pub(super) const WANTED_FOR: Duration = Duration::from_secs(60);
 
@@ -75,6 +79,9 @@ pub(super) struct Wanted {
     /// When the last ask came, so one made before a waiter listens still counts
     /// (`Peer::next_ask_after`); `asked` wakes only the waiters there are.
     asked_at: StdMutex<Option<Instant>>,
+    /// Whether the peer waits to be used before it dials, and when it was last used
+    /// (`peer_demand.rs`).
+    pub(super) demand: super::demand::Demand,
 }
 
 impl Peer {
@@ -161,9 +168,10 @@ impl Peer {
     }
 
     /// `ssh`, with [`WAKE_ENV`] set while the peer is marked to wake: the environment reaches
-    /// the route's ProxyCommand, which ssh runs as its child.
+    /// the route's ProxyCommand, which ssh runs as its child. It shares the host's one master
+    /// connection (`peer_ssh_master.rs`): a master that is up runs no ProxyCommand, and needs none.
     pub(super) fn ssh_command(&self) -> tokio::process::Command {
-        let mut ssh = tokio::process::Command::new("ssh");
+        let mut ssh = self.ssh_with_master();
         if self.waking() {
             ssh.env(WAKE_ENV, "1");
         } else {

@@ -30,10 +30,10 @@ async fn a_closed_chat_still_takes_the_exit_its_agent_sends_late() {
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop(reader);
     });
-    let item = next_inbound(&mut rx, &stop, &mut closed, &own).await;
+    let item = next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await;
     assert!(matches!(item, Some(Inbound::Exited { pid: Some(7), .. })), "the late exit is handled");
     let started = tokio::time::Instant::now();
-    assert!(next_inbound(&mut rx, &stop, &mut closed, &own).await.is_none());
+    assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_none());
     assert!(started.elapsed() >= Duration::from_secs(1), "it stopped only once the reader let go");
     late.await.unwrap();
 }
@@ -47,7 +47,7 @@ async fn a_loop_that_first_runs_after_the_close_ends() {
     let stop = tokio_util::sync::CancellationToken::new();
     let ended = tokio::time::timeout(
         Duration::from_secs(1),
-        next_inbound(&mut rx, &stop, &mut closed, &own),
+        next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()),
     )
     .await;
     assert!(matches!(ended, Ok(None)), "it ended at once");
@@ -61,9 +61,9 @@ async fn a_closed_chat_drains_its_queue_first() {
     own.send(exited()).await.unwrap();
     let mut closed = flag.subscribe();
     let stop = tokio_util::sync::CancellationToken::new();
-    assert!(next_inbound(&mut rx, &stop, &mut closed, &own).await.is_some());
-    assert!(next_inbound(&mut rx, &stop, &mut closed, &own).await.is_some());
-    assert!(next_inbound(&mut rx, &stop, &mut closed, &own).await.is_none());
+    assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_some());
+    assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_some());
+    assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_none());
 }
 
 /// An open chat with no agent keeps its loop; the close then ends it.
@@ -75,10 +75,10 @@ async fn an_open_chat_keeps_its_loop_until_it_closes() {
     let stop = tokio_util::sync::CancellationToken::new();
     let waiting = tokio::time::timeout(
         Duration::from_secs(3600),
-        next_inbound(&mut rx, &stop, &mut closed, &own),
+        next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()),
     )
     .await;
     assert!(waiting.is_err(), "an open chat's loop waits");
     flag.send_replace(true);
-    assert!(next_inbound(&mut rx, &stop, &mut closed, &own).await.is_none());
+    assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_none());
 }

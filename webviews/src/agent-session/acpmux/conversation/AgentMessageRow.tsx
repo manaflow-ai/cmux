@@ -42,7 +42,6 @@ export function AgentMessageRow({
   detail,
   unverified = false,
   program,
-  claimed,
   preview,
   label,
   open,
@@ -88,8 +87,6 @@ export function AgentMessageRow({
   unverified?: boolean;
   /// The program acpmux saw send it (incomingMessage.ts `senderProgram`): the marker says so.
   program?: SenderProgram;
-  /// The name an unverified sender gave itself: the marker says it is only a claim.
-  claimed?: string;
   /// The message's first line, shown while closed.
   preview: string;
   /// The toggle's label: the line as a sentence.
@@ -148,7 +145,7 @@ export function AgentMessageRow({
     if (collapse.toggle(event) && open) toggleRef.current?.focus({ preventScroll: true });
   };
   const marker = unverified && (
-    <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} program={program} claimed={claimed} />
+    <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} program={program} />
   );
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
   // stacked gallery version puts it under the row, on its own line.
