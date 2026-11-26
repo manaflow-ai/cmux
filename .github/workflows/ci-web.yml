@@ -975,7 +975,7 @@ jobs:
           fi
 
       # Same-input receipt (scripts/ci/react_shard_receipt.py): this shard already went green on exactly these inputs
-      # (the merge commit's tree, the merge parent's tree, this run's shard handoff, the shard and the run's
+      # (the merge commit's and its parent's input files (the ones whose change runs this check), this run's shard handoff, the shard and the run's
       # configuration), so it restores that run's head results and skips every step that would compute them again.
       # Same-repository pull requests only; any error fails open and the shard runs in full. A push always runs.
       - name: Key this shard's same-input receipt
@@ -985,7 +985,13 @@ jobs:
         env:
           RECEIPT_SHARD: ${{ matrix.shard }}
           RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), contains(github.event.pull_request.labels.*.name, 'full-ci'), github.base_ref, runner.os, runner.arch) }}
-        run: python3 scripts/ci/react_shard_receipt.py key --shard "$RECEIPT_SHARD" --handoff "$RUNNER_TEMP/webviews-durations" --config "$RECEIPT_CONFIG" >> "$GITHUB_OUTPUT"
+          # The key hashes the files whose change runs this check (web_subareas.is_react_input), not every file, so a
+          # push that touches none of them hits the receipt of the same inputs; 0 keys the whole trees as before.
+          RECEIPT_INPUT_SCOPE: ${{ vars.CI_REACT_RECEIPT_INPUT_SCOPE || '1' }}
+        run: |
+          whole=()
+          [ "$RECEIPT_INPUT_SCOPE" = 0 ] && whole=(--whole-tree)
+          python3 scripts/ci/react_shard_receipt.py key --shard "$RECEIPT_SHARD" --handoff "$RUNNER_TEMP/webviews-durations" --config "$RECEIPT_CONFIG" "${whole[@]}" >> "$GITHUB_OUTPUT"
 
       - name: Look up this shard's same-input receipt
         id: receipt-restore
@@ -2412,11 +2418,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # The R2 write credentials (cmux-ci-cache-next) enter only on feat-cmux-next, through next-cache-writer
-    # (deployment branch feat-cmux-next only); the caller passes them only there (cache-receipts guard).
-    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
-    env:
-      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - name: Checkout the history helper
         id: history-checkout
