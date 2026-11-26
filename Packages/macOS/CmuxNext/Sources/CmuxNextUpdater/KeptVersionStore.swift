@@ -11,8 +11,9 @@ import Darwin
 /// kept, its build date, the store schemas it reads, and the signing team a full check of every file
 /// found, sealed (``KeptSeal``). A rollback trusts that team while the seal matches instead of checking
 /// the whole bundle again (a deep check of a CEF bundle took seconds, and a rollback made three: the
-/// list, the running app, the prune). The full check runs off the click: in the staging keep, or for
-/// a keep made at a click (the swap, an install) at the next launch (``sealPending()``).
+/// list, the running app, the prune). The full check runs off the click and off the quit: right after
+/// the staging keep's clone (``sealPending()``, which a quit does not wait for), or for a keep made at a
+/// click (the swap, an install) or cut short by a quit, at the next launch.
 nonisolated public struct KeptVersionStore: Sendable {
     public let root: URL
     /// The signing team of a bundle with a full check of every file (SecStaticCode in the app;
@@ -40,7 +41,7 @@ nonisolated public struct KeptVersionStore: Sendable {
 
     /// How a keep checks the copy's signature.
     public enum Check: Sendable {
-        /// Every file, now, sealed: off the click (the staging keep).
+        /// Every file, now, sealed (a build downloaded to switch to; a caller with nobody waiting).
         case full
         /// Not now: the copy goes without a sealed team, and ``sealPending()`` checks it at the next
         /// launch (a keep made at a click: the swap, an install that kept nothing earlier).
