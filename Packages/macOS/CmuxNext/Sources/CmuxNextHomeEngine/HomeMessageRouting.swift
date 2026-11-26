@@ -43,7 +43,7 @@ public struct HomeMessageRouting: Sendable {
     /// The Chief's conversation: the app's choice, else the first Chief conversation listed.
     public var chiefConversation: ConversationID? {
         let id: String? = HomeComposeRules().call("routing.chiefConversation", routing(), fallback: nil)
-        return id.map(ConversationID.init)
+        return id.map { ConversationID($0) }
     }
 
     /// Every conversation a message can go to, as the palette and `--to` list them: Chiefs first,
