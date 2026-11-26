@@ -37,6 +37,16 @@ examples remain available here as authoring references.
 
 ## Included Sidebars
 
+- [Waiting workspaces](waiting-workspaces.js) keeps project groups in place and
+  lists waiting workspaces first within each group. Click **Waiting for you**
+  to jump to the oldest waiting terminal in this window, including one in a
+  collapsed group. Each terminal shows its status, branch, directory and last
+  submitted prompt when available. **Details** expands long descriptions and
+  paths. The list follows the agent states cmux reports. Installing this
+  example affects the custom sidebar only. To try it, copy
+  `waiting-workspaces.js` to `~/.config/cmux/sidebars/` and choose it in the
+  sidebar picker.
+
 - `status-board.swift`: groups workspaces into urgent, review, progress,
   research, and done lanes using live PR, branch, progress, unread, and prompt
   signals.
