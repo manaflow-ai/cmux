@@ -62,6 +62,8 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_HARNESS_INVENTORY_WATCH,
     method::MUX_HARNESS_UPDATE_PLAN,
     method::MUX_HARNESS_UPDATE_PREPARE,
+    method::MUX_HISTORY_DELETE,
+    method::MUX_HISTORY_OFFLOAD,
     method::MUX_HERE,
     method::MUX_HERE_BEAT,
     method::MUX_IMPORT,
@@ -83,6 +85,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_MESH_CONTROL,
     method::MUX_NATIVE_HISTORY,
     method::MUX_PAUSE,
+    method::MUX_PAUSED_FILES,
     method::MUX_PERF,
     method::MUX_PERMISSION_RESPOND,
     method::MUX_PIN,
@@ -141,6 +144,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TEAM_LISTEN,
     method::MUX_TEAM_READ,
     method::MUX_TEAM_SEND,
+    method::MUX_TRANSCRIPT_OFFLOAD,
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
     method::MUX_TYPING,
@@ -156,6 +160,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_WORKTREE_CLEAN,
     method::MUX_WORKTREE_REPORT,
     method::MUX_WORKTREE_RESTORE,
+    method::SESSION_SIGNATURE,
     super::super::peer_forward::TRUST_PEER_EXTENSION,
 ];
 
