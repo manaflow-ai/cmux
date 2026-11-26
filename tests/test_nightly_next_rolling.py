@@ -828,14 +828,6 @@ class LocalGapTests(unittest.TestCase):
 class GhApiSpareTokenTests(unittest.TestCase):
     """gh_api: a refused read goes out once more on SPARE_READ_TOKEN, and a refusal names gh's words."""
 
-    @staticmethod
-    def public_refused(path):
-        raise OSError("HTTP Error 403")
-
-    @staticmethod
-    def unexpected(path):
-        raise AssertionError("public API read after a good gh read")
-
     def runner(self, answers):
         calls = []
 
@@ -847,45 +839,107 @@ class GhApiSpareTokenTests(unittest.TestCase):
 
     def test_a_refused_read_is_read_on_the_spare_token(self):
         run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded"), (0, '{"ok": 1}', "")])
-        self.assertEqual(rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run, public_get=self.unexpected), {"ok": 1})
+        self.assertEqual(rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run), {"ok": 1})
         self.assertEqual(calls, ["job", "s"])
 
     def test_no_spare_fails_once_with_gh_s_words(self):
         run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded\n")])
         with self.assertRaises(subprocess.CalledProcessError) as caught:
-            rolling.gh_api("repos/o/r/actions/runs", env={}, run=run, public_get=self.public_refused)
+            rolling.gh_api("repos/o/r/actions/runs", env={}, run=run)
         self.assertEqual(calls, ["job"])
         self.assertIn("API rate limit exceeded", repr(caught.exception))
 
     def test_both_refused_names_the_spare_s_refusal(self):
         run, calls = self.runner([(1, "", "HTTP 403: rate limit"), (1, "", "HTTP 404: Not Found")])
         with self.assertRaises(subprocess.CalledProcessError) as caught:
-            rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run, public_get=self.public_refused)
+            rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run)
         self.assertEqual(calls, ["job", "s"])
         self.assertIn("404", repr(caught.exception))
 
+    def test_a_hung_read_is_a_refused_read_and_goes_to_the_spare(self):
+        calls = []
+
+        def run(argv, capture_output, text, env, timeout=None):
+            calls.append(((env or {}).get("GH_TOKEN", "job"), timeout))
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            return subprocess.CompletedProcess(argv, 0, '{"ok": 1}', "")
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), {"ok": 1})
+        self.assertEqual(calls, [("job", rolling.GH_API_SECONDS), ("s", rolling.GH_API_SECONDS)])
+
+    def test_a_hung_read_with_no_spare_names_the_bound(self):
+        def run(argv, capture_output, text, env, timeout=None):
+            raise subprocess.TimeoutExpired(argv, timeout)
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/x", env={}, run=run)
+        self.assertIn(f"more than {rolling.GH_API_SECONDS} s", repr(caught.exception))
+
     def test_a_good_read_never_touches_the_spare(self):
         run, calls = self.runner([(0, "[]", "")])
-        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run, public_get=self.unexpected), [])
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), [])
         self.assertEqual(calls, ["job"])
 
-    def test_every_token_refused_reads_the_public_api(self):
-        """Ticks 44931403939, 44931656964 and 44931849241 (2026-11-21) failed the run listing and waited: about
-        12 min of a 23.7 min gap between builds."""
-        run, calls = self.runner([(1, "", "HTTP 403: rate limit"), (1, "", "HTTP 403: rate limit")])
-        asked = []
-        got = rolling.gh_api("repos/o/r/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=50",
-                             env={"SPARE_READ_TOKEN": "s"}, run=run,
-                             public_get=lambda path: asked.append(path) or {"workflow_runs": []})
-        self.assertEqual(got, {"workflow_runs": []})
-        self.assertEqual(calls, ["job", "s"])
-        self.assertEqual(asked, ["repos/o/r/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=50"])
 
-    def test_a_hung_gh_read_is_bounded_and_falls_back(self):
-        def hung(argv, capture_output, text, env, timeout=None):
-            self.assertEqual(timeout, rolling.GH_API_SECONDS)
-            raise subprocess.TimeoutExpired(argv, timeout)
-        self.assertEqual(rolling.gh_api("repos/o/r/x", env={}, run=hung, public_get=lambda path: {"ok": 1}), {"ok": 1})
+class GhApiNoTokenAndSecondaryWaitTests(unittest.TestCase):
+    """gh_api: both tokens refused, a read with no token answers; a secondary limit waits once, then reads again."""
+
+    SECONDARY = "HTTP 403: You have exceeded a secondary rate limit ... https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
+
+    def setUp(self):
+        rolling._secondary_waited = False
+        self.addCleanup(setattr, rolling, "_secondary_waited", False)
+
+    def runner(self, answers):
+        calls = []
+
+        def run(argv, capture_output, text, env, timeout=None):
+            calls.append((env or {}).get("GH_TOKEN", "job"))
+            code, out, err = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_both_tokens_refused_is_read_with_no_token(self):
+        run, calls = self.runner([(1, "", self.SECONDARY), (1, "", self.SECONDARY)])
+        asked = []
+        answer = rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run,
+                                anonymous=lambda path: asked.append(path) or {"workflow_runs": []},
+                                sleep=lambda s: self.fail("no wait when the no-token read answers"))
+        self.assertEqual(answer, {"workflow_runs": []})
+        self.assertEqual(calls, ["job", "s"])
+        self.assertEqual(asked, ["repos/o/r/actions/runs"])
+
+    def test_a_secondary_limit_everywhere_waits_once_then_reads(self):
+        run, calls = self.runner([(1, "", self.SECONDARY), (1, "", self.SECONDARY), (0, '{"ok": 1}', "")])
+        slept = []
+
+        def anonymous(path):
+            raise OSError("HTTP Error 403: rate limit exceeded")
+        answer = rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run, anonymous=anonymous,
+                                sleep=slept.append)
+        self.assertEqual(answer, {"ok": 1})
+        self.assertEqual(slept, [rolling.SECONDARY_WAIT_SECONDS])
+        self.assertEqual(calls, ["job", "s", "job"])
+
+    def test_the_wait_happens_once_per_process(self):
+        run, calls = self.runner([(1, "", self.SECONDARY)] * 3)
+        slept = []
+        for _ in range(2):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                rolling.gh_api("repos/o/r/x", env={}, run=run, sleep=slept.append)
+        self.assertEqual(slept, [rolling.SECONDARY_WAIT_SECONDS])
+        self.assertEqual(calls, ["job", "job", "job"])
+        self.assertIn("secondary rate limit", repr(caught.exception))
+
+    def test_a_plain_refusal_never_waits(self):
+        run, calls = self.runner([(1, "", "HTTP 404: Not Found")])
+        with self.assertRaises(subprocess.CalledProcessError):
+            rolling.gh_api("repos/o/r/x", env={}, run=run, sleep=lambda s: self.fail("waited on a 404"))
+        self.assertEqual(calls, ["job"])
+
+    def test_main_runs_the_rule_on_the_production_reads(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("api=production_api", text)
+        self.assertIn("anonymous=public_get, sleep=time.sleep", text)
 
 
 if __name__ == "__main__":

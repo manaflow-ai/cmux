@@ -71,8 +71,7 @@ from the refs API only when that fails. The gap from that head to the tip comes
 from the tick's own checkout of feat-cmux-next (git_oldest_after), and from the
 compare API only when the head is not in it; a tip already on nightly-next
 reads nothing more and waits (there is nothing to promote). Every other read goes through the
-API with the job's token, and a read that fails there is read once more from the public API with no
-token (gh_api; the error names gh's own stderr line). A head neither can read waits, with a
+API with the job's token. A head neither can read waits, with a
 warning: the feed watch's dispatch for one commit skips this rule, so that costs
 at most the backstop's delay. So does a failed run listing, and any other failed read while a
 nightly-next push run created within RUN_LOOKBACK is not completed (or its creation is unreadable): that run
@@ -95,7 +94,6 @@ from pathlib import Path
 import subprocess
 import sys
 import urllib.parse
-import urllib.request
 
 HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("nightly_next_feed_watch", HERE / "nightly_next_feed_watch.py")
@@ -429,21 +427,6 @@ def git_oldest_after(head: str, tip: str, git=None):
         raise LookupError(f"could not read the commits after {head[:12]}") from error
 
 
-# A bound on each gh api read: a read that hangs is a failed read, never a tick that never decides.
-GH_API_SECONDS = 60
-PUBLIC_API = "https://api.github.com/"
-
-
-def public_api_get(path: str, timeout: float = 30):
-    """GET `path` from the public REST API with no token. The repository is public, so this reads the same answer
-    from another quota (the address's own) when every token's is spent."""
-    request = urllib.request.Request(PUBLIC_API + path, headers={
-        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "cmux-nightly-next-rolling"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read())
-
-
 class GhRefused(subprocess.CalledProcessError):
     """A failed `gh api`, whose repr (the rolling rule's warnings) carries what gh said."""
 
@@ -451,18 +434,39 @@ class GhRefused(subprocess.CalledProcessError):
         return f"gh api {self.cmd[-1]} exited {self.returncode}: {self.stderr}"
 
 
-def gh_api(path: str, env=None, run=subprocess.run, public_get=public_api_get):
-    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
-    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
-    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
-    builds' nightly-next-one had ended, and the promotion waited until 05:52. A refusal carries gh's own words.
+# GitHub's secondary limit (a 403 whose page links the Terms of Service) refuses every token for a while. Its docs
+# ask for at least a minute before a retry; the tick waits that once per run, so the serialized tick group is held
+# at most this long.
+SECONDARY_WAIT_SECONDS = 60.0
+SECONDARY_MARKERS = ("secondary rate limit", "terms of service", "abuse detection")
+_secondary_waited = False
 
-    Every token refused (or no spare), the same path is read once from the public API with no token: ticks
-    44931403939, 44931656964 and 44931849241 (2026-11-21 17:42-17:48Z) failed the run listing and waited, about
-    12 min of a 23.7 min gap between two builds. Each gh read is bounded by GH_API_SECONDS."""
-    env = os.environ if env is None else env
+
+def secondary_limited(said: str) -> bool:
+    lowered = (said or "").lower()
+    return any(marker in lowered for marker in SECONDARY_MARKERS)
+
+
+def public_get(path: str):
+    """One unauthenticated GET of the public REST API. Its budget is the runner address's, apart from every
+    token's, so a refusal that dried the job's token and the spare one does not cost the tick its answer."""
+    import urllib.request
+    request = urllib.request.Request(f"https://api.github.com/{path}", headers={
+        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "nightly-next-rolling-rule"})
+    with urllib.request.urlopen(request, timeout=20) as answer:  # noqa: S310 - a fixed https host
+        return json.loads(answer.read().decode("utf-8"))
+
+
+# A bound on each gh api read: a read that hangs is a refused read (and goes on to the next token and the
+# no-token read), never a tick that never decides.
+GH_API_SECONDS = 60
+
+
+def _read_on_tokens(path: str, env, run):
+    """(answer, None) from the first token that reads `path`, else (None, (exit code, gh's last words))."""
     tokens = [None, env["SPARE_READ_TOKEN"]] if env.get("SPARE_READ_TOKEN") else [None]
-    refused = None
+    refused = (1, "")
     for index, token in enumerate(tokens):
         child = None if token is None else {**env, "GH_TOKEN": token}
         try:
@@ -472,16 +476,54 @@ def gh_api(path: str, env=None, run=subprocess.run, public_get=public_api_get):
         if done.returncode == 0:
             if index:
                 print(f"gh api {path.split('?')[0]}: the job's token was refused; read on the spare token")
-            return json.loads(done.stdout)
-        said = " ".join((done.stderr or "").split())[-300:]
-        refused = GhRefused(done.returncode, ["gh", "api", path], done.stdout, said)
+            return json.loads(done.stdout), None
+        refused = (done.returncode, " ".join((done.stderr or "").split())[-300:])
         if index + 1 < len(tokens):
-            print(f"gh api {path.split('?')[0]} was refused ({said}); reading it on the spare token")
-    print(f"gh api {path.split('?')[0]}: every token was refused ({refused.stderr}); reading it from the public API")
-    try:
-        return public_get(path)
-    except Exception:  # noqa: BLE001 - every read failed: the caller decides what an unread answer means
-        raise refused from None
+            print(f"gh api {path.split('?')[0]} was refused ({refused[1]}); reading it on the spare token")
+    return None, refused
+
+
+def gh_api(path: str, env=None, run=subprocess.run, anonymous=None, sleep=None):
+    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
+    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
+    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
+    builds' nightly-next-one had ended, and the promotion waited until 05:52.
+
+    Refused there too, it goes out once with no token through `anonymous` (main passes public_get; the
+    repository is public), whose budget is the runner address's. When gh's last words are GitHub's secondary
+    limit, `sleep` (main passes time.sleep) waits SECONDARY_WAIT_SECONDS, once per process, and the reads go out
+    one more time. Ticks 45700034320 to 45706304238 (2026-11-25 18:12 to 21:43Z) all waited on "could not read
+    the running builds", a secondary-limit 403 on both tokens, and nightly-next sat at 4755643e for 3.5 h.
+    A refusal carries gh's own words."""
+    global _secondary_waited
+    env = os.environ if env is None else env
+    short = path.split('?')[0]
+    for _attempt in range(2):
+        answer, refused = _read_on_tokens(path, env, run)
+        if refused is None:
+            return answer
+        code, said = refused
+        if anonymous is not None:
+            try:
+                answer = anonymous(path)
+            except Exception as error:  # noqa: BLE001 - the refusal below names the tokens' words
+                print(f"gh api {short}: the tokens were refused ({said}); the read with no token failed too ({error!r})")
+            else:
+                print(f"gh api {short}: the tokens were refused ({said}); read with no token")
+                return answer
+        if sleep is None or _secondary_waited or not secondary_limited(said):
+            break
+        _secondary_waited = True
+        wait = float(env.get("ROLLING_SECONDARY_WAIT_SECONDS") or SECONDARY_WAIT_SECONDS)
+        print(f"gh api {short}: GitHub's secondary limit ({said}); waiting {wait:g} s once, then reading again")
+        sleep(wait)
+    raise GhRefused(code, ["gh", "api", path], "", said)
+
+
+def production_api(path: str):
+    """gh_api as the tick runs it: both tokens, then no token, then one secondary-limit wait."""
+    import time
+    return gh_api(path, anonymous=public_get, sleep=time.sleep)
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
@@ -577,7 +619,8 @@ def main(argv: list[str]) -> int:
                         help="signer slots (1 or 2; default $NIGHTLY_NEXT_SLOTS, else 1)")
     args = parser.parse_args(argv)
     slots = slots_from(args.slots)
-    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes,
+    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, api=production_api,
+                          window_minutes=args.window_minutes,
                           ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after, slots=slots)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
