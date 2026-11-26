@@ -241,3 +241,221 @@ fn a_later_five_minute_write_drops_the_hour_tier() {
     assert_eq!(request.ttl_ms, FIVE_MINUTES_MS);
     assert_eq!(fire_at_ms(&request), ms("2026-11-25T10:05:30.000Z"));
 }
+
+/// A terminal for the firing tests: Claude Code's input box, a clock, and the bytes written.
+struct Fake {
+    now_ms: std::cell::Cell<u64>,
+    idle: std::cell::Cell<bool>,
+    input: std::cell::Cell<Option<u64>>,
+    draft: std::cell::RefCell<String>,
+    request: LastRequest,
+    written: std::cell::RefCell<Vec<u8>>,
+}
+
+const T0: u64 = 1_800_000_000_000;
+
+impl Fake {
+    fn new() -> Self {
+        Fake {
+            now_ms: T0.into(),
+            idle: true.into(),
+            input: Some(7).into(),
+            draft: String::new().into(),
+            request: LastRequest {
+                key: "msg_1".into(),
+                started_ms: T0 - FIVE_MINUTES_MS + LEAD_MS,
+                context: 90_000,
+                ttl_ms: FIVE_MINUTES_MS,
+            },
+            written: Vec::new().into(),
+        }
+    }
+}
+
+impl Target for &Fake {
+    fn now_ms(&self) -> u64 {
+        self.now_ms.get()
+    }
+    fn min_tokens(&self) -> Option<u64> {
+        Some(DEFAULT_MIN_TOKENS)
+    }
+    fn idle(&self) -> bool {
+        self.idle.get()
+    }
+    fn last_input(&self) -> Option<u64> {
+        self.input.get()
+    }
+    fn screen(&self) -> Option<String> {
+        let rule = "─".repeat(40);
+        Some(format!("● Done.\n\n{rule}\n❯ {}\n{rule}\n  ? for shortcuts\n", self.draft.borrow()))
+    }
+    fn last_request(&self) -> Option<LastRequest> {
+        Some(self.request.clone())
+    }
+    /// Typed bytes land in the box as a terminal would echo them; Return clears it.
+    fn write(&self, bytes: &[u8]) -> bool {
+        self.written.borrow_mut().extend_from_slice(bytes);
+        let mut draft = self.draft.borrow_mut();
+        for byte in bytes {
+            match byte {
+                b'\r' => draft.clear(),
+                0x7f => {
+                    draft.pop();
+                }
+                _ => draft.push(*byte as char),
+            }
+        }
+        true
+    }
+}
+
+/// An entry armed the way `arm` arms it for `fake`'s request, due at `due`.
+fn armed_for(fake: &Fake, due: Instant) -> Armed {
+    Armed {
+        due,
+        stage: Stage::Type,
+        expires_ms: fake.request.started_ms + fake.request.ttl_ms,
+        session: Some("s".into()),
+        transcript: PathBuf::new(),
+        request: fake.request.key.clone(),
+        input: fake.input.get(),
+    }
+}
+
+fn terminal(n: usize) -> TerminalPublicId {
+    TerminalPublicId::parse(format!("term_{n:032x}")).unwrap()
+}
+
+fn written(fake: &Fake) -> String {
+    String::from_utf8_lossy(&fake.written.borrow()).into_owned()
+}
+
+#[test]
+fn an_on_time_fire_types_compact_then_its_return_after_the_gap() {
+    let fake = Fake::new();
+    let start = Instant::now();
+    let mut timer = Timer::default();
+    timer.turn_ended(&terminal(1), Some(armed_for(&fake, start)));
+    timer.fire_due(start, |_, _| Some(&fake));
+    assert_eq!(written(&fake), "/compact");
+    let submit_at = timer.next_due().unwrap();
+    assert!(submit_at >= start + SUBMIT_GAP);
+    // Not yet due: nothing more.
+    timer.fire_due(start, |_, _| Some(&fake));
+    assert_eq!(written(&fake), "/compact");
+    timer.fire_due(submit_at, |_, _| Some(&fake));
+    assert_eq!(written(&fake), "/compact\r");
+    assert!(timer.next_due().is_none());
+    assert!(timer.already_compacted(&terminal(1), "msg_1"));
+}
+
+#[test]
+fn a_late_dispatch_never_types_into_a_cold_cache() {
+    // The timer thread got to the entry late (a burst, a clock jump, a sleep): the cache has
+    // less than the typing margin left, or has lapsed.
+    for late_ms in [LEAD_MS - TYPE_MARGIN_MS + 1, LEAD_MS, LEAD_MS + 60_000] {
+        let fake = Fake::new();
+        fake.now_ms.set(T0 + late_ms);
+        let start = Instant::now();
+        let mut timer = Timer::default();
+        timer.turn_ended(&terminal(1), Some(armed_for(&fake, start)));
+        timer.fire_due(start, |_, _| Some(&fake));
+        assert_eq!(written(&fake), "", "late by {late_ms} ms");
+        assert!(timer.next_due().is_none());
+    }
+}
+
+#[test]
+fn a_cache_lapsing_in_the_gap_takes_back_its_compact() {
+    let fake = Fake::new();
+    let start = Instant::now();
+    let mut timer = Timer::default();
+    timer.turn_ended(&terminal(1), Some(armed_for(&fake, start)));
+    timer.fire_due(start, |_, _| Some(&fake));
+    // The Return's dispatch comes late, inside the submit margin.
+    fake.now_ms.set(T0 + LEAD_MS - SUBMIT_MARGIN_MS + 1);
+    timer.fire_due(timer.next_due().unwrap(), |_, _| Some(&fake));
+    assert!(!written(&fake).contains('\r'));
+    assert_eq!(fake.draft.borrow().as_str(), "", "its own /compact is erased");
+    assert!(!timer.already_compacted(&terminal(1), "msg_1"));
+}
+
+#[test]
+fn a_burst_of_due_terminals_all_type_in_one_pass_and_none_compacts_cold() {
+    // 200 five-minute timers due together: more than the 30 s lead at 250 ms each.
+    let fakes: Vec<Fake> = (0..200).map(|_| Fake::new()).collect();
+    let start = Instant::now();
+    let mut timer = Timer::default();
+    for (n, fake) in fakes.iter().enumerate() {
+        timer.turn_ended(&terminal(n), Some(armed_for(fake, start)));
+    }
+    let index = |t: &TerminalPublicId| (0..fakes.len()).find(|n| &terminal(*n) == t).unwrap();
+    let began = Instant::now();
+    timer.fire_due(start, |t, _| Some(&fakes[index(t)]));
+    assert!(began.elapsed() < SUBMIT_GAP, "one pass never waits on a gap");
+    assert!(fakes.iter().all(|fake| written(fake) == "/compact"));
+    timer.fire_due(timer.next_due().unwrap(), |t, _| Some(&fakes[index(t)]));
+    assert!(fakes.iter().all(|fake| written(fake) == "/compact\r"));
+}
+
+#[test]
+fn a_draft_or_new_input_or_a_busy_agent_stops_it() {
+    // A half-typed prompt in the box: nothing is typed.
+    let fake = Fake::new();
+    *fake.draft.borrow_mut() = "half a thought".into();
+    let start = Instant::now();
+    let mut timer = Timer::default();
+    timer.turn_ended(&terminal(1), Some(armed_for(&fake, start)));
+    timer.fire_due(start, |_, _| Some(&fake));
+    assert_eq!(written(&fake), "");
+
+    // Someone typed in the gap: no Return, and their input is left alone.
+    let fake = Fake::new();
+    let mut timer = Timer::default();
+    timer.turn_ended(&terminal(1), Some(armed_for(&fake, start)));
+    timer.fire_due(start, |_, _| Some(&fake));
+    fake.input.set(Some(8));
+    fake.draft.borrow_mut().push('x');
+    timer.fire_due(timer.next_due().unwrap(), |_, _| Some(&fake));
+    assert_eq!(written(&fake), "/compact");
+    assert_eq!(fake.draft.borrow().as_str(), "/compactx");
+
+    // The agent left idle in the gap: no Return, its own /compact erased.
+    let fake = Fake::new();
+    let mut timer = Timer::default();
+    timer.turn_ended(&terminal(1), Some(armed_for(&fake, start)));
+    timer.fire_due(start, |_, _| Some(&fake));
+    fake.idle.set(false);
+    timer.fire_due(timer.next_due().unwrap(), |_, _| Some(&fake));
+    assert!(!written(&fake).contains('\r'));
+    assert_eq!(fake.draft.borrow().as_str(), "");
+}
+
+#[test]
+fn the_compacted_record_follows_the_terminal() {
+    let fake = Fake::new();
+    let start = Instant::now();
+    let mut timer = Timer::default();
+    let mut compact = |timer: &mut Timer, n: usize| {
+        timer.turn_ended(&terminal(n), Some(armed_for(&fake, start)));
+        timer.fire_due(start, |_, _| Some(&fake));
+        timer.fire_due(timer.next_due().unwrap(), |_, _| Some(&fake));
+        assert!(timer.already_compacted(&terminal(n), "msg_1"));
+    };
+    // A turn or session start or end, or the terminal's removal, forgets it.
+    compact(&mut timer, 1);
+    timer.forget(&terminal(1));
+    assert!(timer.compacted.is_empty() && timer.armed.is_empty());
+    // A later request supersedes it.
+    compact(&mut timer, 2);
+    let mut later = armed_for(&fake, start + Duration::from_secs(60));
+    later.request = "msg_2".into();
+    timer.turn_ended(&terminal(2), Some(later));
+    assert!(timer.compacted.is_empty());
+    assert_eq!(timer.armed.len(), 1);
+    // The same request re-armed (a duplicate Stop) keeps it, so it never compacts twice.
+    timer.forget(&terminal(2));
+    compact(&mut timer, 3);
+    timer.turn_ended(&terminal(3), Some(armed_for(&fake, start)));
+    assert!(timer.already_compacted(&terminal(3), "msg_1"));
+}

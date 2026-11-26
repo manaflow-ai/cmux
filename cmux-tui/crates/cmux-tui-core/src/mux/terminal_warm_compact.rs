@@ -21,7 +21,9 @@
 //! transcript, so only the token bar applies here, not `minContextPercent`.
 //!
 //! When it fires, the daemon types `/compact` and Return into the terminal, as a person would,
-//! only if all of these still hold:
+//! only if all of these still hold, checked before each of the two keys:
+//! - the wall clock is still well short of the cache's expiry (10 s before `/compact`, 5 s
+//!   before Return), so a late dispatch, a clock jump or a sleep never compacts a cold cache;
 //! - the terminal's agent is the same Claude Code session and idle (its roster record);
 //! - nobody wrote input to the terminal since the turn ended (`terminal_last_input`);
 //! - the transcript's last request is still the one it armed for, and no compaction came after;
@@ -34,8 +36,12 @@
 //! The timer: one thread, started with the daemon ([`Mux::start_terminal_warm_compact`]), holding
 //! only a weak reference to the mux; a command channel carries finished turns to it, and the
 //! transcript is read there, never on the hook's path. Each terminal holds at most one entry; a
-//! later turn's end replaces it and the end of its session drops it. Stop condition: an entry
-//! fires once at its deadline and goes; the thread ends with the mux (its channel closes).
+//! later turn's end replaces it, and a turn or session start or end, or the terminal's removal,
+//! drops it with the terminal's compacted record. The thread never sleeps between the two keys:
+//! a typed `/compact` re-arms for its Return [`SUBMIT_GAP`] later, so a burst of due terminals
+//! does not queue behind one another. When the Return's gates fail but the box still holds only
+//! its own `/compact`, it erases that. Stop condition: an entry fires once at its deadline (and
+//! once more for its Return) and goes; the thread ends with the mux (its channel closes).
 
 use super::Mux;
 use crate::resource::TerminalPublicId;
@@ -80,8 +86,9 @@ pub(super) struct TerminalWarmCompact {
 enum Command {
     /// A terminal agent's turn ended: arm for its last request.
     TurnEnded { terminal: TerminalPublicId, session: Option<String>, transcript: PathBuf },
-    /// A terminal agent's turn started or its session ended: disarm.
-    Disarm(TerminalPublicId),
+    /// A terminal agent's turn or session started or ended, or the terminal was removed:
+    /// forget the terminal.
+    Forget(TerminalPublicId),
 }
 
 /// A transcript's last request, as far as warm compaction needs it.
@@ -255,15 +262,186 @@ pub(super) fn input_box_text(screen: &str) -> Option<String> {
     Some(text)
 }
 
+/// What the daemon types to compact.
+const COMMAND: &[u8] = b"/compact";
+/// The least time left on the cache when `/compact` is typed: the Return comes [`SUBMIT_GAP`]
+/// later and Claude Code then sends the compaction, which must reach the cache before it lapses.
+const TYPE_MARGIN_MS: u64 = 10_000;
+/// The least time left on the cache when the Return is sent.
+const SUBMIT_MARGIN_MS: u64 = 5_000;
+
+/// Which keys an armed entry sends next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    /// `/compact`, at the cache's deadline less [`lead_ms`].
+    Type,
+    /// Return, [`SUBMIT_GAP`] after `/compact` was typed.
+    Submit,
+}
+
 /// One terminal's armed compaction.
 #[derive(Clone, Debug)]
 struct Armed {
     due: Instant,
+    stage: Stage,
+    /// When the armed request's cache lapses (Unix ms): checked against the wall clock right
+    /// before each key, so a late dispatch (a burst of due entries, a clock jump, a sleep the
+    /// monotonic `due` did not count) never compacts a cold cache.
+    expires_ms: u64,
     session: Option<String>,
     transcript: PathBuf,
     request: String,
     /// The terminal's `last_input` when it was armed.
     input: Option<u64>,
+}
+
+impl Armed {
+    fn warm(&self, now_ms: u64, margin_ms: u64) -> bool {
+        now_ms.saturating_add(margin_ms) <= self.expires_ms
+    }
+}
+
+/// What firing sees of one terminal: the mux ([`MuxTarget`]), or a test's fake.
+trait Target {
+    /// The wall clock (Unix ms).
+    fn now_ms(&self) -> u64;
+    /// The token bar now, or None when warm compaction is off.
+    fn min_tokens(&self) -> Option<u64>;
+    /// Whether the terminal's agent is still the armed session's idle Claude Code.
+    fn idle(&self) -> bool;
+    fn last_input(&self) -> Option<u64>;
+    /// The terminal's screen text.
+    fn screen(&self) -> Option<String>;
+    /// The transcript's last request now.
+    fn last_request(&self) -> Option<LastRequest>;
+    fn write(&self, bytes: &[u8]) -> bool;
+}
+
+/// What one due entry did.
+#[derive(Debug, PartialEq, Eq)]
+enum Fired {
+    /// Typed `/compact`: the Return is armed next.
+    Typed,
+    /// Sent the Return: the compaction runs.
+    Submitted,
+    /// Took back its own `/compact` (the cache got too close to lapsing, or the agent left
+    /// idle): the box is as it found it.
+    Withdrawn,
+    /// A gate failed: nothing more is sent.
+    Skipped,
+}
+
+/// Types `/compact` when every gate holds and the cache has [`TYPE_MARGIN_MS`] left.
+fn type_compact(target: &impl Target, entry: &Armed) -> Fired {
+    if !entry.warm(target.now_ms(), TYPE_MARGIN_MS) {
+        return Fired::Skipped;
+    }
+    let Some(min_tokens) = target.min_tokens() else { return Fired::Skipped };
+    if !target.idle() || target.last_input() != entry.input {
+        return Fired::Skipped;
+    }
+    let Some(request) = target.last_request() else { return Fired::Skipped };
+    if request.key != entry.request || request.context < min_tokens {
+        return Fired::Skipped;
+    }
+    if target.screen().as_deref().and_then(input_box_text).as_deref() != Some("") {
+        return Fired::Skipped;
+    }
+    // Again right before the keys: the transcript and screen reads take time too.
+    if !entry.warm(target.now_ms(), TYPE_MARGIN_MS) || !target.write(COMMAND) {
+        return Fired::Skipped;
+    }
+    Fired::Typed
+}
+
+/// Sends the Return only if the box still holds just `/compact` from the same idle session,
+/// nobody typed in the gap and the cache has [`SUBMIT_MARGIN_MS`] left, so it never sends a
+/// person's draft or a cold compaction. Otherwise it erases its own `/compact` when the box
+/// still holds only that.
+fn submit_compact(target: &impl Target, entry: &Armed) -> Fired {
+    let boxed = target.screen().as_deref().and_then(input_box_text);
+    let untouched =
+        target.last_input() == entry.input && boxed.as_deref().map(str::as_bytes) == Some(COMMAND);
+    if !untouched {
+        return Fired::Skipped;
+    }
+    if target.idle() && entry.warm(target.now_ms(), SUBMIT_MARGIN_MS) {
+        return if target.write(b"\r") { Fired::Submitted } else { Fired::Skipped };
+    }
+    let _ = target.write(&[0x7f; COMMAND.len()]);
+    Fired::Withdrawn
+}
+
+/// The timer's state: at most one entry per terminal, and the request each terminal last
+/// compacted after. Both are keyed by live terminals only: a later turn's end, a disarm (turn
+/// or session start or end) and the terminal's removal drop the terminal from both.
+#[derive(Default)]
+struct Timer {
+    armed: HashMap<TerminalPublicId, Armed>,
+    /// Never twice for one request.
+    compacted: HashMap<TerminalPublicId, String>,
+}
+
+impl Timer {
+    fn next_due(&self) -> Option<Instant> {
+        self.armed.values().map(|entry| entry.due).min()
+    }
+
+    fn already_compacted(&self, terminal: &TerminalPublicId, request: &str) -> bool {
+        self.compacted.get(terminal).is_some_and(|done| done == request)
+    }
+
+    /// A turn ended: replace the terminal's entry. A request other than the compacted one
+    /// supersedes that record.
+    fn turn_ended(&mut self, terminal: &TerminalPublicId, entry: Option<Armed>) {
+        self.armed.remove(terminal);
+        if let Some(entry) = entry {
+            if !self.already_compacted(terminal, &entry.request) {
+                self.compacted.remove(terminal);
+            }
+            self.armed.insert(terminal.clone(), entry);
+        }
+    }
+
+    /// A turn or session started or ended, or the terminal went: forget the terminal.
+    fn forget(&mut self, terminal: &TerminalPublicId) {
+        self.armed.remove(terminal);
+        self.compacted.remove(terminal);
+    }
+
+    /// Runs every entry due at `now`, without blocking: a typed `/compact` re-arms for its
+    /// Return [`SUBMIT_GAP`] later, so a burst of due terminals all type within one pass and
+    /// none waits on another's gap. `target` gives the terminal's view, or None when it has no
+    /// idle surface.
+    fn fire_due<T: Target>(
+        &mut self,
+        now: Instant,
+        mut target: impl FnMut(&TerminalPublicId, &Armed) -> Option<T>,
+    ) {
+        let due: Vec<TerminalPublicId> = self
+            .armed
+            .iter()
+            .filter(|(_, entry)| entry.due <= now)
+            .map(|(terminal, _)| terminal.clone())
+            .collect();
+        for terminal in due {
+            let Some(entry) = self.armed.remove(&terminal) else { continue };
+            let Some(view) = target(&terminal, &entry) else { continue };
+            match entry.stage {
+                Stage::Type => {
+                    if type_compact(&view, &entry) == Fired::Typed {
+                        let due = Instant::now().max(now) + SUBMIT_GAP;
+                        self.armed.insert(terminal, Armed { due, stage: Stage::Submit, ..entry });
+                    }
+                }
+                Stage::Submit => {
+                    if submit_compact(&view, &entry) == Fired::Submitted {
+                        self.compacted.insert(terminal, entry.request);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Mux {
@@ -280,6 +458,14 @@ impl Mux {
                     Some(sender);
             }
             Err(_) => self.report_internal_diagnostic("terminal warm compaction not started"),
+        }
+    }
+
+    fn send_terminal_warm_compact(&self, command: Command) {
+        let sender =
+            self.terminal_warm_compact.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
+            let _ = sender.send(command);
         }
     }
 
@@ -314,15 +500,16 @@ impl Mux {
                 }
             }
             "agent.turn.started" | "agent.session.started" | "agent.session.ended" => {
-                Command::Disarm(terminal.clone())
+                Command::Forget(terminal.clone())
             }
             _ => return,
         };
-        let sender =
-            self.terminal_warm_compact.sender.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(sender) = sender.as_ref() {
-            let _ = sender.send(command);
-        }
+        self.send_terminal_warm_compact(command);
+    }
+
+    /// The terminal was removed: the timer forgets it (`purge_terminal_side_tables`).
+    pub(super) fn forget_terminal_warm_compact(&self, terminal: &TerminalPublicId) {
+        self.send_terminal_warm_compact(Command::Forget(terminal.clone()));
     }
 
     /// The token bar now, or None when off.
@@ -330,8 +517,7 @@ impl Mux {
         min_tokens(&self.settings_effective_root(), |var| std::env::var(var).ok())
     }
 
-    /// The terminal's `last_input` and its agent record's surface, when its agent is `session`'s
-    /// idle Claude Code.
+    /// The terminal's surface, when its agent is `session`'s idle Claude Code.
     fn terminal_warm_compact_idle(
         self: &Arc<Self>,
         terminal: &TerminalPublicId,
@@ -351,40 +537,67 @@ impl Mux {
     }
 }
 
+/// A terminal as the daemon sees it.
+struct MuxTarget {
+    mux: Arc<Mux>,
+    terminal: TerminalPublicId,
+    session: Option<String>,
+    transcript: PathBuf,
+    surface: Arc<crate::Surface>,
+}
+
+impl Target for MuxTarget {
+    fn now_ms(&self) -> u64 {
+        crate::startup_timings::unix_now_ms()
+    }
+    fn min_tokens(&self) -> Option<u64> {
+        self.mux.terminal_warm_compact_min_tokens()
+    }
+    fn idle(&self) -> bool {
+        self.mux.terminal_warm_compact_idle(&self.terminal, self.session.as_deref()).is_some()
+    }
+    fn last_input(&self) -> Option<u64> {
+        self.surface.terminal_last_input()
+    }
+    fn screen(&self) -> Option<String> {
+        self.surface.try_with_terminal(|t| t.active_text()).ok()?.ok()
+    }
+    fn last_request(&self) -> Option<LastRequest> {
+        read_tail(&self.transcript).as_deref().and_then(last_request)
+    }
+    fn write(&self, bytes: &[u8]) -> bool {
+        self.surface.write_bytes(bytes).is_ok()
+    }
+}
+
 fn run(mux: &Weak<Mux>, receiver: mpsc::Receiver<Command>) {
-    let mut armed: HashMap<TerminalPublicId, Armed> = HashMap::new();
-    // The request each terminal last compacted after: never twice for one.
-    let mut compacted: HashMap<TerminalPublicId, String> = HashMap::new();
+    let mut timer = Timer::default();
     loop {
-        let next = armed.values().map(|entry| entry.due).min();
-        let command = match next {
+        let command = match timer.next_due() {
             Some(due) => receiver.recv_timeout(due.saturating_duration_since(Instant::now())),
             None => receiver.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
         };
         match command {
             Ok(Command::TurnEnded { terminal, session, transcript }) => {
-                armed.remove(&terminal);
                 let Some(mux) = mux.upgrade() else { return };
-                if let Some(entry) = arm(&mux, &terminal, session, transcript, &compacted) {
-                    armed.insert(terminal, entry);
-                }
+                let entry = arm(&mux, &terminal, session, transcript, &timer);
+                timer.turn_ended(&terminal, entry);
             }
-            Ok(Command::Disarm(terminal)) => {
-                armed.remove(&terminal);
-            }
+            Ok(Command::Forget(terminal)) => timer.forget(&terminal),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
-        let now = Instant::now();
-        let due: Vec<TerminalPublicId> =
-            armed.iter().filter(|(_, entry)| entry.due <= now).map(|(t, _)| t.clone()).collect();
-        for terminal in due {
-            let Some(entry) = armed.remove(&terminal) else { continue };
-            let Some(mux) = mux.upgrade() else { return };
-            if fire(&mux, &terminal, &entry) {
-                compacted.insert(terminal, entry.request);
-            }
-        }
+        let Some(mux) = mux.upgrade() else { return };
+        timer.fire_due(Instant::now(), |terminal, entry| {
+            let surface = mux.terminal_warm_compact_idle(terminal, entry.session.as_deref())?;
+            Some(MuxTarget {
+                mux: mux.clone(),
+                terminal: terminal.clone(),
+                session: entry.session.clone(),
+                transcript: entry.transcript.clone(),
+                surface,
+            })
+        });
     }
 }
 
@@ -393,11 +606,11 @@ fn arm(
     terminal: &TerminalPublicId,
     session: Option<String>,
     transcript: PathBuf,
-    compacted: &HashMap<TerminalPublicId, String>,
+    timer: &Timer,
 ) -> Option<Armed> {
     let min_tokens = mux.terminal_warm_compact_min_tokens()?;
     let request = last_request(&read_tail(&transcript)?)?;
-    if request.context < min_tokens || compacted.get(terminal) == Some(&request.key) {
+    if request.context < min_tokens || timer.already_compacted(terminal, &request.key) {
         return None;
     }
     let now_ms = crate::startup_timings::unix_now_ms();
@@ -406,48 +619,13 @@ fn arm(
     let input = surface.as_ref().and_then(|surface| surface.terminal_last_input());
     Some(Armed {
         due: Instant::now() + Duration::from_millis(wait),
+        stage: Stage::Type,
+        expires_ms: request.started_ms + request.ttl_ms,
         session,
         transcript,
         request: request.key,
         input,
     })
-}
-
-/// Types `/compact` into the terminal when every gate still holds; true when it did.
-fn fire(mux: &Arc<Mux>, terminal: &TerminalPublicId, entry: &Armed) -> bool {
-    let Some(min_tokens) = mux.terminal_warm_compact_min_tokens() else { return false };
-    let Some(surface) = mux.terminal_warm_compact_idle(terminal, entry.session.as_deref()) else {
-        return false;
-    };
-    if surface.terminal_last_input() != entry.input {
-        return false;
-    }
-    let Some(request) = read_tail(&entry.transcript).as_deref().and_then(last_request) else {
-        return false;
-    };
-    if request.key != entry.request || request.context < min_tokens {
-        return false;
-    }
-    let Ok(Ok(screen)) = surface.try_with_terminal(|t| t.active_text()) else { return false };
-    if input_box_text(&screen).as_deref() != Some("") {
-        return false;
-    }
-    if surface.write_bytes(b"/compact").is_err() {
-        return false;
-    }
-    std::thread::sleep(SUBMIT_GAP);
-    // Return only if the box still holds just `/compact` from the same idle session and nobody
-    // typed in the gap, so it never sends a person's draft.
-    if surface.terminal_last_input() != entry.input
-        || mux.terminal_warm_compact_idle(terminal, entry.session.as_deref()).is_none()
-    {
-        return false;
-    }
-    let Ok(Ok(screen)) = surface.try_with_terminal(|t| t.active_text()) else { return false };
-    if input_box_text(&screen).as_deref() != Some("/compact") {
-        return false;
-    }
-    surface.write_bytes(b"\r").is_ok()
 }
 
 #[cfg(test)]
