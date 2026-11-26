@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45906244147",
+  "recorded_at": "2026-11-26T23:13:35Z",
+  "reason": "image inputs changed in 06c331e5b28533b7d61364fb4370d82ff9daf447..d4fb33b49c67f941c71ba9ea796bf8545b22e158",
+  "dry_run": false,
+  "cmux_tui": "ee905dc44cc2bf3e64c09ed994afed450ff223f4",
+  "fixes": [
+    {
+      "sha": "d4fb33b49c67f941c71ba9ea796bf8545b22e158",
+      "mergedAt": "2026-11-26T22:40:00Z",
+      "subject": "image inventory: run the SBOM scan and file manifest detached, budget from measured times (#59682)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-26T23:13:35Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
