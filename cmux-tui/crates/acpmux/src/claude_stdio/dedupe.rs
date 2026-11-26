@@ -431,7 +431,7 @@ impl Dedupe {
                 .filter(|r| !r.stubbed && r.fingerprint == fingerprint)
                 .map(|r| {
                     r.stubbed = true;
-                    (n - r.at, r.chars)
+                    (n - r.at, r.chars, false)
                 }),
         };
         if let Some((ago, chars, prefetched)) = found {
@@ -524,6 +524,7 @@ impl Dedupe {
                         turn: p.turn,
                         chars,
                         stubbed: false,
+                        prefetched: false,
                     },
                 );
             }
@@ -540,10 +541,12 @@ impl Dedupe {
         }
         // The idle clock runs from what entered the context last.
         s.last_call = Some(now);
-        let total: usize = s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len();
+        let total: usize =
+            s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len() + s.searches.len();
         if total + files.len() >= MAX_RECORDS {
             s.reads.clear();
             s.shells.clear();
+            s.searches.clear();
         }
         let (at, turn) = (s.calls, s.turn);
         for (a, fingerprint) in files {
