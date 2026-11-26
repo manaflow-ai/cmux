@@ -17,16 +17,7 @@ extension DeepLink {
     ///   - chiefHost: This app's Chief host (`chief:<home id>`), nil when it has none.
     /// - Returns: The link to open, or nil.
     public static func appLink(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
-        // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
-        guard let link = parse(url, scheme: chiefScheme) ?? parse(url, scheme: linkScheme) ?? parseGroupWeb(url) else { return nil }
-        switch link.target {
-        case .workspace, .pane, .tab, .session, .agent, .group, .cloudSession:
-            return link
-        case .chiefSession: // any Chief home of this Mac: a named Chief writes its own (#28877)
-            return link.machine == nil && chiefHost != nil ? link : nil
-        case .legacyWorkspace, .legacyPane, .legacySurface:
-            return nil
-        }
+        RustDeepLink.link(["op": "appLink", "url": url.absoluteString, "scheme": linkScheme, "chief": chiefHost != nil])
     }
 
     /// The hosts that serve the agent session link's web page (`/deeplink/agent?harness=&session=`,
@@ -39,30 +30,14 @@ extension DeepLink {
     /// its web page (Leo, 2026-11-03: "we need to be able to link WITHIN THE APP"). Nil for any
     /// other URL, and for the opaque `?id=` form, which names no session.
     public static func parseAgentWeb(_ url: URL) -> DeepLink? {
-        guard let query = agentWebQuery(url) else { return nil }
-        func one(_ name: String) -> String? {
-            let items = query.filter { $0.name == name }
-            return items.count == 1 ? items[0].value : nil
-        }
-        guard let harness = one("harness"), let session = one("session") else { return nil }
-        var native = URLComponents()
-        native.scheme = chiefScheme
-        native.host = "agent"
-        native.percentEncodedPath = "/" + [harness, session].map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? $0 }.joined(separator: "/")
-        let hints = query.filter { [hostHintKey, nameHintKey, messageKey].contains($0.name) }
-        native.queryItems = hints.isEmpty ? nil : hints
-        guard let link = native.url.flatMap({ parse($0, scheme: chiefScheme) }), link.target.isAgent else { return nil }
-        return link
+        RustDeepLink.link(["op": "agentWeb", "url": url.absoluteString])
     }
 
     /// The harness session id an https agent link names when it names no harness (`?host=&session=`,
     /// as lanes print them): acpmux resolves a bare id against its chats' agent session ids. Nil for
     /// any other URL, and for a link with a harness (``parseAgentWeb(_:)`` reads that one).
     public static func agentWebSession(_ url: URL) -> String? {
-        guard let query = agentWebQuery(url), !query.contains(where: { $0.name == "harness" }) else { return nil }
-        let sessions = query.filter { $0.name == "session" }
-        guard sessions.count == 1, let session = sessions[0].value, isAgentSession(session) else { return nil }
-        return session
+        RustDeepLink.text(["op": "agentWebSession", "url": url.absoluteString])
     }
 
     /// The opaque agent reference (`aid-` and 20 lowercase hex digits) a link names in place of a
@@ -73,53 +48,20 @@ extension DeepLink {
     /// under this Mac's key, so it opens only a chat the reader can already reach. Nil for any other
     /// URL, for one that also names a harness or session, and for an `id` written twice.
     public static func agentReference(_ url: URL, linkScheme: String) -> String? {
-        let query: [URLQueryItem]
-        if let web = agentWebQuery(url) {
-            query = web
-        } else {
-            guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
-                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  components.host?.lowercased() == "agent", components.path.isEmpty || components.path == "/",
-                  components.user == nil, components.port == nil, components.fragment == nil else { return nil }
-            query = components.queryItems ?? []
-        }
-        guard !query.contains(where: { $0.name == "harness" || $0.name == "session" }) else { return nil }
-        let ids = query.filter { $0.name == "id" }
-        guard ids.count == 1, let id = ids[0].value, isAgentReference(id) else { return nil }
-        return id
+        RustDeepLink.text(["op": "agentReference", "url": url.absoluteString, "scheme": linkScheme])
     }
 
     /// Whether `url` opens an agent's chat: an agent link (`cmux://agent/<harness>/<session>`) or an
     /// opaque reference (``agentReference(_:linkScheme:)``). Such a link opened from another app is an
     /// address from a public page or trailer, so it never takes the keys (`ExternalOpenController`).
     public static func opensAgentChat(_ url: URL, linkScheme: String) -> Bool {
-        if agentReference(url, linkScheme: linkScheme) != nil { return true }
-        if case .agent = read(url, scheme: linkScheme)?.link.target { return true }
-        return false
+        RustDeepLink.bool(["op": "opensAgentChat", "url": url.absoluteString, "scheme": linkScheme])
     }
 
     /// `aid-` and 20 lowercase hex digits: the opaque id agent-identity writes (cmux.com's
     /// `AGENT_REFERENCE_PATTERN`, acpmux's `opaque_agent_id::is_id`).
     public static func isAgentReference(_ text: String) -> Bool {
-        // The count too: `$` also matches before a final newline a decoded `%0A` could leave.
-        text.utf8.count == 24 && text.range(of: "^aid-[0-9a-f]{20}$", options: .regularExpression) != nil
-    }
-
-    /// The query of an https agent session link's page (cmux.com, `/deeplink/agent`, an optional
-    /// locale segment and trailing slash; no user, port or fragment), nil for any other URL.
-    private static func agentWebQuery(_ url: URL) -> [URLQueryItem]? {
-        guard url.scheme?.lowercased() == "https",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.user == nil, components.password == nil, components.port == nil, components.fragment == nil,
-              let host = components.host?.lowercased(), agentWebHosts.contains(host) else { return nil }
-        let segments = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        let path = segments.count == 3 && isLocale(segments[0]) ? Array(segments.dropFirst()) : segments
-        return path == ["deeplink", "agent"] ? components.queryItems ?? [] : nil
-    }
-
-    /// A cmux.com locale segment (`en`, `zh-CN`).
-    private static func isLocale(_ segment: String) -> Bool {
-        segment.range(of: "^[a-z]{2}(-[A-Z]{2})?$", options: .regularExpression) != nil
+        RustDeepLink.valid("agentReference", text)
     }
 
     /// What a settings link runs: an action and its arguments, run as the person's click.
