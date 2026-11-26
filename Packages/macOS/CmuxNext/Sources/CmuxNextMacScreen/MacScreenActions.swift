@@ -97,12 +97,16 @@ public struct MacScreenActions {
         worker.running() ? nil : pages.hubHost.noSessionReason
     }
 
+    /// Which host ends the session (cmux-rd-ffi `actions.stopSharing`): the app's own while it has one, else the worker.
     func stopSharing() -> ActionEffect {
-        if pages.hubHost.noSessionReason == nil {
+        let plan = RdUI.call("actions.stopSharing", ["workerRunning": worker.running(), "hubHasSession": pages.hubHost.noSessionReason == nil]) as? [String: Any]
+        switch plan?["run"] as? String {
+        case "hub":
             _ = pages.hubHost.stopSession()
             return .done
+        case "worker": break
+        default: return .refused(pages.hubHost.noSessionReason ?? "")
         }
-        guard worker.running() else { return .refused(pages.hubHost.noSessionReason ?? "") }
         let stop = worker.stop
         // action-wait-allow: the session runs in cmux Remote's worker, another process; the menu bar item follows the hub.
         return .waiting(.externalProcess) {
@@ -135,26 +139,23 @@ public struct MacScreenActions {
     }
 
     /// The `device` name of `invocation` when it is a name (not an id) that none of `devices` answers to.
+    /// Names match in Rust (cmux-rd-ffi `actions.unlistedName`), as `deviceID` matches them.
     static func unlistedName(_ invocation: ActionInvocation, devices: [HubDevice]) -> String? {
-        guard let text = invocation["device"]?.stringValue, MacScreenRecord.normalizedDeviceID(text) == nil else { return nil }
-        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !devices.contains(where: { sameName($0.name, name) }) else { return nil }
-        return name
+        RdUI.call("actions.unlistedName", ["device": invocation["device"]?.stringValue ?? NSNull(), "devices": rd(devices)]) as? String
     }
 
     /// "<name> offers no screen: <reason>." for the machine among `listed` that `name` names, as `deviceID` matches
-    /// names; nil when none does.
+    /// names (cmux-rd-ffi `actions.noScreen`); nil when none does.
     static func noScreen(_ name: String, among listed: [MacScreenListedDevice]) -> String? {
-        guard let device = listed.first(where: { sameName($0.name, name) }) ?? listed.first(where: { $0.name == name }) else { return nil }
-        return String(format: L.t("macScreen.actions.offersNoScreen", "%1$@ offers no screen: %2$@."), device.name, device.noScreenText)
+        let rows: [[String: Any]] = listed.map { ["name": $0.name, "noScreenReason": $0.noScreenReason ?? NSNull()] }
+        guard let device = RdUI.call("actions.noScreen", ["name": name, "listed": rows]) as? [String: Any],
+              let deviceName = device["name"] as? String, let key = device["reasonKey"] as? String else { return nil }
+        return String(format: L.t("macScreen.actions.offersNoScreen", "%1$@ offers no screen: %2$@."), deviceName, MacScreenListedDevice.noScreenText(key))
     }
 
-    private static func sameName(_ candidate: String, _ name: String) -> Bool {
-        let keys: [(String) -> String] = [Self.folded, Self.slug]
-        return keys.contains { key in
-            let wanted = key(name)
-            return !wanted.isEmpty && key(candidate) == wanted
-        }
+    /// The hub devices as the `actions.*` ops read them.
+    static func rd(_ devices: [HubDevice]) -> [[String: Any]] {
+        devices.map { ["id": $0.id, "name": $0.name, "online": $0.online, "macScreenShared": $0.macScreenShared] }
     }
 
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages,
@@ -193,7 +194,7 @@ public struct MacScreenActions {
 
     /// `scope`: `full` asks for Full Control; `view`, or none, View Only (the catalog refuses any other value).
     static func scope(_ invocation: ActionInvocation) -> SessionScope {
-        invocation["scope"]?.stringValue?.lowercased() == "full" ? .full : .view
+        RdUI.call("actions.scope", ["scope": invocation["scope"]?.stringValue ?? NSNull()]) as? String == "full" ? .full : .view
     }
 
     /// The hub id `text` names: an id as is (listed or not, as before names resolved), else the one device whose
@@ -201,49 +202,33 @@ public struct MacScreenActions {
     /// ("mac-mini" for "Mac Mini", "leos-mac" for "Leo’s Mac"), so a `cmux device list` name finds its Mac.
     /// An empty, unknown or ambiguous name fails with the devices it could name, as "name (id)".
     static func deviceID(named text: String, among devices: [HubDevice]) throws -> String {
-        if let id = MacScreenRecord.normalizedDeviceID(text) { return id }
-        var name = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A `cmux device list` row id (`peer:desk-1`) names the machine; its screen host registers by that name.
-        if name.hasPrefix("peer:") { name = String(name.dropFirst("peer:".count)) }
-        guard !name.isEmpty else { throw ActionFailure(message: missingDevice(among: devices)) }
-        for key: (String) -> String in [Self.folded, Self.slug] {
-            let wanted = key(name)
-            guard !wanted.isEmpty else { continue }
-            let matches = devices.filter { key($0.name) == wanted }
-            if matches.count == 1, let match = matches.first { return match.id }
-            // One name, several registrations (a reinstall, an old hub record): the one that is online and shares
-            // is the one a person means; only when that does not single one out is the name ambiguous.
-            let live = matches.filter { $0.online && $0.macScreenShared }
-            if matches.count > 1, live.count == 1, let match = live.first { return match.id }
-            if matches.count > 1 {
-                throw ActionFailure(message: String(format: L.t("macScreen.actions.ambiguousDevice", "More than one device is named “%@”: %@. Pass the id of the one to open."), name, listed(matches)))
-            }
-        }
-        throw ActionFailure(message: unknownDevice(name, among: devices))
+        let answer = RdUI.call("actions.deviceId", ["text": text, "devices": rd(devices)]) as? [String: Any]
+        if let id = answer?["id"] as? String { return id }
+        throw ActionFailure(message: failureText(answer?["failure"] as? [String: Any]))
     }
 
-    private static func folded(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
-    }
-    private static func slug(_ name: String) -> String {
-        folded(name).components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: "-")
-    }
-    /// "Studio (0b6c…), mac-mini (5d1e…)": what a CLI caller can pass back as `--device`.
-    private static func listed(_ devices: [HubDevice]) -> String {
-        let rows = devices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { "\($0.name) (\($0.id))" }
-        return ListFormatter.localizedString(byJoining: rows)
-    }
-    private static func unknownDevice(_ name: String, among devices: [HubDevice]) -> String {
-        guard !devices.isEmpty else {
+    /// A refusal Rust named by key, with the devices it could name as "name (id)".
+    private static func failureText(_ failure: [String: Any]?) -> String {
+        let name = failure?["name"] as? String ?? ""
+        let rows = (failure?["listed"] as? [[String: Any]] ?? []).map { (name: $0["name"] as? String ?? "", id: $0["id"] as? String ?? "") }
+        let devices = ListFormatter.localizedString(byJoining: rows
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .map { "\($0.name) (\($0.id))" })
+        switch failure?["key"] as? String {
+        case "macScreen.actions.ambiguousDevice":
+            return String(format: L.t("macScreen.actions.ambiguousDevice", "More than one device is named “%@”: %@. Pass the id of the one to open."), name, devices)
+        case "macScreen.actions.unknownDeviceNoneListed":
             return String(format: L.t("macScreen.actions.unknownDeviceNoneListed", "No device is named “%@”, and no devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac."), name)
-        }
-        return String(format: L.t("macScreen.actions.unknownDevice", "No device is named “%@”. Your devices: %@."), name, listed(devices))
-    }
-    private static func missingDevice(among devices: [HubDevice]) -> String {
-        guard !devices.isEmpty else {
+        case "macScreen.actions.unknownDevice":
+            return String(format: L.t("macScreen.actions.unknownDevice", "No device is named “%@”. Your devices: %@."), name, devices)
+        case "macScreen.actions.missingDevice":
+            return String(format: L.t("macScreen.actions.missingDevice", "Pass a device name or id. Your devices: %@."), devices)
+        default:
             return L.t("macScreen.actions.missingDeviceNoneListed", "Pass a device name or id. No devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac.")
         }
-        return String(format: L.t("macScreen.actions.missingDevice", "Pass a device name or id. Your devices: %@."), listed(devices))
+    }
+    private static func missingDevice(among devices: [HubDevice]) -> String {
+        failureText(RdUI.call("actions.missingDevice", ["devices": rd(devices)]) as? [String: Any])
     }
 
     /// The targeted tab's viewer while it asks, waits or streams (Stop Viewing's tab).
@@ -276,13 +261,17 @@ public struct MacScreenActions {
     /// --autoconnect` reaches the hub with no Connect click. Only Your Click Starts Viewing a Screen wins over it:
     /// an agent never loosens the person's setting. Leo, 2026-11-16: "At least like Linux to Mac".
     static func mayAutoconnect(_ invocation: ActionInvocation, pages: MacScreenPages) -> Bool {
-        autoconnects(invocation) && !pages.onlyPersonStartsViewing
+        RdUI.call("actions.mayAutoconnect", ["autoconnect": autoconnectArg(invocation), "onlyPersonStartsViewing": pages.onlyPersonStartsViewing]) as? Bool ?? false
     }
 
-    /// `autoconnect: true`, as the CLI sends a bare `--autoconnect`, or `"true"` (`--autoconnect=true`, `--arg`).
+    /// `autoconnect: true`, as the CLI sends a bare `--autoconnect`, or `"true"` (`--arg`): cmux-rd-ffi `actions.autoconnects`.
     static func autoconnects(_ invocation: ActionInvocation) -> Bool {
-        guard let value = invocation["autoconnect"] else { return false }
-        return value.boolValue ?? (value.stringValue?.lowercased() == "true")
+        RdUI.call("actions.autoconnects", ["autoconnect": autoconnectArg(invocation)]) as? Bool ?? false
+    }
+
+    private static func autoconnectArg(_ invocation: ActionInvocation) -> Any {
+        guard let value = invocation["autoconnect"] else { return NSNull() }
+        return value.boolValue ?? value.stringValue ?? NSNull()
     }
     private static var noPane: String { L.t("macScreen.actions.noPane", "Choose a pane or tab to open Screen Sharing.") }
     private static var noViewer: String { L.t("macScreen.actions.noViewer", "Choose a Screen Sharing tab to stop viewing.") }
@@ -301,19 +290,24 @@ public struct MacScreenListedDevice: Equatable, Sendable {
         self.noScreenReason = noScreenReason
     }
 
-    /// A `cmux device list` row by its `screen` offer: nil for a row with none (a person's login, not a machine).
+    /// A `cmux device list` row by its `screen` offer (cmux-rd-ffi `actions.listedDevice`): nil for a row with none
+    /// (a person's login, not a machine).
     public init?(name: String, screenAction: String?, reason: String?) {
-        guard let screenAction else { return nil }
-        self.init(name: name, noScreenReason: screenAction == "none" ? reason ?? "unknown" : nil)
+        guard let row = RdUI.call("actions.listedDevice", ["name": name, "screenAction": screenAction ?? NSNull(), "reason": reason ?? NSNull()]) as? [String: Any] else { return nil }
+        self.init(name: name, noScreenReason: row["noScreenReason"] as? String)
     }
 
-    /// The reason, as the clause after "offers no screen: ".
+    /// The reason, as the clause after "offers no screen: " (its key from cmux-rd-ffi `actions.noScreenReasonKey`).
     var noScreenText: String {
-        switch noScreenReason {
-        case "offline": L.t("macScreen.actions.refusal.noScreen.offline", "it is offline")
-        case "no-desktop": L.t("macScreen.actions.refusal.noScreen.noDesktop", "it is a server or VM with no desktop to share")
-        case "phone": L.t("macScreen.actions.refusal.noScreen.phone", "an iPhone or iPad cannot share its screen")
-        case nil: L.t("macScreen.actions.refusal.noScreen.notRegistered", "Screen Sharing does not list it yet; sign in to cmux on it and turn on Allow Mac Screen")
+        Self.noScreenText(RdUI.call("actions.noScreenReasonKey", ["noScreenReason": noScreenReason ?? NSNull()]) as? String ?? "")
+    }
+
+    static func noScreenText(_ key: String) -> String {
+        switch key {
+        case "macScreen.actions.refusal.noScreen.offline": L.t("macScreen.actions.refusal.noScreen.offline", "it is offline")
+        case "macScreen.actions.refusal.noScreen.noDesktop": L.t("macScreen.actions.refusal.noScreen.noDesktop", "it is a server or VM with no desktop to share")
+        case "macScreen.actions.refusal.noScreen.phone": L.t("macScreen.actions.refusal.noScreen.phone", "an iPhone or iPad cannot share its screen")
+        case "macScreen.actions.refusal.noScreen.notRegistered": L.t("macScreen.actions.refusal.noScreen.notRegistered", "Screen Sharing does not list it yet; sign in to cmux on it and turn on Allow Mac Screen")
         default: L.t("macScreen.actions.refusal.noScreen.unknown", "cmux cannot tell whether it has a desktop to share")
         }
     }
