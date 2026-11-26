@@ -2,6 +2,7 @@
 import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
+import Foundation
 import Testing
 
 /// CMUX-629 (Leo: "the other portions need to draw / technically only need to draw that one workspace open and the
