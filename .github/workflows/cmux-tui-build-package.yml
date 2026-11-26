@@ -847,12 +847,18 @@ jobs:
           # cmux-tui/Cargo.toml's release profile applies.
           # --timings (both modes): cargo-groups.sh prints each group's slowest and last units, so a
           # slow leg says where its time went (under fat LTO, the "bin" unit is the link).
+          # Under lto=thin acpmux (836k lines, one crate) also builds incrementally. Every new commit
+          # changes some crate under it, so the delta below left it to recompile whole: 742 s in
+          # group 1 and 785 s in group 5 of a 894 s build step, with only 84 crates dirty (job
+          # 140211648755, 2026-11-26). Its incremental state rides in the workspace delta; a
+          # fresh state is a full build, as before.
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
-            for pkg in cmux-tui cmux-tui-core acpmux; do
+            for pkg in cmux-tui cmux-tui-core; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
+            profile+=" --config profile.release.package.acpmux.incremental=true"
           fi
           profile+=" --timings"
           # One cargo per package, all at once, each in its own target directory
