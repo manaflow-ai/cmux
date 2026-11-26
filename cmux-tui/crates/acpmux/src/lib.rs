@@ -15,7 +15,7 @@
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod accept_errors;
-pub mod acp_todo_plan;
+pub(crate) mod acp_key_auth;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
 pub mod adopt;
@@ -49,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -57,14 +58,17 @@ mod claude_cloud_auth;
 pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
+pub mod claude_token;
 pub mod cli;
 pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
 pub mod close_why;
+pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
+pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -100,10 +104,12 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_evict;
 pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -124,7 +130,9 @@ pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
+pub mod hypervisor;
 pub mod install_share;
+pub mod key_check;
 pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
@@ -179,9 +187,11 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+pub mod terminal_autocompact;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
+pub mod chat_secrets;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
@@ -223,6 +233,8 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+#[cfg(unix)]
+pub mod mcp_pool;
 pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
@@ -238,6 +250,7 @@ pub mod name_match;
 mod named_files_watch;
 pub mod native;
 pub mod no_panic;
+pub mod notice_read;
 pub mod offer_mcp;
 pub mod oom_rank;
 pub mod opaque_agent_id;
@@ -266,10 +279,15 @@ pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+pub mod place_move;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
 pub mod fleet_elastic;
 pub mod place_mode;
+// A chat's stored pin and the one-time migration that pins every older chat to its machine.
+pub mod place_pin;
 pub mod placement;
+// `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
@@ -321,6 +339,7 @@ pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
 pub mod send_fanout;
+pub mod send_trace;
 pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
@@ -343,6 +362,7 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 mod session_store;
+mod session_total;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
@@ -395,7 +415,6 @@ pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
-pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -409,6 +428,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub mod todo_tools;
 pub(crate) mod tool_env;
 pub mod tool_mentions;
 pub mod tools_mcp;

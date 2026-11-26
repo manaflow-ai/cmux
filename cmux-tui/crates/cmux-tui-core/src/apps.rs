@@ -96,6 +96,10 @@ mod page_bridge;
 #[cfg(unix)]
 mod page_calls;
 #[cfg(unix)]
+mod page_keys;
+#[cfg(unix)]
+mod pane_flow;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
@@ -157,6 +161,8 @@ mod terminal_ops;
 pub(crate) mod timer;
 #[cfg(unix)]
 mod toolbar;
+#[cfg(unix)]
+mod view_state;
 #[cfg(unix)]
 mod widgets;
 

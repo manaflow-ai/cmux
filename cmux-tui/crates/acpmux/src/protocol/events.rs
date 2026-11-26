@@ -268,6 +268,15 @@ pub struct MarkUnreadParams {
     pub meta: Option<super::presence::AuthorMeta>,
 }
 
+/// `_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to
+/// their other replicas as `pin/<id>` (`hub/synced.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PinParams {
+    pub session_id: String,
+    pub pinned: bool,
+}
+
 /// An acknowledgement with nothing in it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Done {}
