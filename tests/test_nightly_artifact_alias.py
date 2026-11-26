@@ -48,7 +48,8 @@ class NightlyArtifactAliasTests(unittest.TestCase):
             root = Path(directory)
             verified = root / "verified"
             payloads = {}
-            for variant in ("arm64", "x86_64", "universal"):
+            # Nightly builds arm64 only.
+            for variant in ("arm64",):
                 folder = verified / f"accepted-{variant}-TEST"
                 folder.mkdir(parents=True)
                 immutable = folder / f"cmux-nightly-macos-{variant}-123.dmg"
@@ -91,10 +92,8 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                     (root / "nightly-out" / f"cmux-nightly-macos-{variant}.dmg").read_bytes(),
                     payload,
                 )
-            self.assertEqual(
-                (root / "nightly-out" / "cmux-nightly-macos.dmg").read_bytes(),
-                payloads["universal"],
-            )
+            # The universal download alias is frozen at its last build: never reassembled.
+            self.assertFalse((root / "nightly-out" / "cmux-nightly-macos.dmg").exists())
 
 
 if __name__ == "__main__":

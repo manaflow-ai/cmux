@@ -1836,6 +1836,10 @@ path = "tests/test_github_token_budget.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cron_dispatch_token_lint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_main_regression_bisect.py"
 lane = "linux-guard"
 
@@ -1873,6 +1877,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_app_spend_mark.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_job_token_floor.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2306,6 +2314,10 @@ path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_cargo_workspace.py"
 lane = "linux-guard"
 
@@ -2423,6 +2435,10 @@ path = "tests/test_ci_risk_tier_grades_once.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_prt_raw_base_files.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_risk_tier_takeback_only.py"
 lane = "linux-guard"
 
@@ -2459,5 +2475,13 @@ path = "tests/test_ci_shed_superseded_runs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_localization_fill.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_red_fix_mine.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_rate_limit.py"
 lane = "linux-guard"
