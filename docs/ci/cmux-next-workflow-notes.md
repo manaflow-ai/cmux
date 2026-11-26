@@ -2119,6 +2119,14 @@ Above `fast-tier-cargo: runs-on` in `.github/workflows/cmux-next.yml`.
 
 As cmux-tui.yml's Linux test job: a fork keeps the public or 4-vCPU lane.
 
+A same-repository run reads the linux_16 pool (GCP first, then Blacksmith), not linux_8: linux_8 is led
+by the Freestyle rung (#56349), and on Freestyle VMs this job mostly never got to its tests. Controller
+timing records, 2026-11-25 18:44Z to 2026-11-26 08:49Z: of 653 runs on `fsr-*` runners 98 passed, 243 hit
+the 30 min job timeout (GitHub reports a timed-out job as cancelled: 7,854 min, the "cancelled" half of the
+job's minutes) and 277 failed in setup (Set up job, checkout averaging 578 s against 69 s, apt, zig: 4,817
+min). On the GCP pool the same job passed 478 of 583 runs, median 15.5 min. 16 was already the overflow arm's size, so that
+arm is gone (linux_sizes: size 16, no failover).
+
 ## note-207
 
 Above `fast-tier-cargo: env` in `.github/workflows/cmux-next.yml`.
