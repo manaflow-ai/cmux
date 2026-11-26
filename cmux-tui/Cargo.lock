@@ -2682,6 +2682,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-redact"
 version = "0.1.0"
 dependencies = [
