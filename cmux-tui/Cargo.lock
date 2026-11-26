@@ -2171,7 +2171,6 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
- "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "flate2",

@@ -11,9 +11,6 @@
   "acpmux::range_fetch": {
    "todo": true
   },
-  "acpmux::send_trace": {
-   "none": "start-trace timings only (hop names, milliseconds, a cold flag, the machine name) posted to the machine-local edge platform.cmux.internal, with no credential; capture cannot see an .internal host"
-  },
   "chatmux_relay": {
    "todo": true
   },
@@ -43,9 +40,6 @@
   },
   "cmux_coderouter": {
    "todo": true
-  },
-  "cmux_git_cache::server": {
-   "test": "cmux-tui/crates/cmux-git-cache/tests/egress_seeded.rs::seeded_secrets_ride_only_where_github_needs_them"
   },
   "cmux_mobile_host::auth": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
@@ -146,9 +140,6 @@
   "cmux_tui::cli::mcp_servers": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
-  "cmux_tui::cli::runnable_link": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
-  },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
   },
@@ -193,9 +184,6 @@
   },
   "cmux_tui_core::server::forum_routed": {
    "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
-  },
-  "cmux_tui_core::server::machine_state_push": {
-   "test": "cmux-tui/crates/cmux-tui-core/src/server/machine_state_push_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
   "cmux_vm_pool::http": {
    "todo": true

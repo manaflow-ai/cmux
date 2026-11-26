@@ -653,15 +653,6 @@ async fn exec<P: Platform>(
     Ok((code, v.get("stdout").and_then(Value::as_str).unwrap_or_default().to_owned()))
 }
 
-/// The platform's client, through the egress gate (docs/privacy.md, "Egress gate").
-fn http_client() -> reqwest::Result<reqwest::Client> {
-    cmux_egress::client_builder("cmux_tui::cli::runnable_link")
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(60))
-        .build()
-}
-
 /// The platform over HTTP, with the Cloud CLI's credential.
 struct Http {
     client: reqwest::Client,
@@ -812,11 +803,12 @@ pub(crate) fn run(words: &[String], json_flag: bool) -> i32 {
             Ok(p) => p,
             Err(e) => return error_json("cli.invalid_args", &e),
         };
-        if let Some(named) = common.platform.as_deref() {
-            // The person named this platform (--platform or CMUX_PLATFORM_URL).
-            cmux_egress::allow_named(named);
-        }
-        let client = match http_client() {
+        let client = match reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(60))
+            .build()
+        {
             Ok(c) => c,
             Err(e) => return error_json("cli.http_client", &e.to_string()),
         };
