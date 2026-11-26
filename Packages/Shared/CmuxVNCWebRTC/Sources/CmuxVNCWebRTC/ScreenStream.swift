@@ -1502,6 +1502,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         public var totalDecodeTime: Double = 0
         public var freezeCount: Double = 0
         public var packetsLost: Double = 0
+        /// The sum of every decoded frame's QP (with `framesDecoded`: the mean QP, lower is sharper).
+        public var qpSum: Double = 0
     }
 
     public func videoStats() async -> VideoStats {

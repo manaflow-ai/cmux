@@ -184,6 +184,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
             encoding.maxFramerate = NSNumber(value: settings.maxFramerate)
             encoding.scaleResolutionDownBy = NSNumber(value: settings.scaleDown)
         }
+        #if DEBUG
+        let knobs = ScreenEncodingExperiment.current
+        if let value = knobs.degradation { parameters.degradationPreference = NSNumber(value: value.rawValue) }
+        for encoding in parameters.encodings {
+            if let value = knobs.maxBitrate { encoding.maxBitrateBps = NSNumber(value: value) }
+            if let value = knobs.maxFramerate { encoding.maxFramerate = NSNumber(value: value) }
+        }
+        #endif
         sender.parameters = parameters
     }
 
@@ -490,7 +498,13 @@ extension VNCPeerLink {
     /// track content hint "detail" or "text" selects (`VideoRtpSender::SetSend`
     /// maps both to `is_screencast`; Petal sets `ContentHint::Detailed`). The
     /// Objective-C SDK has no content hint, so this source is how we set it.
-    static func makeScreenSource() -> RTCVideoSource { factory.videoSource(forScreenCast: true) }
+    static func makeScreenSource() -> RTCVideoSource {
+        #if DEBUG
+        return factory.videoSource(forScreenCast: ScreenEncodingExperiment.current.screencast)
+        #else
+        return factory.videoSource(forScreenCast: true)
+        #endif
+    }
 }
 
 extension VNCPeerLink {
@@ -514,6 +528,7 @@ extension VNCPeerLink {
                         stats.totalDecodeTime = (values["totalDecodeTime"] as? NSNumber)?.doubleValue ?? 0
                         stats.freezeCount = (values["freezeCount"] as? NSNumber)?.doubleValue ?? 0
                         stats.packetsLost = (values["packetsLost"] as? NSNumber)?.doubleValue ?? 0
+                        stats.qpSum = (values["qpSum"] as? NSNumber)?.doubleValue ?? 0
                         if let delay = (values["jitterBufferDelay"] as? NSNumber)?.doubleValue,
                            let emitted = (values["jitterBufferEmittedCount"] as? NSNumber)?.doubleValue, emitted > 0 {
                             stats.jitterBufferMs = delay / emitted * 1000
@@ -587,3 +602,29 @@ final class ScreenDecoderFactory: NSObject, RTCVideoDecoderFactory {
         }
     }
 }
+
+#if DEBUG
+/// Measurement knobs (tests only): `CMUX_VNC_ENCODING_EXPERIMENT` names
+/// overrides for the sender's encoding, read when a stream starts.
+struct ScreenEncodingExperiment: Sendable {
+    var screencast = true
+    var degradation: RTCDegradationPreference?
+    var maxBitrate: Int?
+    var maxFramerate: Int?
+
+    static var current: ScreenEncodingExperiment {
+        var knobs = ScreenEncodingExperiment()
+        switch getenv("CMUX_VNC_ENCODING_EXPERIMENT").map { String(cString: $0) } ?? "" {
+        case "motion": knobs.screencast = false
+        case "cap2M": knobs.maxBitrate = 2_000_000
+        case "cap1M": knobs.maxBitrate = 1_000_000
+        case "cap500k": knobs.maxBitrate = 500_000
+        case "fps30": knobs.maxFramerate = 30
+        case "balanced": knobs.degradation = .balanced
+        case "maintainFramerate": knobs.degradation = .maintainFramerate
+        default: break
+        }
+        return knobs
+    }
+}
+#endif
