@@ -127,7 +127,7 @@ impl Manifest {
 }
 
 /// Refuse a path that could leave the tree.
-fn check_path(path: &str) -> Result<()> {
+pub(crate) fn check_path(path: &str) -> Result<()> {
     let bad = path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')
