@@ -27,37 +27,45 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_host_eligible" => {
             #[derive(Deserialize)]
             struct Request {
-                #[serde(flatten)]
-                ledgers: ledger::MovedChats,
+                /// The moved-chat ledger's entries (`cloud_move_moved_chats` `all`).
+                #[serde(default)]
+                moved: Vec<ledger::Moved>,
                 host: String,
                 session: String,
                 #[serde(default)]
                 local: bool,
             }
             let request: Request = read(request)?;
-            json!({ "eligible": host::eligible(&request.host, &request.session, request.local, &request.ledgers) })
+            json!({ "eligible": host::eligible(&request.host, &request.session, request.local, &request.moved) })
         }
         b"cloud_move_host_chats" => {
             #[derive(Deserialize)]
             struct Request {
-                #[serde(flatten)]
-                ledgers: ledger::MovedChats,
+                /// The moved-chat ledger's entries (`cloud_move_moved_chats` `all`).
+                #[serde(default)]
+                moved: Vec<ledger::Moved>,
                 #[serde(default)]
                 tabs: Vec<host::Tab>,
             }
             let request: Request = read(request)?;
-            json!({ "chats": to_value(host::chats(&request.tabs, &request.ledgers))? })
+            json!({ "chats": to_value(host::chats(&request.tabs, &request.moved))? })
         }
         b"cloud_move_host_sessions" => {
-            let ledgers: ledger::MovedChats = read(request)?;
-            json!({ "sessions": host::cloud_sessions(&ledgers) })
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                moved: Vec<ledger::Moved>,
+            }
+            let request: Request = read(request)?;
+            json!({ "sessions": host::cloud_sessions(&request.moved) })
         }
         b"cloud_move_host_own_facts" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct Request {
-                #[serde(flatten)]
-                ledgers: ledger::MovedChats,
+                /// The moved-chat ledger's entries (`cloud_move_moved_chats` `all`).
+                #[serde(default)]
+                moved: Vec<ledger::Moved>,
                 session: String,
                 #[serde(default)]
                 last_machine: Option<String>,
@@ -67,7 +75,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             to_value(host::own_facts(
                 &request.session,
-                &request.ledgers,
+                &request.moved,
                 request.last_machine.as_deref(),
                 &request.machines,
             ))?

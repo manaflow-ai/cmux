@@ -31,15 +31,14 @@ fn ok(operation: &CStr, request: Value) -> Value {
     body
 }
 
-fn moved() -> String {
-    json!({
-        "registry:a\ns1": { "machineID": "m1", "host": "registry:a", "session": "s1", "localRoot": "/r",
+fn moved() -> Value {
+    json!([
+        { "machineID": "m1", "host": "registry:a", "session": "s1", "localRoot": "/r",
                              "localChat": "c", "remoteFolder": "/f", "remoteChat": "rc" },
-        "registry:a\ns2": { "machineID": "m1", "host": "registry:a", "session": "s2", "localRoot": "/r",
+        { "machineID": "m1", "host": "registry:a", "session": "s2", "localRoot": "/r",
                              "localChat": "c", "remoteFolder": "/f", "remoteChat": "rc",
                              "broughtBack": { "session": "home", "key": "k" } },
-    })
-    .to_string()
+    ])
 }
 
 #[test]
