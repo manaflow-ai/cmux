@@ -40,7 +40,10 @@
  * Output (--out DIR): pause-ab.json (every machine's timeline, turns, resumes) and summary.md (one table row per arm:
  * awake s, paused s, resumes, mean resume ms), plus journey.json (steps). Every machine this run created is deleted
  * at the end, pass or fail; machines named `pause-ab-<tag>-...` whose tag is more than 90 minutes old (PAUSE_AB_STALE_MS, a killed run's,
- * active or not: its stub keeps it active) are swept before create. Any other name is never touched. Exit 0 only when no step failed.
+ * active or not: its stub keeps it active) are swept before create, and each machine is created with ttl_seconds at that
+ * cutoff so the platform deletes it even when the job dies first. Any other name is never touched. A machine the provider
+ * fails at create (cloud.provider.unavailable, no host, never active) gets one replacement, recorded in the "running"
+ * step and in pause-ab.json `replaced`. Exit 0 only when no step failed.
  */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -71,7 +74,22 @@ export function accountCensus(rows: any[], nowMs: number): string {
     const h = (nowMs - (t < 1e12 ? t * 1000 : t)) / 3_600_000;
     return h < 1 ? "<1h" : h < 24 ? "<1d" : h < 168 ? "<7d" : ">=7d";
   };
-  return `status: ${by((r) => String(r?.status ?? "?"))}; age: ${by(age)}; names: ${by(shape)}`;
+  const failed = rows.filter((r) => r?.status === "failed");
+  const cause = (r: any) => {
+    const e = r?.error;
+    const text = e && typeof e === "object" ? `${e.code ?? "?"} ${e.message ?? ""}`.trim() : "no error";
+    return text.replace(/\b(vm|snap|team|user)_[0-9a-z]+/gi, "$1_*").replace(/\s+/g, " ").slice(0, 120);
+  };
+  const causes = new Map<string, number>();
+  for (const r of failed) causes.set(cause(r), (causes.get(cause(r)) ?? 0) + 1);
+  const failedBy = failed.length ? `; failed by error: ${[...causes].sort((a, b) => b[1] - a[1]).map(([k, c]) => `${k}=${c}`).join(" | ")}` : "";
+  return `status: ${by((r) => String(r?.status ?? "?"))}; age: ${by(age)}; names: ${by(shape)}${failedBy}`;
+}
+
+/** A machine the provider failed at create, after the platform's retry window: no host, never active, and the
+ * provider's own transient code. Anything else (a refusal, an image, a quota) is not retried by the drill. */
+export function failedCreateIsTransient(m: any): boolean {
+  return m?.status === "failed" && m?.error?.code === "cloud.provider.unavailable" && !m?.host && m?.last_active_at == null;
 }
 
 /** A failed machine's own fields minus who and what it is, whole, so the reason it failed is not cut at 300 chars. */
@@ -142,6 +160,8 @@ export function integrate(samples: Sample[], start: number, end: number): { awak
 export type MachineResult = {
   arm: string;
   name: string;
+  /** Why the first machine of this slot was replaced (a transient failed create), or unset. */
+  replaced?: string;
   id: string | null;
   effective_policy: string | null;
   policy_refused: string | null;
@@ -203,7 +223,7 @@ export const PAUSE_AB_STALE_MS = 90 * 60_000;
 export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS, kept?: string[]): { id: string; name: string; why: string }[] {
   const out: { id: string; name: string; why: string }[] = [];
   for (const r of rows) {
-    const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+$/.exec(typeof r?.name === "string" ? r.name : "");
+    const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+r?$/.exec(typeof r?.name === "string" ? r.name : "");
     if (!m) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const keep = (why: string) => kept?.push(`${id || "?"} ${r.name} ${why}`);
@@ -553,29 +573,59 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
     usageBefore = await api.read("cloud.plan.get", {}).then((p) => Number(p?.usage?.vm_hours_used_by_you ?? NaN)).then((n) => (Number.isFinite(n) ? n : null)).catch(() => null);
+    const took: string[] = [];
+    // Each machine carries ttl_seconds, so the platform's own reaper deletes it at the stale cutoff even when this
+    // job is killed before its delete step (the leaks of 08:00Z and 08:55Z waited for the next run's sweep).
+    let ttlRefused: string | null = null;
+    const createOne = async (r: MachineResult) => {
+      const c0 = Date.now();
+      const ask = (ttl: boolean) => api.op("cloud.machine.create", { name: r.name, size: CHAT_START_SIZE, ...(ttl ? { ttl_seconds: PAUSE_AB_STALE_MS / 1000 } : {}) }, `pab-${tag}-create-${r.name}${ttl ? "" : "-nottl"}`);
+      let v: any;
+      try {
+        v = await ask(ttlRefused === null);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        if (ttlRefused !== null || !/ttl_seconds|validation/i.test(msg)) throw e;
+        ttlRefused = msg.slice(0, 200);
+        v = await ask(false);
+      }
+      r.id = String(v.machine?.id ?? v.machine ?? "") || null;
+      took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
+      if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
+    };
     await J.step(`create ${results.length} machines`, async () => {
-      const took: string[] = [];
-      await Promise.all(results.map(async (r) => {
-        const c0 = Date.now();
-        const v = await api.op("cloud.machine.create", { name: r.name, size: CHAT_START_SIZE }, `pab-${tag}-create-${r.name}`);
-        r.id = String(v.machine?.id ?? v.machine ?? "") || null;
-        took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
-        if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
-      }));
-      return { value: null, detail: `${results.map((r) => `${r.name}=${r.id}`).join(", ")}; answered in ${took.join(", ")}` };
+      await Promise.all(results.map(createOne));
+      return { value: null, detail: `${results.map((r) => `${r.name}=${r.id}`).join(", ")}; answered in ${took.join(", ")}${ttlRefused ? `; ttl_seconds refused: ${ttlRefused}` : ""}` };
     });
     await J.step("running", async () => {
       await Promise.all(results.map(async (r) => {
-        const t0 = Date.now();
-        while (Date.now() - t0 < 300_000) {
-          const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
-          if (m?.status === "running" && m?.host) return;
-          if (m?.status === "failed") throw new Error(`${r.name} ${r.id} failed ${Math.round((Date.now() - t0) / 1000)} s after create answered: ${failureFacts(m)}`);
-          await sleep(1000);
+        for (;;) {
+          const t0 = Date.now();
+          let failed: any = null;
+          while (Date.now() - t0 < 300_000) {
+            const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
+            if (m?.status === "running" && m?.host) return;
+            if (m?.status === "failed") { failed = m; break; }
+            await sleep(1000);
+          }
+          if (!failed) throw new Error(`${r.name} not running within 300 s`);
+          const why = `${r.name} ${r.id} failed ${Math.round((Date.now() - t0) / 1000)} s after create answered: ${failureFacts(failed)}`;
+          // A create the provider failed after the platform's own 5-minute retry window (staging 11:47Z: one of two
+          // concurrent creates, cloud.provider.unavailable "VM API: HTTP 503") gets one replacement, recorded in the
+          // summary; a second failure, or any other failure, fails the step with both records.
+          if (failedCreateIsTransient(failed) && !r.replaced) {
+            r.replaced = why;
+            console.log(`running: replacing ${why}`);
+            await api.op("cloud.machine.delete", { machine: r.id }, `pab-${tag}-delete-failed-${r.name}`).catch((e) => console.log(`running: delete of failed ${r.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+            r.name = `${r.name}r`;
+            await createOne(r);
+            continue;
+          }
+          throw new Error(r.replaced ? `${why}; the machine it replaced: ${r.replaced}` : why);
         }
-        throw new Error(`${r.name} not running within 300 s`);
       }));
-      return { value: null, detail: "all running" };
+      const replaced = results.filter((r) => r.replaced);
+      return { value: null, detail: `all running${replaced.length ? `; replaced after a failed create: ${replaced.map((r) => r.replaced).join(" | ")}` : ""}` };
     });
     await J.step("set pause_policy per arm", async () => {
       await Promise.all(results.map(async (r) => {

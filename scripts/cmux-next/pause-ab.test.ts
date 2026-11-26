@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -94,7 +94,7 @@ describe("drill account and failed machines", () => {
       { status: "paused" },
     ];
     expect(accountCensus(rows, now)).toBe(
-      "status: running=2 failed=1 paused=1; age: <1d=1 <1h=1 >=7d=1 age?=1; names: (unnamed)=1 journey-*-chat=1 pause-ab-*-aggressive-*=1 pause-ab-*-turn_end-*=1",
+      "status: running=2 failed=1 paused=1; age: <1d=1 <1h=1 >=7d=1 age?=1; names: (unnamed)=1 journey-*-chat=1 pause-ab-*-aggressive-*=1 pause-ab-*-turn_end-*=1; failed by error: no error=1",
     );
   });
   test("a failed machine keeps its reason past 300 chars and drops who it is", () => {
@@ -185,5 +185,31 @@ describe("model stub around an idle gap", () => {
     rmSync(empty, { recursive: true, force: true });
     expect(r.status).not.toBe(0);
     expect(r.stdout).toContain("@@nostub");
+  });
+});
+
+describe("a failed create on the drill account", () => {
+  const now = Date.UTC(2026, 10, 26, 12, 0);
+  test("census names what the failed machines failed of, without ids", () => {
+    const line = accountCensus([
+      { status: "failed", name: "x-1", created_at: now, error: { code: "cloud.provider.unavailable", message: "VM API: HTTP 503" } },
+      { status: "failed", name: "x-2", created_at: now, error: { code: "cloud.provider.unavailable", message: "VM API: HTTP 503" } },
+      { status: "failed", name: "x-3", created_at: now, error: { code: "cloud.image.withdrawn", message: "image of vm_abc123 gone" } },
+      { status: "running", name: "y-1", created_at: now },
+    ], now);
+    expect(line).toContain("failed by error: cloud.provider.unavailable VM API: HTTP 503=2 | cloud.image.withdrawn image of vm_* gone=1");
+    expect(accountCensus([{ status: "running", name: "y-1", created_at: now }], now)).not.toContain("failed by error");
+  });
+  test("only a provider failure that never ran gets a replacement", () => {
+    const failed = { status: "failed", host: null, last_active_at: null, error: { code: "cloud.provider.unavailable", message: "VM API: HTTP 503" } };
+    expect(failedCreateIsTransient(failed)).toBe(true);
+    expect(failedCreateIsTransient({ ...failed, error: { code: "cloud.quota.vm_limit" } })).toBe(false);
+    expect(failedCreateIsTransient({ ...failed, host: "h1" })).toBe(false);
+    expect(failedCreateIsTransient({ ...failed, last_active_at: now })).toBe(false);
+    expect(failedCreateIsTransient({ ...failed, status: "running" })).toBe(false);
+  });
+  test("the sweep takes a replacement's name too", () => {
+    const old = (Date.UTC(2026, 10, 26, 9, 0)).toString(36);
+    expect(stalePauseAbMachines([{ id: "a", name: `pause-ab-${old}-aggressive-1r`, status: "running" }], now).map((m) => m.id)).toEqual(["a"]);
   });
 });
