@@ -37,7 +37,7 @@ fn tail(s: &str, max: usize) -> &str {
     while !s.is_char_boundary(start) {
         start += 1;
     }
-    &s[start..]
+    s.get(start..).unwrap_or(s)
 }
 
 /// The first `max` bytes of `s`, ending on a character boundary.
@@ -49,7 +49,7 @@ fn head(s: &str, max: usize) -> &str {
     while !s.is_char_boundary(end) {
         end -= 1;
     }
-    &s[..end]
+    s.get(..end).unwrap_or_default()
 }
 
 /// Room for the line that says how many messages a cut capsule left out.
@@ -74,7 +74,7 @@ impl Hub {
         let mut summary: Option<(u64, String)> = None;
         let flush = |assistant: &mut Option<Entry>, entries: &mut Vec<Entry>| {
             if let Some(a) = assistant.take()
-                && !a.text[ASSISTANT.len()..].trim().is_empty()
+                && !a.text.get(ASSISTANT.len()..).unwrap_or_default().trim().is_empty()
             {
                 entries.push(a);
             }
@@ -160,13 +160,19 @@ impl Hub {
             let mut budget = MAX_CAPSULE_BYTES.saturating_sub(open_cut.len() + CLOSING.len());
             // The first prompt always (it names the task: #50094 lost its codeword), then the
             // newest until the budget is spent; the ones between are cut, and a line says how many.
-            let first_over =
-                total_bytes > budget && entries.len() > 2 && entries[0].text.starts_with("User: ");
-            let first = first_over.then(|| head(&entries[0].text, budget / 8));
-            if let Some(f) = first {
+            let first = entries
+                .first()
+                .filter(|e| {
+                    total_bytes > budget && entries.len() > 2 && e.text.starts_with("User: ")
+                })
+                .map(|e| (head(&e.text, budget / 8), e.from_seq));
+            if let Some((f, _)) = first {
                 budget = budget.saturating_sub(f.len() + SEPARATOR.len() + CUT_LINE_MAX);
             }
-            let rest = if first.is_some() { &entries[1..] } else { &entries[..] };
+            let rest = match first {
+                Some(_) => entries.get(1..).unwrap_or_default(),
+                None => entries.as_slice(),
+            };
             let mut kept: Vec<&str> = Vec::new();
             let mut used = 0usize;
             let mut from_seq = to_seq;
@@ -179,9 +185,10 @@ impl Hub {
                 kept.push(&e.text);
                 from_seq = e.from_seq;
             }
-            if kept.is_empty() {
+            if kept.is_empty()
+                && let Some(last) = entries.last()
+            {
                 // Even the newest message is over budget: keep its end.
-                let last = &entries[entries.len() - 1];
                 let cut = tail(&last.text, budget);
                 used = cut.len();
                 kept.push(cut);
@@ -189,8 +196,8 @@ impl Hub {
             }
             kept.reverse();
             let cut_line;
-            if let Some(f) = first {
-                let cut = rest.len() - kept.len();
+            if let Some((f, first_seq)) = first {
+                let cut = rest.len().saturating_sub(kept.len());
                 if cut > 0 {
                     cut_line =
                         format!("[… {cut} messages between the first and these were cut to fit …]");
@@ -198,7 +205,7 @@ impl Hub {
                 }
                 kept.insert(0, f);
                 used += f.len() + SEPARATOR.len();
-                from_seq = entries[0].from_seq;
+                from_seq = first_seq;
             }
             let truncated = used < total_bytes;
             let open = if truncated { &open_cut } else { &open_all };
