@@ -10,9 +10,10 @@ import QuartzCore
 /// holds the commit, and this app drops its own send right when every page reported (`done`) or at its own deadline.
 ///
 /// The main thread can still wait for a fenced commit: the next commit's backing-store update synchronizes with the
-/// render server (`CABackingStoreSynchronize`). A deadline on the main actor then waits for the very thread it frees,
-/// and the commit is held until the server gives up on the fence. With ``deadlineOffMain`` the deadline drops the right
-/// on the cooperative pool (``CEFFenceRight``) and only the fence's bookkeeping waits for the main actor.
+/// render server (`CABackingStoreSynchronize`). So nothing that needs the main thread releases a fence: the deadline
+/// drops the right on the cooperative pool (``CEFFenceRight``), and only the fence's bookkeeping waits for the main
+/// actor. (A deadline on the main actor waited for the very thread it frees: on the page-sync bench, 2026-11-26, a
+/// window-corner drag's commits were held 155 ms at p50 and over 1 s at p95 for a 17 ms deadline.)
 ///
 /// One fence per window per run-loop turn; every hosted page resized in that turn joins it. The process's one set of
 /// open fences is ``CEFRuntime/resizeFences``; each ``CEFLayerHosting`` is handed it.
@@ -27,26 +28,15 @@ final class CEFResizeFences {
     let pace = CEFFencePace()
     private let clock: any Clock<Duration>
     private let makePort: @MainActor (CALayer) -> mach_port_t?
-    /// Whether this app's send right goes at its deadline off the main thread (``deadlineOffMainKnob``).
-    let deadlineOffMain: Bool
-
-    /// `CMUX_NEXT_CEF_FENCE_DEADLINE=background` (a `CMUX_NEXT_` knob: the launch strip keeps it): each fence's
-    /// deadline drops this app's send right on the cooperative pool, not on the main actor.
-    nonisolated static let deadlineOffMainKnob =
-        ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_FENCE_DEADLINE"] == "background"
 
     /// - Parameters:
     ///   - clock: runs this app's deadline of each fence.
     ///   - makePort: the fence of the window of a layer (`-[CAContext createFencePort]` by default; tests pass a port
     ///     of their own).
-    ///   - deadlineOffMain: drop the send right at the deadline off the main thread (``deadlineOffMainKnob`` by
-    ///     default).
     init(clock: any Clock<Duration> = ContinuousClock(),
-         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) },
-         deadlineOffMain: Bool = CEFResizeFences.deadlineOffMainKnob) {
+         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) }) {
         self.clock = clock
         self.makePort = makePort
-        self.deadlineOffMain = deadlineOffMain
     }
 
     /// Joins one page resized in this turn to `window`'s fence for this turn (made on first use).
@@ -82,21 +72,13 @@ final class CEFResizeFences {
             let after = Duration.milliseconds(Int64(timeoutMs)) + .microseconds(Int64(max(refreshMs, 1) * 1_000))
             // The task holds the fence (and so its port) until the deadline or `drop()`: once the turn ended nothing
             // else does, and a fence freed with its send right would hold the window's commits for good.
-            if deadlineOffMain {
-                let right = fence.right
-                fence.deadline = Task.detached(priority: .high) {
-                    // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
-                    do { try await clock.sleep(for: after) } catch { return }
-                    // Off the main thread: the main thread may be waiting for the commit this right holds.
-                    right.drop()
-                    await fence.expire()
-                }
-            } else {
-                fence.deadline = Task {
-                    // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
-                    do { try await clock.sleep(for: after) } catch { return }
-                    fence.expire()
-                }
+            let right = fence.right
+            fence.deadline = Task.detached(priority: .high) {
+                // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
+                do { try await clock.sleep(for: after) } catch { return }
+                // Off the main thread: the main thread may be waiting for the commit this right holds.
+                right.drop()
+                await fence.expire()
             }
         }
         let done: @MainActor (Bool) -> Void = { [weak fence] presented in
@@ -117,7 +99,7 @@ final class CEFResizeFences {
 }
 
 /// This app's send right on one window fence's port, dropped once by whichever comes first: the main thread when every
-/// page reported, or the fence's deadline, which may run off the main thread (``CEFResizeFences/deadlineOffMain``).
+/// page reported, or the fence's deadline, off the main thread (the main thread may be waiting for the commit it holds).
 nonisolated final class CEFFenceRight: Sendable {
     private nonisolated struct State {
         var port: mach_port_t
