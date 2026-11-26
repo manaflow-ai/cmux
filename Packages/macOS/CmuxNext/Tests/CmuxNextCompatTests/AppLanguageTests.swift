@@ -277,9 +277,11 @@ struct AppLanguageTests {
         language.set("ja")
         let answer = bundle.inAppLanguage
         let count = 10_000 * scale
+        let started = Mutex(0)
         await withTaskGroup(of: Int.self) { group in
             for _ in 0 ..< 4 {
                 group.addTask {
+                    started.withLock { $0 += 1 }
                     var matched = 0
                     for _ in 0 ..< count {
                         if bundle.inAppLanguage === answer { matched += 1 }
@@ -287,7 +289,8 @@ struct AppLanguageTests {
                     return matched
                 }
             }
-            await Task.yield()
+            // Do not start the main-actor clock until every reader has entered its loop.
+            while started.withLock({ $0 }) < 4 { await Task.yield() }
             let clock = ContinuousClock()
             let start = clock.now
             var matched = 0
