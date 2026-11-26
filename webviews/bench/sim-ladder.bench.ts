@@ -58,6 +58,7 @@ import {
   FLOOR,
   interpolate,
   majorGcEnds,
+  steadyStart,
   marginalRatio,
   type Metric,
   type Sample,
@@ -557,7 +558,8 @@ async function traceMajorGcs(browserCdp: CDPSession, deadline: number) {
       await browserCdp.send("Tracing.end");
       await complete;
       const found = majorGcEnds(events);
-      if (found.ends.length >= GC_CYCLES + 1 || performance.now() >= deadline) return found;
+      // GC_CYCLES steady cycles: the early ones after the forced collection do not count (ladderRatio.ts steadyStart).
+      if (found.ends.length - steadyStart(found.ends) >= GC_CYCLES + 1 || performance.now() >= deadline) return found;
     }
   } finally {
     browserCdp.off("Tracing.dataCollected", onData as any);
@@ -698,8 +700,21 @@ async function measure(
   // The chats axis runs until GC_CYCLES whole cycles of the shared heap have ended (at most CYCLE_CAP_MS); the rest
   // run CPU_WINDOWS windows.
   let gc: { pid: number | null; ends: number[]; heaps: number[] } = { pid: null, ends: [], heaps: [] };
-  if (cycles) gc = await traceMajorGcs(browserCdp, t0 + CYCLE_CAP_MS);
-  else await focused.waitForTimeout(Math.max(0, CPU_WINDOWS * WINDOW_MS - (performance.now() - t0)));
+  if (cycles) {
+    gc = await traceMajorGcs(browserCdp, t0 + CYCLE_CAP_MS);
+    const from = steadyStart(gc.ends);
+    if (from > 0)
+      console.log(
+        `SIM-LADDER   left out ${from} early cycle(s) after the forced collection (major gc ends at ${gc.ends
+          .slice(0, from + 1)
+          .map((t) => ((t - start) / 1e6).toFixed(1))
+          .join(", ")} s; heaps ${gc.heaps
+          .slice(0, from + 1)
+          .map((h) => Math.round(h / 1048576))
+          .join(", ")} MB)`,
+      );
+    gc = { pid: gc.pid, ends: gc.ends.slice(from), heaps: gc.heaps.slice(from) };
+  } else await focused.waitForTimeout(Math.max(0, CPU_WINDOWS * WINDOW_MS - (performance.now() - t0)));
   scriptOn = false;
   clearInterval(cpuTimer);
   await scriptLoop;

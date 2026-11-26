@@ -167,13 +167,15 @@ test("claude: a turn with only its reply keeps its Worked for, closed over nothi
   expect(ids(rows)).toContain("a");
 });
 
-test("claude: a running turn draws its work as it happens, no Worked for yet", () => {
+// The person's turn holds its "Working for" from the send (Leo, 2026-11-25: "the space below should automatically start
+// accomodating for the working and the thinking already"); no closed Worked for until it ends.
+test("claude: a running turn draws its work as it happens, under its Working for, no Worked for yet", () => {
   const rows = turnView([prompt, work("w1", 1_000, 2), say("n1", 10_000, "Looking.")], new Set(), {
     now: 20_000,
     agentFamily: "claude",
     working: true,
   });
-  expect(rows.some((row) => row.kind === WORKED)).toBe(false);
+  expect(rows.filter((row) => row.kind === WORKED).every((row) => row.turnPhase === "running")).toBe(true);
   expect(ids(rows)).toContain("n1");
 });
 
