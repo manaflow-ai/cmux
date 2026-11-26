@@ -42,8 +42,8 @@ Key surface: `actions`, named entries with `type: "command"` (`command`) or `typ
 
 ## Yolo path: a speculative chat UI change is a pack, never a core edit
 
-An opinionated or speculative change to how the chat looks does not edit the default UI (Leo, 2026-11-25: "we
-cant add bullshit to ui"). It ships as a pack he can try on, keep or revert. Design: cmuxterm-hq
+An opinionated or speculative change to how the chat looks does not edit the default UI (Leo, 2026-11-25, in
+short: keep speculative extras out of the default UI). It ships as a pack he can try on, keep or revert. Design: cmuxterm-hq
 `docs/design/yolo-path.md`.
 
 1. Write the CSS (no `@import`, no `url()` but `data:`) to a scratch file; a component variant instead reads a
