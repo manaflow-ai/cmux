@@ -113,7 +113,7 @@ pub fn resolve_tab(
             edge += entry.width;
         }
     }
-    let index = entries[..best_k].iter().filter(|entry| !entry.is_group_chip).count();
+    let index = entries.iter().take(best_k).filter(|entry| !entry.is_group_chip).count();
     let left = best_k.checked_sub(1).and_then(|k| entries.get(k));
     let right = entries.get(best_k);
     TabLanding {
@@ -167,7 +167,7 @@ pub fn resolve_group(entries: &[Slot], start: f64, dragged_min_x: f64) -> GroupL
     let unit_index = insertion_index(dragged_min_x, start, &widths);
     GroupLanding {
         unit_index,
-        tab_index: units[..unit_index].iter().map(|unit| unit.tab_count).sum(),
+        tab_index: units.iter().take(unit_index).map(|unit| unit.tab_count).sum(),
     }
 }
 
