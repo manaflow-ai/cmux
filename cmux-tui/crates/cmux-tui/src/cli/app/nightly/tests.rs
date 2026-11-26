@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{Command, Switched, Target, human, parse, parse_app, pick, switched};
+use super::{Command, NotesBuild, Switched, Target, human, parse, parse_app, pick, switched};
 use crate::localization::NightlyMessages;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -214,4 +214,37 @@ fn help_words_ask_for_the_usage_text() {
     for args in [&["help"][..], &["--help"], &["-h"], &["list", "--help"], &["install", "-h"]] {
         assert_eq!(parse(&words(args)).unwrap(), Command::Help, "{args:?}");
     }
+}
+
+#[test]
+fn nightly_parse_reads_whats_in_and_which() {
+    assert_eq!(
+        parse(&words(&["whats-in"])).unwrap(),
+        Command::WhatsIn { build: NotesBuild::Latest }
+    );
+    assert_eq!(
+        parse(&words(&["whats-in", "latest"])).unwrap(),
+        Command::WhatsIn { build: NotesBuild::Latest }
+    );
+    assert_eq!(
+        parse(&words(&["whats-in", "installed"])).unwrap(),
+        Command::WhatsIn { build: NotesBuild::Installed }
+    );
+    assert_eq!(
+        parse(&words(&["whats-in", "4572038238101"])).unwrap(),
+        Command::WhatsIn { build: NotesBuild::Build("4572038238101".into()) }
+    );
+    assert!(parse(&words(&["whats-in", "newest"])).is_err());
+    assert!(parse(&words(&["whats-in", "1", "2"])).is_err());
+    assert_eq!(parse(&words(&["which", "57008"])).unwrap(), Command::Which { pr: 57008 });
+    assert_eq!(parse(&words(&["which", "#57008"])).unwrap(), Command::Which { pr: 57008 });
+    assert_eq!(
+        parse(&words(&["which", "https://github.com/manaflow-ai/cmux/pull/57008"])).unwrap(),
+        Command::Which { pr: 57008 }
+    );
+    assert!(parse(&words(&["which"])).is_err());
+    assert!(parse(&words(&["which", "x"])).is_err());
+    assert!(parse(&words(&["which", "1", "2"])).is_err());
+    assert_eq!(parse(&words(&["which", "--help"])).unwrap(), Command::Help);
+    assert!(messages().usage.contains("whats-in") && messages().usage.contains("which"));
 }

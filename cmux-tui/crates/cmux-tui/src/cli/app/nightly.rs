@@ -28,6 +28,8 @@ use super::super::OutputMode;
 use super::UsageError;
 use crate::localization::NightlyMessages;
 
+mod notes;
+
 /// `updates.builds` reads the feed's notes, verdicts and pulled list.
 const LIST_TIMEOUT: Duration = Duration::from_secs(35);
 /// `updates.switch_build` downloads a DMG before the app quits.
