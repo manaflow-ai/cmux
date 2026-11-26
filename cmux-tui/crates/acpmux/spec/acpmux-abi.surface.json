@@ -1960,6 +1960,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -2260,6 +2263,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -2567,6 +2573,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -2864,6 +2873,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3168,6 +3180,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -3462,6 +3477,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -3772,6 +3790,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -4071,6 +4092,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -4365,6 +4389,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -4669,6 +4696,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -4971,6 +5001,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -5268,6 +5301,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -5572,6 +5608,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -5871,6 +5910,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -6168,6 +6210,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -6491,6 +6536,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -6860,6 +6908,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7233,6 +7284,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -7527,6 +7581,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -7859,6 +7916,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8209,6 +8269,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -8813,6 +8876,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9151,6 +9217,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -9445,6 +9514,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -9916,6 +9988,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -10263,6 +10338,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -10557,6 +10635,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -10867,6 +10948,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -11164,6 +11248,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11469,6 +11556,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -11789,6 +11879,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -12148,6 +12241,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -12447,6 +12543,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -12645,6 +12744,18 @@
       }
     },
     "request:_acpmux/history": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_delete": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_offload": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -12895,6 +13006,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -13227,6 +13341,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -13767,6 +13884,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -14090,6 +14210,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -14404,6 +14527,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -14706,6 +14832,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -15003,6 +15132,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -15311,6 +15443,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -15690,6 +15825,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -15996,6 +16134,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16313,6 +16454,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -16916,6 +17060,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -17252,6 +17399,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -17552,6 +17702,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -17865,6 +18018,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -18176,6 +18332,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -18481,6 +18640,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -18777,6 +18939,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -19068,6 +19233,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19368,6 +19536,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -19675,6 +19846,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -19972,6 +20146,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -20285,6 +20462,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -20582,6 +20762,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -20931,6 +21114,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -21255,6 +21441,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -21617,6 +21806,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -21977,6 +22169,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -22479,6 +22674,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -22799,6 +22997,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -23096,6 +23297,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -23400,6 +23604,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -23697,6 +23904,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -23998,6 +24208,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -24292,6 +24505,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24591,6 +24807,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -24904,6 +25123,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -25215,6 +25437,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -25512,6 +25737,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -25825,6 +26053,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -26136,6 +26367,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -26407,6 +26641,12 @@
       }
     },
     "request:_acpmux/trace/status": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/transcript_offload": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26711,6 +26951,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27019,6 +27262,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -27476,6 +27722,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -27817,6 +28066,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -28217,6 +28469,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -28517,6 +28772,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -28872,6 +29130,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -29178,6 +29439,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -29506,6 +29770,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -29806,6 +30073,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -30116,6 +30386,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -30418,6 +30691,9 @@
       "/_meta/acpmux/placeRedirect": {
         "ty": "json"
       },
+      "/_meta/acpmux/placedBy": {
+        "ty": "json"
+      },
       "/_meta/acpmux/policy": {
         "ty": "json"
       },
@@ -30715,6 +30991,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/placeRedirect": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/placedBy": {
         "ty": "json"
       },
       "/_meta/acpmux/policy": {
@@ -33280,6 +33559,18 @@
       }
     },
     "response:_acpmux/history": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_delete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37536,6 +37827,12 @@
       }
     },
     "response:_acpmux/trace/status": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/transcript_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
