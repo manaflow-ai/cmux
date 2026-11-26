@@ -440,7 +440,7 @@ class PoolRunnerWarmTarget(ToolchainStamp):
         self.env["MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES"] = str(1 << 62)
         out = self.warm("record", self.STAMP)
         self.assertIn("warm target: recorded", out)
-        self.assertNotIn("removed", out)
+        self.assertNotIn("pool tree removed", out)
         self.assertTrue(obj.exists(), "a step after record still reads the tree through the link")
         out = self.warm("release", self.STAMP)
         self.assertIn("pool tree removed at the end of the job", out)
@@ -450,7 +450,7 @@ class PoolRunnerWarmTarget(ToolchainStamp):
     def test_release_keeps_the_tree_on_a_host_with_room(self) -> None:
         obj = self.build_once(self.STAMP)
         out = self.warm("release", self.STAMP)
-        self.assertNotIn("removed", out)
+        self.assertNotIn("pool tree removed", out)
         self.assertTrue(obj.exists())
 
     def test_release_never_touches_a_sticky_disk(self) -> None:

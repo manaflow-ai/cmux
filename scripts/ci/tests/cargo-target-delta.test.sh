@@ -14,6 +14,8 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v cargo >/dev/null || fail "cargo is required"
 export RUNNER_TEMP="$TMP/runner-temp"; mkdir -p "$RUNNER_TEMP"
+# The fixture's target is ws/target; a runner's shared CARGO_TARGET_DIR would build elsewhere.
+unset CARGO_TARGET_DIR
 
 repo="$TMP/repo"
 mkdir -p "$repo/scripts/ci" "$repo/ws/core/src" "$repo/ws/app/src" "$repo/ws/side/src"
