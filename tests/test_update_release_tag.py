@@ -37,6 +37,23 @@ class FakeResponse:
 class UpdateReleaseTagTests(unittest.TestCase):
     SHA = "a" * 40
 
+    def test_scoped_gh_token_wins_over_an_explicitly_empty_github_token(self):
+        requests = []
+
+        def urlopen(request, timeout=None):
+            requests.append(request)
+            return FakeResponse({"object": {"sha": self.SHA, "type": "commit"}})
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=urlopen), \
+                mock.patch.dict(MODULE.os.environ, {
+                    "GH_TOKEN": "app-token",
+                    "GITHUB_TOKEN": "",
+                }, clear=False):
+            MODULE.update_tag("owner/repo", "nightly", self.SHA)
+
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].get_header("Authorization"), "Bearer app-token")
+
     def call(self, existing, *, responses=None):
         calls = []
         queued = list(responses or [])
