@@ -205,7 +205,6 @@ pub fn spans_url(trace_id: &str) -> String {
 
 async fn post(trace_id: String, body: Value) {
     static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
-        // Through the egress gate (docs/privacy.md, Egress gate): the edge is a private-network name.
         cmux_egress::client_builder("acpmux::send_trace")
             .timeout(POST_TIMEOUT)
             .connect_timeout(POST_TIMEOUT)

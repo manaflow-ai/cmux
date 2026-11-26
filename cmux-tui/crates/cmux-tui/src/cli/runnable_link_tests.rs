@@ -392,30 +392,34 @@ fn expiry_reads_as_time_left() {
     assert_eq!(relative(0, 5), "expired");
 }
 
-/// Seeded secrets on the wire (cmux_egress::capture) through the link's platform client: the
-/// person's credential rides only in `Authorization` and the team only in the `team` query.
-/// tests/egress_seeded.json names this test for `cmux_tui::cli::runnable_link`.
+/// Seeded secrets on the wire (cmux_egress::capture): the bearer rides only in `Authorization`, the team only in
+/// the `team` query. tests/egress_seeded.json names this test for the `cmux_tui::cli::runnable_link` gate site.
 #[test]
-fn seeded_secrets_ride_only_where_the_platform_needs_them() {
+fn seeded_secrets_ride_only_in_authorization_and_the_team_query() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     cmux_egress::capture::install().unwrap();
-    let token = "SEEDlinkCredential-5b1e";
-    let team = "SEEDlinkTeam-a07c";
-    let mut http = Http {
-        client: http_client().unwrap(),
-        origin: cmux_cloud_environment::PRODUCTION_PLATFORM.trim_end_matches('/').to_owned(),
-        team: Some(team.to_owned()),
-        token: Zeroizing::new(token.to_owned()),
-    };
-    // The capture server answers `200 {}` to every request.
-    let answer =
-        run_async(http.call("POST", "/api/runnable-links", Some(json!({"machine": "vm_seeded"}))));
-    assert_eq!(answer.map(|(status, _)| status), Ok(200));
-    assert!(!cmux_egress::capture::requests().is_empty(), "the call reached the capture server");
-    let places = cmux_egress::capture::leaks(token);
-    assert!(!places.is_empty());
+    let bearer = "SEEDrunnableLinkBearer-7c4e";
+    let team = "SEEDrunnableLinkTeam-91ab";
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let mut http = Http {
+            client: http_client().unwrap(),
+            origin: "https://cmux.dev".to_owned(),
+            team: Some(team.to_owned()),
+            token: Zeroizing::new(bearer.to_owned()),
+        };
+        let _ = http.call("POST", "/v1/runnable-links", Some(json!({"machine": "m-seeded"}))).await;
+        let _ = http.call("GET", "/v1/runnable-links/rl-seeded", None).await;
+    });
+    let sent: Vec<_> = cmux_egress::capture::requests_to("cmux.dev")
+        .into_iter()
+        .filter(|r| r.target.starts_with("/v1/runnable-links"))
+        .collect();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    let places = cmux_egress::capture::leaks(bearer);
+    assert_eq!(places.len(), 2, "{places:?}");
     assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
     let places = cmux_egress::capture::leaks(team);
-    assert!(!places.is_empty());
+    assert_eq!(places.len(), 2, "{places:?}");
     assert!(places.iter().all(|p| p.ends_with(": target")), "{places:?}");
 }

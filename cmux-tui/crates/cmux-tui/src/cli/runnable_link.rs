@@ -653,8 +653,7 @@ async fn exec<P: Platform>(
     Ok((code, v.get("stdout").and_then(Value::as_str).unwrap_or_default().to_owned()))
 }
 
-/// The platform's HTTP client, through the egress gate (docs/privacy.md, Egress gate): the
-/// platform origins are listed hosts; the credential rides only in `Authorization`.
+/// The platform's client: through the egress gate, no redirects (the bearer goes only to the origin).
 fn http_client() -> reqwest::Result<reqwest::Client> {
     cmux_egress::client_builder("cmux_tui::cli::runnable_link")
         .redirect(reqwest::redirect::Policy::none())
@@ -813,6 +812,10 @@ pub(crate) fn run(words: &[String], json_flag: bool) -> i32 {
             Ok(p) => p,
             Err(e) => return error_json("cli.invalid_args", &e),
         };
+        if common.platform.is_some() {
+            // --platform (or CMUX_PLATFORM_URL) names the origin; the deployment's own origins are listed.
+            cmux_egress::allow_named(&origin);
+        }
         let client = match http_client() {
             Ok(c) => c,
             Err(e) => return error_json("cli.http_client", &e.to_string()),
