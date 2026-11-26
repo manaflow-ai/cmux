@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: six checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: nine checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -41,6 +41,10 @@ The gates, each the same invocation as its push-time job:
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
   entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE
+  resource API boundary  cmux-tui/scripts/check-resource-api-boundary.py --base-rev BASE on the merge
+                  (cmux-tui-sdks.yml's protocol contract step, which skips feat-cmux-next pull requests; only
+                  findings the PR adds)
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -427,6 +431,11 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         # Every pull request, JSON only: the Mac export test checks the same, but feat-cmux-next PRs defer Mac jobs,
         # and a schema row without its catalog keys stops the settings exports for every row after it.
         ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo)]),
+        # Every pull request, source text only: cmux-tui-sdks.yml's protocol contract job runs the same check but
+        # skips feat-cmux-next PRs, so #56233, #54631 and #56088 merged 25 boundary findings it saw only on push. Only
+        # findings the PR adds: a base red is the base's to fix.
+        ("resource API boundary", [py, "-I", "cmux-tui/scripts/check-resource-api-boundary.py",
+                                   "--tui-root", str(repo / "cmux-tui"), "--base-rev", base]),
     ]
 
 

@@ -389,6 +389,74 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_sibling_test_modules_and_internal_readers_are_skipped(self) -> None:
+        # feat-cmux-next went red on `search_tests.rs`, `inference_gateway_tests.rs` and
+        # `cloud_start_chat/direct_tests.rs` (Rust's `#[path = "X_tests.rs"] mod tests;`), and on
+        # `cmux search`'s legacy daemon reader; the public module beside them is still scanned.
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            cli = tui / "crates/cmux-tui/src/cli"
+            for name in (
+                "search_tests.rs",
+                "inference_gateway_tests.rs",
+                "cloud_start_chat/direct_tests.rs",
+                "search/internal/legacy_daemon.rs",
+            ):
+                write(
+                    cli / name,
+                    'fn t() { let _ = json!({"surface": 7, "short_id": "a1", "slot": 2, '
+                    '"ws": "workspace:3"}); }\n',
+                )
+            write(cli / "search.rs", 'const USAGE: &str = "cmux attach-surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(scanned, 1)
+            self.assertEqual(
+                [(item.path.relative_to(tui).as_posix(), item.code) for item in diagnostics],
+                [("crates/cmux-tui/src/cli/search.rs", "boundary.surface")],
+            )
+
+    def test_base_rev_fails_only_on_findings_the_change_adds(self) -> None:
+        # cmux-next fast gates run this with --base-rev BASE on every feat-cmux-next pull request (the protocol
+        # contract job skips them): a base red is the base's to fix, while a PR that adds a finding still fails.
+        import subprocess
+
+        def git(repo: Path, *args: str) -> None:
+            subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                check=True, capture_output=True,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            git(repo, "init", "-q")
+            tui = repo / "cmux-tui"
+            cli = tui / "crates/cmux-tui/src/cli"
+            write(cli / "search.rs", 'const USAGE: &str = "cmux attach-surface";\n')
+            git(repo, "add", ".")
+            git(repo, "commit", "-q", "-m", "base")
+            # An edit above the base's finding moves its line; it is still the base's.
+            write(cli / "search.rs", '// moved\nconst USAGE: &str = "cmux attach-surface";\n')
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(CHECKER.main(["--tui-root", str(tui), "--base-rev", "HEAD"]), 0)
+            self.assertIn("already has", stderr.getvalue())
+            self.assertNotIn("search.rs", stderr.getvalue())
+
+            write(cli / "attach.rs", 'const USAGE: &str = "cmux attach-surface";\n')
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(CHECKER.main(["--tui-root", str(tui), "--base-rev", "HEAD"]), 1)
+            reported = [line for line in stderr.getvalue().splitlines() if ": boundary." in line]
+            self.assertEqual(len(reported), 1, stderr.getvalue())
+            self.assertTrue(reported[0].startswith("crates/cmux-tui/src/cli/attach.rs:1:"), reported)
+
+            # Without --base-rev every finding fails, as the protocol contract job runs it.
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(CHECKER.main(["--tui-root", str(tui)]), 1)
+
     def test_cli_compile_time_paths_are_not_public_resource_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

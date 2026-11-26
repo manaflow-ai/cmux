@@ -14,7 +14,11 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Sequence
@@ -3509,6 +3513,8 @@ def _is_test_or_example(path: Path) -> bool:
         bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        # Rust's sibling test modules (`search.rs` -> `#[path = "search_tests.rs"] mod tests;`).
+        or name.endswith("_tests.rs")
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
@@ -3723,6 +3729,63 @@ def run(tui: Path) -> tuple[list[Diagnostic], int]:
     return sorted(set(contract_diagnostics + scan_diagnostics)), scanned
 
 
+# What run() reads under cmux-tui: a base tree exported with these is enough to judge it.
+BASE_EXPORT_DIRS = ("crates", "spec", "docs", "bindings")
+
+
+def finding_key(diagnostic: Diagnostic, root: Path) -> tuple[str, str, str]:
+    """A finding without its line: an edit above it moves the line, not the finding."""
+    try:
+        path = diagnostic.path.relative_to(root)
+    except ValueError:
+        path = diagnostic.path
+    # A read error names the absolute path, which differs between the two trees.
+    return (path.as_posix(), diagnostic.code, diagnostic.message.replace(str(root), "<tui>"))
+
+
+def added_findings(
+    head: list[Diagnostic], head_root: Path, base: list[Diagnostic], base_root: Path
+) -> list[Diagnostic]:
+    """HEAD's findings past BASE's count of the same (path, code, message)."""
+    budget = Counter(finding_key(diagnostic, base_root) for diagnostic in base)
+    added = []
+    for diagnostic in head:
+        key = finding_key(diagnostic, head_root)
+        if budget[key] > 0:
+            budget[key] -= 1
+        else:
+            added.append(diagnostic)
+    return added
+
+
+def base_diagnostics(tui: Path, rev: str) -> tuple[list[Diagnostic], Path, Path]:
+    """Run the check on REV's cmux-tui, exported beside nothing else (the caller removes the holder)."""
+    top = Path(
+        subprocess.run(
+            ["git", "-C", str(tui), "rev-parse", "--show-toplevel"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    )
+    prefix = tui.resolve().relative_to(top.resolve()).as_posix()
+    paths = [
+        f"{prefix}/{name}"
+        for name in BASE_EXPORT_DIRS
+        if subprocess.run(
+            ["git", "-C", str(top), "cat-file", "-e", f"{rev}:{prefix}/{name}"], capture_output=True
+        ).returncode == 0
+    ]
+    holder = Path(tempfile.mkdtemp(prefix="resource-boundary-base-"))
+    if paths:
+        archive = subprocess.run(
+            ["git", "-C", str(top), "archive", "--format=tar", rev, *paths], check=True, capture_output=True
+        ).stdout
+        subprocess.run(["tar", "-x", "-C", str(holder)], input=archive, check=True)
+    base_tui = holder / prefix
+    base_tui.mkdir(parents=True, exist_ok=True)
+    diagnostics, _ = run(base_tui)
+    return diagnostics, base_tui, holder
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -3731,11 +3794,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=TUI,
         help="cmux-tui directory to check (default: repository cmux-tui)",
     )
+    parser.add_argument(
+        "--base-rev",
+        help="fail only on findings this tree adds over REV's cmux-tui (cmux-next fast gates: a base red "
+        "is the base's to fix, not every pull request's)",
+    )
     args = parser.parse_args(argv)
     tui = args.tui_root.resolve()
     diagnostics, scanned = run(tui)
+    already = 0
+    if diagnostics and args.base_rev:
+        base, base_tui, holder = base_diagnostics(tui, args.base_rev)
+        try:
+            added = added_findings(diagnostics, tui, base, base_tui)
+        finally:
+            shutil.rmtree(holder, ignore_errors=True)
+        already = len(diagnostics) - len(added)
+        diagnostics = added
     for diagnostic in diagnostics:
         print(diagnostic.render(tui), file=sys.stderr)
+    if already:
+        print(
+            f"resource API boundary: {already} finding(s) {args.base_rev} already has (the base's red, "
+            "not this change's)",
+            file=sys.stderr,
+        )
     if diagnostics:
         print(
             f"resource API boundary check failed with {len(diagnostics)} diagnostic(s)",
