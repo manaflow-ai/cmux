@@ -126,17 +126,23 @@ impl Hub {
     }
 
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
-        self.eligible(session, false)
+        self.eligible(session, false, false)
     }
 
     /// [`Self::idle_eligible`] for the idle reaper's own exit: a chat whose continuation is due
     /// later than `idle_governor::FAR_RESUME` sleeps too, as its period says (`idle_governor.rs`):
     /// the continuation's prompt starts it again when due.
     pub(super) fn sleep_eligible(&self, session: &Session) -> bool {
-        self.eligible(session, true)
+        self.eligible(session, true, false)
     }
 
-    fn eligible(&self, session: &Session, far_resume_sleeps: bool) -> bool {
+    /// The currently firing retry may replace its stale proxy process before sending its
+    /// prompt. Its own continuation is the only idle gate it may omit; all work stays protected.
+    pub(super) fn retry_restart_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, false, true)
+    }
+
+    fn eligible(&self, session: &Session, far_resume_sleeps: bool, firing_retry: bool) -> bool {
         // A chat its rate limit holds past its idle period sleeps through the hold, its queue
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
         // `sleeps_through_hold`).
@@ -153,7 +159,8 @@ impl Hub {
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
-            && (!self.continuation_pending(session)
+            && (firing_retry
+                || !self.continuation_pending(session)
                 || sleeps_held
                 || (far_resume_sleeps
                     && self.continuation_waits_far(session, super::idle_governor::FAR_RESUME)))
@@ -452,7 +459,7 @@ impl Hub {
             self.touch(&session);
             return;
         }
-        if !self.hibernate_held(&session, link_lost, Some(seen)).await {
+        if !self.hibernate_held(&session, link_lost, Some(seen), firing_retry).await {
             return;
         }
         if moving {
@@ -491,13 +498,17 @@ impl Hub {
         session: &Arc<Session>,
         link_lost: bool,
         seen: Option<u64>,
+        firing_retry: Option<u64>,
     ) -> bool {
         session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
         if seen.is_some_and(|seen| session.last_active.load(Ordering::SeqCst) != seen) {
             self.clear_hibernation(session);
             return false;
         }
-        self.detach_child(session).await;
+        if !self.detach_child_if_current(session, firing_retry).await {
+            self.clear_hibernation(session);
+            return false;
+        }
         if link_lost {
             self.end_unadopted_host(session).await;
         }

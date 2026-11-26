@@ -3012,6 +3012,25 @@ impl Hub {
         session: &Arc<Session>,
         model_id: &str,
     ) -> Result<Value, RpcError> {
+        self.set_model_with_restart_policy(session, model_id, false).await
+    }
+
+    /// Automatic capacity changes must preserve work below a turn. A harness that takes
+    /// its model at spawn is restarted only through the quiet gates and process census.
+    pub(super) async fn set_model_automatically(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        model_id: &str,
+    ) -> Result<Value, RpcError> {
+        self.set_model_with_restart_policy(session, model_id, true).await
+    }
+
+    async fn set_model_with_restart_policy(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        model_id: &str,
+        automatic: bool,
+    ) -> Result<Value, RpcError> {
         // Every switch (ACP `session/set_model`, `acpmux session set model=`, a fork's or a
         // start's model) as the catalog names it: `fable-5.2` runs as `claude-fable-5-2`.
         let model_id = &self.rewrite_session_model(session, model_id, "set_model").await?;
@@ -3040,6 +3059,17 @@ impl Hub {
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
             self.save_meta_answered(session)?;
+            if automatic {
+                self.respawn_when_quiet(session);
+                self.append(
+                    session,
+                    "mux",
+                    "model",
+                    json!({"modelId": model_id, "atSpawn": true, "applied": "whenQuiet"}),
+                );
+                super::start_defaults::model_applied(session, model_id);
+                return Ok(json!({"applied": "whenQuiet"}));
+            }
             // A switch never stops a running turn or cuts an open permission prompt (Leo
             // 2026-10-22: "switching model/harness/whatever shouldnt immediately stop
             // things"): the agent restarts on the new model when the turn ends, as a route
@@ -3466,13 +3496,25 @@ impl Hub {
 
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
+        let _ = self.detach_child_if_current(session, None).await;
+    }
+
+    /// Stop the child only while an automatic retry generation remains current. The generation
+    /// is checked again under the child-slot lock, so Stop cannot race the final kill.
+    pub(super) async fn detach_child_if_current(
+        &self,
+        session: &Arc<Session>,
+        generation: Option<u64>,
+    ) -> bool {
         // A shutdown that hands this agent to the next daemon began: the agent, its turn and its
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
         // this detach done or nothing of it.
         let mut slot = session.child.lock().await;
-        if self.hands_off(session) {
-            return;
+        if self.hands_off(session)
+            || generation.is_some_and(|generation| !session.auto_resume.current(generation))
+        {
+            return false;
         }
         // Held through the agent's end, so no new agent starts beside the one ending; a shutdown
         // that meets the lock meanwhile waits for this end (`detaching`).
@@ -3498,6 +3540,7 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, NotWaiting::Idle);
         }
+        true
     }
 }
 

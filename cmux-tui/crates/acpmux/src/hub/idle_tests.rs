@@ -193,11 +193,11 @@ async fn startup_settles_only_once_every_load_is_done() {
     assert!(hub.startup_settled());
 }
 
-/// An update's restart (`restart_harnesses`, the stale-binary pass after an app relaunch) never
-/// ends work below a chat with no turn open: the chat keeps its agent and moves before its next
-/// turn. With nothing below, it restarts now.
+/// An explicitly requested restart (`restart_harnesses`) preserves its existing work-below
+/// behavior: the chat keeps its agent and moves before its next turn. With nothing below,
+/// it restarts now. Automatic updates use the stricter quiet restart path instead.
 #[tokio::test]
-async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
+async fn an_explicit_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() {
     let (hub, session) = chat().await;
     let ids: std::collections::BTreeSet<String> = [session.id.to_string()].into();
     *session.work_below_since.lock().unwrap() = 1;
