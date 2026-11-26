@@ -292,6 +292,7 @@ echo down > "$TMP/precheck/$changed"
 RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+grep -q "answered HTTP 000 (curl exit 7)" <<<"$out" || fail "the outage warning must name the HTTP code and curl exit:" "$out"
 
 echo fail > "$TMP/precheck/$changed"
 RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
@@ -1101,11 +1102,16 @@ request --sha "$head"
 # making three anonymous ls-remotes of github.com that GitHub held 50-107 s before answering.
 real_git="$(command -v git)"
 mkdir -p "$TMP/gitlog"
+# A wrapper that is itself named git (a lane VM's ~/.local/bin/git guard) takes the first other git
+# on PATH as the real one, which is this stub again: log a call once, on its first pass only.
 cat > "$TMP/gitlog/git" <<STUB
 #!/usr/bin/env bash
-for a in "\$@"; do
-  case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
-done
+if [[ -z "\${GITLOG_SEEN:-}" ]]; then
+  for a in "\$@"; do
+    case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
+  done
+fi
+export GITLOG_SEEN=1
 exec "$real_git" "\$@"
 STUB
 chmod +x "$TMP/gitlog/git"
