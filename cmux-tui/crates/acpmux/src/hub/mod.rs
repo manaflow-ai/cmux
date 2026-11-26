@@ -237,9 +237,9 @@ mod outbox_open_tests;
 pub(crate) mod outbox_oracle;
 pub(crate) mod outbox_stats;
 mod own_host;
-pub(crate) mod owner_return;
 #[cfg(test)]
 mod owned_scope_bench_tests;
+pub(crate) mod owner_return;
 mod page_first;
 pub(crate) mod page_replies;
 mod paging;

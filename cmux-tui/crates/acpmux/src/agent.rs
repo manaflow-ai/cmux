@@ -2259,11 +2259,7 @@ impl ChildAgent {
         // A harness adopted from another daemon has no class here: one whose start that daemon
         // did not see end (a restart mid-start) would keep the start's priority for good, so it
         // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
-        let class = if placed {
-            crate::cpu_class::CpuClass::Background
-        } else {
-            self.run_class()
-        };
+        let class = if placed { crate::cpu_class::CpuClass::Background } else { self.run_class() };
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
