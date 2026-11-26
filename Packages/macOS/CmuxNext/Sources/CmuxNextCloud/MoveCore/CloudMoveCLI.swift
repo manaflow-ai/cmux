@@ -276,16 +276,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// in `cwd`; a running turn stops for the move and goes on where the chat lands. `sync` copies the folder's last
     /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
     /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
-    /// Cloud API's answer for this app on the link in use.
+    /// Cloud API's answer for this app on the link in use. `login`: the owner's agent login, on stdin only
+    /// (`--login-stdin`), which the machine starts the moved chat's agent with.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
-                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
             var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
             var toPid: Int32?
+            var login: Bool
         }
+        let stdin = try login.map { try JSONSerialization.data(withJSONObject: ["env": $0]) }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
-                                  vmKind: vmKind, toPid: toPID)).answer
+                                  vmKind: vmKind, toPid: toPID, login: login != nil), stdin: stdin).answer
     }
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;

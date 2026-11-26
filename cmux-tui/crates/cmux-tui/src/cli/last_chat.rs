@@ -41,6 +41,8 @@ fn path() -> Option<PathBuf> {
                 .filter(|home| !home.is_empty())
                 .map(|home| PathBuf::from(home).join(".local/state"))
         })?;
+    // An old install's file moves to NEXT's folder first (macOS).
+    cmux_config::location::migrate_legacy_state_once();
     Some(state.join(cmux_config::NEXT_DIR).join("last-chat.json"))
 }
 

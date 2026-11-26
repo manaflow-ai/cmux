@@ -40,3 +40,24 @@ fn legacy_layout_is_kept_only_while_cmux_next_has_no_config() {
     assert!(!macos_user_keeps_legacy_layout(&home));
     std::fs::remove_dir_all(&home).unwrap();
 }
+
+#[test]
+fn layout_detects_an_old_install_without_the_caller_flag() {
+    let home = std::env::temp_dir().join(format!("cmux-layout-detect-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let old = home.join(".config/cmux");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("server.json"), "{}").unwrap();
+    let env = LayoutEnv {
+        home: Some(home.to_str().unwrap().to_owned()),
+        uid: Some(501),
+        ..LayoutEnv::default()
+    };
+    let l = layout(InstallMode::User, Platform::MacOs, &env).unwrap();
+    let config = home.join(".config/cmux/server.json");
+    assert_eq!(l.config_file.as_str(), config.to_str().unwrap());
+    assert!(l.root.as_str().ends_with("Library/Application Support/cmux"));
+    std::fs::remove_dir_all(&home).unwrap();
+    let l = layout(InstallMode::User, Platform::MacOs, &env).unwrap();
+    assert!(l.root.as_str().ends_with("Library/Application Support/cmux-next"));
+}

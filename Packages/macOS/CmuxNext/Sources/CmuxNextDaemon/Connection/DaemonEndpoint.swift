@@ -229,6 +229,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
     /// and window records, read before connecting (`LaunchSnapshot`).
     case launchSnapshot = "launch-snapshot-v1"
+    /// `flush-launch-snapshot`: the daemon writes the launch snapshot at once (the quit asks after its
+    /// last window record save, ``FlushLaunchSnapshotRequest``), so a relaunch draws that save.
+    case launchSnapshotFlush = "launch-snapshot-flush-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
@@ -613,6 +616,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserImport = "browser-import-v1"
     /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
     case classicImport = "classic-import-v1"
+    /// Classic offers use a metadata-only probe until the person accepts the import.
+    case classicImportProbe = "classic-import-probe-v1"
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
     /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
     case diffCommentsSend = "diff-comments-send-v1"
@@ -662,7 +667,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
-             .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
+             .launchSnapshot, .launchSnapshotFlush, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .screenDeviceIdentity, .treeSelectionDeltas,
@@ -683,7 +688,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .diffCommentsThreads, .gitFingerprint, .layoutSizesBatch, .languagePacks,
+             .browserImport, .classicImport, .classicImportProbe, .diffCommentsSend, .diffCommentsThreads, .gitFingerprint, .layoutSizesBatch, .languagePacks,
              .workspaceOpenURL:
             return .optional
         }

@@ -41,6 +41,14 @@ public final class UpdateWindowHandoff {
     public var savesBeforeLeaving: (@MainActor () async -> Void)?
     /// The relaunch did not happen and the windows came back (``restore()``): what ``savesBeforeLeaving`` paused resumes.
     public var cameBack: (@MainActor () -> Void)?
+    /// Pauses the running picture saver as the windows leave (an ordered-out window shows no chat); ``cameBack`` resumes it.
+    public var pausesPictures: (@MainActor () -> Void)?
+    /// ``savesBeforeLeaving`` run at the Restart to Update click (with no pause of the running picture saver: the app
+    /// may go on running), while the click's feed read and pre-warm wait run, and when it started. A relaunch within
+    /// ``clickSaveFreshness`` of it uses that save, so its windows leave at once (ask-ad4a68e740).
+    private var clickSave: (task: Task<Void, Never>, started: ContinuousClock.Instant)?
+    /// How old the click's save may be for the relaunch to use it; an older one is saved again before the windows leave.
+    static let clickSaveFreshness: Duration = .seconds(4)
     /// The longest the windows wait on screen (taking no clicks) for that save.
     static let saveLimit: Duration = .milliseconds(700)
     private weak var updater: UpdaterService?
@@ -57,6 +65,15 @@ public final class UpdateWindowHandoff {
         self.updater = updater
         updater.hidesForRelaunch = { _ = self.hide() }
         updater.installAbandoned = { self.restore() }
+        updater.picturesAtClick = { self.clicked() }
+    }
+
+    /// Restart to Update was clicked: the pages on screen are pictured now, so the windows need not wait on screen
+    /// for that when the relaunch comes (``saveBeforeLeaving()``).
+    public func clicked() {
+        guard hidden.isEmpty, unsaved.unsaved().isEmpty, let save = savesBeforeLeaving else { return }
+        // task-owner: one save of the pages on screen per click; a relaunch soon after awaits it (saveBeforeLeaving).
+        clickSave = (Task { await save() }, ContinuousClock.now)
     }
 
     /// Takes every visible window off screen once the pages' pictures are saved; false when it did not
@@ -77,7 +94,15 @@ public final class UpdateWindowHandoff {
 
     /// Starts ``savesBeforeLeaving`` once per relaunch; the quit awaits the same task.
     private func saveBeforeLeaving() -> Task<Void, Never>? {
+        let early = clickSave
+        clickSave = nil
+        if let early, ContinuousClock.now - early.started <= Self.clickSaveFreshness {
+            pausesPictures?()
+            updater?.savedForRelaunch = early.task
+            return early.task
+        }
         guard let save = savesBeforeLeaving else { return nil }
+        pausesPictures?()
         // task-owner: one save of the pages on screen per relaunch; the quit awaits it (UpdaterService.savedForRelaunch).
         let task = Task { await save() }
         updater?.savedForRelaunch = task
@@ -115,6 +140,7 @@ public final class UpdateWindowHandoff {
 
     /// Brings the hidden windows back as they were, in their old order (the front one last, so it is front).
     public func restore() {
+        clickSave = nil
         saveLimitTimer?.cancel()
         saveLimitTimer = nil
         if updater?.savedForRelaunch != nil {

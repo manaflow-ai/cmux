@@ -68,6 +68,8 @@ async fn round_trip(transport: Transport) {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
             force_relay: false,
             video_lane: false,
             webrtc_media: false,
@@ -156,6 +158,8 @@ async fn wireguard_relay_only_rides_turn() {
                 include_loopback: true,
                 relay_only: true,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
                 force_relay: false,
                 video_lane: false,
                 webrtc_media: false,
@@ -209,6 +213,8 @@ async fn wireguard_with_no_path_says_the_network_blocks_it() {
             include_loopback: true,
             relay_only: false,
             block_udp: true,
+            proxy_only: false,
+            drop_wireguard: false,
             force_relay: false,
             video_lane: false,
             webrtc_media: false,
@@ -281,6 +287,8 @@ async fn wireguard_forced_relay_rides_the_services_relay() {
                 include_loopback: true,
                 relay_only: false,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
                 force_relay: true,
                 video_lane: false,
                 webrtc_media: false,
@@ -329,6 +337,8 @@ async fn a_refused_token_is_typed_unauthorized() {
                 include_loopback: true,
                 relay_only: false,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
                 force_relay: false,
                 video_lane: false,
                 webrtc_media: false,
@@ -366,6 +376,8 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             include_loopback: true,
             relay_only: true,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
             force_relay: false,
             video_lane: false,
             webrtc_media: false,
@@ -395,6 +407,8 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         include_loopback: true,
         relay_only: false,
         block_udp: false,
+        proxy_only: false,
+        drop_wireguard: false,
         force_relay: false,
         video_lane: false,
         webrtc_media: false,
@@ -693,6 +707,11 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
         elapsed < baseline + Duration::from_millis(500),
         "the stale ad delayed the service dial: {elapsed:?} against {baseline:?} with no ad"
     );
+    println!(
+        "MATRIX {{\"cell\": \"nearby_stale_ad\", \"variant\": \"WebRtc\", \"no_ad_ms\": {:.1}, \"stale_ad_ms\": {:.1}}}",
+        baseline.as_secs_f64() * 1000.0,
+        elapsed.as_secs_f64() * 1000.0
+    );
     raced.close();
     local_link_remove(instance);
     local_link_pair(mac_id, None);
@@ -800,7 +819,10 @@ async fn with_no_internet_the_hub_is_the_whole_dial() {
         );
         assert!(!names.contains(&"signaling_open"), "{transport:?}: {marks:?}");
         echo_once(&handle).await;
-        eprintln!("no-internet hub dial ({transport:?}): {elapsed:?}");
+        println!(
+            "MATRIX {{\"cell\": \"nearby_no_internet\", \"variant\": \"{transport:?}\", \"dial_ms\": {:.1}}}",
+            elapsed.as_secs_f64() * 1000.0
+        );
         handle.close();
         forget_hub(instance, mac_id);
         pool.reset().await;
@@ -834,7 +856,10 @@ async fn the_hub_wins_against_a_hung_worker() {
     assert!(names(&marks).contains(&"local_link"), "{marks:?}");
     assert!(elapsed < Duration::from_secs(2), "the hub's win waited on the Worker: {elapsed:?}");
     echo_once(&handle).await;
-    eprintln!("hub against a hung Worker: {elapsed:?}");
+    println!(
+        "MATRIX {{\"cell\": \"nearby_hung_worker\", \"variant\": \"WebRtc\", \"dial_ms\": {:.1}}}",
+        elapsed.as_secs_f64() * 1000.0
+    );
     handle.close();
     forget_hub(instance, mac_id);
     pool.reset().await;
@@ -894,6 +919,8 @@ fn request_to(device_id: &str, mac_id: &str) -> ConnectRequest {
         relay_only: false,
         block_udp: false,
         force_relay: false,
+        proxy_only: false,
+        drop_wireguard: false,
         video_lane: false,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::Off,

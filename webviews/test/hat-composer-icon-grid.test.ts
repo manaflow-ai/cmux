@@ -4,7 +4,7 @@
 // to make sure that we do this well for all densities) and make sure that the spacing left and right is
 // all equal", "can we make sure that the text in the input box is vertically centered perfectly", and
 // "maybe we should align the + and the terminal icon here?"). Measured in the gallery's real pane:
-//   - the hat's leading mark, its lines' and its plan steps' marks centre on +; their words start
+//   - the hat's leading mark and its lines' marks centre on +; their words start
 //     where the prompt's do;
 //   - the panel button and the chevron centre on Stop and the mic, in the composer's control box, and
 //     every glyph of the header row draws the composer's glyph size, its ink the composer's;
@@ -20,8 +20,7 @@ import { pageDensities } from "../src/gallery/pageDensityFixtures";
 
 await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
   setDefaultTimeout(300_000);
-  const KINDS = { entry: "agent-pane.feel-plan-tray", variant: "one" } as const;
-  const PLAN = { entry: "agent-pane.plan-hat-working", variant: "between" } as const;
+  const KINDS = { entry: "agent-pane.feel-tray", variant: "one" } as const;
   const { createServer } = await import("vite");
   let server: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -51,7 +50,7 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width: "normal" })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.waitForSelector(".acpmux-running-tray[data-open] .acpmux-running-tray__plan");
+    await page.waitForSelector(".acpmux-running-tray[data-open] .acpmux-running-tray__list");
     await page.evaluate((value) => {
       const root = document.documentElement;
       for (const name of ["--cmux-density-scale", "--cmux-density-text-scale", "--cmux-row-icon-scale"])
@@ -144,7 +143,6 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
         capMiddle = baseline - context.measureText("H").actualBoundingBoxAscent / 2;
       }
       const line = q(".acpmux-running-tray .acpmux-agent-line__button");
-      const step = q(".acpmux-running-tray__plan .cv-plan__item");
       return {
         plus: box(plus)!,
         plusGlyph: box(plus.querySelector("svg"))!,
@@ -160,12 +158,6 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
         chevronGlyph: box(q(".acpmux-running-tray__chevron svg"))!,
         lineIcon: box(q(":scope > .acpmux-lineage__icon", line ?? document.createElement("i"))),
         lineText: textLeft(q(":scope > .acpmux-summary-text", line ?? document.createElement("i"))),
-        stepMark: box(q(".cv-plan__mark", step ?? document.createElement("i"))),
-        stepText: textLeft(q(".cv-plan__title", step ?? document.createElement("i"))),
-        stepLine: (() => {
-          const r = firstText(q(".cv-plan__title", step ?? document.createElement("i")));
-          return r ? r.top + r.height / 2 : null;
-        })(),
         promptText: textLeft(placeholder),
         placeholderTop: lead?.top ?? null,
         capMiddle,
@@ -177,7 +169,7 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
   /// The composer's action gap per density, read where Stop shows (KINDS runs first).
   const KINDS_GAP = new Map<string, number>();
   for (const density of pageDensities) {
-    for (const fixture of [KINDS, PLAN]) {
+    for (const fixture of [KINDS]) {
       test(`${density.name}: ${fixture.entry} ${fixture.variant} stands on the composer's columns`, async () => {
         const page = await open(fixture, density.scale);
         try {
@@ -189,10 +181,8 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
           };
           // The left column: every leading mark on +'s centre, every row's words at the prompt's start.
           near("header mark on +", m.headLead?.cx, m.plus.cx);
-          near("step mark on +", m.stepMark?.cx, m.plus.cx);
           if (fixture === KINDS) near("line mark on +", m.lineIcon?.cx, m.plus.cx);
           near("header words at the prompt's", m.headText, m.promptText);
-          near("step words at the prompt's", m.stepText, m.promptText);
           if (fixture === KINDS) near("line words at the prompt's", m.lineText, m.promptText);
           // The right columns: the panel button is the control box in Stop's column (one action gap
           // before the mic when no turn runs), the chevron on the mic.
@@ -209,10 +199,6 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
           near("header mark size", m.headLead?.w, glyph);
           near("panel ink vs the mic's", m.panelGlyph.ink, m.micGlyph.ink, density.scale);
           if (fixture === KINDS) near("header mark ink vs the mic's", m.headLead?.ink, m.micGlyph.ink, density.scale);
-          // The steps' marks are the header glyph's ink size (12 of its 14 px) at every density, each on
-          // its step's first line (the person, 2026-11-24: the card's and the plan's icons the same size).
-          near("step mark size", m.stepMark?.w, glyph * (12 / 14), 0.25);
-          near("step mark on its first line", m.stepMark?.cy, m.stepLine, 0.75);
           // The header's marks on one centre line.
           near("header mark centre line", m.headLead?.cy, m.head.cy);
           near("panel centre line", m.panel.cy, m.head.cy);
@@ -276,8 +262,8 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
     });
   }
 
-  // The Goal row over the plan's hat (the person, 2026-11-23: "icons are not matching properly"): its
-  // dot, the plan's mark and + share one leading column, the words one start, and the chevrons and the
+  // The Goal row over the hat (the person, 2026-11-23: "icons are not matching properly"): its
+  // dot, the hat's mark and + share one leading column, the words one start, and the chevrons and the
   // panel button one trailing edge and one glyph size, each on its first line's centre.
   for (const density of pageDensities)
     for (const scheme of ["dark", "light"] as const)
@@ -291,7 +277,7 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
         });
         try {
           await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-goal", { variant: "with-plan", width: "normal" })}`,
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-goal", { variant: "with-hat", width: "normal" })}`,
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForSelector(".acpmux-goal[data-look] .acpmux-goal-mark");
@@ -373,12 +359,12 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
             if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a - b) > slack)
               off.push(`${what}: ${a} vs ${b}`);
           };
-          near("goal dot on the plan's mark", m.goalMark?.cx, m.hatMark?.cx);
-          // The Goal mark is the plan's mark size: 12 of the header glyph's 14 px (2026-11-24).
+          near("goal dot on the hat's mark", m.goalMark?.cx, m.hatMark?.cx);
+          // The Goal mark is 12 of the header glyph's 14 px (2026-11-24).
           near("goal mark size", m.goalMark?.w, (m.hatMark?.w ?? 0) * (12 / 14), 0.25);
           near("goal dot on +", m.goalMark?.cx, m.plus?.cx);
-          near("goal words at the plan's", m.goalText?.left, m.hatText?.left);
-          near("goal chevron over the plan's", m.goalChevron?.cx, m.hatChevron?.cx);
+          near("goal words at the hat's", m.goalText?.left, m.hatText?.left);
+          near("goal chevron over the hat's", m.goalChevron?.cx, m.hatChevron?.cx);
           near("goal chevron's right edge", m.goalChevron?.right, m.hatChevron?.right);
           near("goal chevron size", m.goalChevron?.w, m.hatChevron?.w);
           near("panel glyph size", m.panel?.w, m.hatChevron?.w);

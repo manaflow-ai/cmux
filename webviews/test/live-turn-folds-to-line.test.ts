@@ -68,7 +68,7 @@ test("a running turn draws its replies and one live line under a closed Working 
   // The one live line, last, names the step running now.
   const line = view.at(-1)!;
   expect(line.kind).toBe(THINKING);
-  expect(line.doing).toContain("bun test glass");
+  expect(line.doing).toContain("Testing glass");
 });
 
 test("opening the Working for shows every call while the turn runs", () => {

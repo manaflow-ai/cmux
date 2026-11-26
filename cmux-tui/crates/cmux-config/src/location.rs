@@ -1,7 +1,8 @@
 //! Where the settings file lives (Swift `CmuxConfigFile.defaultURL` and
 //! `prepareDefaultURL`): `~/.config/cmux/cmux-next.json` (on macOS
-//! `~/.config/cmux-next/cmux-next.json`, beside no file of cmux Classic's),
-//! seeded once from classic cmux's `cmux.json`.
+//! `~/.config/cmux-next/cmux-next.json`, beside no file of cmux Classic's).
+//! Classic cmux's settings are imported by the app only after the person
+//! consents.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -100,22 +101,79 @@ pub fn migrate_legacy_file(home: &Path, next_dir: &str) -> std::io::Result<bool>
     Ok(true)
 }
 
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
+/// What only NEXT writes in the state folder's old `cmux` (cmux-customize's
+/// state and each terminal's last chat), moved to [`NEXT_DIR`] once by
+/// [`migrate_legacy_state`].
+pub const STATE_ITEMS: &[&str] = &["customize", "last-chat.json"];
 
-/// The file a missing settings file starts from: classic cmux's
-/// `cmux.json`, like the app's first launch copies it. `None` when
-/// `CMUX_NEXT_CONFIG_FILE` names the file (an override is never seeded from
-/// the user's files).
-pub fn seed_path() -> Option<PathBuf> {
-    seed_path_from(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+/// [`migrate_legacy_state`] for this process's state folder
+/// (`XDG_STATE_HOME`, else `$HOME/.local/state`), at most once per process,
+/// and only where [`NEXT_DIR`] differs from [`LEGACY_DIR`] (macOS). Every
+/// reader of a [`STATE_ITEMS`] path calls it first.
+pub fn migrate_legacy_state_once() {
+    if NEXT_DIR == LEGACY_DIR {
+        return;
+    }
+    static MIGRATED: std::sync::Once = std::sync::Once::new();
+    MIGRATED.call_once(|| {
+        let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+        let state = env("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| env("HOME").map(|home| PathBuf::from(home).join(".local/state")));
+        if let Some(state) = state {
+            let _ = migrate_legacy_state(&state, NEXT_DIR);
+        }
+    });
 }
 
-/// `seed_path` with an injected environment.
-pub fn seed_path_from(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    if env(CONFIG_OVERRIDE).is_some_and(|value| !value.is_empty()) {
-        return None;
+/// Moves each of [`STATE_ITEMS`] from `<state>/cmux` to `<state>/<next_dir>`
+/// once, with no link left. Never over anything at the new path: a file
+/// claims its new name with a hard link before the old name goes, and a
+/// folder moves only while nothing has its new name. Only a regular file or
+/// a real folder moves (never a link). The new folder is made 0700. Returns
+/// the names it moved.
+pub fn migrate_legacy_state(state: &Path, next_dir: &str) -> std::io::Result<Vec<&'static str>> {
+    let mut moved = Vec::new();
+    if next_dir == LEGACY_DIR {
+        return Ok(moved);
     }
-    env("HOME").map(|home| PathBuf::from(home).join(CLASSIC_FILE))
+    let (old_dir, new_dir) = (state.join(LEGACY_DIR), state.join(next_dir));
+    for &name in STATE_ITEMS {
+        let (old, new) = (old_dir.join(name), new_dir.join(name));
+        let Ok(meta) = old.symlink_metadata() else { continue };
+        let (is_file, is_dir) = (meta.file_type().is_file(), meta.file_type().is_dir());
+        if !(is_file || is_dir) || new.symlink_metadata().is_ok() {
+            continue;
+        }
+        if new_dir.symlink_metadata().is_err() {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder.create(&new_dir)?;
+        }
+        if is_file {
+            match std::fs::hard_link(&old, &new) {
+                Ok(()) => std::fs::remove_file(&old)?,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        } else {
+            std::fs::rename(&old, &new)?;
+        }
+        moved.push(name);
+    }
+    Ok(moved)
+}
+
+/// Classic cmux is never a Rust settings fallback. The app copies it after consent.
+pub fn seed_path() -> Option<PathBuf> {
+    None
+}
+
+/// Retained for callers while Classic import moves behind the app's consent boundary.
+pub fn seed_path_from(_env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    None
 }
 
 /// keybindings.json: beside the settings file, so `CMUX_NEXT_CONFIG_FILE`

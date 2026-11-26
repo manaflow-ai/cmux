@@ -375,6 +375,9 @@ public final class JoinConsentModel {
     public private(set) var writing = false
     /// Shows and hides the sheet; the app sets the panel, tests record it.
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
+    /// Opens Settings > Devices at the switch of a surface (the sheet's Settings…); the app sets it to its
+    /// Settings window. It only shows the page: it answers nothing and grants nothing.
+    @ObservationIgnored public var openSettings: @MainActor (JoinConsentSurface) -> Void = { _ in }
     /// Redraws a showing sheet (its buttons follow ``writing``).
     @ObservationIgnored public var redraw: @MainActor () -> Void = {}
     /// After each change applied: the app stops a Mac Screen session the consent no longer allows.
@@ -732,6 +735,15 @@ public final class JoinConsentModel {
         return nil
     }
 
+    /// The sheet's Settings…: Settings > Devices opens at the switch the sheet asks about, so the person
+    /// finds where it lives. It answers nothing: the sheet stays up, nothing is written, and any press
+    /// (a click, a key, Accessibility) may open it, since only the person's own click on Allow or on the
+    /// switch there grants.
+    public func showSettings() {
+        guard let surface = ask?.surface else { return }
+        openSettings(surface)
+    }
+
     /// The sheet's Allow refused an input that is not the person's own click (``JoinConsentAskPanel``):
     /// the gate stays shut, and the sheet says so instead of doing nothing. `why` goes to the log.
     public func allowRefused(why: String) {
@@ -782,7 +794,7 @@ public final class JoinConsentModel {
             revokeAll: known || !proven ? nil : JoinConsentStrings.revokeAll,
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
-                                       on: consent?.allows($0) == true)
+                                       keywords: JoinConsentStrings.searchWords($0), on: consent?.allows($0) == true)
             })
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -794,6 +806,9 @@ public final class JoinConsentModel {
 private nonisolated struct JoinConsentPage: Encodable {
     struct Switch: Encodable {
         var surface, title, help: String
+        /// What Settings search also finds the switch by, beside its title and help: the page's language
+        /// and English.
+        var keywords: [String]
         var on: Bool
     }
 
@@ -837,6 +852,28 @@ public nonisolated struct JoinConsentStrings {
         case .control: s("devices.join.controlHelp", "Your team's machines can move the pointer and type here")
         case .signedInMachines: s("devices.join.signedInMachinesHelp", "Your other Macs signed in to this account can open workspaces and terminals here")
         }
+    }
+    /// Settings search's words for a switch, beside its title and help: the localized ones, then the English
+    /// ones (a search finds a setting in English in every language, as the schema rows' search does).
+    static func searchWords(_ surface: JoinConsentSurface) -> [String] {
+        let localized: String, english: String
+        switch surface {
+        case .screen:
+            localized = s("devices.join.screenSearch", "screen sharing, share screen, see my screen, let my team see")
+            english = "screen sharing, share screen, see my screen, let my team see"
+        case .control:
+            localized = s("devices.join.controlSearch", "remote control, let my team control, take control, mouse and keyboard")
+            english = "remote control, let my team control, take control, mouse and keyboard"
+        case .signedInMachines:
+            localized = s("devices.join.signedInMachinesSearch", "other macs, open workspaces, remote workspaces, same account")
+            english = "other macs, open workspaces, remote workspaces, same account"
+        }
+        var words: [String] = []
+        for word in (localized + "," + english).split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
+        where !word.isEmpty && !words.contains(word) {
+            words.append(word)
+        }
+        return words
     }
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }
     static var confirmUnavailable: String {
@@ -916,6 +953,8 @@ public nonisolated struct JoinConsentStrings {
         surface == .signedInMachines ? s("devices.join.ask.notNow", "Not now") : deny
     }
     static var allow: String { s("devices.join.ask.allow", "Allow") }
+    /// The sheet's way to Settings > Devices, at the switch it asks about; it never answers the ask.
+    static var settings: String { s("devices.join.ask.settings", "Settings…") }
 }
 
 #if DEBUG

@@ -1,6 +1,5 @@
 {
   "title": "Key Style Vim: a query opens the New Tab suggestions; Esc hands them the keyboard, j, k, G and gg move, / goes back to the field",
-  "frameInterval": 0.25,
   "settings": {"app": {"keyStyle": "vim"}, "tabs": {"newTabTemplate": "minimal", "nativeNewTabPage": false}},
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},

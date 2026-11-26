@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.modelChipIcon.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعرض شعار المزوّد بجانب اسم النموذج في مربع الرسالة. انقر بزر الماوس الأيمن على النموذج لإيقافه أو تشغيله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikazuje logo dobavljača pored naziva modela u polju za poruku. Desnim klikom na model ga isključite ili uključite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viser udbyderens logo ved siden af modellens navn i beskedfeltet. Højreklik på modellen for at slå det fra eller til."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt das Logo des Anbieters neben dem Modellnamen im Nachrichtenfeld. Klicke mit der rechten Maustaste auf das Modell, um es aus- oder einzuschalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra el logotipo del proveedor junto al nombre del modelo en el cuadro de mensaje. Haz clic derecho en el modelo para desactivarlo o activarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche le logo du fournisseur à côté du nom du modèle dans la zone de message. Cliquez avec le bouton droit sur le modèle pour le désactiver ou l'activer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra il logo del fornitore accanto al nome del modello nel riquadro del messaggio. Fai clic destro sul modello per disattivarlo o attivarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メッセージ欄のモデル名の横にプロバイダのロゴを表示します。モデルを右クリックするとオン・オフを切り替えられます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញនិមិត្តសញ្ញារបស់អ្នកផ្តល់សេវានៅជាប់ឈ្មោះម៉ូដែលក្នុងប្រអប់សារ។ ចុចកណ្ដុរស្ដាំលើម៉ូដែលដើម្បីបិទ ឬបើកវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "메시지 상자의 모델 이름 옆에 제공업체 로고를 표시합니다. 모델을 오른쪽 클릭해 끄거나 켤 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viser leverandørens logo ved siden av modellnavnet i meldingsfeltet. Høyreklikk på modellen for å slå det av eller på."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuje logo dostawcy obok nazwy modelu w polu wiadomości. Kliknij model prawym przyciskiem, aby je wyłączyć lub włączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra o logotipo do provedor ao lado do nome do modelo na caixa de mensagem. Clique com o botão direito no modelo para desativar ou ativar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает логотип поставщика рядом с названием модели в поле сообщения. Нажмите на модель правой кнопкой, чтобы выключить или включить его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงโลโก้ของผู้ให้บริการข้างชื่อโมเดลในช่องข้อความ คลิกขวาที่โมเดลเพื่อปิดหรือเปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesaj kutusunda modelin adının yanında sağlayıcının logosunu gösterir. Kapatmak veya açmak için modele sağ tıklayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показує логотип постачальника поруч із назвою моделі в полі повідомлення. Клацніть модель правою кнопкою, щоб вимкнути або ввімкнути його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiện logo của nhà cung cấp cạnh tên mô hình trong ô tin nhắn. Nhấp chuột phải vào mô hình để tắt hoặc bật."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在消息框中的模型名称旁显示提供方的标志。右键点按模型可将其关闭或打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在訊息框中的模型名稱旁顯示提供者的標誌。按右鍵點按模型可將其關閉或開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

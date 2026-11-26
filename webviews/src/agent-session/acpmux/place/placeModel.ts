@@ -1,7 +1,9 @@
 // What the chat's place controls and its move progress read from `pane.tabState`'s `place` (the app
 // writes it from cmux-cloud-start-core `moves::place`, serde camelCase). Pure: parsing and wording
 // only. The decisions (when a move starts, when Auto moves, what carries) are Rust's.
+import type { HybridBlocked, HybridBlockedWhy, SlotHolder } from "../hybrid/hybridModel";
 import type { StringKey } from "../i18n";
+import { hybridStartOf, type HybridStart } from "../hybrid/hybridModel";
 
 export type PlaceMode = "local" | "cloud" | "auto";
 export type PlaceAt = "local" | "cloud";
@@ -49,6 +51,24 @@ export interface PlaceState {
   readonly at: PlaceAt;
   readonly cloudName?: string;
   readonly move?: MoveView;
+  /// Why the cloud control cannot change the place now (Rust `priority::control`); none when it can.
+  readonly blocked?: HybridBlocked;
+  /// Every slot is held: the chats holding them (Rust `priority::control`, `Admit::Full`).
+  readonly holders?: readonly SlotHolder[];
+  /// A hybrid start under way or just ended (RFD 0078): the chat started here while its Cloud
+  /// machine boots. The three-state control draws it.
+  readonly start?: HybridStart;
+  /// Keep Running (high priority) under a known plan (Rust `priority::control`'s `keep`, `priority::view`).
+  readonly keep?: PlaceKeep;
+}
+
+/// Keep Running's state for one chat: asked for (`priority`), holding a slot (`lit`) or waiting for one, and the plan's slots.
+export interface PlaceKeep {
+  readonly priority: "normal" | "high";
+  readonly lit: boolean;
+  readonly waiting: boolean;
+  readonly used: number;
+  readonly total: number;
 }
 
 export type EvacuateChatState = "queued" | "moving" | "live" | "failed" | "cancelled";
@@ -149,16 +169,66 @@ export function moveOf(value: unknown): MoveView | undefined {
 }
 
 /// `tabState.place`, or none when the app sends none (a chat the moves do not cover).
+const BLOCKED_WHYS = [
+  "signed-out",
+  "no-plan",
+  "no-cloud",
+  "hours-spent",
+  "trial-ended",
+  "offline",
+  "move-failed",
+  "slept",
+  "trial-full",
+] as const satisfies readonly HybridBlockedWhy[];
+
+function blockedOf(value: unknown): HybridBlocked | undefined {
+  const why = value && typeof value === "object" ? (value as Record<string, unknown>).why : undefined;
+  return (BLOCKED_WHYS as readonly unknown[]).includes(why) ? { why: why as HybridBlockedWhy } : undefined;
+}
+
+function holdersOf(value: unknown): SlotHolder[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const holders = value.flatMap((entry: unknown): SlotHolder[] => {
+    const raw = (entry ?? {}) as Record<string, unknown>;
+    return typeof raw.session === "string" && raw.session ? [{ session: raw.session, title: text(raw.title) }] : [];
+  });
+  return holders.length > 0 ? holders : undefined;
+}
+
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function keepOf(value: unknown): PlaceKeep | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  return {
+    priority: raw.priority === "high" ? "high" : "normal",
+    lit: raw.lit === true,
+    waiting: raw.waiting === true,
+    used: count(raw.used),
+    total: count(raw.total),
+  };
+}
+
 export function placeOf(value: unknown): PlaceState | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
   if (!(MODES as readonly unknown[]).includes(raw.mode)) return undefined;
   const move = moveOf(raw.move);
+  const blocked = blockedOf(raw.blocked);
+  const holders = holdersOf(raw.holders);
+  const start = hybridStartOf(raw.start);
+  const keep = keepOf(raw.keep);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
     ...(typeof raw.cloudName === "string" && raw.cloudName ? { cloudName: raw.cloudName } : {}),
     ...(move ? { move } : {}),
+    ...(blocked ? { blocked } : {}),
+    ...(holders ? { holders } : {}),
+    ...(start ? { start } : {}),
+    ...(keep ? { keep } : {}),
   };
 }
 

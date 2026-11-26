@@ -77,6 +77,7 @@ impl LossPeriod {
     }
 
     /// The learned period.
+    #[cfg(test)]
     pub(crate) fn period(&self) -> Option<Duration> {
         self.period
     }
@@ -126,7 +127,7 @@ fn fit_period(onsets: &VecDeque<Instant>) -> Option<Duration> {
             return None;
         }
         let expected = base * multiple;
-        let off = if *gap > expected { *gap - expected } else { expected - *gap };
+        let off = gap.abs_diff(expected);
         if off > TOLERANCE {
             return None;
         }

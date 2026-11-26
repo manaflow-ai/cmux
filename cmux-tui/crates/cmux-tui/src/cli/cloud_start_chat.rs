@@ -265,7 +265,11 @@ pub(super) fn send_existing(
         no_focus: false,
     };
     let mut runner = SelfRunner::new(global);
-    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+    // With CMUX_CLOUD_ACCESS_TOKEN and no app named, the exec goes through the cmux API (direct.rs).
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        send_to(runner, &request, machine_id, session)
+    });
+    report(&outcome, global.output)
 }
 
 /// The newest records `cmux chat read` reads of a chat on a Cloud VM, in one exec.
@@ -281,7 +285,10 @@ pub(super) fn read_existing(
     limit: usize,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    match read_on(&mut runner, machine_id, session, after, limit) {
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        read_on(runner, machine_id, session, after, limit)
+    });
+    match outcome {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
         Outcome::Failed { error, exit } => {
             super::wire::print_local_error(&error, global.output, exit)
@@ -340,7 +347,10 @@ pub(super) fn wait_existing(
     timeout: Duration,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        wait_on(runner, machine_id, session, timeout)
+    });
+    report(&outcome, global.output)
 }
 
 /// [`wait_existing`]'s wait: the newest turn (any seq after 0), within `timeout`.
@@ -1845,6 +1855,11 @@ fn steps(
     if let Some(estimate) = estimate {
         answer.set("estimate", estimate);
     }
+    // How the machine came (a warm spare, made fresh, or one that already existed), when the start said:
+    // a lane's readback proves a spare claim from it (direct.rs `spare_origin`).
+    if let Some(origin) = started.get("machine_origin").filter(|v| v.is_object()) {
+        answer.set("machine_origin", origin.clone());
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
     // With `--account`: the machine is that account's before anything is sent to it. A refusal names
@@ -3066,8 +3081,25 @@ const LAST_ERROR_WAIT: Duration = Duration::from_secs(5);
 /// app's last Cloud error (`cloud.machines`' `last_error`, AppControl+Cloud.swift) is added to `message` and
 /// `details` when it has one: why the list never loaded (cmuxterm-hq run 43553290380).
 fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> Outcome {
-    let last_error = runner
-        .app("cloud.machines", json!({}), LAST_ERROR_WAIT)
+    let answer = runner.app("cloud.machines", json!({}), LAST_ERROR_WAIT);
+    // The relay's `unavailable` (cmux-tui-core apps/relay.rs) is an app that is not connected: closed, or a
+    // locked or asleep Mac. Waiting a moment never loads its list, so the refusal says so and is not
+    // retryable; a connected app still loading is (ask-259986a6c4, interim-coord's 3 NIGHTLY readbacks).
+    if let Some(Err(refused)) = &answer {
+        if at(refused, "code").as_str() == Some("unavailable") {
+            details.set("app", Value::String("not_connected".to_owned()));
+            details.set("last_error", Value::Null);
+            return failed(
+                "cloud.app_not_connected",
+                "the cmux Mac app is not connected (it is closed, or its Mac is locked or asleep), so it \
+                 cannot load its Cloud machines and nothing was made or started: open or unlock the app, then \
+                 run this command again",
+                details,
+                75,
+            );
+        }
+    }
+    let last_error = answer
         .and_then(Result::ok)
         .and_then(|answer| at(&answer, "last_error").as_str().map(str::trim).map(str::to_owned))
         .filter(|error| !error.is_empty());
@@ -3076,7 +3108,12 @@ fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> 
         None => message,
     };
     details.set("last_error", last_error.map_or(Value::Null, Value::String));
-    failed("cloud.list_unread", message, details, 75)
+    let mut outcome = failed("cloud.list_unread", message, details, 75);
+    // Its message says to run it again in a moment: a connected app loading its list, so it is retryable.
+    if let Outcome::Failed { error, .. } = &mut outcome {
+        error["retryable"] = Value::Bool(true);
+    }
+    outcome
 }
 
 /// A machine name for this run: a fresh one no listed machine or create on its way has. It is never one that is:
@@ -3499,7 +3536,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod clone_wait;
-mod direct;
+pub(in crate::cli) mod direct;
 mod fault;
 mod folder;
 mod fresh;

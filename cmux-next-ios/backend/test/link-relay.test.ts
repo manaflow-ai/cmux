@@ -276,6 +276,93 @@ describe("link relay: what it carries", () => {
   })
 })
 
+describe("link relay: tail replay on a rejoin (RFD 0142 R3)", () => {
+  const dg = (n: number) => new Uint8Array([4, 0, 0, 0, n])
+  /** The datagram bytes of a relayed frame (after its 18-byte header), as hex. */
+  const body = (b: Uint8Array) => toHex(b.subarray(18))
+
+  it("what went to the phone's old socket in the last second goes out again on its new one, oldest first, then live frames", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const m = await joined(tok, sessionId, mac)
+    const old = await joined(tok, sessionId, phone)
+    // The Mac sends while the phone's old network is going away: the old socket is still open, so they are
+    // "delivered" into it and lost there.
+    m.ws.send(frame([dg(1)]))
+    m.ws.send(frame([dg(2)]))
+    await old.until((x) => x.binary.length === 2)
+    // The phone is back on a new network: its new socket replaces the old.
+    const fresh = await joined(tok, sessionId, phone)
+    await fresh.until((x) => x.binary.length === 2)
+    expect(fresh.binary.map(body)).toEqual([body(frame([dg(1)])), body(frame([dg(2)]))])
+    // Stamped with the sender, as live frames are.
+    expect(toHex(fresh.binary[0]!.subarray(2, 18))).toBe(toHex(uuidToBytes(mac)))
+    m.ws.send(frame([dg(3)]))
+    await fresh.until((x) => x.binary.length === 3)
+    expect(body(fresh.binary[2]!)).toBe(body(frame([dg(3)])))
+    // A second rejoin replays nothing already replayed (only what was sent since).
+    const third = await joined(tok, sessionId, phone)
+    await third.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(third.binary.map(body)).toEqual([body(frame([dg(3)]))])
+    third.ws.close()
+    m.ws.close()
+  })
+
+  it("what the Mac sent while the phone had no socket reaches the phone when it joins", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const m = await joined(tok, sessionId, mac)
+    const p = await joined(tok, sessionId, phone)
+    p.ws.close(1000, "network gone")
+    await m.until((x) => x.frames.some((f) => f.type === "peer" && f.online === false))
+    m.ws.send(frame([dg(7)]))
+    await m.until((x) => x.frames.filter((f) => f.type === "peer" && f.online === false).length >= 1)
+    const back = await joined(tok, sessionId, phone)
+    await back.until((x) => x.binary.length === 1)
+    expect(body(back.binary[0]!)).toBe(body(frame([dg(7)])))
+    back.ws.close()
+    m.ws.close()
+  })
+
+  it("replays only the last second, and only toward the device that rejoined", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const m = await joined(tok, sessionId, mac)
+    const p = await joined(tok, sessionId, phone)
+    m.ws.send(frame([dg(1)]))
+    p.ws.send(frame([dg(9)]))
+    await p.until((x) => x.binary.length === 1)
+    await m.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 1100))
+    m.ws.send(frame([dg(2)]))
+    await p.until((x) => x.binary.length === 2)
+    const back = await joined(tok, sessionId, phone)
+    await back.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 100))
+    // dg(1) is older than a second; dg(9) went the other way.
+    expect(back.binary.map(body)).toEqual([body(frame([dg(2)]))])
+    back.ws.close()
+    m.ws.close()
+  })
+
+  it("LINK_RELAY_TAIL=off keeps nothing and replays nothing", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const vars = env as unknown as { LINK_RELAY_TAIL?: string }
+    vars.LINK_RELAY_TAIL = "off"
+    try {
+      const m = await joined(tok, sessionId, mac)
+      const p = await joined(tok, sessionId, phone)
+      m.ws.send(frame([dg(1)]))
+      await p.until((x) => x.binary.length === 1)
+      const back = await joined(tok, sessionId, phone)
+      await new Promise((r) => setTimeout(r, 200))
+      expect(back.binary.length).toBe(0)
+      back.ws.close()
+      m.ws.close()
+    } finally {
+      delete vars.LINK_RELAY_TAIL
+    }
+  })
+})
+
 describe("link relay: live sockets end with their session", () => {
   const closedWith = async (s: Sock, code: number) => {
     await s.until((x) => x.closed)
@@ -532,6 +619,132 @@ describe("netcheck targets (PROTOCOL.md \"Relay placement\")", () => {
   })
 })
 
+// RFD 0142 R8, PROTOCOL.md "Relay-held sends": a sealed send to a Mac that is not joined is acked by the relay at
+// once, held, and handed to the Mac when it joins; the Mac's ack deletes it. Off unless LINK_RELAY_HOLD=on.
+describe("link relay: relay-held send queue (R8)", () => {
+  const vars = env as unknown as { LINK_RELAY_HOLD?: string }
+  const sealed = (n: number) => btoa(`sealed-${n}-${"x".repeat(40)}`).replace(/\+/g, "-").replace(/\//g, "_")
+  const withHold = async (fn: () => Promise<void>) => {
+    vars.LINK_RELAY_HOLD = "on"
+    try {
+      await fn()
+    } finally {
+      delete vars.LINK_RELAY_HOLD
+    }
+  }
+  const answers = (s: Sock, id: string) => s.frames.filter((f) => (f.type === "held" || f.type === "hold_refused") && f.id === id)
+  const itemsFor = (s: Sock, id: string) => s.frames.filter((f) => f.type === "held_item" && f.id === id)
+
+  it("is off by default: a hold is refused with off and nothing is kept", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const p = await joined(tok, sessionId, phone)
+    const id = crypto.randomUUID()
+    p.send({ type: "hold", id, sealed: sealed(1) })
+    await p.until((s) => answers(s, id).length === 1)
+    expect(answers(p, id)[0]).toMatchObject({ type: "hold_refused", code: "off" })
+    const m = await joined(tok, sessionId, mac)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(m.frames.some((f) => f.type === "held_item")).toBe(false)
+  })
+
+  it("acks while the Mac is away, delivers on its join, and the Mac's ack deletes it and tells the phone", async () =>
+    withHold(async () => {
+      const { tok, phone, mac, sessionId } = await session()
+      const p = await joined(tok, sessionId, phone)
+      const id = crypto.randomUUID()
+      const t0 = Date.now()
+      p.send({ type: "hold", id, sealed: sealed(1) })
+      await p.until((s) => answers(s, id).length === 1)
+      const acked = Date.now() - t0
+      expect(answers(p, id)[0]).toMatchObject({ type: "held", depth: 1 })
+      // The same id again (a lost ack, a retry): the first answer, nothing new held.
+      p.send({ type: "hold", id: id.toUpperCase(), sealed: sealed(1) })
+      await p.until((s) => answers(s, id).length === 2)
+      expect(answers(p, id)[1]).toMatchObject({ type: "held", depth: 1, expiresAt: answers(p, id)[0].expiresAt })
+      const m = await joined(tok, sessionId, mac)
+      await m.until((s) => itemsFor(s, id).length === 1)
+      // The relay hands over only what it was given: the sealed bytes, the sender's id, times.
+      expect(Object.keys(itemsFor(m, id)[0]).sort()).toEqual(["at", "expiresAt", "from", "id", "sealed", "type"])
+      expect(itemsFor(m, id)[0]).toMatchObject({ from: phone, sealed: sealed(1) })
+      m.send({ type: "held_ack", id })
+      await p.until((s) => s.frames.some((f) => f.type === "delivered" && f.id === id))
+      // A rejoin gets nothing more; a late retry of the same id is answered delivered and not held again.
+      m.ws.close()
+      const m2 = await joined(tok, sessionId, mac)
+      p.send({ type: "hold", id, sealed: sealed(1) })
+      await p.until((s) => answers(s, id).length === 3)
+      expect(answers(p, id)[2]).toMatchObject({ type: "held", delivered: true })
+      await new Promise((r) => setTimeout(r, 100))
+      expect(itemsFor(m2, id)).toHaveLength(0)
+      console.log(JSON.stringify({ row: "relay-hold accept", ms: acked }))
+    }))
+
+  it("hands a hold to a joined Mac at once, and refuses bad ids and a full queue", async () =>
+    withHold(async () => {
+      const { tok, phone, mac, sessionId } = await session()
+      const p = await joined(tok, sessionId, phone)
+      const m = await joined(tok, sessionId, mac)
+      const id = crypto.randomUUID()
+      p.send({ type: "hold", id, sealed: sealed(2) })
+      await m.until((s) => itemsFor(s, id).length === 1)
+      p.send({ type: "hold", id: "nope", sealed: sealed(3) })
+      await p.until((s) => s.frames.some((f) => f.type === "hold_refused" && f.code === "bad"))
+      m.ws.close()
+      const ids = Array.from({ length: 64 }, () => crypto.randomUUID())
+      for (const [i, x] of ids.entries()) p.send({ type: "hold", id: x, sealed: sealed(i) })
+      await p.until((s) => ids.every((x) => answers(s, x).length === 1))
+      // 64 per session: the first item still counts, so the last one is refused full.
+      expect(answers(p, ids.at(-1)!)[0]).toMatchObject({ type: "hold_refused", code: "full" })
+      expect(ids.slice(0, 63).every((x) => answers(p, x)[0].type === "held")).toBe(true)
+    }))
+
+  it("kill and wake, 100 runs: 0 lost, and nothing redelivered after the Mac's ack", { timeout: 180_000 }, async () =>
+    withHold(async () => {
+      const { tok, phone, mac, sessionId } = await session()
+      let p = await joined(tok, sessionId, phone)
+      const applied = new Map<string, number>()
+      let redelivered = 0
+      let lost = 0
+      const t0 = Date.now()
+      for (let run = 0; run < 100; run++) {
+        const id = crypto.randomUUID()
+        // The Mac is unreachable at send. Every 4th run the phone dies after sending and redials, then retries.
+        p.send({ type: "hold", id, sealed: sealed(run) })
+        if (run % 4 === 1) {
+          p.ws.close()
+          p = await joined(tok, sessionId, phone)
+          p.send({ type: "hold", id, sealed: sealed(run) })
+        }
+        await p.until((s) => answers(s, id).length >= 1)
+        // The Mac wakes. Every 3rd run it dies after applying and before its ack, and wakes again.
+        let m = await joined(tok, sessionId, mac)
+        await m.until((s) => itemsFor(s, id).length >= 1)
+        // The Mac side applies an id once (cmux_mobile_link::relay_hold::HeldInbox); count every hand-over.
+        applied.set(id, (applied.get(id) ?? 0) + 1)
+        if (run % 3 === 2) {
+          m.ws.close()
+          m = await joined(tok, sessionId, mac)
+          await m.until((s) => itemsFor(s, id).length >= 1)
+          applied.set(id, (applied.get(id) ?? 0) + 1)
+        }
+        m.send({ type: "held_ack", id })
+        await p.until((s) => s.frames.some((f) => f.type === "delivered" && f.id === id))
+        m.ws.close()
+        const after = await joined(tok, sessionId, mac)
+        await new Promise((r) => setTimeout(r, 20))
+        redelivered += itemsFor(after, id).length
+        after.ws.close()
+      }
+      for (const n of applied.values()) if (n < 1) lost += 1
+      lost += 100 - applied.size
+      const killWakes = [...applied.values()].filter((n) => n > 1).length
+      console.log(JSON.stringify({ row: "relay-hold kill-and-wake", runs: 100, lost, redeliveredAfterAck: redelivered, macKilledBeforeAck: killWakes, ms: Date.now() - t0 }))
+      expect(lost).toBe(0)
+      expect(redelivered).toBe(0)
+      expect(killWakes).toBe(33)
+    }))
+})
+
 describe("relay prewarm (RFD 0142 C4, PROTOCOL.md \"Relay placement\")", () => {
   /** The session's relay, named as the Worker's relay route names it (dev is the primary project: no prefix). */
   const relays = (env as unknown as Env).LINK_RELAY
@@ -616,6 +829,8 @@ describe("relay prewarm (RFD 0142 C4, PROTOCOL.md \"Relay placement\")", () => {
     expect(await until(async () => (await prewarmedAt("alice", sessionId, spaceName)) !== undefined)).toBe(true)
     // The stable space's object of the same session was never made.
     expect(await prewarmedAt("alice", sessionId)).toBeUndefined()
+    // The Mac answers, so both devices are the session's parties with their own relay tickets.
+    await exchange(p, phone, m, mac, sessionId)
     const a = await joined(tok, sessionId, phone, space)
     // The join reached the very object the hub prewarmed: it holds the joiner's socket now.
     expect(await runInDurableObject(relayOf("alice", sessionId, spaceName), (_r: LinkRelay, state) => state.getWebSockets(phone).length)).toBe(1)

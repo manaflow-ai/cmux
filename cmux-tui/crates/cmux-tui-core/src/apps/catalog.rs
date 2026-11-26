@@ -163,9 +163,42 @@ impl Package {
         entry.get("export")?.as_str().map(str::to_string)
     }
 
+    /// The app's `contributes.keybindings` for `apps-list`, in keybindings.json
+    /// form (`{key, command, when?, args?}`) for the client's app binding
+    /// layer: a cmux action as written, an own op as `app.command.run`
+    /// `{app, command}` (the palette row's run). Only entries the manifest
+    /// validator accepted are listed (`cmux_app_manifest::keybindings`).
+    pub fn keybindings(&self) -> Vec<Value> {
+        cmux_app_manifest::keybindings::keybindings(&self.manifest)
+            .into_iter()
+            .map(|binding| {
+                let builtin = cmux_app_manifest::keybindings::is_builtin_action(&binding.command);
+                let mut entry = serde_json::json!({ "key": binding.key() });
+                if builtin {
+                    entry.set("command", Value::String(binding.command));
+                    if let Some(args) = binding.args {
+                        entry.set("args", args);
+                    }
+                } else {
+                    entry.set("command", Value::String("app.command.run".into()));
+                    entry.set(
+                        "args",
+                        serde_json::json!({ "app": self.id, "command": binding.command }),
+                    );
+                }
+                if let Some(when) = binding.when {
+                    entry.set("when", Value::String(when));
+                }
+                entry
+            })
+            .collect()
+    }
+
     /// The app's palette commands for `apps-list`: the catalog ops with a
-    /// `palette` entry, as `{op, title, when?}`.
-    pub fn palette_commands(&self) -> Vec<Value> {
+    /// `palette` entry, as `{op, title, when?, keys?, page_keys?}`. Chords
+    /// stay in #44151's app binding layer; page keys are routed after a
+    /// browser page declines the key and include `cmux.keys` overrides.
+    pub fn palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
             .filter_map(|(op, entry)| {
@@ -176,11 +209,46 @@ impl Package {
                 if let Some(when) = palette.get("when") {
                     command.set("when", when.clone());
                 }
+                let chords: Vec<Value> = entry
+                    .get("keyboard")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|k| k.get("key").and_then(Value::as_str).is_some_and(is_chord))
+                    .cloned()
+                    .collect();
+                if !chords.is_empty() {
+                    command.set("keys", Value::Array(chords));
+                }
+                let page_keys = super::page_keys::keys(&op, &entry, key_overrides);
+                if !page_keys.is_empty() {
+                    command.set("page_keys", serde_json::json!(page_keys));
+                    command.set(
+                        "page_key_when",
+                        super::page_keys::when_map(&op, &entry, key_overrides),
+                    );
+                }
                 Some(command)
             })
             .collect()
     }
 
+    pub fn has_page_keys(&self) -> bool {
+        self.catalog_ops()
+            .iter()
+            .any(|(op, entry)| !super::page_keys::keys(op, entry, None).is_empty())
+    }
+}
+
+/// Whether a catalog `key` (`cmd+shift+r`) holds a dispatcher modifier: a
+/// shortcut the binding table runs.
+fn is_chord(key: &str) -> bool {
+    let mut parts = key.split('+');
+    let _ = parts.next_back();
+    parts.any(|m| matches!(m, "cmd" | "ctrl" | "alt" | "option" | "opt"))
+}
+
+impl Package {
     /// Whether the app has a script (`runtime.main`). A native-pane app
     /// (`cmux.pane/1` with `native`) has none: it installs and lists like
     /// any app, and the supervisor never spawns a host for it.

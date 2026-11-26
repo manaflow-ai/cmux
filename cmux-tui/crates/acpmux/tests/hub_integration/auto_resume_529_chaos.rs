@@ -71,6 +71,8 @@ struct Upstream {
     url: String,
     calls: Arc<Mutex<Vec<Call>>>,
     storm_end: Arc<Mutex<Option<tokio::time::Instant>>>,
+    /// The whole pool is out: every model, every priority refused while the storm lasts.
+    total: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Upstream {
@@ -80,18 +82,25 @@ impl Upstream {
         let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
         let storm_end: Arc<Mutex<Option<tokio::time::Instant>>> = Arc::default();
         let started = tokio::time::Instant::now();
-        let (log, storm) = (calls.clone(), storm_end.clone());
+        let total: Arc<std::sync::atomic::AtomicBool> = Arc::default();
+        let (log, storm, all) = (calls.clone(), storm_end.clone(), total.clone());
         tokio::spawn(async move {
             // Calls per priority, for a refusal share that is exact, not random.
             let counters: Arc<Mutex<BTreeMap<String, u64>>> = Arc::default();
             while let Ok((stream, _)) = listener.accept().await {
                 let (log, storm, counters) = (log.clone(), storm.clone(), counters.clone());
+                let all = all.load(std::sync::atomic::Ordering::SeqCst);
                 tokio::spawn(async move {
-                    let _ = serve(stream, started, log, storm, counters).await;
+                    let _ = serve(stream, started, log, storm, counters, all).await;
                 });
             }
         });
-        Self { url, calls, storm_end }
+        Self { url, calls, storm_end, total }
+    }
+
+    /// From now on a storm refuses every call, the fallback model's too.
+    fn whole_pool(&self) {
+        self.total.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn storm_for(&self, ms: u64) {
@@ -111,6 +120,7 @@ async fn serve(
     log: Arc<Mutex<Vec<Call>>>,
     storm: Arc<Mutex<Option<tokio::time::Instant>>>,
     counters: Arc<Mutex<BTreeMap<String, u64>>>,
+    total: bool,
 ) -> std::io::Result<()> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -145,14 +155,16 @@ async fn serve(
     let interactive = priority == subrouter_priority_interactive();
     let big = !model.contains("sonnet") && !model.contains("haiku");
     let storming = storm.lock().unwrap().is_some_and(|end| tokio::time::Instant::now() < end);
-    let refuse = storming && big && {
-        let mut counters = counters.lock().unwrap();
-        let n = counters.entry(priority.clone()).or_default();
-        *n += 1;
-        // Spread over each hundred calls: call n is refused when (n * 37) mod 100 < pct.
-        let pct = if interactive { PCT_INTERACTIVE } else { PCT_BACKGROUND };
-        (*n * 37) % 100 < pct
-    };
+    let refuse = storming
+        && (total
+            || (big && {
+                let mut counters = counters.lock().unwrap();
+                let n = counters.entry(priority.clone()).or_default();
+                *n += 1;
+                // Spread over each hundred calls: call n is refused when (n * 37) mod 100 < pct.
+                let pct = if interactive { PCT_INTERACTIVE } else { PCT_BACKGROUND };
+                (*n * 37) % 100 < pct
+            }));
     let (status, reply) = if refuse {
         let alternate = if interactive { "account" } else { "none" };
         let body = r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
@@ -382,6 +394,144 @@ async fn a_529_storm_leaves_no_session_dead_or_silent_and_bounds_the_time_lost()
     );
     // 4. The time lost stays under the bound.
     assert!(lost_s <= MAX_LOST_S, "time lost {lost_s} s > {MAX_LOST_S} s: {fates:?}");
+
+    hub.shutdown_all().await;
+}
+
+/// The whole pool out (every model, both priorities) for 10 min real, [`OUTAGE_LANES`]
+/// background lanes on one host (`capacity_gate.rs`). Without the gate each lane resent its
+/// whole context on its own timer (10 s, 60 s, then every 300 s): about four failed turns a lane
+/// in 10 min. With it the host sends one probe per back-off after the first wave.
+const OUTAGE_MS: u64 = 600_000 / SCALE;
+const OUTAGE_LANES: usize = 30;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_dead_pool_gets_one_probe_at_a_time_and_every_lane_comes_back_after_it() {
+    let upstream = Upstream::start().await;
+    upstream.whole_pool();
+    let env = BTreeMap::from([
+        ("FAKE_UPSTREAM_URL".to_owned(), upstream.url.clone()),
+        ("FAKE_UPSTREAM_RETRIES".to_owned(), IN_TURN_RETRIES.to_string()),
+        ("FAKE_UPSTREAM_BACKOFF_MS".to_owned(), (2_000 / SCALE).to_string()),
+        ("FAKE_PICKER".to_owned(), "1".to_owned()),
+        ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
+    ]);
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+
+    // A coordinator (no prompt of its own) starts the lanes, so they are background.
+    let coord = new_session(&mut c, INTERACTIVE[0]).await;
+    let mut from_coord = agent_in(&hub, &coord).await;
+    let mut ids: Vec<(String, String)> = Vec::new();
+    for n in 0..OUTAGE_LANES {
+        let name = format!("lane-{n:02}");
+        let id = new_session(&mut from_coord, &name).await;
+        hub.set_model(&hub.resolve(&id).unwrap(), "claude-opus-5-5").await.unwrap();
+        ids.push((id, name));
+    }
+
+    upstream.storm_for(OUTAGE_MS);
+    let t0 = acpmux::store::now_ms();
+    let start = tokio::time::Instant::now();
+    let first_call = upstream.calls().len();
+    for (n, (id, name)) in ids.iter().enumerate() {
+        c.send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("work item {n} for {name}")}],
+                   "_meta": {"acpmux": {"promptId": format!("o-{n}")}}}),
+        )
+        .await;
+    }
+
+    // The outage, then the longest back-off with its jitter, the recovery stream, and slack.
+    let bound = OUTAGE_MS + DELAYS_MS[2] + DELAYS_MS[2] / 5 + 10 * DELAYS_MS[0] + 5_000;
+    let mut fates: Vec<Fate> = vec![Fate::default(); ids.len()];
+    let mut outage_calls = None;
+    while start.elapsed() < Duration::from_millis(bound) {
+        while c.rx.try_recv().is_ok() {}
+        if outage_calls.is_none() && start.elapsed() >= Duration::from_millis(OUTAGE_MS) {
+            outage_calls = Some(upstream.calls().len() - first_call);
+        }
+        for ((id, name), fate) in ids.iter().zip(fates.iter_mut()) {
+            fate_of(&hub, id, name, t0, fate);
+        }
+        if fates.iter().all(|f| f.done_at.is_some()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let outage_calls = outage_calls.unwrap_or_else(|| upstream.calls().len() - first_call);
+    let calls = upstream.calls();
+    let refused = calls.iter().filter(|c| c.status == 529).count();
+    let dead: Vec<&Fate> = fates.iter().filter(|f| f.done_at.is_none()).collect();
+    let silent: Vec<&Fate> = fates
+        .iter()
+        .filter(|f| f.cut_at.is_some_and(|cut| f.noticed_at.is_none_or(|n| n > cut + NOTICE_MS)))
+        .collect();
+    let done: Vec<u64> = fates.iter().filter_map(|f| f.done_at).collect();
+    let (first_done, last_done) =
+        (done.iter().min().copied().unwrap_or(bound), done.iter().max().copied().unwrap_or(bound));
+    let held = count_kind(&hub, &ids, "capacity_gate_held");
+    let probes = count_kind(&hub, &ids, "capacity_gate_probe");
+    let exhausted = count_kind(&hub, &ids, "auto_resume_exhausted");
+    // One attempt is the turn's call and the harness's own retries of it.
+    let per_attempt = 1 + IN_TURN_RETRIES as usize;
+    // The first wave (every lane once), then one probe per back-off: 1, 2, 4 ... first waits,
+    // at most the last; doubled for scheduling and a failover's extra attempt.
+    let probe_budget = {
+        let (mut t, mut d, mut n) = (0, DELAYS_MS[0], 0usize);
+        while t < OUTAGE_MS {
+            t += d;
+            d = (d * 2).min(DELAYS_MS[2]);
+            n += 1;
+        }
+        2 * n
+    };
+    let max_outage_calls = (OUTAGE_LANES + probe_budget) * per_attempt;
+    // What the lanes sent before the gate: each on its own timer.
+    let ungated = {
+        let (mut t, mut n) = (0, 0usize);
+        for d in DELAYS_MS.iter().copied().chain(std::iter::repeat(DELAYS_MS[2])) {
+            n += 1;
+            t += d;
+            if t >= OUTAGE_MS {
+                break;
+            }
+        }
+        OUTAGE_LANES * n * per_attempt
+    };
+    println!(
+        "529-outage: lanes={OUTAGE_LANES} dead={} silent={} outage_calls={outage_calls} \
+         max_outage_calls={max_outage_calls} ungated_estimate={ungated} refused_529={refused} \
+         held={held} probes={probes} exhausted={exhausted} first_done_after_outage_s={} \
+         recovery_spread_s={} outage_s={} scale={SCALE}",
+        dead.len(),
+        silent.len(),
+        first_done.saturating_sub(OUTAGE_MS) * SCALE / 1000,
+        last_done.saturating_sub(first_done) * SCALE / 1000,
+        OUTAGE_MS * SCALE / 1000,
+    );
+
+    assert!(refused >= OUTAGE_LANES, "the outage cut too few turns: {refused} refused");
+    // The gate held the lanes and probed for them.
+    assert!(held > 0 && probes > 0, "the gate never engaged: held={held} probes={probes}");
+    // A dead pool got about one probe per back-off, not every lane's resend.
+    assert!(
+        outage_calls <= max_outage_calls,
+        "{outage_calls} calls into a dead pool > {max_outage_calls} (ungated about {ungated})"
+    );
+    // Nobody dead, nobody silent, no chain given up.
+    assert!(dead.is_empty(), "{} lanes never completed: {dead:?}", dead.len());
+    assert_eq!(exhausted, 0, "a capacity chain gave up");
+    assert!(silent.is_empty(), "{} lanes cut with no notice: {silent:?}", silent.len());
+    // Every lane is back within the recovery stream's width of the first one.
+    let ramp = 10 * (DELAYS_MS[0] / 2) + 2_000;
+    assert!(
+        last_done - first_done <= ramp,
+        "the lanes came back over {} ms > {ramp} ms: {done:?}",
+        last_done - first_done
+    );
 
     hub.shutdown_all().await;
 }

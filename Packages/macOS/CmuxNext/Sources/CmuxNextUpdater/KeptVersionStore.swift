@@ -98,7 +98,7 @@ nonisolated public struct KeptVersionStore: Sendable {
             return KeptVersion(build: info["CFBundleVersion"] as? String ?? build,
                                shortVersion: info["CFBundleShortVersionString"] as? String ?? build,
                                bundle: bundle, storeSchemas: plistSchemas ?? record?.trustedStoreSchemas(key: recordKey()), teamID: team,
-                               keptAt: record?.keptAt, date: record?.date)
+                               keptAt: record?.keptAt, date: record?.date, commit: info["CMUXCommit"] as? String)
         }
         .sorted { Self.isNewer($0.build, than: $1.build) }
     }

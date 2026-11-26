@@ -149,8 +149,9 @@ public struct ControlSocketPath: Sendable {
             "/tmp/cmux-staging.sock",
             "/tmp/cmux-debug.sock",
             state + "/cmux.sock",
-            stateDirectoryBefore(home: home) + "/cmux.sock",
         ])
+        // The old folder is Classic's too: only NEXT's own channel sockets there
+        // are peers, never Classic's release `cmux.sock`.
         for directory in ["/tmp", state, stateDirectoryBefore(home: home)] {
             for entry in (try? fileManager.contentsOfDirectory(atPath: directory)) ?? []
             where ["cmux-debug", "cmux-nightly", "cmux-rc", "cmux-staging", "cmux-release"].contains(where: entry.hasPrefix)

@@ -239,7 +239,7 @@ fn create_then_replay_red_then_green() {
     let mut env = BTreeMap::new();
     env.insert("REPRO_SECRET".to_owned(), canary.clone());
     let created = create(&Options {
-        dir: work.clone(),
+        dir: work,
         shell: "echo \"secret is $REPRO_SECRET\"; python3 check.py".into(),
         title: "add is broken".into(),
         base: None,

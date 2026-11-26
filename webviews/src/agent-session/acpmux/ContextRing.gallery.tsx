@@ -14,6 +14,10 @@ type Props = {
   setup?: number;
   breakdown?: unknown;
   details?: boolean;
+  /// The agent offers /compact: the card shows Compact conversation above Details.
+  compact?: boolean;
+  /// A turn or a compaction runs: the row stays, disabled.
+  compactDisabled?: boolean;
   wheel?: "compact" | "standard" | "minimal";
   material?: "before" | "quieter" | "standard" | "denser";
   /// The prompt cache's time left (ms; 0 or less: expired), on a pinned clock.
@@ -42,6 +46,9 @@ function GalleryContextRing(props: Props) {
         now={galleryNow}
         // The chat's Session Info reveal (App.tsx); the gallery has no Session Info to open.
         onOpenDetails={props.details ? () => {} : undefined}
+        // The chat's /compact (App.tsx compactChat); the gallery sends nothing.
+        onCompact={props.compact ? () => {} : undefined}
+        compactDisabled={props.compactDisabled}
       />
       <button
         type="button"
@@ -91,6 +98,39 @@ const detailsRow: Play = async (ctx) => {
   const delta = Math.abs(center(chevron.getBoundingClientRect()) - center(range.getBoundingClientRect()));
   if (delta > 0.5) throw new Error(`The Details chevron is ${delta.toFixed(2)} px off the label's centre`);
 };
+
+// Compact conversation is a full-bleed row directly above Details, with nothing between them.
+const compactRow =
+  (emphasis: boolean, disabled: boolean): Play =>
+  async (ctx) => {
+    await hoverCard(ctx);
+    const rows = [...ctx.document.querySelectorAll<HTMLButtonElement>(".acpmux-context-card-foot button")];
+    const [compact, details] = rows;
+    if (!compact?.classList.contains("acpmux-context-card-compact") || !details)
+      throw new Error("Compact conversation is not the row above Details");
+    if (compact.hasAttribute("data-emphasis") !== emphasis)
+      throw new Error(`Compact conversation emphasis is not ${emphasis}`);
+    if (compact.disabled !== disabled) throw new Error(`Compact conversation disabled is not ${disabled}`);
+    const gap = details.getBoundingClientRect().top - compact.getBoundingClientRect().bottom;
+    if (Math.abs(gap) > 0.5) throw new Error(`Compact conversation and Details are ${gap.toFixed(2)} px apart`);
+  };
+
+/// Leo's 2026-11-25 screenshot: 98% · 154.1K / 157.1K, Messages, MCP tools and Agent setup.
+const LEO_NEAR_FULL = {
+  used: 154_100,
+  size: 157_100,
+  details: true,
+  compact: true,
+  breakdown: {
+    maxTokens: 157_100,
+    categories: [
+      { name: "Messages", kind: "used", tokens: 118_600 },
+      { name: "MCP tools", kind: "used", tokens: 9_400 },
+      { name: "System prompt", kind: "used", tokens: 26_100 },
+      { name: "Free space", kind: "free", tokens: 3_000 },
+    ],
+  },
+} satisfies Props;
 
 export default componentEntry<Props>({
   id: "agent-pane.context-ring",
@@ -246,6 +286,21 @@ export default componentEntry<Props>({
         },
       ]),
     ),
+    "compact-row-near-full": {
+      note: 'Leo (2026-11-25: "honestly do we want a compact button here or..."): his 98% card with Compact conversation above Details, in the accent from 80% used. It sends /compact, as typing it does; the chat starts straight in "Compacting conversation".',
+      props: LEO_NEAR_FULL,
+      play: compactRow(true, false),
+    },
+    "compact-row-plain": {
+      note: "Under 80% used the same row reads in the muted ink, as Details does: always there where the agent offers /compact, never loud.",
+      props: { used: 60_000, size: 200_000, details: true, compact: true },
+      play: compactRow(false, false),
+    },
+    "compact-row-mid-turn": {
+      note: "While a turn or a compaction runs the row keeps its place, disabled, so the card never resizes under the pointer.",
+      props: { ...LEO_NEAR_FULL, compactDisabled: true },
+      play: compactRow(true, true),
+    },
     "popover-near-limit": {
       note: "A near-full context window keeps the usage track legible without expanding the popover or changing the composer row.",
       props: { used: 810_000, size: 1_000_000, details: true },

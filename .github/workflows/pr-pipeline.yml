@@ -37,21 +37,48 @@ jobs:
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
-    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, the cmux_next_ daemon tests 65 min,
-    # the iOS matrix protocol 45 min, the acpmux instruction counts 40 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 290
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
+    # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
+    # counts 40 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 325
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     outputs:
       # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
       mac_fallback: ${{ steps.run.outputs.mac_fallback }}
       canary_targets: ${{ steps.run.outputs.canary_targets }}
     steps:
       - name: Checkout the merge commit and the base tip
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: "Pool mirror: checkout the merge commit and the base tip"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        # As cmux-next-guards.yml: a pool VM fetches the two commits on top of its local git mirror. actions/checkout
+        # over the network held pool jobs 10-22 min on 2026-11-25 (jobs 139566604071, 139582651582) until the runner
+        # was lost, a red with no log.
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -78,6 +105,40 @@ jobs:
           path: ${{ runner.temp }}/fixit-compile
           if-no-files-found: ignore
           retention-days: 3
+      # A failed web test shard's JUnit report (the `web-tests-N` steps keep it only on failure), under the name
+      # ci-web.yml's `Web tests (N/4)` job used, which scripts/ci/web_test_failure_census.py reads. No report, no artifact.
+      - name: Upload the web test JUnit report (shard 1)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard1-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard1/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 2)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard2-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard2/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 3)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard3-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard3/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 4)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard4-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard4/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The `web-browser` job: the browser suites (Playwright and real Chrome), on their own warm Linux VM so a
   # webview change never waits behind the linux job's guards, and a change that routes no browser step starts no
@@ -89,15 +150,41 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
     # step, then each `alone` step (tests/test_ci_step_table.py holds this).
-    timeout-minutes: 60
+    timeout-minutes: 70
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     steps:
       - name: Checkout the merge commit and the base tip
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: "Pool mirror: checkout the merge commit and the base tip"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        # As cmux-next-guards.yml: a pool VM fetches the two commits on top of its local git mirror. actions/checkout
+        # over the network held pool jobs 10-22 min on 2026-11-25 (jobs 139566604071, 139582651582) until the runner
+        # was lost, a red with no log.
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
@@ -145,6 +232,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/deadline_http.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -230,16 +318,48 @@ jobs:
 
   # The `ios` job: the CmuxMobileKit tests and the reliability matrix's phone cells (ci/steps.toml's ios steps), on
   # the Mac ios-runner picked, one iPhone simulator, one step after the other.
+  # CmuxMobileLinkFFI.xcframework of the pull request head, started on the build fleet while `ios` waits for a Mac
+  # (the Mac build was 3.3-5.0 min of every kit run). The gateway runner only submits the build (cmux-ci ios-build,
+  # one request key per commit) and waits for it; the `ios` steps' scripts/ci/ios_link_ffi.sh asks for the same
+  # build and takes its copy, or builds on the Mac (logged). Never a verdict: anything here is a warning at most.
+  # CI_IOS_FFI_FLEET=0 turns it off.
+  ios-ffi-fleet:
+    name: ios ffi (build fleet)
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # The literal fallback never schedules: the job's if: skips when the variable is unset.
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
+    permissions: {}
+    steps:
+      - name: Build CmuxMobileLinkFFI.xcframework on the build fleet
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME; the ios job builds the xcframework"
+            exit 0
+          fi
+          status=0
+          "$client" ios-build --what ffi --ref "$SHA" --out "$RUNNER_TEMP/link-ffi" --timeout 1500 --queue-timeout 600 || status=$?
+          if [[ "$status" != 0 ]]; then
+            echo "::warning title=build fleet::no xcframework from the build fleet (exit $status); the ios job builds it"
+          fi
+
   ios:
     name: ios
     needs: [ios-runner]
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
-    # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (60 min) and phone cells (45 min), with
-    # room for the checkout and Xcode (tests/test_ci_step_table.py holds this).
-    timeout-minutes: 125
+    # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (80 min with the fleet pool's wait) and
+    # phone cells (45 min), the fleet pool's build (25 min), with room for the checkout and Xcode
+    # (tests/test_ci_step_table.py holds this).
+    timeout-minutes: 170
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -266,7 +386,42 @@ jobs:
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # The kit's simulator tests on the fleet pool (scripts/ci/ios-sim-pool.sh): this Mac builds for testing and
+      # the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow times both,
+      # on uses the pool's verdict with this Mac as the fallback, unset or off skips it (shadow spends Mac minutes). Same-repo pull requests only.
+      - name: Fleet pool, build the kit's simulator tests
+        id: sim-pool
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX) && vars.CMUX_FLEET_CONTROLLER != '' }}
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          if ! ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} | python3 -c 'import json, sys; sys.exit("ios-kit" not in (json.load(sys.stdin).get("ios") or []))'; then
+            echo "ios-kit is not routed: no pool run"; exit 0
+          fi
+          bash scripts/ci/ios-sim-pool.sh pack
+          echo "packed=1" >> "$GITHUB_OUTPUT"
+      - name: Fleet pool, upload the products
+        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sim-pool/products/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Fleet pool, submit
+        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        continue-on-error: true
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PRODUCTS: ${{ github.run_id }}/kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/ci/ios-sim-pool.sh submit
       - name: Run the routed ios steps (ci/steps.toml)
+        env:
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX }}
+          CMUX_IOS_SIM_POOL_DIR: ${{ runner.temp }}/sim-pool
         run: ci/run run --job ios ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
 
   # The `mac` job: the Mac tier of a feat-cmux-next pull request, the fast tier's Swift suites, which was
@@ -286,6 +441,8 @@ jobs:
     timeout-minutes: 165
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"

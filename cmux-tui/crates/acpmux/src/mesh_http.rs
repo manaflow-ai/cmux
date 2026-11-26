@@ -12,7 +12,8 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, Listen, Listens, MeshHub, OutMessage,
+    Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -466,6 +467,46 @@ impl MeshHub for HttpHub {
 
     fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(self.team_receipt(id, "acknowledge"))
+    }
+
+    fn listen_open<'a>(
+        &'a self,
+        team_address: &'a str,
+        ttl_seconds: Option<u64>,
+    ) -> BoxFuture<'a, Result<Listen, HubError>> {
+        Box::pin(async move {
+            let body = match ttl_seconds {
+                Some(ttl) => json!({"teamAddress": team_address, "ttlSeconds": ttl}),
+                None => json!({"teamAddress": team_address}),
+            };
+            decode(
+                self.call(reqwest::Method::POST, "/v1/mesh/listens", Some(&body), CALL_WAIT)
+                    .await?,
+            )
+        })
+    }
+
+    fn listens(&self) -> BoxFuture<'_, Result<Listens, HubError>> {
+        Box::pin(async move {
+            decode(self.call(reqwest::Method::GET, "/v1/mesh/listens", None, CALL_WAIT).await?)
+        })
+    }
+
+    fn listen_close<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Listens, HubError>> {
+        Box::pin(async move {
+            if !crate::mesh::is_listen_id(id) {
+                return Err(HubError::refused("the listen id is not valid"));
+            }
+            decode(
+                self.call(
+                    reqwest::Method::DELETE,
+                    &format!("/v1/mesh/listens/{id}"),
+                    None,
+                    CALL_WAIT,
+                )
+                .await?,
+            )
+        })
     }
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {

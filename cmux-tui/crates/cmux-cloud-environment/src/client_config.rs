@@ -814,7 +814,7 @@ mod tests {
         // A stack that never answered and left no cache fails closed: the development table would
         // put the Mac on the shared mobile Worker, where the tag's iPhone never finds it.
         fs::remove_file(&path).unwrap();
-        let error = cached_or_fallback(selected.clone(), &path, stack).unwrap_err();
+        let error = cached_or_fallback(selected, &path, stack).unwrap_err();
         assert!(error.contains("no cache"), "{error}");
         // Its public origin too.
         let public = "https://api.s7.wdev.cmux.dev";

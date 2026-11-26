@@ -178,11 +178,11 @@ fn track(dir: &Path, mirror: &Path) -> Result<(), String> {
         updates.push_str(&format!("update refs/remotes/origin/{branch} {id}\n"));
     }
     git_input(dir, updates.as_bytes(), &["update-ref", "--stdin"])?;
-    if let Ok(default) = git(mirror, &["symbolic-ref", "-q", "HEAD"]) {
-        if let Some(branch) = default.strip_prefix("refs/heads/") {
-            let target = format!("refs/remotes/origin/{branch}");
-            let _ = git(dir, &["symbolic-ref", "refs/remotes/origin/HEAD", &target]);
-        }
+    if let Ok(default) = git(mirror, &["symbolic-ref", "-q", "HEAD"])
+        && let Some(branch) = default.strip_prefix("refs/heads/")
+    {
+        let target = format!("refs/remotes/origin/{branch}");
+        let _ = git(dir, &["symbolic-ref", "refs/remotes/origin/HEAD", &target]);
     }
     Ok(())
 }

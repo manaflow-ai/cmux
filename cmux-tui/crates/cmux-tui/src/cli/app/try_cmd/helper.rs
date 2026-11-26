@@ -258,8 +258,8 @@ impl Prepared {
 /// installed one; the installed one kept aside in the staging folder until the try holds.
 #[derive(Debug)]
 pub(super) struct Swap {
-    /// Removed with whatever is still in it when the swap is dropped.
-    staging: tempfile::TempDir,
+    /// Held only to be dropped: removed with whatever is still in it when the swap is dropped.
+    _staging: tempfile::TempDir,
     pub installed: PathBuf,
     staged: PathBuf,
     aside: PathBuf,
@@ -277,7 +277,7 @@ impl Swap {
         let from = digest(&installed)?;
         let to = digest(&staged)?;
         let aside = staging.path().join("prior.app");
-        Ok(Self { staging, installed, staged, aside, from, to })
+        Ok(Self { _staging: staging, installed, staged, aside, from, to })
     }
 
     /// Exchanges the staged bundle with the installed one in one step (`renamex_np(RENAME_SWAP)`

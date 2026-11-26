@@ -56,10 +56,11 @@ and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not sk
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
 Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a commit that changes the
 sidebar package's code (CmuxNextSidebar/, not its strings, resources or mock) carries a `Sidebar-Look: <the user's words, or "no visual
-change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
+change">` trailer, and a visual change also adds its entry under plans/cmux-next/sidebar-owner/ (one file per
+entry, scripts/ci/entry_logs.py; editing the frozen sidebar-owner.md still counts) in the same commit.
 233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
-that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
+that note or an entry file (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
 file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes, plain
@@ -300,7 +301,9 @@ SCANNERS = (
       "scripts/cmux-next/concentric-containers-baseline.txt")),
     # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
     ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
-    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
+    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"],
+     # Also its Classic ids check (goal next-zero-classic-footprint-all-surfaces): every macOS package and the scripts.
+     SCOPES + ("Packages/macOS/", "scripts/cmux-next/")),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     # Leo 2026-11-21: "i wonder if there's a script or some kinda tool we can build to simply get rid fo the prompt?"
@@ -482,6 +485,9 @@ SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
                   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/",
                   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings")
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
+# New entries, one file each (scripts/ci/entry_logs.py ENTRY_LOGS): two PRs adding entries never touch one line. The
+# frozen note had 47 GitHub conflicts among 96 PRs in the 14 days to 2026-11-25 (scripts/ci/conflict_hotspots.py).
+SIDEBAR_ENTRIES = "plans/cmux-next/sidebar-owner/"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
 # The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
@@ -538,6 +544,9 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "keychain-no-prompt-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
+    # check-state-roots.sh's Classic ids check: path, text, count. Left out, a push that removed a Classic site
+    # and deleted its row was refused (goal next-zero-classic-footprint-all-surfaces: 41 stale rows on base).
+    "classic-ids-baseline.tsv": ((0, 1), 2),
     "raw-spawn-baseline.tsv": ((0,), 1),
     "raw-flock-baseline.tsv": ((0,), 1),
     "spawn-owner-baseline.tsv": ((0,), 1),
@@ -759,7 +768,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
     files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
     sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
-    # Two batch reads, not a `git show` a file: each cost about 0.5 s on big-red's cmux mirror (2026-11-21: 11 s).
+    # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
     except git_batch.GitError as error:
@@ -3331,17 +3340,22 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
     """(sha, finding) for each pushed commit that changes the sidebar's drawing code without the owner's record.
 
     A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
-    look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
+    look (a visual change, which must also add or edit an entry under `SIDEBAR_ENTRIES`, or edit `SIDEBAR_NOTE`, in
+    that commit) or `no visual change` (a
     behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
     later commit cannot launder an earlier one.
 
-    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` at `ack_rev` (default
+    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` or an entry at `ack_rev` (default
     `head`). That is how a commit that reached the branch without a trailer (an old hook, a cancelled CI
     run; dcd4316ef5c, 2026-10-23) is reviewed once instead of failing every later sweep.
     """
     found: list[tuple[str, str]] = []
     note = subprocess.run(["git", "-C", str(repo), "show", f"{ack_rev or head}:{SIDEBAR_NOTE}"], capture_output=True)
     logged = note.stdout.decode(errors="replace") if note.returncode == 0 else ""
+    # Every entry file's lines in one call (`git grep` over the tree at that revision, names left off).
+    entries = subprocess.run(["git", "-C", str(repo), "grep", "-h", "-I", "-e", "", f"{ack_rev or head}", "--",
+                              SIDEBAR_ENTRIES], capture_output=True)
+    logged += entries.stdout.decode(errors="replace") if entries.returncode == 0 else ""
     # One `git log` for the whole range (a CI sweep reads every commit since the check landed): per commit a
     # record separator, the sha, the message, then the files it changes.
     out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
@@ -3356,11 +3370,12 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
         trailer = SIDEBAR_TRAILER.search(message)
         where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
         if trailer is None:
-            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
-                               f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`."))
-        elif not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files:
-            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
-                               f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log."))
+            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and add "
+                               f"an entry file under {SIDEBAR_ENTRIES}) or `Sidebar-Look: no visual change`."))
+        elif (not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files
+              and not any(f.startswith(SIDEBAR_ENTRIES) for f in files)):
+            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must add its "
+                               f"entry under {SIDEBAR_ENTRIES} in the same commit: the target look and the commit log."))
     return found
 
 
@@ -4406,11 +4421,11 @@ def _main(argv: list[str] | None = None) -> int:
         if fresh:
             print_findings([(SIDEBAR_CHECK, fresh)], "prepush-gate: sidebar commits without the owner's record:")
             print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
-                  "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
+                  f"a Sidebar-Look: trailer or an entry under {SIDEBAR_ENTRIES}")
         for sha, finding in inherited:
             # The whole finding (one line); % escaped, as a workflow command reads %0A as a new line.
             text = (f"{finding} This commit is on the base, not in this pull request: the owner logs {sha[:11]} in "
-                    f"{SIDEBAR_NOTE}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                    f"an entry under {SIDEBAR_ENTRIES}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
             print(f"::warning title=Sidebar look owner (base commit)::{text}")
         print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s)"
               + (f", {len(inherited)} on base commits (warnings)" if inherited else "")

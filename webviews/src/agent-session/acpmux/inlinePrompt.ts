@@ -31,6 +31,9 @@ type DisplayPart = {
   size?: number;
   pageCount?: number;
   companionOf?: number;
+  /// A video's picture size (its host read), kept so its sent tile has its box after a reload.
+  width?: number;
+  height?: number;
   source?: AttachmentSource;
 };
 export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
@@ -61,6 +64,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       ...knownSize(a),
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
+      ...(a.video ? { width: a.video.width, height: a.video.height } : {}),
       ...(a.source ? { source: a.source } : {}),
     });
     if (a.kind === "image") {
@@ -93,7 +97,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
         ...("uri" in first ? { uri: first.uri } : {}),
-        ...(a.video ? { video: a.video } : {}),
+        ...(a.video ? { video: a.video, width: a.video.width, height: a.video.height } : {}),
         ...(a.source ? { source: a.source } : {}),
       } as PromptContentPart);
     }
@@ -157,6 +161,7 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
       ? { size: raw.size }
       : {}),
     ...(typeof raw.pageCount === "number" ? { pageCount: raw.pageCount } : {}),
+    ...(positiveInteger(raw.width) && positiveInteger(raw.height) ? { width: raw.width, height: raw.height } : {}),
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
       : {}),
@@ -164,6 +169,8 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...sourceField(raw.source),
   } as PromptContentPart;
 }
+
+const positiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 
 /// `{source}` when acpmux kept a valid one with the part, else nothing.
 function sourceField(value: unknown) {
@@ -492,9 +499,14 @@ export function stripFileDisplay(
     )
       return [{ kind: "file", blockIndex, name: block.name, companionOf: blockIndex - 1 }];
     const file = block.type === "resource_link" ? links.get(block.uri) : undefined;
-    // A video keeps its own display; it carries only its source.
-    if (file?.mimeType.startsWith("video/"))
-      return file.source ? [{ kind: "file", blockIndex, source: file.source }] : [];
+    // A video keeps its own display; it carries only its source and its picture's size, so its
+    // sent tile has its box after a reload (conversation/sentVideos.ts).
+    if (file?.mimeType.startsWith("video/")) {
+      const size = file.video ? { width: file.video.width, height: file.video.height } : {};
+      return file.source || file.video
+        ? [{ kind: "file", blockIndex, ...size, ...(file.source ? { source: file.source } : {}) }]
+        : [];
+    }
     return file
       ? [
           {
@@ -503,6 +515,7 @@ export function stripFileDisplay(
             name: file.name,
             ...(file.mimeType ? { mimeType: file.mimeType } : {}),
             ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
+            ...(file.video ? { width: file.video.width, height: file.video.height } : {}),
             ...(file.source ? { source: file.source } : {}),
           },
         ]
