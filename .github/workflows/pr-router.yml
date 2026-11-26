@@ -28,7 +28,7 @@ permissions: {}
 # so it never cancels a push's run.
 concurrency:
   # Another label (or full-ci taken off) gets a group of its own too, so it never cancels the head's run.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land' && !(github.event.action == 'labeled' && github.event.label.name == 'full-ci') && format('-label-{0}', github.run_id) || '' }}
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -42,8 +42,8 @@ jobs:
     # `size:` line, the classic API guard's `Classic API change:` line or the base (its diff moved).
     # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
     # does not read, so an edit routed for one callee starts no runner in another.
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land' && !(github.event.action == 'labeled' && github.event.label.name == 'full-ci')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       # head_tier.py reads the previous head's Actions runs (the green-head base merge rule).
@@ -95,6 +95,9 @@ jobs:
           CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
           # A head that only merges the base onto a green previous head starts nothing (head_tier.py); 0 turns that off.
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
+          # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
+          # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
+          CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -131,7 +134,7 @@ jobs:
           LAND_STATUS_RETRY_S: '20'
         run: |
           if [ "$STATE" = success ]; then
-            desc="The full tier runs on this head"
+            desc="The full tier runs on this head, or passed on the head this base merge sits on"
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
@@ -150,10 +153,14 @@ jobs:
           exit 1
 
   machine-channel-pr-head:
-    # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build.
+    # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build. Started only on a
+    # land's own heads (pr_router.json land_handoff_only), not on every full-tier push.
     name: machine channel PR head build
     needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') }}
+    # The land tier (tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next builds the thin
+    # machine channel only once it is handed to land (`ready-to-land` or `full-ci`), not on every push or base merge.
+    # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
     uses: ./.github/workflows/cmux-machine-channel.yml
     permissions:
       contents: read
@@ -195,6 +202,14 @@ jobs:
     uses: ./.github/workflows/swift-linux-packages.yml
     # A called workflow may ask no more than its caller job grants; with none granted here, every run
     # ended startup_failure with 0 jobs (swift-linux-packages.yml asks contents: read).
+    permissions:
+      contents: read
+
+  ios-link-ffi-linux:
+    name: iOS link FFI on Linux
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
+    uses: ./.github/workflows/ios-link-ffi-linux.yml
     permissions:
       contents: read
 
