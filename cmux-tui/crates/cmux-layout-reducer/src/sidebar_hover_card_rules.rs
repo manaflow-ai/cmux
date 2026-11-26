@@ -461,9 +461,9 @@ pub fn non_redundant(text: &str, title: &str) -> bool {
         return false;
     }
     let parts: Vec<&str> = text.split(SEPARATOR).map(trimmed).collect();
-    !(parts.len() == 2
-        && parts[0].to_lowercase() == "local"
-        && parts[1].to_lowercase() == trimmed(title).to_lowercase())
+    !matches!(parts.as_slice(), [host, name]
+        if host.to_lowercase() == "local"
+            && name.to_lowercase() == trimmed(title).to_lowercase())
 }
 
 /// Why the workspace waits on the person, trimmed; a blank reason is none (`needsInputReason`).
@@ -583,8 +583,7 @@ pub fn meaningful_folder(directory: Option<&str>, home: &str) -> Option<String> 
     if path.is_empty() {
         return None;
     }
-    if path == "~" || path.starts_with("~/") {
-        let rest = &path[1..];
+    if let Some(rest) = path.strip_prefix('~').filter(|r| r.is_empty() || r.starts_with('/')) {
         path = if rest.is_empty() { home.to_owned() } else { format!("{home}/{rest}") };
     }
     let parts = standardized(&path);
@@ -592,7 +591,7 @@ pub fn meaningful_folder(directory: Option<&str>, home: &str) -> Option<String> 
     if parts.is_empty() || parts == home_parts || parts == ["root"] {
         return None;
     }
-    if parts.len() == 2 && (parts[0] == "home" || parts[0] == "Users") {
+    if matches!(parts.as_slice(), [root, _] if *root == "home" || *root == "Users") {
         return None;
     }
     parts.last().map(|p| (*p).to_owned())
