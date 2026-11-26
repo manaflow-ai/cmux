@@ -668,6 +668,36 @@ base_red_skipped=0
 retry_breaker="${CMUX_WEB_TEST_RETRY_BREAKER:-0}"
 [[ "$retry_breaker" =~ ^[0-9]+$ ]] || retry_breaker=0
 breaker_skipped=0
+# CMUX_WEB_TEST_RETRY_SLOW_SECONDS=S (0 or unset: off): a red file whose first run took more than S seconds (a timeout
+# at a limit over S, or a long failure) gets no alone retry and goes to react-apps-base-check with its first run, as a
+# base red does. CMUX_WEB_TEST_ALONE_RETRY_BUDGET=B (unset: off): every alone retry, failed or timed out, starts within
+# B seconds of the retries' start; a failed file's starts only when its first run's seconds fit what is left and is cut
+# there (keeping its first failure), a timed-out file's only when its whole limit fits; the rest keep their first run.
+# Shard 2 of job 137151085368 retried 15 files alone for 26 min (09:36-10:02Z): accent-glass-invariants-3/5/9 at
+# 462-481 s apiece and agent-pane-reveal-in-place at 362 s each failed again, as on the base, and the base check then
+# judged all 11 reds anyway. Its 5 alone passes took 20-116 s each. A 120 s timeout is not over S=120, so it keeps its
+# retry: 3 of those 5 passes were 120 s timeouts. Undo: set both to 0 / empty.
+retry_slow="${CMUX_WEB_TEST_RETRY_SLOW_SECONDS:-0}"
+[[ "$retry_slow" =~ ^[0-9]+$ ]] || retry_slow=0
+alone_budget="${CMUX_WEB_TEST_ALONE_RETRY_BUDGET:-}"
+[[ "$alone_budget" =~ ^[0-9]+$ ]] || alone_budget=""
+slow_skipped=0
+alone_budget_skipped=0
+# Each file's first-run wall seconds (the last line before the retries; a warming file's earlier tries come first).
+cp "$results/durations" "$results/first-durations" 2> /dev/null || : > "$results/first-durations"
+first_seconds() {
+  awk -v f="$1" '$2 == f { s = $1 } END { print (s == "" ? 0 : s) }' "$results/first-durations"
+}
+# alone_left: seconds left of CMUX_WEB_TEST_ALONE_RETRY_BUDGET (a large number when none is set).
+alone_left() {
+  if [ -n "$alone_budget" ]; then echo $((alone_budget - (SECONDS - retry_started))); else echo 999999; fi
+}
+# keep_first FILE REASON: no alone retry for FILE; its first run is its verdict, for react-apps-base-check to judge.
+keep_first() {
+  echo "NO RETRY $result $file: $1; react-apps-base-check judges it"
+  printf '%s\n' "$file" >> "$results/retry-skipped"
+  printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+}
 # CMUX_WEB_TEST_RETRY_POOL=W (0 or unset: off): before the alone retries, the red files due one run again W at a time
 # on the otherwise idle runner (the first pass ran 12 files at once). Each pooled retry then settles its file
 # (webviews_retry_pool.py): a pass is a retry pass; a FAIL naming exactly its first run's red tests stays red with no
@@ -767,8 +797,21 @@ while read -r result file log; do
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
+  took="$(first_seconds "$file")"
+  if [ "$retry_slow" -gt 0 ] && [ "$took" -gt "$retry_slow" ]; then
+    keep_first "its first run took ${took}s, over ${retry_slow}s (CMUX_WEB_TEST_RETRY_SLOW_SECONDS)"
+    slow_skipped=$((slow_skipped + 1))
+    continue
+  fi
   iteration_started=$SECONDS
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
+  alone="$(alone_left)"
+  if [ "$result" = TIMEOUT ]; then need="$normal_limit"; else need=$((took > 0 ? took : 1)); fi
+  if [ "$alone" -lt "$need" ]; then
+    keep_first "the alone retry budget (${alone}s of ${alone_budget}s left, CMUX_WEB_TEST_ALONE_RETRY_BUDGET) cannot fit its ${need}s"
+    alone_budget_skipped=$((alone_budget_skipped + 1))
+    continue
+  fi
   if [ "$result" = TIMEOUT ]; then
     # The timed-out file's own retry: its own budget, its full limit, never cut short.
     timeout_remaining=999999
@@ -807,6 +850,7 @@ while read -r result file log; do
   remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
   left="$(deadline_left)"
   if [ "$left" -lt "$remaining" ]; then remaining="$left"; fi
+  if [ "$alone" -lt "$remaining" ]; then remaining="$alone"; fi
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s\n' "$file" >> "$results/retry-skipped"
@@ -902,6 +946,11 @@ if [ "$breaker_skipped" -gt 0 ]; then
   breaker_line="alone retries skipped: $breaker_skipped, since the first $retry_breaker alone retries all failed again (not contention; react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)"
   echo "$breaker_line"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$breaker_line" >> "$GITHUB_STEP_SUMMARY" || true; fi
+fi
+if [ $((slow_skipped + alone_budget_skipped)) -gt 0 ]; then
+  bound_line="alone retries skipped by the retry cost bound: $slow_skipped whose first run took over ${retry_slow}s (CMUX_WEB_TEST_RETRY_SLOW_SECONDS), $alone_budget_skipped past the ${alone_budget:-unset}s budget (CMUX_WEB_TEST_ALONE_RETRY_BUDGET); react-apps-base-check judges them"
+  echo "$bound_line"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$bound_line" >> "$GITHUB_STEP_SUMMARY" || true; fi
 fi
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
