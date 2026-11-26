@@ -1500,6 +1500,9 @@ function ThreadMinimapView({
     }
     restTimer.cancel();
     const place = () => {
+      // A wheel over the rail between this commit and the frame is the person
+      // browsing it: their offset wins, as it did when the commit placed the list itself.
+      if (railBrowsing.current && railBrowsing.current.sessionId === sessionId) return;
       const current = listOffset.current;
       const next = railScrollTop(
         { first: onScreen.first, last: onScreen.last },

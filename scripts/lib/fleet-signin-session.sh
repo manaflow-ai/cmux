@@ -12,8 +12,9 @@
 #   cmux_fleet_signin_simctl --set "$sims" launch "$udid" "$bundle_id"   # xcrun simctl, with the session
 #
 # The refresh token stays in an unexported shell variable: only that one `xcrun simctl` call gets it, as
-# SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN (a DEBUG cmux-next iPhone app adopts it while it holds no
-# session: CmuxMobileAuthModel.launchTokenStore). Nothing here prints it.
+# SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN (a cmux-next iPhone app on the simulator, DEBUG or Production,
+# adopts it while it holds no session: CmuxMobileAuthModel.launchTokenStore; a Production build takes only a
+# production-project session). Nothing here prints it.
 
 # cmux_fleet_signin_load: reads and checks the session file. On failure it returns 1 with the reason in
 # CMUX_FLEET_SIGNIN_ERROR (never a value).
