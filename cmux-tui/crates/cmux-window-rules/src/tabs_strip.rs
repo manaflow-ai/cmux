@@ -72,11 +72,14 @@ impl Strip {
     /// in strip order is selected (the previous one when it is last), else
     /// nothing.
     pub fn keyboard_close(&self, id: &str) -> KeyboardClose {
-        let Some(index) = self.index(id).filter(|&index| !self.tabs[index].closable) else {
+        let Some(index) =
+            self.index(id).filter(|&index| self.tabs.get(index).is_some_and(|tab| !tab.closable))
+        else {
             return KeyboardClose::Close;
         };
-        let after = self.tabs[index + 1..].iter().find(|tab| self.shows(tab));
-        match after.or_else(|| self.tabs[..index].iter().rev().find(|tab| self.shows(tab))) {
+        let after = self.tabs.iter().skip(index.saturating_add(1)).find(|tab| self.shows(tab));
+        let before = || self.tabs.iter().take(index).rev().find(|tab| self.shows(tab));
+        match after.or_else(before) {
             Some(tab) => KeyboardClose::Select { tab: tab.id.clone() },
             None => KeyboardClose::Ignore,
         }
@@ -88,10 +91,15 @@ impl Strip {
     /// right of a tab not in the strip is nothing.
     pub fn closed_by(&self, id: &str) -> ClosedBy {
         let closes = |tab: &&Tab| !tab.pinned && tab.closable;
-        let ids = |tabs: &[Tab]| tabs.iter().filter(closes).map(|tab| tab.id.clone()).collect();
+        let ids = |tabs: &mut dyn Iterator<Item = &Tab>| {
+            tabs.filter(closes).map(|tab| tab.id.clone()).collect()
+        };
         let others = self.tabs.iter().filter(|tab| tab.id != id).filter(closes);
         let (left, right) = match self.index(id) {
-            Some(index) => (ids(&self.tabs[..index]), ids(&self.tabs[index + 1..])),
+            Some(index) => (
+                ids(&mut self.tabs.iter().take(index)),
+                ids(&mut self.tabs.iter().skip(index.saturating_add(1))),
+            ),
             None => (Vec::new(), Vec::new()),
         };
         ClosedBy { others: others.map(|tab| tab.id.clone()).collect(), left, right }
@@ -108,7 +116,7 @@ impl Strip {
             return None;
         }
         let pinned = self.tabs.iter().filter(|tab| tab.pinned).count();
-        let tab = &self.tabs[index];
+        let tab = self.tabs.get(index)?;
         let mut section = if tab.pinned { 0..pinned } else { pinned..self.tabs.len() };
         let members = |group: &String| {
             let first = self.tabs.iter().position(|tab| tab.group.as_ref() == Some(group));
@@ -116,11 +124,16 @@ impl Strip {
             first.zip(last)
         };
         if let Some((first, last)) = tab.group.as_ref().and_then(members) {
-            section = first..last + 1;
+            section = first..last.saturating_add(1);
         }
-        let target = usize::try_from(index as i64 + offset).ok().filter(|t| section.contains(t))?;
+        let target = i64::try_from(index)
+            .ok()
+            .and_then(|index| index.checked_add(offset))
+            .and_then(|target| usize::try_from(target).ok())
+            .filter(|t| section.contains(t))?;
         // Beside another group: past all of it (one step inside would be undone by the ordering).
-        match (&tab.group, self.tabs[target].group.as_ref().and_then(members)) {
+        let beside = self.tabs.get(target)?.group.as_ref().and_then(members);
+        match (&tab.group, beside) {
             (None, Some((first, last))) => Some(if offset < 0 { first } else { last }),
             _ => Some(target),
         }
@@ -134,16 +147,24 @@ impl Strip {
             return None;
         }
         let count = self.tabs.len();
-        let mut index =
-            id.and_then(|id| self.index(id)).unwrap_or(if offset > 0 { count - 1 } else { 0 });
+        let mut index = id.and_then(|id| self.index(id)).unwrap_or(if offset > 0 {
+            count.saturating_sub(1)
+        } else {
+            0
+        });
         let mut remaining = offset.unsigned_abs();
         while remaining > 0 {
-            index = if offset > 0 { (index + 1) % count } else { (index + count - 1) % count };
-            if self.shows(&self.tabs[index]) {
-                remaining -= 1;
+            // `count` is at least 1: some tab shows.
+            index = if offset > 0 {
+                index.saturating_add(1).checked_rem(count).unwrap_or(0)
+            } else {
+                index.checked_sub(1).unwrap_or(count.saturating_sub(1))
+            };
+            if self.tabs.get(index).is_some_and(|tab| self.shows(tab)) {
+                remaining = remaining.saturating_sub(1);
             }
         }
-        Some(self.tabs[index].id.clone())
+        self.tabs.get(index).map(|tab| tab.id.clone())
     }
 }
 
