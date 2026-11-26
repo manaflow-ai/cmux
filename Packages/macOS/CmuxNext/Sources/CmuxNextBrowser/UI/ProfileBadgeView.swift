@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextIcons
 
 /// How the browser toolbar's profile button shows a tab's browser profile: its
 /// icon or first letter on its color (plans/cmux-next/data-model.md section 5).
@@ -8,12 +9,26 @@ public struct BrowserProfileBadge: Hashable, Sendable {
     public var color: GroupColor?
     /// The profile's name, for the tooltip and VoiceOver.
     public var name: String
+    /// An incognito tab's disc (cmuxterm-hq RFD 0125, D1: "incognito (dark disc, incognito glyph)"): the incognito
+    /// glyph on the primary-text plate, never the plain person glyph; `monogram` and `color` are unused.
+    public var isIncognito: Bool
 
-    public init(monogram: String, color: GroupColor?, name: String) {
+    public init(monogram: String, color: GroupColor?, name: String, isIncognito: Bool = false) {
         self.monogram = monogram
         self.color = color
         self.name = name
+        self.isIncognito = isIncognito
     }
+
+    /// An incognito tab's disc, named `name` (the window's "Incognito").
+    public static func incognito(name: String) -> BrowserProfileBadge {
+        BrowserProfileBadge(monogram: "", color: nil, name: name, isIncognito: true)
+    }
+
+    /// The disc's fill and its glyph's ink: the profile's color under the secondary text, or for incognito the primary
+    /// text's plate under the ink drawn on it (dark on a light theme, as Chrome's incognito avatar; light on a dark one,
+    /// where a dark disc would vanish into the bar). Read inside the theme being drawn.
+    @MainActor var plate: NSColor { isIncognito ? Palette.textPrimary : color?.fill ?? Palette.hoverFill }
 }
 
 extension BrowserProfileBadge {
@@ -21,12 +36,15 @@ extension BrowserProfileBadge {
     /// color, its letter or symbol on it, drawn for the appearance it is shown in. Drawn at the size it is shown,
     /// so the profile menu's card draws it larger with its letter in proportion (`letterSize`).
     @MainActor public func avatarImage(side: CGFloat) -> NSImage {
-        let fill = color?.fill ?? Palette.hoverFill, ink = Palette.textSecondary
-        let monogram = monogram, glyph = ProfileBadgeView.symbolImage(monogram), caption = TypeScale.caption
+        let fill = plate, ink = isIncognito ? Palette.textOnPrimary : Palette.textSecondary
+        let monogram = monogram, caption = TypeScale.caption
+        // chrome-icons: allow the incognito disc wears the window's own incognito mark (IncognitoBadgeView); Chromium's pin has none
+        let glyph: NSImage? = isIncognito ? NSImage.icon(.browserIncognito, size: Self.letterSize(side: side, least: caption) + 2) : ProfileBadgeView.symbolImage(monogram)
+        let incognito = isIncognito
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             let size = Self.letterSize(side: rect.height, least: caption)
-            let symbol = glyph?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .semibold).applying(.init(paletteColors: [ink])))
+            let symbol = incognito ? glyph.map { Self.inked($0, ink) }
+                : glyph?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .semibold).applying(.init(paletteColors: [ink])))
             let text = NSAttributedString(string: monogram, attributes: [.font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: ink])
             fill.setFill()
             NSBezierPath(ovalIn: rect).fill()
@@ -39,6 +57,16 @@ extension BrowserProfileBadge {
 
     /// The letter's size on a disc of side `side`: `least` (the toolbar's caption) on the button's and the menu
     /// row's small discs, about 2/5 of a larger one (the profile menu's card).
+    /// Template `image` filled with `ink` (the pack's icons are templates, which a drawing handler does not tint).
+    nonisolated static func inked(_ image: NSImage, _ ink: NSColor) -> NSImage {
+        NSImage(size: image.size, flipped: false) { rect in
+            image.draw(in: rect)
+            ink.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+    }
+
     nonisolated static func letterSize(side: CGFloat, least: CGFloat) -> CGFloat { max(least, (side * 0.42).rounded()) }
 }
 
@@ -54,10 +82,10 @@ extension BrowserProfileBadge {
         Dictionary(records.map { ($0.id, BrowserProfileBadge($0).avatarImage(side: 16)) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The profile menu's first row for a tab with this profile: its name, why the tab has it (`source`; the
-    /// built-in default says nothing) and its avatar.
+    /// The profile menu's first row for a tab with this profile: its name, why the tab has it (`source`; for an
+    /// incognito tab, when its data goes) and its avatar.
     @MainActor public func menuHeader(_ source: BrowserProfileCascade.Source) -> (title: String, subtitle: String?, image: NSImage?) {
-        (name, BrowserProfileStrings.reason(source), avatarImage(side: 20))
+        (name, isIncognito ? BrowserProfileStrings.incognitoReason : BrowserProfileStrings.reason(source), avatarImage(side: 20))
     }
 }
 
@@ -126,8 +154,12 @@ final class ProfileBadgeView: NSView {
     func show(_ badge: BrowserProfileBadge) {
         self.badge = badge
         color = badge.color
-        // A profile icon is an emoji, a letter, or an SF Symbol name.
-        if let image = Self.symbolImage(badge.monogram) {
+        if badge.isIncognito {
+            shownSymbol = IconName.browserIncognito.rawValue
+            symbol.image = NSImage.icon(.browserIncognito, size: TypeScale.caption + 2) // chrome-icons: allow the window's incognito mark, as above
+            label.stringValue = ""
+        } else if let image = Self.symbolImage(badge.monogram) {
+            // A profile icon is an emoji, a letter, or an SF Symbol name.
             shownSymbol = badge.monogram
             symbol.image = image
             label.stringValue = ""
@@ -153,11 +185,12 @@ final class ProfileBadgeView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            let plate = color?.fill ?? Palette.hoverFill
+            let plate = badge?.plate ?? color?.fill ?? Palette.hoverFill
             layer?.backgroundColor = plate.cgColor
             // The bar's ink on this plate over every ground the bar shows (`OmnibarInk`), not the theme's secondary
-            // text, which a color plate or the bar's lift could take under 4.5:1 (issue 50986).
-            let ink = OmnibarStyle.ink.iconColor(on: [plate], bare: false)
+            // text, which a color plate or the bar's lift could take under 4.5:1 (issue 50986). Incognito's plate is
+            // the primary text, so its glyph takes the ink made for that plate.
+            let ink = badge?.isIncognito == true ? Palette.textOnPrimary : OmnibarStyle.ink.iconColor(on: [plate], bare: false)
             label.textColor = ink
             symbol.contentTintColor = ink
         }
