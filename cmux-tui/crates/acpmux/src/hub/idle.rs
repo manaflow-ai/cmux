@@ -146,11 +146,7 @@ impl Hub {
     /// mark is settled by that scheduler and cannot fire a continuation, so it must not keep a
     /// required quiet restart from hibernating the old environment.
     fn retries_disabled(&self) -> bool {
-        self.config
-            .try_read()
-            .ok()
-            .and_then(|config| config.auto_resume_delays_ms.clone())
-            .is_some_and(|delays| super::auto_resume::effective_delays(Some(delays)).is_empty())
+        self.auto_resume_disabled.load(Ordering::SeqCst)
     }
 
     fn eligible(&self, session: &Session, far_resume_sleeps: bool, firing_retry: bool) -> bool {
@@ -158,6 +154,8 @@ impl Hub {
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
         // `sleeps_through_hold`).
         let sleeps_held = self.sleeps_through_hold(session);
+        let required_restart = session.respawn_required.load(Ordering::SeqCst)
+            && session.respawn_when_quiet.load(Ordering::SeqCst);
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
@@ -173,6 +171,7 @@ impl Hub {
             && (firing_retry
                 || !self.continuation_pending(session)
                 || self.retries_disabled()
+                || required_restart
                 || sleeps_held
                 || (far_resume_sleeps
                     && self.continuation_waits_far(session, super::idle_governor::FAR_RESUME)))

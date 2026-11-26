@@ -859,42 +859,6 @@ impl Hub {
         // agent: an agent is coming, so no cold check. Unbounded, every later prompt of the chat
         // (an outbox delivery each 120 s) waited behind it.
         admission.enter("agent");
-        // A stale host or a teardown may hold either child mutex. Do not let that await keep
-        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
-        // as live so the cold-chat refusal never drops a deliverable prompt.
-        let live = if admission.queue_owned() {
-            let child = session.child.lock().await.clone();
-            match child {
-                Some(child) => child.is_alive().await,
-                None => false,
-            }
-        } else {
-            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
-                let child = session.child.lock().await.clone();
-                match child {
-                    Some(child) => child.is_alive().await,
-                    None => false,
-                }
-            })
-            .await
-            {
-                Ok(live) => live,
-                Err(_) => {
-                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
-                    if admission.listened() {
-                        // Do not continue into queue_slot: with a free turn lock it would
-                        // start the prompt after the caller's answer deadline. The outer
-                        // admission future owns the durable deferral and will accept queued.
-                        admission.request_defer();
-                        return Err(RpcError::deadline_exceeded(
-                            "prompt live check",
-                            super::prompt_admission::ADMISSION_BOUND,
-                        ));
-                    }
-                    true
-                }
-            }
-        };
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
@@ -1019,10 +983,6 @@ impl Hub {
             }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
-        if !live {
-            admission.enter("cold_check");
-            self.cold_prompt_check(session).await?;
-        }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error(session));
         }
@@ -1088,7 +1048,79 @@ impl Hub {
         // awaits here and therefore cannot accidentally join the queue after the check.
         if fired.is_none() && running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst)
         {
-            let _ = self.end_quiet_stale(session, "prompt-restart", None).await;
+            match tokio::time::timeout(
+                super::prompt_admission::ADMISSION_BOUND,
+                self.end_quiet_stale(session, "prompt-restart", None),
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(_) => {
+                    tracing::warn!(
+                        session = %session.id,
+                        "prompt quiet-restart census lapsed during admission"
+                    );
+                    if admission.listened() {
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt quiet-restart census",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                }
+            }
+        }
+        // The quiet restart above may have hibernated the child. Re-read both pieces of
+        // admission state after that await so a cold prompt cannot reuse the pre-hibernation
+        // liveness result or steer a turn that no longer exists.
+        let running = session.turn();
+        // A stale host or a teardown may hold either child mutex. Do not let that await keep
+        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
+        // as live so the cold-chat refusal never drops a deliverable prompt.
+        let live = if admission.queue_owned() {
+            let child = session.child.lock().await.clone();
+            match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            }
+        } else {
+            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+                let child = session.child.lock().await.clone();
+                match child {
+                    Some(child) => child.is_alive().await,
+                    None => false,
+                }
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(_) => {
+                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
+                    if admission.listened() {
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt live check",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                    true
+                }
+            }
+        };
+        if !live {
+            admission.enter("cold_check");
+            self.cold_prompt_check(session).await?;
+        }
+        // The quiet handoff and live check above may await long enough for a person's prompt to
+        // take the turn lock. A continuation must recheck its cut immediately before queueing so
+        // it cannot join behind a newer turn that superseded it during those awaits.
+        if fired.is_some() {
+            super::auto_resume::check_cut(
+                session,
+                after_turn.as_deref(),
+                false,
+                opts.provenance.as_ref(),
+            )?;
         }
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so

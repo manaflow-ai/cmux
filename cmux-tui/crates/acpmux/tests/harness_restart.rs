@@ -314,8 +314,10 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     };
     assert_eq!(reply["result"]["stopReason"], "end_turn", "the turn was not cut: {reply}");
 
-    // The next ordinary prompt performs the quietness/census handoff itself; no manual reaper
-    // tick is needed to apply the new profile.
+    // Drive the real idle reaper rather than relying only on the prompt-time handoff. This keeps
+    // the profile path covered when a chat stays quiet after its turn ends.
+    let clock = quiet_restart::clock(&hub);
+    quiet_restart::hibernate(&hub, &chat, &clock).await;
 
     // The next turn runs on a new agent with the new argv, resuming the same agent session.
     let next = local.harness_args(&chat).await;

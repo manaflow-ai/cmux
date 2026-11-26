@@ -194,7 +194,6 @@ impl Hub {
         cause: &'static str,
         firing_retry: Option<u64>,
     ) -> bool {
-        eprintln!("END quiet enter {} {}", session.id, cause);
         let eligible = || {
             if self.shutting_down() {
                 return false;
@@ -206,7 +205,6 @@ impl Hub {
             }
         };
         if !eligible() {
-            eprintln!("END quiet ineligible");
             return false;
         }
         let Some(child) = session.child.lock().await.clone() else { return false };
@@ -220,7 +218,6 @@ impl Hub {
         }
         let seen = session.last_active.load(Ordering::SeqCst);
         let census = self.idle_census(child.pid, sidecars).await;
-        eprintln!("END quiet census clear={}", matches!(census, super::idle_census::Census::Clear));
         if !matches!(census, super::idle_census::Census::Clear) {
             self.note_refusal(session, &census);
             return false;
@@ -231,10 +228,8 @@ impl Hub {
         }
         let link_lost = child.host_record().is_some() && !child.is_alive().await;
         if !self.hibernate_held(session, link_lost, Some(seen), firing_retry).await {
-            eprintln!("END quiet hibernate false");
             return false;
         }
-        eprintln!("END quiet hibernate true");
         tracing::info!(session = %session.id, cause, "hibernated: stale agent passed every quietness gate and the census");
         true
     }
