@@ -20,7 +20,7 @@
 use super::Peer;
 use crate::peer_paths::Via;
 use crate::wireguard::{StaticPeer, Transport};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -31,9 +31,8 @@ pub(crate) const ADMIT: &str = "_acpmux/wireguard_admit";
 /// What a `host_health` reply says about the machine's transport: its key, UDP port and
 /// service address. None without a running transport there.
 pub(crate) fn advert_of(health: &Value) -> Option<(String, u16, SocketAddr)> {
-    let node = health.get("node")?;
-    let key = node.get("wgPublicKey")?.as_str()?.to_owned();
-    let wg = node.get("wireguard")?;
+    let wg = health.get("node")?.get("wireguard")?;
+    let key = wg.get("publicKey")?.as_str()?.to_owned();
     let port = u16::try_from(wg.get("port")?.as_u64()?).ok().filter(|port| *port != 0)?;
     let address = wg.get("address")?.as_str()?.parse().ok()?;
     Some((key, port, address))
@@ -85,7 +84,7 @@ impl Peer {
             return;
         }
         let me = self.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("peer-wireguard-learn", async move {
             if let Err(error) = me.learn_wireguard_now(advert).await {
                 tracing::debug!(peer = %me.name, "no WireGuard route found yet: {error:#}");
             }
@@ -100,7 +99,8 @@ impl Peer {
         use anyhow::Context as _;
         let transport = self.wg_learner.get().context("no WireGuard transport")?.clone();
         let (destination, _) = self.ssh_parts().context("not an ssh peer")?;
-        let host = destination.rsplit_once('@').map_or(destination.as_str(), |(_, host)| host).to_owned();
+        let host =
+            destination.rsplit_once('@').map_or(destination.as_str(), |(_, host)| host).to_owned();
         let resolved = tokio::task::spawn_blocking(move || {
             let program = crate::cli::ssh_join::ssh_program();
             crate::cli::ssh_join::ssh_hostname(&program, &host).unwrap_or(host)
@@ -108,18 +108,19 @@ impl Peer {
         .await?;
         let route = StaticPeer { public_key: key, endpoint: endpoint_of(&resolved, port), address };
         // The peer admits this machine's key first, so the first handshake is answered.
-        self.request(
-            ADMIT,
-            json!({"publicKey": transport.public_key_b64(), "address": transport.advert()["address"]}),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("{} refused the WireGuard admit: {}", self.name, e.message))?;
+        self.request(ADMIT, transport.advert()).await.map_err(|e| {
+            anyhow::anyhow!("{} refused the WireGuard admit: {}", self.name, e.message)
+        })?;
         let address = transport.learn(&self.name, route).await?;
         Ok(self.adopt_wireguard(transport, address))
     }
 
     /// Give this peer the learned route: `Via::Wireguard` joins its paths and is probed.
-    pub(super) fn adopt_wireguard(self: &Arc<Self>, transport: Arc<Transport>, address: SocketAddr) -> bool {
+    pub(super) fn adopt_wireguard(
+        self: &Arc<Self>,
+        transport: Arc<Transport>,
+        address: SocketAddr,
+    ) -> bool {
         self.set_wireguard(transport, address);
         if self.wireguard.get().map(|(_, a)| *a) != Some(address) {
             return false;
@@ -128,7 +129,7 @@ impl Peer {
         tracing::info!(peer = %self.name, "WireGuard reaches this machine too: a path beside ssh");
         if self.link().is_ready() {
             if self.probing.load(Ordering::SeqCst) {
-                tokio::spawn(self.clone().probe(Via::Wireguard));
+                self.scope.spawn_named("peer-wireguard-probe", self.clone().probe(Via::Wireguard));
             } else {
                 self.start_probes();
             }

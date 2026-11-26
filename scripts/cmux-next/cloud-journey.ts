@@ -507,9 +507,26 @@ const stepNotes = new AsyncLocalStorage<string[]>();
  *  (151 s, 2026-11-25), so a 60 s cut made every journey and bench fail its create and leak the machine. */
 export const CREATE_OP_TIMEOUT_MS = 300_000;
 
+/** /v1/auth/token's expires_at is seconds or ms since the epoch; a missing one reads as never (no re-mint). */
+export function expiresAtMs(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return Infinity;
+  return v < 1e12 ? v * 1000 : v;
+}
+
 export class Api {
   bearer = "";
+  /** An install token lives ACCESS_TOKEN_TTL_SECONDS (600 s, backend/apps/api/src/auth.ts): a journey that holds one
+   *  past that (the clean-room walk alone takes ~150 s) got connect_info HTTP 401 on job 139905166641. `remint`
+   *  signs a fresh one; every call through this Api mints again when the token has under a minute left. */
+  remint?: () => Promise<{ token: string; expiresAt: number }>;
+  expiresAt = Infinity;
   constructor(readonly origin: string, readonly team?: string) {}
+  async fresh(): Promise<void> {
+    if (!this.remint || this.expiresAt - Date.now() > 60_000) return;
+    const t = await this.remint();
+    this.bearer = t.token;
+    this.expiresAt = t.expiresAt;
+  }
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
@@ -517,6 +534,7 @@ export class Api {
    *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
   async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
     let ownerRetried = false;
+    await this.fresh();
     for (let attempt = 1; ; attempt++) {
       let r: Answer;
       try {
@@ -546,6 +564,7 @@ export class Api {
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
+    await this.fresh();
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
@@ -554,6 +573,7 @@ export class Api {
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
+    await this.fresh();
     let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
     // A read changes nothing, so an owner reset is read once more.
     if (ownerUnreachable(r.body)) {
@@ -565,6 +585,7 @@ export class Api {
     return r.body.value;
   }
   async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000, extra: Record<string, string> = {}): Promise<Answer> {
+    await this.fresh();
     return http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs);
   }
 }
@@ -3876,8 +3897,8 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
- * half of this), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow job that runs it to be at
+ * most half of this; a job that runs none, like backend.yml's 95 min `test`, makes no journey machine), so a journey that is still running never loses its machine. A long run (--resume-matrix,
  * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
 export const STALE_JOURNEY_MS = 3 * 3_600_000;
@@ -5078,7 +5099,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, expiresAt: Number(tok.body.expires_at) || Infinity, user: userId, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
     journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
@@ -5114,6 +5135,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+    installApi.expiresAt = expiresAtMs(install.expiresAt);
+    installApi.remint = async () => {
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: install.user, install: install.id }, {});
+      if (ch.status !== 200) throw new Error(`install token re-mint: challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`install token re-mint: token HTTP ${tok.status} ${short(tok.body)}`);
+      J.secrets.push(tok.body.access_token);
+      return { token: tok.body.access_token as string, expiresAt: expiresAtMs(Number(tok.body.expires_at)) };
+    };
 
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
@@ -5920,10 +5950,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       probeExtra.reserved_hit ??= false;
     };
+    // An owner machine's agents run on what their launch carries only once its kind record reads owner
+    // (OWNER_KIND_PROGRAM); both chat starts below wait for it before session_start.
+    const ownerKindStep = async () => {
+      if (!provider || team || gatewayAny) return;
+      await J.step("machine kind owner", async () => {
+        const k = await waitOwnerKind(exec);
+        return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
+      });
+    };
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
       await journeyOnly();
     } else if (homeChat === "reserved") {
+      // As the acp start below: until /etc/cmux/vm-kind reads owner, agent-auth.sh runs claude in team mode
+      // (shared-machine), over settings.json's stub endpoint (run 45791887919: the stub leg's turn answered
+      // "No cmux inference gateway is online"). Before session_start, so the send window does not carry it.
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let reservedChat: ChatClient | null = null;
       let started = false;
@@ -6008,13 +6051,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
-      // An owner machine's agents run on what their launch carries only once its kind record reads owner (OWNER_KIND_PROGRAM).
-      if (provider && !team && !gatewayAny) {
-        await J.step("machine kind owner", async () => {
-          const k = await waitOwnerKind(exec);
-          return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
-        });
-      }
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {

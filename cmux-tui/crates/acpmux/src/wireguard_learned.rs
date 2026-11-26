@@ -66,9 +66,10 @@ pub(super) fn load(state_dir: &Path) -> Saved {
         tracing::warn!(path = %path.display(), "learned WireGuard routes not read: not a small file");
         return Saved::default();
     }
-    match std::fs::read(&path).map_err(anyhow::Error::from).and_then(|bytes| {
-        serde_json::from_slice::<Saved>(&bytes).map_err(anyhow::Error::from)
-    }) {
+    match std::fs::read(&path)
+        .map_err(anyhow::Error::from)
+        .and_then(|bytes| serde_json::from_slice::<Saved>(&bytes).map_err(anyhow::Error::from))
+    {
         Ok(saved) => saved,
         Err(error) => {
             tracing::warn!(path = %path.display(), "learned WireGuard routes not read: {error:#}");
@@ -116,9 +117,13 @@ impl Learned {
                         learned.peers.insert(key, peer);
                         learned.saved.routes.insert(name, route);
                     }
-                    Err(error) => tracing::warn!(peer = %name, "learned WireGuard route dropped: {error}"),
+                    Err(error) => {
+                        tracing::warn!(peer = %name, "learned WireGuard route dropped: {error}")
+                    }
                 },
-                Err(error) => tracing::warn!(peer = %name, "learned WireGuard route dropped: {error:#}"),
+                Err(error) => {
+                    tracing::warn!(peer = %name, "learned WireGuard route dropped: {error:#}")
+                }
             }
         }
         for (text, address) in saved.admitted.into_iter().take(MAX_ENTRIES) {
@@ -167,10 +172,15 @@ impl Transport {
         self.public_key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
-    /// What `host_health` says about this transport (`node.wireguard`): the UDP port it
-    /// listens on and its service address, for an origin to learn a route from.
+    /// What `host_health` says about this transport (`node.wireguard`): the key the mesh runs
+    /// with, the UDP port it listens on and its service address, for an origin to learn a route
+    /// from. The same object is what an origin sends to be admitted.
     pub(crate) fn advert(&self) -> serde_json::Value {
-        serde_json::json!({"port": self.local.port(), "address": self.service.to_string()})
+        serde_json::json!({
+            "publicKey": self.public_key_b64(),
+            "port": self.local.port(),
+            "address": self.service.to_string(),
+        })
     }
 
     /// The route learned for peer `name` (on this or an earlier run): its service address.
@@ -189,11 +199,16 @@ impl Transport {
         {
             let learned = self.learned_lock();
             if let Some(existing) = learned.peers.get(&key) {
-                if existing.route.is_some() || learned.saved.admitted.get(public_key) == Some(&address) {
+                if existing.route.is_some()
+                    || learned.saved.admitted.get(public_key) == Some(&address)
+                {
                     return Ok(false);
                 }
             } else {
-                ensure!(learned.saved.admitted.len() < MAX_ENTRIES, "too many admitted WireGuard keys");
+                ensure!(
+                    learned.saved.admitted.len() < MAX_ENTRIES,
+                    "too many admitted WireGuard keys"
+                );
             }
         }
         let peer = inbound_peer(key, address)?;

@@ -238,7 +238,8 @@ impl Transport {
             // The mesh still refuses an address claimed by different keys.
             mesh.add_peer(peer.clone()).await?;
         }
-        let learned = learned::Learned::start(state_dir, &mesh, local, settings, &peers, configured).await;
+        let learned =
+            learned::Learned::start(state_dir, &mesh, local, settings, &peers, configured).await;
         let listener = mesh.listen(settings.address.port()).await?;
         let (stop, stopped) = watch::channel(false);
         let bridge = tokio::spawn(bridge(listener, websocket, stopped));
@@ -316,7 +317,9 @@ impl Transport {
         }
         for peer in self.learned_peers() {
             if let Err(error) = fresh.add_peer(peer).await {
-                tracing::warn!("a learned WireGuard peer was not added again after the rekey: {error}");
+                tracing::warn!(
+                    "a learned WireGuard peer was not added again after the rekey: {error}"
+                );
             }
         }
         *self.public_key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = public;
@@ -441,7 +444,11 @@ fn mesh_config(private_key: Zeroizing<[u8; 32]>, service: SocketAddr) -> WgMeshC
 
 /// `peer` as a mesh peer from `local`'s UDP socket: every address its endpoint resolves to (in
 /// the socket's family) is a path the mesh probes, the first its route.
-pub(crate) async fn resolve_peer(local: SocketAddr, peer: &StaticPeer, public_key: [u8; 32]) -> Result<WgPeer> {
+pub(crate) async fn resolve_peer(
+    local: SocketAddr,
+    peer: &StaticPeer,
+    public_key: [u8; 32],
+) -> Result<WgPeer> {
     let endpoints =
         tokio::time::timeout(CONNECT_BOUND, tokio::net::lookup_host(peer.endpoint.as_str()))
             .await
