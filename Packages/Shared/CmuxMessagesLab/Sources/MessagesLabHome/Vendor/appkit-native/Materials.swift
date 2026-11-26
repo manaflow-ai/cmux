@@ -16,10 +16,16 @@ import SwiftUI
 /// rest the field is 9.5 pt from each button, so the field never merged with
 /// them. The field follows the shared field geometry; a height change is
 /// animated by `FieldAnimation`.
+///
+/// cmux: each button has its own container, hugging its glass (`placeButton`): the buttons stand at the bar's two
+/// ends, a field apart, so they never merged either.
 final class FieldChrome: NSView {
     // LabGlass: system glass on macOS 26 and newer, a visual-effect stand-in on 14 and 15.
     let container = LabGlass.container()
     private let group = FlippedView()
+    /// cmux: the emoji button's container (`container` holds the "+" button's glass).
+    let emojiContainer = LabGlass.container()
+    private let emojiGroup = FlippedView()
     let fieldContainer = LabGlass.container()
     private let fieldGroup = FlippedView()
     let field = LabGlass.surface()
@@ -42,6 +48,9 @@ final class FieldChrome: NSView {
         container.spacing = FieldChrome.mergeSpacing
         container.contentView = group
         addSubview(container)
+        emojiContainer.spacing = FieldChrome.mergeSpacing
+        emojiContainer.contentView = emojiGroup
+        addSubview(emojiContainer)
         fieldContainer.spacing = FieldChrome.mergeSpacing
         fieldContainer.contentView = fieldGroup
         addSubview(fieldContainer)
@@ -77,7 +86,7 @@ final class FieldChrome: NSView {
             b.target = self
             b.action = sel
             g.contentView = b
-            group.addSubview(g)
+            (g === plusGlass ? group : emojiGroup).addSubview(g)
         }
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -95,7 +104,7 @@ final class FieldChrome: NSView {
     /// the text view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        for g in [plusGlass, emojiGlass] where !g.isHidden && g.frame.contains(p) { return g.contentView }  // cmux: not a hidden button
+        for g in [plusGlass, emojiGlass] where !g.isHidden && rect(of: g).contains(p) { return g.contentView }  // cmux: not a hidden button
         if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
         return nil
     }
@@ -200,8 +209,6 @@ final class FieldChrome: NSView {
 
     override func layout() {
         super.layout()
-        container.frame = bounds
-        group.frame = bounds
         fieldContainer.frame = bounds
         fieldGroup.frame = bounds
         keyFixView.frame = bounds
@@ -216,8 +223,8 @@ final class FieldChrome: NSView {
         if keyFixView.frame != bounds { keyFixView.frame = bounds }
         let snap = { (r: CGRect) in self.keyFixView.backingAlignedRect(self.keyFixView.convert(r, from: self), options: .alignAllEdgesNearest) }
         keyFix.field.place(snap(field.frame))
-        keyFix.plus.place(snap(plusGlass.frame.insetBy(dx: -0.5, dy: 0)))
-        keyFix.emoji.place(snap(emojiGlass.frame.insetBy(dx: -0.5, dy: 0)))
+        keyFix.plus.place(snap(rect(of: plusGlass).insetBy(dx: -0.5, dy: 0)))
+        keyFix.emoji.place(snap(rect(of: emojiGlass).insetBy(dx: -0.5, dy: 0)))
     }
     /// Key state, appearance or scale changed: the correction shows only where it was measured.
     func updateKeyFix() {
@@ -255,13 +262,32 @@ final class FieldChrome: NSView {
     func place(field f: CGRect, plus p: CGRect?, emoji e: CGRect?) {
         follow(field: f)
         var shownChanged = false
-        for (g, r) in [(plusGlass, p), (emojiGlass, e)] {
+        for (g, c, content, r) in [(plusGlass, container, group, p), (emojiGlass, emojiContainer, emojiGroup, e)] {
             if g.isHidden != (r == nil) { g.isHidden = r == nil; shownChanged = true }
-            if let r, g.frame != r { g.frame = r }
+            if let r { placeButton(g, in: c, content, at: r) }
         }
         placeKeyFix()
         if shownChanged { updateKeyFix() }
     }
+
+    /// cmux: how far a button's container reaches past its glass on each side, for the glass's rim and shadow.
+    static let buttonContainerOutset: CGFloat = 20
+    /// cmux: a button's glass at `r` (this view's coordinates). Its container hugs it and moves with it, and the glass
+    /// keeps its place in the container: a width change of the pane moves the emoji button's container and leaves the
+    /// "+" button's alone, so no container is resized or sees its glass move, and none draws its glass again. A container
+    /// draws its glass from one SwiftUI graph; one as wide as the pane took every width and rendered that graph inside
+    /// the layout of each divider-drag frame (release-resize bp-on-2, 2026-11-26).
+    private func placeButton(_ g: any LabGlassSurface, in c: any LabGlassContainer, _ content: NSView, at r: CGRect) {
+        let o = Self.buttonContainerOutset
+        let frame = r.insetBy(dx: -o, dy: -o)
+        if c.frame != frame { c.frame = frame }
+        if content.frame != c.bounds { content.frame = c.bounds }
+        let place = CGRect(origin: CGPoint(x: o, y: o), size: r.size)
+        if g.frame != place { g.frame = place }
+    }
+
+    /// cmux: a button glass's rect in this view (its frame is in its container).
+    func rect(of g: NSView) -> CGRect { convert(g.bounds, from: g) }
 
     /// Model geometry (no animation), unless an animation is moving there.
     private var animatingTo: CGRect?
