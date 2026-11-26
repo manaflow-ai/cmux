@@ -86,6 +86,22 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
 
+      # A scheduled job's calls on the job token share the repository's per-hour installation pool with
+      # every other workflow; spent, the call ends "HTTP 403: API rate limit exceeded for installation" and
+      # the nightly silently does not run (ios-reliability-matrix 11-23/11-25, cmux#57719). The cmux bot
+      # App's token has its own hour; the job token stays the fallback when it cannot be minted.
+      # Detector: scripts/ci/cron_dispatch_token_lint.py.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
       - name: Skip when main's HEAD already has a full-suite run
         id: gate
         env:
@@ -118,7 +134,7 @@ jobs:
       - name: Dispatch CI on main
         if: ${{ steps.gate.outputs.dispatch == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           # Hold this job's concurrency slot until the new run exists, so the
