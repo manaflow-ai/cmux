@@ -117,7 +117,15 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   view.addEventListener("keydown", count, { capture: true, passive: true });
   view.addEventListener("pointerdown", count, { capture: true, passive: true });
   view.addEventListener("wheel", active, { capture: true, passive: true });
-  doc.addEventListener("scroll", active, { capture: true, passive: true });
+  // A scroll the person makes comes with its wheel, key or press; a bare scroll event is the page's own
+  // (a chat pinned to its last row as it draws): it keeps an awake page beating but wakes no resting one.
+  doc.addEventListener(
+    "scroll",
+    () => {
+      quiet = 0;
+    },
+    { capture: true, passive: true },
+  );
 
   const key = () => KEPT_STATE_PREFIX + view.location.href;
   let lastSaved = "";
@@ -146,12 +154,12 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   };
   let edits = false;
   const holdsEdits = () => doc.querySelector(`[${UNSAVED_EDITS_ATTRIBUTE}]`) !== null;
-  const beat = (rest = false) => {
+  const beat = (rest = false): Promise<void> | undefined => {
     save();
-    if (client.holding) return;
+    if (client.holding) return undefined;
     edits = holdsEdits();
     const params = edits ? { handled, edits } : rest ? { handled, rest } : { handled };
-    client.call<{ rest?: unknown } | null>(PAGE_HEARTBEAT_OP, params).then(
+    return client.call<{ rest?: unknown } | null>(PAGE_HEARTBEAT_OP, params).then(
       (reply) => {
         hostTakesRest = reply?.rest === true;
       },
@@ -188,21 +196,25 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     if (idle) idle.call(view, run);
     else view.setTimeout(run, 0);
   };
-  const start = () => {
+  const start = (shown = false) => {
+    slackTimersFor(view).wake();
     quiet = 0;
     resting = false;
-    beat();
+    const replied = beat();
     timer = view.setInterval(tick, HEARTBEAT_MS);
-    // Woken by one press, key or a return to view, the page rests at its first idle moment rather than
-    // a beat later: that it reached idle after the input proves what the 2 s beat did (a page hung in
-    // the input's work never gets there), and a page left alone then wakes for nothing. Woken again
-    // within a beat of its last rest (a scroll, typing) it beats as before, so a stream of input is
-    // one beat per HEARTBEAT_MS, not one per event.
+    // Woken by a press, a key or a return to view, the page rests at its first idle moment once the
+    // host has answered this beat, rather than a beat later: that it reached idle after the input proves
+    // what the 2 s beat did (a page hung in the input's work never gets there), and a page left alone
+    // then wakes for nothing. Woken by input again within a beat of its last rest (a scroll, typing) it
+    // beats as before, so a stream of input is one beat per HEARTBEAT_MS, not one per event.
     const at = ++starts;
-    if (!hostTakesRest || view.performance.now() - restedAt < HEARTBEAT_MS) return;
+    if (!shown && view.performance.now() - restedAt < HEARTBEAT_MS) return;
+    const restIfStill = () => {
+      if (at === starts && !resting && timer !== undefined && mayRest()) rest();
+    };
     whenIdle(() => {
-      if (at !== starts || resting || timer === undefined || !mayRest()) return;
-      rest();
+      if (hostTakesRest || !replied) restIfStill();
+      else void replied.then(() => whenIdle(restIfStill));
     });
   };
   wake = () => {
@@ -216,7 +228,7 @@ export function installPageHealth(client: HealthClient, doc: Document = document
       return;
     }
     if (refused || timer !== undefined) return;
-    start();
+    start(true);
   };
   // After the input's render (its mark is set or cleared by then), not at the next beat.
   const editChanged = () => {

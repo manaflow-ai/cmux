@@ -53,6 +53,7 @@ export class SlackTimers {
   private jobs = new Map<number, Job>();
   private next = 1;
   private armed: { handle: unknown; by: number } | undefined;
+  private atRest = false;
 
   constructor(private readonly clock: SlackClock = windowClock(globalThis)) {}
 
@@ -61,7 +62,7 @@ export class SlackTimers {
     const now = this.clock.now();
     const id = this.next++;
     const at = now + Math.max(0, ms);
-    this.jobs.set(id, { at, by: at + Math.max(0, slack), atRest: options.atRest === true, run });
+    this.jobs.set(id, { at, by: at + Math.max(0, slack), atRest: options.atRest === true, run, made: String(new Error().stack).split("\n").slice(2, 6).join(" < ") } as Job);
     this.arm();
     return id;
   }
@@ -80,8 +81,19 @@ export class SlackTimers {
   /** The page goes to rest on this wake: run every job whose window opened, and every `atRest` job,
    * so nothing that only waited for quiet wakes the resting page. */
   rest(): void {
+    this.atRest = true;
     this.runDue(true);
     this.arm();
+  }
+
+  /** The page woke from its rest (pageHealth.ts `start`): its beat rides the jobs again. */
+  wake(): void {
+    this.atRest = false;
+  }
+
+  /** The page rests: no beat comes, so a job that waits for it wakes the page alone. */
+  get resting(): boolean {
+    return this.atRest;
   }
 
   /** Jobs waiting (for tests and `cmuxDebug`). */
@@ -125,6 +137,7 @@ export class SlackTimers {
       Math.max(0, by - this.clock.now()),
     );
     this.armed = { handle, by };
+    ((globalThis as any).__slackArm ??= []).push({ t: Math.round(this.clock.now()), by: Math.round(by), jobs: [...this.jobs.values()].map((j: any) => `${Math.round(j.by)} ${j.made}`) }); // TEMP-DEBUG
   }
 }
 
