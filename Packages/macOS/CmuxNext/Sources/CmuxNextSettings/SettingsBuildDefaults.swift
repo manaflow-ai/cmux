@@ -67,7 +67,12 @@ extension SettingsController {
     /// Whether the person's file sets `descriptor` to something other than this build's default,
     /// so Settings offers Reset (an explicit off in NIGHTLY, whose default is on, counts).
     public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {
-        guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
+        isCustomized(descriptor, stored: descriptor.storedValue(in: fileRoot))
+    }
+
+    /// ``isCustomized(_:)`` for `stored`, the row's value already read from `fileRoot` (a batch read).
+    public func isCustomized(_ descriptor: SettingDescriptor, stored: JSONValue?) -> Bool {
+        guard let stored else { return false }
         // A value kept over the active theme file is the person's even at the default: Reset returns
         // to the file's value (#44894).
         if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }

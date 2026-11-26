@@ -22,159 +22,60 @@ public nonisolated struct SettingOption: Hashable, Sendable {
     public var id: String { value?.compactText ?? "reset" }
 }
 
+/// What the palette lists for a row is Rust's (`schema.typed`, `schema.inherited`,
+/// `schema.palette_options`): these read it through ``SettingsRust`` and render its titles in the
+/// app's language (the string catalog, Foundation's number formats) and its swatches.
 extension SettingDescriptor {
-    /// Most values a number lists; a wider range is sampled on its step grid.
-    static let maximumNumberOptions = 41
-
     /// The JSON value for typed text (a number off the steps, a hex color, a font, a sound, an
     /// address), when the schema accepts it.
     public func value(typed text: String) -> JSONValue? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        let candidate: JSONValue = switch kind {
-        case .number, .choiceOrNumber: Double(trimmed).map(JSONValue.number) ?? .string(trimmed)
-        // A typed address is the object form (`{"selfHosted": url}`); a choice stays its string.
-        case .choiceOrURL(let choices, let urlKey):
-            choices.contains { $0.value == trimmed } ? .string(trimmed) : .object([urlKey: .string(trimmed)])
-        default: .string(trimmed)
-        }
-        return accepts(candidate) ? candidate : nil
+        Self.present(SettingsRust.answer("schema.typed", ["key": .string(id), "text": .string(text)])["value"])
     }
 
     /// The values the palette lists for this setting, the current one marked:
     /// a toggle's on and off, a choice's values, a number's steps (the
     /// default first), a color's theme colors as swatches (the theme default
-    /// first), a list of what shows as rows that toggle (`pickedListOptions`),
-    /// a full order as rows that move a choice to the front (`orderOptions`,
-    /// starting from `inherited` while the key has no value: ``inheritedValue(in:)``).
-    /// Kinds with free text (fonts, sounds, addresses, hosts, times) list
-    /// nothing; the palette types them.
+    /// first), a list of what shows as rows that toggle, a full order as rows
+    /// that move a choice to the front (starting from `inherited` while the key
+    /// has no value: ``inheritedValue(in:)``). Kinds with free text (fonts,
+    /// sounds, addresses, hosts, times) list nothing; the palette types them.
     public func paletteOptions(current: JSONValue?, inherited: JSONValue? = nil, themeColors: [ThemeRGB]) -> [SettingOption] {
-        let current = current ?? defaultValue
-        switch kind {
-        case .toggle:
-            let on = current?.boolValue ?? false
-            return [SettingOption(value: .bool(true), title: SettingsText.text("settings.choice.on", "On"), isCurrent: on),
-                    SettingOption(value: .bool(false), title: SettingsText.text("settings.choice.off", "Off"), isCurrent: !on)]
-        case .choiceOrNumber(let choices, _) where defaultValue == nil:
-            // Unset is a value of its own (`browser.hibernation`: never discard): listed first, it
-            // removes the key.
-            let unset = SettingOption(value: nil, title: defaultLabel ?? SettingsText.text("settings.choice.default", "Default"),
-                                      isCurrent: current == nil)
-            return [unset] + choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
-        case .choice(let choices), .choiceOrNumber(let choices, _), .choiceOrURL(let choices, _):
-            let options = choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
-            return path == BackdropSelectionSetting.configPath ? Self.backgroundOptions(options, current: current) : options
-        case .number(let number):
-            var options: [SettingOption] = []
-            if defaultValue == nil {
-                options.append(SettingOption(value: nil, title: defaultLabel ?? SettingsText.text("settings.choice.default", "Default"),
-                                             isCurrent: current == nil))
-            }
-            let selected = current?.doubleValue
-            options += Self.numberValues(number, including: selected).map { value in
-                SettingOption(value: .number(value), title: Self.format(value, number.unit), isCurrent: selected == value)
-            }
-            return options
-        case .color:
-            let selected = current?.stringValue.flatMap { ThemeRGB(cssHex: $0) }
-            var options = [SettingOption(value: nil, title: defaultLabel ?? SettingsText.text("settings.default.theme", "Theme"),
-                                         isCurrent: selected == nil)]
-            var seen = Set<String>()
-            for color in themeColors where seen.insert(Self.hex(color)).inserted {
-                options.append(SettingOption(value: .string(Self.hex(color)), title: Self.hex(color), swatches: [color],
-                                             isCurrent: selected.map(Self.hex) == Self.hex(color)))
-            }
-            if let selected, !seen.contains(Self.hex(selected)) {
-                let text = current?.stringValue ?? Self.hex(selected)
-                options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
-            }
-            return options
-        case .choiceSet(let choices):
-            return pickedListOptions(choices, current: current, ordered: false)
-        case .orderedChoices(let choices) where orderedChoicesHideOmitted:
-            return pickedListOptions(choices, current: current, ordered: true)
-        case .orderedChoices(let choices):
-            return orderOptions(choices, current: current, inherited: inherited)
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList, .json:
-            return []
-        }
+        options(in: paletteReply(current: current, inherited: inherited, themeColors: themeColors), themeColors: themeColors)
     }
 
-    /// An `orderedChoices` row whose list holds only what shows, so a choice it leaves out is
-    /// hidden: `tabs.toolbarButtons` (``PaneToolbarButtonsSetting``, the pinned buttons, toggled
-    /// from the tab bar's More menu). Every other ordered list is a full order: a choice it leaves
-    /// out still shows, after the listed ones in the default order (`sidebar.workspaceRow.
-    /// secondLineOrder`, read by `WorkspaceRowElements.completeOrder`; the Settings page's order
-    /// editor writes all of it), and its visibility is a setting of its own.
-    var orderedChoicesHideOmitted: Bool { path == PaneToolbarButtonsSetting.configPath }
+    /// ``paletteOptions(current:inherited:themeColors:)`` for a row read with the palette in one batch
+    /// (``SettingsSchema/reads(root:storedRoot:keys:palette:)`` with the same `themeColors`).
+    public func paletteOptions(_ read: SettingRowRead, themeColors: [ThemeRGB]) -> [SettingOption] {
+        options(in: read.palette ?? .object([:]), themeColors: themeColors)
+    }
+
+    /// ``paletteSummary(current:options:)`` for a row read with the palette in one batch.
+    public func paletteSummary(_ read: SettingRowRead, options: [SettingOption]) -> String? {
+        if options.contains(where: { $0.value == nil && $0.isCurrent }) { return nil }
+        guard let titles = read.palette?["summary"]?.arrayValue else { return nil }
+        return titles.map { localized($0) }.joined(separator: ", ")
+    }
+
+    /// The options of a `schema.palette_options` reply, with their titles in the app's language.
+    private func options(in reply: JSONValue, themeColors: [ThemeRGB]) -> [SettingOption] {
+        (reply["options"]?.arrayValue ?? []).map { option in
+            let swatches: [ThemeRGB] = if let index = option["swatch"]?["theme"]?.intValue, themeColors.indices.contains(index) {
+                [themeColors[index]]
+            } else if let hex = option["swatch"]?["hex"]?.stringValue, let color = ThemeRGB(cssHex: hex) {
+                [color]
+            } else {
+                []
+            }
+            return SettingOption(value: option["value"], title: optionTitle(option["title"]), swatches: swatches,
+                                 isCurrent: option["current"]?.boolValue ?? false)
+        }
+    }
 
     /// The value a row with no value of its own goes by, read from `root`: a per-kind second-line
     /// order (`sidebar.workspaceRow.terminal.secondLineOrder`) follows All Workspaces'. Nil for
     /// every other row.
     public func inheritedValue(in root: JSONValue) -> JSONValue? {
-        guard let from = WorkspaceRowSetting.inheritedOrderPath(for: path) else { return nil }
-        return SettingsSchema.descriptor(for: from)?.effectiveValue(in: root)
-    }
-
-    /// The row that unsets a key with no default (a per-kind override: Same as All Workspaces),
-    /// listed first; nil for a row with a default.
-    private func unsetOption(current: JSONValue?) -> SettingOption? {
-        guard defaultValue == nil else { return nil }
-        return SettingOption(value: nil, title: defaultLabel ?? SettingsText.text("settings.choice.default", "Default"),
-                             isCurrent: current == nil)
-    }
-
-    /// The stored values that are choices, first occurrence only, in the stored order.
-    private static func storedChoices(_ choices: [SettingChoice], _ value: JSONValue?) -> [String] {
-        var stored: [String] = []
-        if case .array(let items)? = value {
-            for case .string(let item) in items where choices.contains(where: { $0.value == item }) && !stored.contains(item) {
-                stored.append(item)
-            }
-        }
-        return stored
-    }
-
-    /// The order that applies: the stored choices, then the ones left out in the choices' order
-    /// (the Settings page's `orderedChoiceValues`, `WorkspaceRowElements.completeOrder`).
-    static func effectiveOrder(_ choices: [SettingChoice], _ value: JSONValue?) -> [String] {
-        let stored = storedChoices(choices, value)
-        return stored + choices.map(\.value).filter { !stored.contains($0) }
-    }
-
-    /// A list of what shows (`choiceSet`, `tabs.toolbarButtons`): one row per choice, checked while
-    /// the list holds it, whose value is the list with that choice toggled. A choice set keeps the
-    /// choices' order (the Settings page's switches write it the same way); an ordered one lists
-    /// its stored order first, adds a choice at the end and removes one in place.
-    private func pickedListOptions(_ choices: [SettingChoice], current: JSONValue?, ordered: Bool) -> [SettingOption] {
-        let stored = Self.storedChoices(choices, current)
-        let rows = ordered
-            ? stored.compactMap { item in choices.first { $0.value == item } } + choices.filter { !stored.contains($0.value) }
-            : choices
-        return [unsetOption(current: current)].compactMap { $0 } + rows.map { (choice: SettingChoice) -> SettingOption in
-            let isOn = stored.contains(choice.value)
-            let next: [String] = if ordered {
-                isOn ? stored.filter { $0 != choice.value } : stored + [choice.value]
-            } else {
-                choices.map(\.value).filter { $0 == choice.value ? !isOn : stored.contains($0) }
-            }
-            return SettingOption(value: .array(next.map(JSONValue.string)), title: choice.title, isCurrent: isOn)
-        }
-    }
-
-    /// A full order (`sidebar.workspaceRow.secondLineOrder`): every choice once, in the order that
-    /// applies, unchecked; each row moves its choice to the front and writes the whole order, so
-    /// nothing is dropped and the rest keep their places. A key with no value of its own starts
-    /// from what it goes by (`inherited`: All Workspaces' order), then the choices' order; never a
-    /// partial or empty list. Up and down moves stay on the Settings page.
-    private func orderOptions(_ choices: [SettingChoice], current: JSONValue?, inherited: JSONValue?) -> [SettingOption] {
-        let order = Self.effectiveOrder(choices, current ?? inherited)
-        let titles = Dictionary(choices.map { ($0.value, $0.title) }, uniquingKeysWith: { first, _ in first })
-        return [unsetOption(current: current)].compactMap { $0 } + order.map { (item: String) -> SettingOption in
-            let moved = [item] + order.filter { $0 != item }
-            let title = String(format: SettingsText.text("settings.palette.moveToFront", "Move %@ to Front"), titles[item] ?? item)
-            return SettingOption(value: .array(moved.map(JSONValue.string)), title: title, isCurrent: false)
-        }
+        Self.present(SettingsRust.answer("schema.inherited", ["key": .string(id), "root": root])["value"])
     }
 
     /// The palette row's value text for a list of choices; nil for any other kind, and for a key
@@ -182,55 +83,76 @@ extension SettingDescriptor {
     /// holds, or None; a full order names every choice in the order that applies.
     public func paletteSummary(current: JSONValue?, options: [SettingOption]) -> String? {
         if options.contains(where: { $0.value == nil && $0.isCurrent }) { return nil }
+        guard let titles = paletteReply(current: current, inherited: nil, themeColors: [])["summary"]?.arrayValue else { return nil }
+        return titles.map { localized($0) }.joined(separator: ", ")
+    }
+
+    /// `schema.palette_options`' reply, asked again with the background the app resolves when
+    /// Rust names a value it does not list (a retired painting, your own image, a wallpaper).
+    private func paletteReply(current: JSONValue?, inherited: JSONValue?, themeColors: [ThemeRGB]) -> JSONValue {
+        var request: [String: JSONValue] = [
+            "key": .string(id), "current": current ?? .null, "inherited": inherited ?? .null,
+            "theme_colors": .array(themeColors.map(\.rustRequest)),
+        ]
+        let reply = SettingsRust.answer("schema.palette_options", .object(request))
+        guard let raw = reply["need"]?["selection"]?.stringValue else { return reply }
+        request["selection"] = BackdropSelection(id: raw).map { ["id": .string($0.id), "title": .string($0.title)] } ?? .null
+        return SettingsRust.answer("schema.palette_options", .object(request))
+    }
+
+    /// An option's title in the app's language: a catalog text, a number Foundation formats, or
+    /// a format with one argument (`Move %@ to Front`).
+    private func optionTitle(_ title: JSONValue?) -> String {
+        if let number = title?["number"]?.doubleValue {
+            return Self.format(number, Self.unit(title?["unit"]?.stringValue))
+        }
+        if let format = title?["format"] {
+            return String(format: localized(format), localized(title?["arg"]))
+        }
+        return localized(title)
+    }
+
+    /// A schema text `{text, key}` in the app's language. The row's own texts (its choices, its
+    /// default label) are localized already; the palette's fixed words come from the catalog;
+    /// a text with no key (a product name, your own image's name) is shown as it is.
+    private func localized(_ text: JSONValue?) -> String {
+        let english = text?["text"]?.stringValue ?? ""
+        guard let key = text?["key"]?.stringValue else { return english }
+        if key == textKeys.defaultLabel, let defaultLabel { return defaultLabel }
+        if let choice = kindChoices.first(where: { $0.titleKey == key }) { return choice.title }
+        return switch key {
+        case "settings.choice.on": SettingsText.text("settings.choice.on", "On")
+        case "settings.choice.off": SettingsText.text("settings.choice.off", "Off")
+        case "settings.choice.default": SettingsText.text("settings.choice.default", "Default")
+        case "settings.choice.none": SettingsText.text("settings.choice.none", "None")
+        case "settings.default.theme": SettingsText.text("settings.default.theme", "Theme")
+        case "settings.palette.moveToFront": SettingsText.text("settings.palette.moveToFront", "Move %@ to Front")
+        default: english
+        }
+    }
+
+    /// The choices of a choice kind, whose titles a palette text can name.
+    private var kindChoices: [SettingChoice] {
         switch kind {
-        case .orderedChoices(let choices) where !orderedChoicesHideOmitted:
-            let titles = Dictionary(choices.map { ($0.value, $0.title) }, uniquingKeysWith: { first, _ in first })
-            return Self.effectiveOrder(choices, current ?? defaultValue).map { titles[$0] ?? $0 }.joined(separator: ", ")
-        case .choiceSet, .orderedChoices:
-            let titles = options.filter { $0.value != nil && $0.isCurrent }.map(\.title)
-            return titles.isEmpty ? SettingsText.text("settings.choice.none", "None") : titles.joined(separator: ", ")
+        case .choice(let choices), .choiceOrNumber(let choices, _), .choiceOrURL(let choices, _),
+             .orderedChoices(let choices), .choiceSet(let choices):
+            choices
         default:
-            return nil
+            []
         }
     }
 
-    /// `appearance.background`'s options, naming what the window shows when the value is not one
-    /// the list offers: a retired painting id marks the work that replaced it, and your own image
-    /// or a macOS wallpaper is one more option, current, by its name.
-    static func backgroundOptions(_ options: [SettingOption], current: JSONValue?) -> [SettingOption] {
-        guard !options.contains(where: \.isCurrent), let raw = current?.stringValue, let selection = BackdropSelection(id: raw) else {
-            return options
+    /// The schema's unit name (`points`, `milliseconds`, ...) as ``SettingNumber/Unit``.
+    private static func unit(_ name: String?) -> SettingNumber.Unit {
+        switch name {
+        case "points": .points
+        case "milliseconds": .milliseconds
+        case "seconds": .seconds
+        case "minutes": .minutes
+        case "days": .days
+        case "fraction": .fraction
+        default: .count
         }
-        let shown = JSONValue.string(selection.id)
-        if options.contains(where: { $0.value == shown }) {
-            return options.map { SettingOption(value: $0.value, title: $0.title, swatches: $0.swatches, isCurrent: $0.value == shown) }
-        }
-        return options + [SettingOption(value: .string(raw), title: selection.title, isCurrent: true)]
-    }
-
-    /// Every step from the low end to the high end, or, for a wider range,
-    /// both ends, `including` and evenly spread steps (all on the grid).
-    static func numberValues(_ number: SettingNumber, including value: Double?) -> [Double] {
-        let low = number.range.lowerBound, high = number.range.upperBound
-        let count = Int(((high - low) / number.step).rounded(.down)) + 1
-        let onGrid = { (index: Int) in min(high, low + Double(index) * number.step) }
-        var values: Set<Double>
-        if count <= maximumNumberOptions {
-            values = Set((0..<count).map(onGrid))
-        } else {
-            let slots = maximumNumberOptions - 3
-            values = Set((0...slots).map { onGrid(Int((Double($0) * Double(count - 1) / Double(slots)).rounded())) })
-        }
-        values.insert(high)
-        if let value, number.range.contains(value) { values.insert(value) }
-        return values.sorted()
-    }
-
-    /// `#RRGGBB` (or `#RRGGBBAA` for a translucent color), as cmux-next.json stores it.
-    static func hex(_ color: ThemeRGB) -> String {
-        let byte = { (value: Double) in Int((value * 255).rounded()) }
-        let rgb = String(format: "#%02X%02X%02X", byte(color.red), byte(color.green), byte(color.blue))
-        return color.alpha < 1 ? rgb + String(format: "%02X", byte(color.alpha)) : rgb
     }
 
     static func format(_ value: Double, _ unit: SettingNumber.Unit) -> String {
