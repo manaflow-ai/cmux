@@ -576,9 +576,7 @@ pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) ->
     options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
 }
 
-/// Attach the lane to `link` when it opens, or fall back when it fails. A
-/// reliable link takes the lane and ignores it; follow it all the same, never
-/// drop it: on WireGuard the receiver's life is the Mac listener's lane wait.
+/// Attach the lane to `link` when it opens, or fall back when it fails.
 fn follow_lane(link: &Link, lane: Option<oneshot::Receiver<Box<dyn LinkStream>>>) {
     let Some(lane) = lane else { return };
     link.expect_input_lane();
@@ -849,13 +847,10 @@ pub async fn resume(
     }
     // The input and media lanes stay as they were: a reliable link carries
     // input on its main carrier. Its liveness datagrams ride the new tunnel.
+    drop(dialed.lane);
     link.resume_carrier(dialed.stream, Some(dialed.guard))
         .await
         .map_err(|error| DialError::Transport(error.to_string()))?;
-    // Still open the new carrier's lane (the link ignores it): the Mac pairs
-    // a carrier's connections by order and waits for its lane, so a lane this
-    // side never opens leaves its wait to swallow the next carrier.
-    follow_lane(link, dialed.lane);
     // The new tunnel's lease learns how this link closes.
     if let Some(on_link) = dialed.on_link {
         on_link(link);
@@ -954,6 +949,7 @@ pub async fn answer(
         // The phone's first frame says whether it opens a new link or
         // resumes one of this device's.
         let link_config = reliable_config(link_config, true, options.resume_registry.as_ref());
+        drop(dialed.lane);
         let accepted = crate::Link::accept_reliable(dialed.stream, link_config, Some(dialed.guard))
             .await
             .map_err(|error| DialError::Transport(error.to_string()))?;
@@ -961,14 +957,6 @@ pub async fn answer(
             crate::Accepted::New(link) => (link, false),
             crate::Accepted::Resumed(link) => (link, true),
         };
-        // The phone opens this carrier's input lane whenever both sides list
-        // it, reliable or not (the link ignores it: input rides the main
-        // carrier). Take it as the lane while the link lives: dropping the
-        // receiver ended the WireGuard listener's lane wait at once, and the
-        // listener then served the phone's lane as a resumed link, which
-        // ended this one (2026-11-26, loopback
-        // wireguard_reliable_link_resumes_over_a_new_transport).
-        follow_lane(&link, dialed.lane);
         if let Some(on_link) = dialed.on_link {
             on_link(&link);
         }
