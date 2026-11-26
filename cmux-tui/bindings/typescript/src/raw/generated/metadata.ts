@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886. */
+/* cmux-tui mux protocol 12, IR a3d4fc03cd7d13202c91e5077acfc6d371d615592c4ec52039831e16599c24c6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886" as const;
+export const SDK_IR_SHA256 = "a3d4fc03cd7d13202c91e5077acfc6d371d615592c4ec52039831e16599c24c6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3017,7 +3017,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers, and disk_checkpoints, which adds checkpoints to disk); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -11618,10 +11618,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
       "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-      "journal and segments are null when the registry could not be read, and error says why.",
+      "journal and segments are null when the registry could not be read, and error says why; so is checkpoints when present.",
+      "checkpoints is present only when the request's include also names disk_checkpoints; older daemons never send it.",
       "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
     ],
     "fields": {
+      "checkpoints": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsDiskCheckpoints"
+        }
+      },
       "error": {
         "nullable": true,
         "presence": "required",
@@ -11719,6 +11729,56 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsDiskCheckpoints": {
+    "additional_properties": false,
+    "constraints": [
+      "checkpoints counts the rows of the registry's journal_checkpoints table; bytes sums each row's id, state and content references plus 96 bytes, and largest_bytes is the largest row.",
+      "budget_bytes is the daemon's checkpoint disk budget: the newest 16 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each; over_budget is true when bytes exceeds it."
+    ],
+    "fields": {
+      "budget_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "checkpoints": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "largest_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "over_budget": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -12899,6 +12959,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
       "disk is present only when the request names it in include and the session keeps its registry on disk.",
+      "disk.checkpoints is present only when the request names both disk and disk_checkpoints in include.",
       "commands is present only when the request names it in include.",
       "journal_followers is present only when the request names it in include."
     ],
