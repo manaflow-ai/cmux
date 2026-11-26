@@ -749,7 +749,7 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename, retry, hold or tag through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
