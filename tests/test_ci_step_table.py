@@ -1191,16 +1191,16 @@ class PipelineTest(unittest.TestCase):
             fake.chmod(0o755)
 
             def ran(red: str, route: str) -> str:
-                env = dict(os.environ, TOOLING_TESTS_BASE_RED=red, ROUTE=route)
+                env = dict(os.environ, TOOLING_TESTS_BASE_RED=red, ROUTE=route, TIER="pr")
                 env.pop("PATHS_FILE", None)
                 return subprocess.run(["bash", "-e", "-c", run["run"]], cwd=tmp, env=env, capture_output=True,
                                       text=True, check=True).stdout
 
             routed = json.dumps({"linux": ["shellcheck", "tooling-tests-1", "web-tests-1", "tooling-tests-12"]})
-            self.assertIn("ran: run --job linux --only shellcheck web-tests-1\n", ran("true", routed))
-            self.assertEqual(ran("false", routed), "ran: run --job linux\n")
-            self.assertEqual(ran("", routed), "ran: run --job linux\n")
-            self.assertEqual(ran("true", ""), "ran: run --job linux\n", "an unread route runs every step")
+            self.assertIn("ran: run --job linux --tier pr --only shellcheck web-tests-1\n", ran("true", routed))
+            self.assertEqual(ran("false", routed), "ran: run --job linux --tier pr\n")
+            self.assertEqual(ran("", routed), "ran: run --job linux --tier pr\n")
+            self.assertEqual(ran("true", ""), "ran: run --job linux --tier pr\n", "an unread route runs every step")
             self.assertNotIn("ran:", ran("true", json.dumps({"linux": ["tooling-tests-1"]})))
         # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
         # while docs-only fallback still runs the reusable job directly.
