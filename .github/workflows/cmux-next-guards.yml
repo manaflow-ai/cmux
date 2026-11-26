@@ -62,6 +62,7 @@ on:
       - "docs/ci/node-product-cache-maintenance.md"
       - "plans/cmux-next/actions.md"
       - "docs/mdm/managed-preferences.md"
+      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
       - "docs/network-requirements.md"
@@ -76,6 +77,7 @@ on:
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
+      - "Native/OptChat/chief-kernel/src/turn_checks.md"
     # docs-only paths: END
   # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
   # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
@@ -122,6 +124,7 @@ jobs:
     steps:
       # The guard ownership reads ci-guards.yml and the tests' imports.
       - name: Checkout the merge commit's router (trees only)
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -132,6 +135,35 @@ jobs:
             /scripts/
             /.github/
             /tests/
+            /.gitmodules
+      - name: "Pool mirror: checkout the merge commit's router"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: |
+            /scripts/
+            /.github/
+            /tests/
+        # Same as cmux-next-fast-gates.yml's resolve job: a pool VM fetches unfiltered from its local git mirror
+        # (actions/checkout's blob:none made git copy ~3 GB of promisor objects, 60-75 s a checkout on 2026-11-25).
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       # A router failure leaves the output empty, and the checks run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
@@ -210,6 +242,7 @@ jobs:
             /scripts/
             /tests/
             /.github/
+            /.gitmodules
 
       - name: Discard the half-written checkout before the retry
         if: steps.checkout.outcome == 'failure'
@@ -448,6 +481,8 @@ jobs:
     timeout-minutes: 35
     permissions:
       contents: read
+      # guard_base_verdicts.py reads feat-cmux-next's push runs and their guard-verdicts artifact.
+      actions: read
     steps:
       # The guard step's bounds count from here, the job's own clock, not from the step: the checkouts and setup before it
       # took 1.5 to 3 minutes, so a bound counted from the step let the job pass its 25 minutes in the post steps and end
@@ -617,6 +652,7 @@ jobs:
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 22 minutes of the job, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
@@ -654,19 +690,36 @@ jobs:
           fi
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.
+          python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json" > "$RUNNER_TEMP/guards-red.txt"
+          # feat-cmux-next's own push run of the base (or of its nearest ancestor, for the steps the commits between
+          # cannot reach) already ran every step: its verdicts are reused, and only the steps it has none for re-run.
+          # The re-run took up to 8 of this job's 17 minutes and often ran out of budget, leaving its steps unknown
+          # (11-25: 87 of 89 pull request runs red). Any failed read re-runs every red step, as before.
+          echo '{"_cmux_complete": false}' > "$RUNNER_TEMP/guards-base-recorded.json"
+          if [ -d .guard-base ] && [ -s "$RUNNER_TEMP/guards-red.txt" ]; then
+            python3 scripts/ci/guard_base_verdicts.py --repo "$GITHUB_REPOSITORY" --base "$CMUX_GUARDS_BASE_SHA" --root .guard-base \
+              --steps "$RUNNER_TEMP/guards-red.txt" --out "$RUNNER_TEMP/guards-base-recorded.json" > "$RUNNER_TEMP/guards-rerun.txt" \
+              || cp "$RUNNER_TEMP/guards-red.txt" "$RUNNER_TEMP/guards-rerun.txt"
+          else
+            cp "$RUNNER_TEMP/guards-red.txt" "$RUNNER_TEMP/guards-rerun.txt"
+          fi
           steps=()
           while IFS= read -r step; do
             [ -n "$step" ] && steps+=(--step "$step")
-          done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
+          done < "$RUNNER_TEMP/guards-rerun.txt"
           if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
-            echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
+            echo "re-running $(( ${#steps[@]} / 2 )) of the head's $(grep -c . "$RUNNER_TEMP/guards-red.txt") red steps on the base"
             budget=$(( job_deadline - $(date +%s) ))
             if [ "$budget" -lt 60 ]; then budget=60; fi
             timeout --kill-after=10 "$budget" \
               scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
-              --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 \
+              --results "$RUNNER_TEMP/guards-base-run.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 \
               || echo "::warning::the base re-run ended early (exit $?, budget ${budget}s); unfinished steps are deferred to the merge gate"
             tail -1 "$RUNNER_TEMP/guards-base.log"
+            python3 scripts/ci/guard_base_verdicts.py --merge "$RUNNER_TEMP/guards-base-recorded.json" "$RUNNER_TEMP/guards-base-run.json" "$RUNNER_TEMP/guards-base.json"
+          elif [ -d .guard-base ] && [ -s "$RUNNER_TEMP/guards-red.txt" ]; then
+            echo "every red step on the head has a recorded base verdict; the base is not re-run"
+            python3 scripts/ci/guard_base_verdicts.py --merge "$RUNNER_TEMP/guards-base-recorded.json" - "$RUNNER_TEMP/guards-base.json"
           elif [ -d .guard-base ]; then
             echo "no red step on the head; the base is not re-run"
             echo '{}' > "$RUNNER_TEMP/guards-base.json"
@@ -676,6 +729,19 @@ jobs:
           else
             python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"
           fi
+
+      # A feat-cmux-next push runs every step: its results are the base verdicts a pull request's run reuses
+      # (scripts/ci/guard_base_verdicts.py) instead of re-running its red steps on the base.
+      - name: Upload the guard verdicts for pull requests on this base
+        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: guard-verdicts-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/guards-head.json
+            ${{ runner.temp }}/guards-head.json.failures.json
+          if-no-files-found: ignore
+          retention-days: 3
 
   # The static checks that may be red on the base, in one runner session and one checkout. Each was a job of its own
   # (vt-link-graph, nightly-static-capabilities, defaults-snapshot, page-strings), seconds of work behind a runner start
@@ -1460,6 +1526,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           GH_TOKEN: ${{ github.token }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REF: ${{ github.head_ref }}
@@ -1470,8 +1537,14 @@ jobs:
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           added=(--added-deleted "$RUNNER_TEMP/added-deleted.txt")
           git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/added-deleted.txt" || added=()
+          # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." --pr-scope leaves a step
+          # selected only by a wide reach (a listed glob, a directory read, a whole-tree list) to the post-merge
+          # batch's full run (cmux-next-tooling-tests-batch.yml, 47,832 runner-min a day on pull requests before).
+          # CI_TOOLING_TESTS_PR_SCOPE=0 runs the whole selection on the pull request again.
+          scope=(--pr-scope)
+          [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
           if ! python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
-              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request "${scope[@]}" \
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
@@ -1505,6 +1578,11 @@ jobs:
         id: tt-cmux-now-epoch
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cmux-now-epoch ')) }}
         run: python3 -I tests/test_cmux_now_epoch.py
+
+      - name: The tooling-tests batch workflow has the job's steps, and --pr-scope defers only wide reasons
+        id: tt-tooling-tests-batch
+        if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
+        run: python3 tests/test_ci_tooling_tests_batch.py
 
       # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
       # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.

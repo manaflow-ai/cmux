@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import UIKit
 
 /// A plain scroll over a full-screen app's history (Leo, 2026-11-24: "we can
@@ -251,9 +252,9 @@ final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
     }
 
     /// UIScrollView's rubber band: `offset` past the edge shows as less.
+    /// The math lives in CmuxMobileDesignCore (`TerminalScrollMath`), tested on Linux.
     static func rubberBand(_ offset: CGFloat, dimension: CGFloat) -> CGFloat {
-        guard dimension > 0 else { return 0 }
-        return (1 - 1 / (offset * 0.55 / dimension + 1)) * dimension
+        TerminalScrollMath.rubberBand(offset, dimension: dimension)
     }
 
     /// DEBUG demo: a fling of the reader at `velocity` (points per second,
