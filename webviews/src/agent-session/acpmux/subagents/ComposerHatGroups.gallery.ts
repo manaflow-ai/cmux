@@ -153,7 +153,9 @@ function groupsHold(ctx: PlayContext, kinds: readonly string[]): void {
 /// `whole`: the header must have both, a mark and words (the plan-and-done hat says nothing else).
 function columnHolds(ctx: PlayContext, whole = false): void {
   const mark = head(ctx)?.querySelector<HTMLElement>(
-    "[data-kind] svg, [data-kind] .cv-sender-icon__main, .acpmux-lineage__icon svg",
+    // A lone finished subagent beside the plan draws its own mark in the stack slot (SubagentTray's
+    // `head === "stack" || lone` arm), not the lineage icon.
+    "[data-kind] svg, [data-kind] .cv-sender-icon__main, .acpmux-lineage__icon svg, .acpmux-running-tray__stack-mark",
   );
   // A groups header's words are its first kind's; a header with no group (a plan and one finished
   // subagent) is one line of words (SubagentTray's title).
@@ -164,7 +166,7 @@ function columnHolds(ctx: PlayContext, whole = false): void {
   const prompt = ctx.document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-placeholder");
   if (whole && !(mark && words && plus && prompt))
     throw new Error(
-      `the hat draws ${[!mark && "no mark", !words && "no words", !plus && "no +", !prompt && "no prompt"].filter(Boolean).join(", ")}`,
+      `the hat draws ${[!mark && "no mark", !words && "no words", !plus && "no +", !prompt && "no prompt"].filter(Boolean).join(", ")}; its header holds ${[...(head(ctx)?.querySelectorAll("[class]") ?? [])].map((node) => node.getAttribute("class")).join(" | ")}`,
     );
   if (!mark || !plus) return;
   const centre = (box: DOMRect) => box.left + box.width / 2;
