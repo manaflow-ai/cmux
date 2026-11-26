@@ -120,6 +120,8 @@ export interface CloudState {
    */
   recovering?: true;
   auth?: AuthStatus;
+  /** What Sign In signs in to ("Signs in to cmux.com"), from the app's account stream while signed out. */
+  signInBackend?: string;
   loading: boolean;
   machines: CloudMachine[];
   revision: number;
@@ -1014,6 +1016,8 @@ export class CloudStore {
         if (lifetime !== this.lifetime) return;
         const previous = this.lastAccount;
         this.lastAccount = event;
+        const signInBackend = event?.signInBackend ?? undefined;
+        if (signInBackend !== this.state.signInBackend) this.set({ signInBackend });
         // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
         // The first event is checked against the kept list's user, so another user's list never stays.
         const before =

@@ -312,6 +312,15 @@ public final class CEFEngine: BrowserEngine {
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
     @MainActor public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
+    /// The page work a divider drag's frame-timing work line reports (`TransitionFrameLog.workCounts`): running totals of
+    /// page window detaches and attaches and of resize fences made, joined, presented, missed and expired (goal
+    /// instant-splits, gap row 1). Integer reads only: no hosted page fields.
+    @MainActor public static var dragWorkCounts: [(String, Int)] {
+        let stats = CEFHostView.trackerStats
+        return [("detaches", stats.detaches), ("attaches", stats.attaches), ("fences", stats.resizeFences),
+                ("fence_joined", stats.resizeFenceJoined), ("fence_presented", stats.resizeFencePresented),
+                ("fence_missed", stats.resizeFenceMissed), ("fences_expired", stats.resizeFencesExpired)]
+    }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
