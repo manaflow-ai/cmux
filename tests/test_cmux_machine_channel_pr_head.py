@@ -116,5 +116,36 @@ class FindTest(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+    def test_fast_lane_reads_on_the_app_budget_not_github_token(self):
+        # Run 45761272633 (5a2862fb, 2026-11-26): the lookup on the shared GITHUB_TOKEN quota got a 403 and
+        # the merge rebuilt; run 45730730942: both points' cross-run downloads failed on that quota.
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-machine-channel.yml").read_text())
+        steps = {n: {s.get("id") or s.get("name"): s for s in j["steps"]} for n, j in wf["jobs"].items()
+                 if "steps" in j}
+        self.assertEqual(steps["plan"]["plan"]["env"]["GH_TOKEN"], "${{ steps.app.outputs.token }}")
+        self.assertIn("create-github-app-token", steps["plan"]["app"]["uses"])
+        points = [n for n, by in steps.items()
+                  if "Download the machine channel's Linux cmux-tui binaries" in by]
+        self.assertEqual(len(points), 2)
+        for n in points:
+            self.assertIn("create-github-app-token", steps[n]["app"]["uses"])
+            tok = steps[n]["Download the machine channel's Linux cmux-tui binaries"]["with"]["github-token"]
+            self.assertIn("steps.app.outputs.token", tok)
+            self.assertNotIn("github.token", tok)
+
+    def test_a_refusal_names_its_reason(self):
+        import io, urllib.error, urllib.request
+        err = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"message":"API rate limit exceeded for installation"}'))
+        def boom(*a, **k):
+            raise err
+        real = urllib.request.urlopen
+        urllib.request.urlopen = boom
+        try:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 403: .*rate limit exceeded"):
+                pr_head.github_api(REPO, "t")("commits/x/pulls")
+        finally:
+            urllib.request.urlopen = real
+
 if __name__ == "__main__":
     unittest.main()
