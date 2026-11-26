@@ -55,6 +55,8 @@
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' right column rule and subagent pane tracker
+//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -102,6 +104,7 @@ pub mod input;
 pub mod keychain;
 mod rd_hub;
 mod pane_focus;
+mod pane_placement;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -635,6 +638,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if pane_placement::handles(operation) => {
+                pane_placement::respond(operation, request)?
             }
             operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
