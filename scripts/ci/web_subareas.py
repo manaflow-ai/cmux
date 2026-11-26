@@ -12,7 +12,15 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    # A hot look's plan (scripts/cmux-next/hot-verify.py webview_routed) loads this router on a fleet Mac's
+    # /usr/bin/python3 (3.9, no tomllib): from #58437 on 2026-11-26 17:44Z every look's plan failed with
+    # "No module named 'tomllib'" (116 looks on 17 workers by 21:48Z). There acpmux_build_crates reads None,
+    # which routes every cmux-tui/ path the lane: the wider, safe answer.
+    tomllib = None
 
 
 @dataclass(frozen=True)
@@ -308,6 +316,8 @@ def _path_dependencies(manifest: dict, workspace_deps: dict):
 def acpmux_build_crates(root: str) -> frozenset[str] | None:
     """The cmux-tui/crates/ directories acpmux's build reads, for the tree at `root`; None when they cannot be read
     (then every cmux-tui/ path routes the lane)."""
+    if tomllib is None:
+        return None
     tui = Path(root) / "cmux-tui"
     crates = (tui / "crates").resolve()
     try:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,6 +76,22 @@ class PlanWebRoutes(unittest.TestCase):
 
     def test_docs_only_change_plans_no_layer(self) -> None:
         self.assertEqual(self.plan(["docs/notes.md"], [])["layers"], [])
+
+    def test_router_loads_on_a_python_without_tomllib(self) -> None:
+        """A fleet Mac's /usr/bin/python3 is 3.9 (no tomllib): from #58437 (2026-11-26 17:44Z) every look's plan
+        failed there with "No module named 'tomllib'" (116 looks on 17 workers by 21:48Z)."""
+        probe = (
+            "import sys; sys.modules['tomllib'] = None\n"
+            "import importlib.util\n"
+            "from pathlib import Path\n"
+            "spec = importlib.util.spec_from_file_location('hv', sys.argv[1])\n"
+            "hv = importlib.util.module_from_spec(spec); spec.loader.exec_module(hv)\n"
+            "print(hv.webview_routed(Path(sys.argv[2]), sys.argv[3:]))\n"
+        )
+        out = subprocess.run(
+            [sys.executable, "-I", "-c", probe, str(ROOT / "scripts/cmux-next/hot-verify.py"), str(ROOT), SCHEMA, RUST],
+            check=True, capture_output=True, text=True).stdout.strip()
+        self.assertEqual(out, repr([SCHEMA]))
 
 
 if __name__ == "__main__":
