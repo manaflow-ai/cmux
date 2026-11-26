@@ -968,10 +968,12 @@ impl Hub {
             && work.turn_carried
             && work.prompt_request.is_none()
         {
-            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
-            if let Some(line) = &work.turn_line {
-                turn.show(line);
-            }
+            let mut turn = match &work.turn_line {
+                Some(line) => {
+                    TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, line)
+                }
+                None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+            };
             turn.trigger = work.turn_trigger;
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
@@ -1026,6 +1028,12 @@ impl Hub {
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     self.resume_before_turn();
+                    // A daemon restart preserves whether this was the person's prompt. Keep
+                    // that waited-on protection until the restored turn's first token, just as
+                    // `auto_resume::start_turn` does for a fresh prompt.
+                    session
+                        .awaiting_reply
+                        .store(work.turn_persons && !work.turn_trigger, Ordering::SeqCst);
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,

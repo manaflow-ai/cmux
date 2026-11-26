@@ -35,7 +35,6 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case toolGroup([ACPToolCall], turnRunning: Bool)
         /// A finished edit's snippet; `files` is nil while its diff computes.
         case edit(ACPToolCall, files: [ChatDiffCache.EditPreview]?)
-        case plan([ACPPlanEntry])
         /// `offersChoices`: the composer took the bar's place ("Reply instead"); the card
         /// brings the choices back.
         case permission(PermissionRecord, offersChoices: Bool)
@@ -350,8 +349,6 @@ final class ChatTranscriptBuilder {
                     if files == nil { waits = true }
                     add(row.id, .edit(call, files: files))
                 }
-            case .plan(_, let entries):
-                add(row.id, .plan(entries))
             case .permission(let record):
                 add(row.id, .permission(record, offersChoices: record.request.id == context.choicesFor))
             case .question(let id):
