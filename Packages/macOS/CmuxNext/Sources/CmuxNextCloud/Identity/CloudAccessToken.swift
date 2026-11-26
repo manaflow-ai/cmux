@@ -211,6 +211,14 @@ extension CloudAuth {
         }
     }
 
+    /// ``machineRoutesToken(identity:)`` or ``MacInstallIdentity/Failure/signedOut``: for a caller that throws, such as the
+    /// environment create's `POST /v1/workspaces/{W}/machine`, which refused the session token 401 `machine.unauthorized`
+    /// (prod start-matrix Environment row, run 45769283095, 2026-11-26).
+    public func machineRoutesAccess(identity: MacInstallIdentity) async throws -> String {
+        guard let token = await machineRoutesToken(identity: identity) else { throw MacInstallIdentity.Failure.signedOut }
+        return token
+    }
+
     /// `cmux auth token`'s mint: a fresh token from `identity` for the team ``accessTokenTeam(requested:)`` picks.
     /// Throws only ``CloudAccessToken/Refusal``, naming the team it was for: the picked one, else the install
     /// token's own (`cmux whoami` said "team -" for the app's own team, Leo's NIGHTLY, 2026-11-11).
