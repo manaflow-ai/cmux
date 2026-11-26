@@ -6,7 +6,10 @@ after its blobless clones sent about 1,900 lazy blob fetches in a day, one reque
 from many agents at once and with nothing pausing them once GitHub began refusing (#57822).
 These checks pin the class fix: git's https://github.com/ requests (lazy fetches included)
 reach the helper, run at most SLOTS at a time and within a per-minute budget, and one host-wide
-refusal backs every later request off instead of letting each retry.
+refusal backs every later request off instead of letting each retry. A shared full mirror,
+adopted as an alternate, answers a blobless clone's blob reads locally, so they never become
+lazy fetches at all, and many agents asking for a sync at once cost one fetch. Routing never
+changes what `git remote -v` prints, so gh still finds the repository.
 """
 
 from __future__ import annotations
@@ -39,6 +42,8 @@ LAZY_FETCH = ("git -c fetch.negotiationAlgorithm=noop fetch origin --no-tags --n
 FAKE_HELPER = json.dumps([sys.executable, "-I", "-c",
                           "import os,sys; os.environ.get('CMUX_TEST_NO_READ') or sys.stdout.write(sys.stdin.read()); "
                           "sys.stderr.write(os.environ.get('CMUX_TEST_STDERR','')); "
+                          "sys.stderr.write('low-speed=%s/%s\\n' % (os.environ.get('GIT_HTTP_LOW_SPEED_LIMIT'), "
+                          "os.environ.get('GIT_HTTP_LOW_SPEED_TIME'))); "
                           "sys.exit(int(os.environ.get('CMUX_TEST_RC','0')))"])
 
 
@@ -194,6 +199,10 @@ class Helper(Case):
         self.assertEqual(done.stdout, "capabilities\n\n")
         [event] = self.events()
         self.assertEqual((event["kind"], event["result"], event["rc"]), ("lazy", "ok", 0))
+        self.assertIn(f"low-speed={gate_mod.LOW_SPEED_BYTES}/{gate_mod.LOW_SPEED_SECONDS}", done.stderr,
+                      "a stalled transfer is aborted by git rather than holding a slot for hours")
+        mine = self.run_helper(GIT_HTTP_LOW_SPEED_LIMIT="1000", GIT_HTTP_LOW_SPEED_TIME="30")
+        self.assertIn("low-speed=1000/30", mine.stderr, "a caller's own floor wins")
 
     def test_a_blocked_answer_stops_the_next_request_before_it_reaches_github(self) -> None:
         first = self.run_helper(CMUX_TEST_STDERR=BLOCKED, CMUX_TEST_RC="128")
@@ -216,31 +225,50 @@ class Helper(Case):
 
 
 class Routing(Case):
-    def test_git_sends_github_https_urls_through_the_helper(self) -> None:
-        """With the insteadOf rule git itself starts git-remote-ghgate for a github.com URL."""
+    def setUp(self) -> None:
+        super().setUp()
+        self.env = git_fixture_env.fixture_env(dict(os.environ))
+        self.repo = self.dir / "repo"
+        git_fixture_env.init_repo(self.repo)
+        self.git("remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+        self.git("remote", "add", "fork", "https://gitlab.example.invalid/a/b.git")
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, env=self.env, capture_output=True,
+                              text=True, timeout=60).stdout
+
+    def test_routing_sends_github_remotes_through_the_helper_and_keeps_their_urls(self) -> None:
+        self.assertEqual(gate_mod.route_repo(str(self.repo), self.env), ["origin"], "only github.com https remotes")
+        # gh reads `git remote -v`; the old url.ghgate::...insteadOf rule made it print ghgate::https://..., and
+        # gh then found no GitHub remote in any repository on the machine.
+        self.assertIn("origin\thttps://github.com/manaflow-ai/cmux.git (fetch)", self.git("remote", "-v").split("\n"))
+        worktree = self.dir / "wt"
+        self.git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x")
+        self.git("worktree", "add", "-q", "--detach", str(worktree))
         bin_dir = self.dir / "bin"
         gate_mod.write_helper(bin_dir, self.dir / "share", sys.executable)
-        repo = self.dir / "repo"
-        git_fixture_env.init_repo(repo)
-        subprocess.run(["git", "-C", str(repo), "config", "--local", gate_mod.INSTEAD_OF_KEY, gate_mod.GITHUB_HTTPS],
-                       check=True, env=git_fixture_env.fixture_env(dict(os.environ)))
-        env = git_fixture_env.fixture_env({
-            **os.environ,
-            "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
-            "CMUX_GH_GATE_STATE": str(self.dir / "state"),
-            "CMUX_GH_GATE_REAL_HELPER": FAKE_HELPER,
-            "CMUX_TEST_STDERR": "fake remote-https\n",
-            "CMUX_TEST_RC": "1",
-            "CMUX_TEST_NO_READ": "1",
-            "GIT_TERMINAL_PROMPT": "0",
-        })
-        done = subprocess.run(["git", "-C", str(repo), "ls-remote", "https://github.com/manaflow-ai/cmux.git"],
-                              capture_output=True, text=True, env=env, timeout=60)
+        env = {**self.env,
+               "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+               "CMUX_GH_GATE_STATE": str(self.dir / "state"),
+               "CMUX_GH_GATE_REAL_HELPER": FAKE_HELPER,
+               "CMUX_TEST_STDERR": "fake remote-https\n",
+               "CMUX_TEST_RC": "1",
+               "CMUX_TEST_NO_READ": "1",
+               "GIT_TERMINAL_PROMPT": "0"}
+        done = subprocess.run(["git", "-C", str(worktree), "fetch", "origin"], capture_output=True, text=True,
+                              env=env, timeout=60)
         self.assertNotEqual(done.returncode, 0)
-        self.assertIn("fake remote-https", done.stderr)
+        self.assertIn("fake remote-https", done.stderr, "a worktree of a routed clone is routed too")
         [event] = [json.loads(line) for line in (self.dir / "state" / "events.jsonl").read_text().splitlines()]
-        self.assertEqual(event["url"], "https://github.com/manaflow-ai/cmux.git")
-        self.assertEqual(event["kind"], "ls-remote")
+        self.assertEqual((event["url"], event["kind"]), ("https://github.com/manaflow-ai/cmux.git", "fetch"))
+
+        self.assertEqual(gate_mod.unroute_repo(str(self.repo), self.env), ["origin"])
+        self.assertEqual(self.git("config", "--get-regexp", r"remote\..*\.url").count("ghgate"), 0)
+
+    def test_scan_finds_clones_not_worktrees(self) -> None:
+        self.git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x")
+        self.git("worktree", "add", "-q", "--detach", str(self.dir / "wt"))
+        self.assertEqual(gate_mod.find_clones([str(self.dir)]), [str(self.repo)])
 
 
 class Prefetch(Case):
@@ -279,6 +307,110 @@ class Audit(Case):
         self.assertEqual(row["promisor_packs"], 0, "older than the window")
         [row] = gate_mod.audit([str(self.dir / "clone.git")], 24, written + 1)
         self.assertEqual((row["promisor_packs"], row["single_object"]), (3, 2))
+
+    def test_audit_counts_leftover_tmp_packs(self) -> None:
+        pack = self.dir / "clone.git" / "objects" / "pack"
+        pack.mkdir(parents=True)
+        for name in ("tmp_pack_a", "tmp_pack_b"):
+            (pack / name).write_bytes(b"\0" * 1000)
+        [row] = gate_mod.audit([str(self.dir / "clone.git")], 24, self.clock())
+        self.assertEqual(row["tmp_packs"], 2)
+
+
+class Mirror(Case):
+    """A file:// source stands in for GitHub; pointing the clone's remote at a missing path after
+    the clone proves a read was answered locally (any fetch would fail)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env = git_fixture_env.fixture_env(dict(os.environ))
+        self.source = self.dir / "source"
+        git_fixture_env.init_repo(self.source)
+        self.git("-C", str(self.source), "config", "uploadpack.allowFilter", "true")
+        self.commit("a.txt", "first\n")
+        self.root = self.dir / "mirrors"
+
+    def git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], capture_output=True, text=True, env=self.env, check=check, timeout=60)
+
+    def commit(self, name: str, text: str) -> None:
+        (self.source / name).write_text(text)
+        self.git("-C", str(self.source), "add", name)
+        self.git("-C", str(self.source), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                 "commit", "-q", "-m", name)
+
+    def sync(self, **kw) -> dict:
+        kw.setdefault("seed", None)
+        kw.setdefault("min_interval", 300)
+        return gate_mod.mirror_sync(str(self.source), self.root, env=self.env, clock=self.clock,
+                                    sleep=self.clock.sleep, **kw)
+
+    def blobless_clone(self) -> Path:
+        clone = self.dir / "clone"
+        self.git("clone", "-q", "--no-checkout", "--filter=blob:none", f"file://{self.source}", str(clone))
+        self.git("-C", str(clone), "remote", "set-url", "origin", str(self.dir / "gone"))
+        return clone
+
+    def test_an_adopted_blobless_clone_reads_blobs_from_the_mirror_not_the_network(self) -> None:
+        self.assertEqual(self.sync()["result"], "made")
+        clone = self.blobless_clone()
+        self.assertNotEqual(self.git("-C", str(clone), "cat-file", "-p", "HEAD:a.txt", check=False).returncode, 0,
+                            "without the mirror the blob would need a lazy fetch")
+        done = gate_mod.mirror_adopt(str(clone), gate_mod.mirror_path(self.root, str(self.source)), False,
+                                     env=self.env)
+        self.assertTrue(done["added"])
+        self.assertEqual(done["dropped_filters"], ["remote.origin.partialclonefilter"])
+        self.assertEqual(self.git("-C", str(clone), "cat-file", "-p", "HEAD:a.txt").stdout, "first\n")
+        worktree = self.dir / "wt"
+        self.git("-C", str(clone), "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
+        self.assertEqual((worktree / "a.txt").read_text(), "first\n", "every worktree of the clone shares it")
+        again = gate_mod.mirror_adopt(str(worktree), gate_mod.mirror_path(self.root, str(self.source)), False,
+                                      env=self.env)
+        self.assertFalse(again["added"])
+        lines = (clone / ".git" / "objects" / "info" / "alternates").read_text().splitlines()
+        self.assertEqual(len(lines), 1)
+
+        gate_mod.mirror_unadopt(str(clone), gate_mod.mirror_path(self.root, str(self.source)), env=self.env)
+        self.assertFalse((clone / ".git" / "objects" / "info" / "alternates").exists())
+        self.assertEqual(self.git("-C", str(clone), "cat-file", "-p", "HEAD:a.txt").stdout, "first\n",
+                         "unadopt copied the objects the clone reached through the mirror")
+
+    def test_a_fresh_mirror_is_not_fetched_again_and_a_stale_one_is(self) -> None:
+        self.sync()
+        self.commit("b.txt", "second\n")
+        self.assertEqual(self.sync()["result"], "fresh", "agents asking within the interval share one fetch")
+        mirror = gate_mod.mirror_path(self.root, str(self.source))
+        self.assertNotEqual(self.git("--git-dir", str(mirror), "cat-file", "-e", "HEAD:b.txt", check=False).returncode, 0)
+        self.clock.now += 301
+        self.assertEqual(self.sync()["result"], "fetched")
+        self.assertEqual(self.git("--git-dir", str(mirror), "cat-file", "-p", "HEAD:b.txt").stdout, "second\n")
+        self.assertEqual(self.git("--git-dir", str(mirror), "config", "gc.pruneExpire").stdout.strip(), "never",
+                         "the mirror never prunes an object an adopted clone may need")
+
+    def test_one_sync_at_a_time(self) -> None:
+        mirror = gate_mod.mirror_path(self.root, str(self.source))
+        mirror.parent.mkdir(parents=True)
+        import fcntl
+        with open(mirror.parent / f".{mirror.name}.lock", "a+") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.assertEqual(self.sync(lock_wait=3)["result"], "busy")
+        self.assertFalse(mirror.exists())
+
+    def test_a_seed_makes_the_mirror_without_the_remote_and_must_hold_every_blob(self) -> None:
+        seed = self.dir / "seed"
+        self.git("clone", "-q", str(self.source), str(seed))
+        done = self.sync(seed=str(seed))
+        self.assertEqual(done["result"], "made")
+        partial = self.blobless_clone()
+        with self.assertRaisesRegex(RuntimeError, "partial clone"):
+            gate_mod.mirror_sync("https://github.com/o/r.git", self.root, str(partial), 300, self.env,
+                                 clock=self.clock)
+
+    def test_mirror_paths_name_the_github_repository(self) -> None:
+        for url in ("https://github.com/manaflow-ai/cmux.git", "https://github.com/manaflow-ai/cmux",
+                    "ghgate::https://github.com/manaflow-ai/cmux.git", "git@github.com:manaflow-ai/cmux.git"):
+            self.assertEqual(gate_mod.mirror_path(Path("/m"), url), Path("/m/manaflow-ai/cmux.git"), url)
+
 
 
 if __name__ == "__main__":

@@ -15,10 +15,14 @@ round trip per object, from every agent at once, with no shared limit and no
 pause when GitHub starts refusing. A refused request was simply retried by the
 next command.
 
-Installed (`install`), git routes every https://github.com/ URL through the
-remote helper `git-remote-ghgate` (url.ghgate::https://github.com/.insteadOf),
-so explicit fetches, pushes, clones, ls-remotes and git's own lazy blob fetches
-all pass here before the real `git remote-https` runs. Each request:
+Installed (`install --repo DIR` or `--scan ROOT`), each github.com https remote
+of a clone gets `remote.<name>.vcs=ghgate`, so git runs the remote helper
+`git-remote-ghgate` for it: fetches, pushes, ls-remotes and git's own lazy blob
+fetches (which use the promisor remote) all pass here before the real
+`git remote-https` runs. A clone's worktrees share its config, so routing the
+clone routes them all. Not a machine-wide url.ghgate::...insteadOf rule: that
+form also rewrites what `git remote -v` prints, and gh then finds no GitHub
+remote in any repository. Each request:
 
 - waits while GitHub's last refusal backs everyone off. A 403 block, a 429 or a
   gitmon refusal starts a machine-wide backoff (BLOCK_BACKOFF, doubling per
@@ -62,8 +66,8 @@ before removing the alternate.
 A bug in the gate's own bookkeeping never stops git: it runs the real helper
 anyway (fail open). CMUX_GH_GATE_BYPASS=1 skips the gate for one command.
 
-    github_git_gate.py install [--repo DIR]... [--global] [--bin-dir DIR]
-    github_git_gate.py uninstall [--repo DIR]... [--global]
+    github_git_gate.py install [--repo DIR]... [--scan ROOT]... [--bin-dir DIR]
+    github_git_gate.py uninstall [--repo DIR]... [--scan ROOT]...
     github_git_gate.py prefetch [--repo DIR] [--remote origin] REV...
     github_git_gate.py status | stats [--hours H] | audit [--hours H] GIT_DIR...
     github_git_gate.py mirror sync [--url URL] [--seed DIR] [--min-interval S]
@@ -91,6 +95,8 @@ from typing import Callable, Sequence
 HELPER_NAME = "git-remote-ghgate"
 TRANSPORT = "ghgate::"
 GITHUB_HTTPS = "https://github.com/"
+VCS_NAME = "ghgate"
+# The machine-wide rule an earlier install wrote; install and uninstall now remove it (see route_repo).
 INSTEAD_OF_KEY = f"url.{TRANSPORT}{GITHUB_HTTPS}.insteadOf"
 
 SLOTS = 4
@@ -436,11 +442,71 @@ def git_config(scope: list[str], *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *scope, "config", *args], capture_output=True, text=True)
 
 
-def scopes(repos: Sequence[str], global_: bool) -> list[tuple[str, list[str]]]:
-    found = [(repo, ["-C", repo]) for repo in repos]
-    if global_:
-        found.append(("global", []))
-    return found
+def find_clones(roots: Sequence[str], depth: int = 3) -> list[str]:
+    """Clones (folders whose .git is a directory) at most DEPTH levels under each ROOT. A worktree's .git is a
+    file and its remotes live in the clone's config, so routing the clone routes all its worktrees."""
+    found: list[str] = []
+    for root in roots:
+        base = Path(root).expanduser()
+        frontier = [base]
+        for _ in range(depth + 1):
+            nxt = []
+            for folder in frontier:
+                if (folder / ".git").is_dir():
+                    found.append(str(folder))
+                    continue
+                try:
+                    nxt += [c for c in folder.iterdir() if c.is_dir() and not c.is_symlink()
+                            and (not c.name.startswith(".") or c.name == ".clones")]
+                except OSError:
+                    pass
+            frontier = nxt
+    return sorted(set(found))
+
+
+def github_remotes(repo: str, env: dict[str, str] | None = None) -> dict[str, str]:
+    """{remote name: url} for REPO's remotes whose url is https://github.com/... (their requests can be gated)."""
+    listing = git("-C", repo, "config", "--local", "--get-regexp", r"^remote\..*\.url$", env=env, check=False).stdout
+    remotes = {}
+    for line in filter(None, listing.split("\n")):
+        key, _, url = line.partition(" ")
+        if url.startswith(GITHUB_HTTPS):
+            remotes[key[len("remote."):-len(".url")]] = url
+    return remotes
+
+
+def route_repo(repo: str, env: dict[str, str] | None = None) -> list[str]:
+    """Send REPO's github.com remotes through the gate with remote.<name>.vcs, which git honors for fetch, push,
+    ls-remote and lazy promisor fetches alike. Unlike a url.ghgate::...insteadOf rule it leaves `git remote -v`
+    showing the plain https URL, so gh still recognizes the repository (the insteadOf form, installed
+    machine-wide on 2026-11-26, made every `gh pr` command fail with "none of the git remotes ... point to a
+    known GitHub host")."""
+    routed = []
+    for name, url in github_remotes(repo, env).items():
+        git("-C", repo, "config", "--local", f"remote.{name}.vcs", VCS_NAME, env=env)
+        shown = git("-C", repo, "remote", "get-url", name, env=env).stdout.strip()
+        if shown != url:
+            git("-C", repo, "config", "--local", "--unset-all", f"remote.{name}.vcs", env=env, check=False)
+            raise RuntimeError(f"{repo}: routing {name} changed its url to {shown!r}; left it unrouted")
+        routed.append(name)
+    return routed
+
+
+def unroute_repo(repo: str, env: dict[str, str] | None = None) -> list[str]:
+    listing = git("-C", repo, "config", "--local", "--get-regexp", r"^remote\..*\.vcs$", env=env, check=False).stdout
+    removed = []
+    for line in filter(None, listing.split("\n")):
+        key, _, value = line.partition(" ")
+        if value == VCS_NAME:
+            git("-C", repo, "config", "--local", "--unset-all", key, env=env)
+            removed.append(key[len("remote."):-len(".vcs")])
+    return removed
+
+
+def drop_legacy_global(env: dict[str, str] | None = None) -> bool:
+    """Remove the machine-wide insteadOf rule an earlier install wrote; True when one was there."""
+    done = git("config", "--global", "--unset-all", INSTEAD_OF_KEY, env=env, check=False)
+    return done.returncode == 0
 
 
 def install(args) -> int:
@@ -458,22 +524,29 @@ def install(args) -> int:
               + (" (routing anyway: --force)" if args.force else ". No git config was changed."), file=sys.stderr)
         if not args.force:
             return 1
+    if drop_legacy_global():
+        print(f"removed the machine-wide {INSTEAD_OF_KEY} rule (it hid github remotes from gh)")
     status = 0
-    for name, scope in scopes(args.repo, args.global_):
-        flag = ["--global"] if not scope else ["--local"]
-        done = git_config(scope, *flag, "--replace-all", INSTEAD_OF_KEY, GITHUB_HTTPS)
-        print(f"{'routed' if done.returncode == 0 else 'FAILED'}: {name}")
-        status |= done.returncode != 0
+    for repo in [*args.repo, *find_clones(args.scan)]:
+        try:
+            routed = route_repo(repo)
+            print(f"routed: {repo} ({', '.join(routed) or 'no github.com https remote'})")
+        except RuntimeError as error:
+            print(f"FAILED: {error}", file=sys.stderr)
+            status = 1
     return status
 
 
 def uninstall(args) -> int:
+    if drop_legacy_global():
+        print(f"removed the machine-wide {INSTEAD_OF_KEY} rule")
     status = 0
-    for name, scope in scopes(args.repo, args.global_):
-        flag = ["--global"] if not scope else ["--local"]
-        done = git_config(scope, *flag, "--unset-all", INSTEAD_OF_KEY)
-        print(f"{'unrouted' if done.returncode in (0, 5) else 'FAILED'}: {name}")
-        status |= done.returncode not in (0, 5)
+    for repo in [*args.repo, *find_clones(args.scan)]:
+        try:
+            print(f"unrouted: {repo} ({', '.join(unroute_repo(repo)) or 'nothing routed'})")
+        except RuntimeError as error:
+            print(f"FAILED: {error}", file=sys.stderr)
+            status = 1
     return status
 
 
@@ -698,7 +771,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name in ("install", "uninstall"):
         one = sub.add_parser(name)
         one.add_argument("--repo", action="append", default=[], help="a checkout whose shared config to change")
-        one.add_argument("--global", dest="global_", action="store_true", help="~/.gitconfig: every repo of this user")
+        one.add_argument("--scan", action="append", default=[],
+                         help="route every clone up to 3 folders under this one (repeatable)")
         if name == "install":
             one.add_argument("--bin-dir", help="where git-remote-ghgate goes (default: first writable of "
                                                "/opt/homebrew/bin, /usr/local/bin, ~/.local/bin)")
