@@ -190,6 +190,8 @@ extension Metrics {
     /// 0 at a contrast of 1 or more, 1 at a contrast of 0 (Leo, 2026-11-12: "THERE IS THE DIVIDER"). Every tab row
     /// line reads it: the window's (`MainPaneChromeShadeView`) and a lower strip's in-card one.
     public static var tabRowDividerStrength: CGFloat {
+        // A look's `appearance.metrics.headerDivider` (Claude's hairline under its header) sets it outright.
+        if let look = DesignSettings.shared.overrides[.headerDivider] { return look }
         guard ChromeTunables.tabRowDivider.value else { return 0 }
         return min(1, max(0, 1 - titleAreaShadeScale))
     }
