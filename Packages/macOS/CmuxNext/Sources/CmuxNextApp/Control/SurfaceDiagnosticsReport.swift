@@ -49,12 +49,9 @@ enum SurfaceDiagnosticsReport {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(entry.session.model.connection.diagnosticName)
                     let diagnostics = entry.session.diagnostics
-                    object["snapshots"] = JSONValue(diagnostics.restoredSnapshots)
-                    object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
-                    object["local_history_mismatch"] = JSONValue(diagnostics.localHistoryMismatches)
-                    object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
-                    object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
-                    object["frame_held"] = .bool(diagnostics.holdingFrame)
+                    if let fields = JSONValue(foundation: entry.session.diagnosticFields(diagnostics))?.objectValue {
+                        object.merge(fields) { _, new in new }
+                    }
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                     #if DEBUG || CMUX_BENCH_HOOKS
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
