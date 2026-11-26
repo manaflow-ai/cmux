@@ -1447,15 +1447,14 @@ async fn dispatch_request_with_identity(
             let peer = hub
                 .peer_by_name(name)
                 .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-            if !peer.ready() {
-                return Err(peer.unreachable_error());
-            }
-            let mut answer =
-                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
-                    .await
-                    .map_err(|_| {
-                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
-                    })??;
+            let mut answer = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                super::peer_targeted::request(&peer, m, json!({})),
+            )
+            .await
+            .map_err(|_| {
+                RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+            })??;
             answer
                 .as_object_mut()
                 .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
@@ -1997,6 +1996,8 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                placed_by: pick("placedBy")
+                    .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2984,6 +2985,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::autocloud_enroll::METHOD => {
+            super::autocloud_enroll::handle(hub, conn, &params).await
+        }
         super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
@@ -3924,6 +3928,7 @@ async fn dispatch_request_with_identity(
             }
             Ok(done)
         }
+        method::MUX_ROOMS => view::rooms(hub, conn, &params),
         method::MUX_TYPING => {
             let done = view::typing(hub, conn, &params)?;
             // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).
