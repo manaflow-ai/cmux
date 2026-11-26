@@ -37,7 +37,7 @@ pub trait EnvFile {
 pub enum Outcome {
     /// The answer was opened and the file holds it. `changed`: the file was rewritten.
     Applied { applied: machine::Applied, changed: bool, kept: Vec<String> },
-    /// The vault is off where this machine lives (404 `vault.not_found`, or a cmux-api without the route).
+    /// The vault is off where this machine lives (404 `vault.not_found` from the platform).
     Off,
     /// Nothing changed; the code says why.
     Failed(&'static str),
@@ -54,7 +54,15 @@ pub fn pull_once(
 ) -> Outcome {
     let body = match get(MACHINE_PATH) {
         Answer::Http { status: 200, body } => body,
-        Answer::Http { status: 404, .. } => return Outcome::Off,
+        // Off only when the platform says so: a 404 without its code is a cmux-api that does not forward the route
+        // yet (a deploy behind), which backs off and looks again instead of waiting the hour.
+        Answer::Http { status: 404, body }
+            if body.pointer("/error/code").and_then(serde_json::Value::as_str)
+                == Some("vault.not_found") =>
+        {
+            return Outcome::Off;
+        }
+        Answer::Http { status: 404, .. } => return Outcome::Failed("vault.no_route"),
         Answer::Http { status, .. } => return Outcome::Failed(refusal(status)),
         Answer::Transport => return Outcome::Failed("vault.unreachable"),
     };

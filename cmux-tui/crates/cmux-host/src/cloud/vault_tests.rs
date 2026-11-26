@@ -215,7 +215,11 @@ fn off_unreachable_and_refused_answers_change_nothing() {
     let not_found = json!({"error": {"code": "vault.not_found", "message": "m"}});
     for (got, expected) in [
         (Answer::Http { status: 404, body: not_found }, Outcome::Off),
-        (Answer::Http { status: 404, body: json!("Not Found") }, Outcome::Off),
+        (Answer::Http { status: 404, body: json!("Not Found") }, Outcome::Failed("vault.no_route")),
+        (
+            Answer::Http { status: 404, body: json!({"error": {"code": "route.not_found"}}) },
+            Outcome::Failed("vault.no_route"),
+        ),
         (Answer::Http { status: 503, body: json!({}) }, Outcome::Failed("vault.unavailable")),
         (Answer::Http { status: 403, body: json!({}) }, Outcome::Failed("vault.forbidden")),
         (Answer::Transport, Outcome::Failed("vault.unreachable")),
