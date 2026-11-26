@@ -995,7 +995,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/cloud-journey-proof-record.sh
+          sparse-checkout: |
+            scripts/cmux-next/cloud-journey-proof-record.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Record the staging journey proof
         env:
@@ -1015,7 +1017,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/cloud-journey-proof-record.sh
+          sparse-checkout: |
+            scripts/cmux-next/cloud-journey-proof-record.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Record the production journey proof
         env:
@@ -1257,6 +1261,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             wrangler.jsonc
+            .gitmodules
       - name: Roll the image back
         id: rollback
         if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
