@@ -1168,8 +1168,13 @@ jobs:
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config cmake
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config cmake >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config cmake: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config cmake
+          fi
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1412,8 +1417,13 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v bwrap >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y bubblewrap
+            # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+            if dpkg -s bubblewrap >/dev/null 2>&1; then
+              echo "bubblewrap: already installed"
+            else
+              sudo apt-get update
+              sudo apt-get install -y bubblewrap
+            fi
           fi
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

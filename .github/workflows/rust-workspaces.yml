@@ -484,9 +484,15 @@ jobs:
         env:
           EXTRA_APT: ${{ matrix.apt }}
         run: |
-          sudo apt-get update
           # shellcheck disable=SC2086 # a space-separated package list
-          sudo apt-get install -y clang libclang-dev pkg-config $EXTRA_APT
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config $EXTRA_APT >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config $EXTRA_APT: already installed"
+          else
+            sudo apt-get update
+            # shellcheck disable=SC2086 # a space-separated package list
+            sudo apt-get install -y clang libclang-dev pkg-config $EXTRA_APT
+          fi
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
         if: ${{ matrix.ghostty }}
