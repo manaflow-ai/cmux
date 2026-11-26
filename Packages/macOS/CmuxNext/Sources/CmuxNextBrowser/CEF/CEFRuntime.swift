@@ -190,6 +190,9 @@ final class CEFRuntime {
         let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
         guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
         guard_.onOcclusionChanged = { window in ChromiumPageWindowVisibility.parentOcclusionChanged(window) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard_.onGeometryChanged = { window, resized in CEFPageWindowGeometryProbe.windowMoved(window, resized: resized) }
+        #endif
         return guard_
     }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.

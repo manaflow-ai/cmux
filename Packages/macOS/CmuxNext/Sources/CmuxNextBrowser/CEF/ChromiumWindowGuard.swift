@@ -26,6 +26,10 @@ final class ChromiumWindowGuard {
     /// A window's occlusion changed (``ChromiumPageWindowVisibility/parentOcclusionChanged(_:post:)`` passes it on to
     /// the window's embedded page windows).
     var onOcclusionChanged: ((NSWindow) -> Void)?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A window moved (false) or resized (true): debug and bench builds only (``CEFPageWindowGeometryProbe``).
+    var onGeometryChanged: ((NSWindow, Bool) -> Void)?
+    #endif
     private let logger: Logger
     /// True when `window` is a DevTools window cmux placed on purpose.
     private let isPlacedDevTools: (NSWindow) -> Bool
@@ -43,13 +47,25 @@ final class ChromiumWindowGuard {
     func start() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification,
-                     NSWindow.didChangeOcclusionStateNotification] {
+        var names = [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification,
+                     NSWindow.didChangeOcclusionStateNotification]
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The page-window geometry probe's notices (``onGeometryChanged``); no window rule runs on them.
+        names += [NSWindow.didMoveNotification, NSWindow.didResizeNotification]
+        #endif
+        for name in names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let becameKey = note.name == NSWindow.didBecomeKeyNotification
                 let occlusion = note.name == NSWindow.didChangeOcclusionStateNotification
+                #if DEBUG || CMUX_BENCH_HOOKS
+                let moved = note.name == NSWindow.didMoveNotification || note.name == NSWindow.didResizeNotification
+                let resized = note.name == NSWindow.didResizeNotification
+                #endif
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    #if DEBUG || CMUX_BENCH_HOOKS
+                    if moved { self?.onGeometryChanged?(window, resized); return }
+                    #endif
                     self?.check(window)
                     if becameKey { self?.onBecameKey?(window) }
                     if occlusion { self?.onOcclusionChanged?(window) }
