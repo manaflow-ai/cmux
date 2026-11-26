@@ -995,6 +995,68 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
     report
 }
 
+/// One aging pass over every mounted projection's content store
+/// (`cmux_projection::overlay::content::Content::age`: unread bytes go cold, then are deleted
+/// unless pinned), then the machine's held number (`cmux_projection::hold::held`) written to
+/// `projection-held.json` in the workspace state folder for NOW's now-bytes source. Logs both.
+pub fn age_once() -> Option<cmux_projection::hold::Held> {
+    let started = std::time::Instant::now();
+    #[cfg(target_os = "linux")]
+    {
+        let now = std::time::SystemTime::now();
+        let aging = cmux_projection::overlay::content::Aging::default();
+        let live: Vec<(String, Arc<Projected>)> = projections()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(name, projected)| (name.clone(), projected.clone()))
+            .collect();
+        for (name, projected) in live {
+            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+            if report.went_cold_blobs + report.deleted_blobs > 0 {
+                eprintln!(
+                    "cmux projection aging: {name}: {} blobs cold ({} bytes, {} saved), {} \
+                     deleted ({} bytes freed); holds {} bytes",
+                    report.went_cold_blobs,
+                    report.went_cold_bytes,
+                    report.went_cold_saved_bytes,
+                    report.deleted_blobs,
+                    report.deleted_stored_bytes,
+                    report.held_bytes()
+                );
+            }
+        }
+    }
+    let state = crate::platform::workspace_state_dir()?;
+    let held = cmux_projection::hold::held(&state.join("projections"));
+    let line = serde_json::to_vec(&json!({
+        "schema": "projection-held/v1",
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        "held": held,
+    }))
+    .ok()?;
+    let to = state.join("projection-held.json");
+    let temp = to.with_extension("json.new");
+    if std::fs::write(&temp, line).and_then(|()| std::fs::rename(&temp, &to)).is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    eprintln!(
+        "cmux projection held: {} logical bytes ({} stored, {} duplicate) in {} blobs ({} cold) \
+         over {} projections, in {} ms",
+        held.logical_bytes,
+        held.stored_bytes,
+        held.duplicate_bytes,
+        held.blobs,
+        held.cold_blobs,
+        held.projections,
+        started.elapsed().as_millis()
+    );
+    Some(held)
+}
+
 /// Starts the reaper thread: a pass [`REAP_FIRST_AFTER`] the daemon starts, then every
 /// [`REAP_EVERY`]. Only where this daemon serves projections (Linux, with file roots), and once.
 pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
@@ -1007,6 +1069,7 @@ pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
             std::thread::sleep(REAP_FIRST_AFTER);
             loop {
                 reap_once(acpmux_socket.as_deref());
+                age_once();
                 std::thread::sleep(REAP_EVERY);
             }
         });
@@ -1270,6 +1333,10 @@ fn mount(
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
+    // RFD 0065 piece 8: record this start's first reads and replay the last start's list.
+    // `CMUX_PROJECTION_REPLAY=0` keeps the folder read-ahead alone, as before.
+    let replay = std::env::var_os("CMUX_PROJECTION_REPLAY").is_none_or(|value| value != "0");
+    let overlay = if replay { overlay.with_replay("start") } else { overlay };
     let overlay = Arc::new(overlay);
     let named =
         cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
@@ -1291,6 +1358,27 @@ fn mount(
         let pinned = overlay.clone();
         let _ = std::thread::Builder::new().name("projection-pins".into()).spawn(move || {
             let _ = pinned.hydrate_pins();
+        });
+    }
+    // The last start's access list is fetched in the background, so its files are local before
+    // the agent asks (it stops at the first batch the Mac is away for).
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-replay".into()).spawn(move || {
+            let _ = replaying.replay_prefetch();
+        });
+    }
+    // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
+    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
+    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
+    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
+            cmux_projection::overlay::bulk::lower_priority();
+            let _ = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
         });
     }
     let projected = Arc::new(Projected {

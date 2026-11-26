@@ -40,7 +40,7 @@ on:
         type: string
         default: ""
       only:
-        description: "The one job id to run (a bisect probe): compile. Empty: every job."
+        description: "The one job id to run (a bisect probe): compile-fleet (the gateway admits a job id ending in -fleet from any workflow, so a workflow_call from cmux-next-post-merge.yml runs it; compile, the old id, still selects it). Empty: every job."
         type: string
         default: ""
   workflow_dispatch:
@@ -65,7 +65,7 @@ jobs:
   plan:
     name: tip test-compile plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -124,12 +124,12 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
           if [ -s "$RUNNER_TEMP/plan.txt" ]; then echo "needed=true"; else echo "needed=false"; fi >> "$GITHUB_OUTPUT"
 
-  compile:
+  compile-fleet:
     name: tip test-compile (fleet, background)
     needs: plan
-    if: ${{ (inputs.only == '' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
+    if: ${{ (inputs.only == '' || inputs.only == 'compile-fleet' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
     # One gateway runner at most (the concurrency group); its own label when set.
-    runs-on: ${{ vars.CI_TIP_TEST_COMPILE_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TIP_TEST_COMPILE_GATEWAY/CI_COMPILE_CHECK_GATEWAY (cmux#54437)
     permissions:
       contents: read
       actions: read
@@ -170,10 +170,10 @@ jobs:
 
   report:
     name: tip test-compile report
-    needs: [plan, compile]
+    needs: [plan, compile-fleet]
     # Not in a bisect probe (inputs.only set): a probe of an older commit must not open or close the tip's issue.
-    if: ${{ !cancelled() && inputs.only == '' && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ !cancelled() && inputs.only == '' && needs.plan.outputs.needed == 'true' && needs.compile-fleet.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       issues: write
       actions: write
@@ -183,8 +183,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VERDICT: ${{ needs.compile.outputs.verdict || 'none' }}
-          REPORT: ${{ needs.compile.outputs.report }}
+          VERDICT: ${{ needs.compile-fleet.outputs.verdict || 'none' }}
+          REPORT: ${{ needs.compile-fleet.outputs.report }}
           BASE: ${{ needs.plan.outputs.base }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HEAD_SHA: ${{ inputs.sha || github.sha }}
