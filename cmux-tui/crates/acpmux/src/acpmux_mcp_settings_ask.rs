@@ -22,12 +22,9 @@ use serde_json::{Value, json};
 
 pub(super) const NAME: &str = "settings_ask";
 /// What every chat with the tool is told.
-pub(super) const STEER: &str = "When you need the person to connect GitHub (for a repository or an \
-org), call settings_ask with target connection:github, connection:github:ORG or \
-connection:github:OWNER/REPO: the chat shows a Connect card in place. Do not tell them to open \
-Settings. For any other setting, call settings_ask with target setting:SECTION/KEY (for example \
-setting:terminal/fontSize) and put the cmux://settings link it returns in your answer: a click opens \
-that exact setting.";
+/// The tool's description carries the targets; this only says to use it.
+pub(super) const STEER: &str = "To get a GitHub connection or any setting from the person, call \
+settings_ask (a card or a link opens that one control) instead of telling them to open Settings.";
 /// The longest `why` the card draws.
 const MAX_WHY: usize = 160;
 
