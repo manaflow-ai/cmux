@@ -70,7 +70,7 @@ on:
       - cmux NEXT Stable
       - cmux-next frame pacing
       - cmux-next media
-      - cmux-next PR autofix
+      - cmux-next PR autofix (advisory)
       - cmux-next CEF shim C++ tests
       - cmux-next car guards
       - cmux-next
