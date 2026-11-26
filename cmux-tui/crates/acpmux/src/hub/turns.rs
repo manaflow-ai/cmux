@@ -1048,7 +1048,27 @@ impl Hub {
         // awaits here and therefore cannot accidentally join the queue after the check.
         if fired.is_none() && running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst)
         {
-            let _ = self.end_quiet_stale(session, "prompt-restart", None).await;
+            match tokio::time::timeout(
+                super::prompt_admission::ADMISSION_BOUND,
+                self.end_quiet_stale(session, "prompt-restart", None),
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(_) => {
+                    tracing::warn!(
+                        session = %session.id,
+                        "prompt quiet-restart census lapsed during admission"
+                    );
+                    if admission.listened() {
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt quiet-restart census",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                }
+            }
         }
         // The quiet restart above may have hibernated the child. Re-read both pieces of
         // admission state after that await so a cold prompt cannot reuse the pre-hibernation
@@ -1090,6 +1110,17 @@ impl Hub {
         if !live {
             admission.enter("cold_check");
             self.cold_prompt_check(session).await?;
+        }
+        // The quiet handoff and live check above may await long enough for a person's prompt to
+        // take the turn lock. A continuation must recheck its cut immediately before queueing so
+        // it cannot join behind a newer turn that superseded it during those awaits.
+        if fired.is_some() {
+            super::auto_resume::check_cut(
+                session,
+                after_turn.as_deref(),
+                false,
+                opts.provenance.as_ref(),
+            )?;
         }
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so

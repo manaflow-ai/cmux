@@ -234,6 +234,11 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     assert_eq!(info["agentSessionId"], agent_session, "the same agent session resumed: {info}");
     let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
     assert_eq!(active["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{active}");
+    assert_eq!(
+        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
+        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b",
+        "the original chat keeps its active route after the unavailable switch",
+    );
 
     // A remote device or a peer never picks a chat's route: the chat keeps its own.
     for origin in [Origin::Web, Origin::Peer] {

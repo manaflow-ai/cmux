@@ -2,8 +2,8 @@
 //! replaces the Cloud credential of one of this daemon's own sessions (`agent_credentials.rs`), a
 //! refreshed ChatGPT access token about ten minutes before the last one expires. Its agent then
 //! restarts on the new credential and resumes the same conversation (Codex `thread/resume`, Claude
-//! `--resume`), after the idle gates and process census find it quiet. A refresh never cuts work; the next
-//! prompt after hibernation starts with the new credential.
+//! `--resume`), after the idle gates and process census find it quiet. A refresh never cuts work; an already
+//! quiet agent is hibernated immediately, while busy work keeps the mark until the next quiet boundary.
 //!
 //! Nothing of it is recorded: no log record, meta field or event names the change, and the reply
 //! carries no value.
@@ -114,6 +114,9 @@ impl Hub {
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
         self.respawn_when_quiet_required(&session);
+        if self.end_quiet_stale(&session, "credential-refresh", None).await {
+            return Ok(json!({"sessionId": session.id, "restart": "now"}));
+        }
         Ok(json!({"sessionId": session.id, "restart": "whenQuiet"}))
     }
 }
@@ -232,6 +235,25 @@ mod tests {
         // The same credential again restarts nothing.
         let again = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
         assert_eq!(again["restart"], "none");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_idle_credential_refresh_restarts_immediately() {
+        let hub = hub();
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        };
+        let session = hub.new_session(req).await.unwrap();
+        let before = hub.child_for(&session).await.unwrap().generation;
+
+        let reply = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
+        assert_eq!(reply["restart"], "now");
+        let after = hub.child_for(&session).await.unwrap().generation;
+        assert_ne!(before, after, "the quiet agent restarted immediately");
+        assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
+        hub.shutdown_all().await;
     }
 
     /// cmux#45776: a daemon restart forgets the credential (memory only), while the agent it adopts
