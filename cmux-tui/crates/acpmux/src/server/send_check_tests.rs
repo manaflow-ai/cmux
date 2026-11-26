@@ -38,6 +38,20 @@ fn a_bare_peer_session_id_is_qualified_with_its_host() {
 }
 
 #[test]
+fn a_bare_id_on_no_host_is_refused_at_once_and_a_bare_name_is_left_alone() {
+    let id = "01a215f7-98cd-76b1-8baf-fa47cb047481";
+    let mut lane = row("far", "lane", &[], &[]);
+    lane.session_id = id.into();
+    let b = book(&["far"], vec![lane]);
+    assert_eq!(bare_id(&b, id), Check::Successor(format!("far/{id}")));
+    let empty = book(&["far"], vec![row("far", "other", &[], &[])]);
+    let Check::Refuse(text) = bare_id(&empty, id) else { panic!("not refused") };
+    assert!(text.contains("HOST/ID"), "{text}");
+    // Not an id's shape: a role or a peer's short name this check cannot see is never refused.
+    assert_eq!(bare_id(&empty, "lane"), Check::Queue(None));
+}
+
+#[test]
 fn a_live_session_on_the_book_is_queued_checked() {
     let b = book(&["far"], vec![row("far", "lane", &[], &[])]);
     assert_eq!(in_book(&b, "far/lane"), Check::Queue(None));
