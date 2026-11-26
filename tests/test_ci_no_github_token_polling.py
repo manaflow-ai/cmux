@@ -209,7 +209,7 @@ class IosFleetWaitTests(unittest.TestCase):
             )
             (fakebin / "unzip").chmod(0o755)
             script = (
-                f"sleep() {{ echo \"$SECONDS\" >> {sleep_log}; SECONDS=$((SECONDS+30)); }}\n"
+                f"sleep() {{ echo \"$1\" >> {sleep_log}; SECONDS=$((SECONDS+$1)); }}\n"
                 + self._script()
             )
             env = dict(os.environ)
@@ -220,7 +220,8 @@ class IosFleetWaitTests(unittest.TestCase):
                 "RUNNER_OS": "Linux", "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(root / "out"),
                 "MODE": "failed" if mode == "failed" else mode,
             })
-            result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True, timeout=10)
+            result = subprocess.run(["bash", "-c", script], cwd=root, env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             calls = log.read_text().splitlines() if log.exists() else []
             sleeps = sleep_log.read_text().splitlines() if sleep_log.exists() else []
             output = (root / "out").read_text() if (root / "out").exists() else ""
@@ -243,7 +244,7 @@ class IosFleetWaitTests(unittest.TestCase):
     def test_active_job_stops_at_240_seconds(self) -> None:
         stdout, calls, sleeps, output = self._run("active")
         self.assertEqual(len(calls), 18)
-        self.assertEqual(len(sleeps), 8)
+        self.assertEqual(sleeps, ["30"] * 8)
         self.assertIn("within 240 s", stdout)
 
 
