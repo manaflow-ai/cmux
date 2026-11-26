@@ -293,3 +293,13 @@ class EveryReaderAgrees(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealManifest(unittest.TestCase):
+    """The repository's own Package.swift and pin pass the reader: on 2026-11-26 the Linux shape (#59026) added
+    appFFIDependency and linuxAppFFI lines the reader did not know, and every re-pin was refused until they were listed."""
+
+    def test_the_checked_in_manifest_is_canonical(self):
+        package = ROOT / "Packages/macOS/CmuxNext"
+        _, checksum = app_ffi_pin.read((package / "app-ffi-pin.json").read_text())
+        app_ffi_pin.check_manifest((package / "Package.swift").read_text(), checksum)
