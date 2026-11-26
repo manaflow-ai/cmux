@@ -11,7 +11,14 @@ The shards used to take files by index mod 4: one new file moved every file afte
 heavy dev-server files fell together by chance (run 40815704587 on 32 vCPU: shards of 18.6, 9.9,
 12.1 and 7.7 min). Now a file with a recorded duration goes to the shard with the least load so
 far, longest first (greedy longest-processing-time). A file with no recorded duration (a new one)
-goes by a stable hash of its path, after the others, so it moves only itself.
+goes the same way after every recorded file, so it never moves one, at an estimate for its kind:
+the median recorded file of that kind, or UNRECORDED_SECONDS when none of its kind is recorded.
+It went by a stable hash of its path until 2026-11-18, when the light jobs moved to the runner pool
+(f4eff4eb) and web-subarea-scope's cache restore, now the pool's store, found no manifest: every
+file went by hash, accent-glass-invariants 3, 5 and 9 (about 6.5 min each, alone, in series) fell on
+shard 6 of every pull request run, and shards 4 and 6 reached the 40 min timeout-minutes and were
+cancelled (jobs 134770299763, 134770299864, 134775268290), so react-apps-base-check had no results
+to join and the verdict refused.
 
 Load is wall time on a shard, not CPU time: the plain files run 24 at a time beside the plain files
 that drive a real browser, 8 at a time (BROWSER_MARK), then the dev-server files (SERIAL) 8 at a
@@ -37,7 +44,6 @@ with the prior manifest, so one noisy run moves a file's weight by half.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -48,6 +54,10 @@ import sys
 # then dev-server files (jobs / 4), then alone files.
 PLAIN_AT_ONCE, BROWSER_AT_ONCE, DEV_AT_ONCE = 24, 8, 8
 ALONE_MARK = "// cmux-web-test-alone"
+# Seconds a file with no recorded duration counts for when no file of its kind is recorded either
+# (no manifest at all): on 16 vCPU an accent-glass-invariants file ran 372-450 s alone, a dev-server
+# file about a minute, a browser file about 20 s, a plain file a few seconds (run 44287506155).
+UNRECORDED_SECONDS = {"plain": 5.0, "browser": 20.0, "dev": 60.0, "alone": 400.0}
 # run-webviews-tests.sh's browser_files: a plain file that drives a real browser.
 BROWSER_MARK = re.compile(r'from "playwright"|import\("playwright"\)|requireBrowserLane\(')
 
@@ -87,10 +97,6 @@ def runs_browser(name: str) -> bool:
         return BROWSER_MARK.search(Path(name).read_text(encoding="utf-8", errors="replace")) is not None
     except OSError:
         return False
-
-
-def stable_shard(name: str, count: int) -> int:
-    return int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % count
 
 
 def vite_config(name: str) -> str:
@@ -179,27 +185,41 @@ def parse_head_start(text: str, count: int) -> dict[int, int] | None:
 
 def assign(files: list[str], serial: set[str], durations: dict[str, float], count: int,
            widths: tuple[int, int, int] | None = None, head_start: dict[int, int] | None = None) -> list[int]:
-    """Each file's zero-based shard, the same for the same inputs on every runner. Known files go
-    longest first to the shard whose estimated wall time grows least (ties: less work, then the
-    lower shard); unknown files by path hash, after, so they never move a known one."""
+    """Each file's zero-based shard, the same for the same inputs on every runner. Files go longest
+    first to the shard whose estimated wall time grows least (ties: less work, then the lower
+    shard): the recorded ones first, then the unrecorded ones at their kind's estimate
+    (unrecorded_seconds), so an unrecorded file never moves a recorded one."""
     shards = [0] * len(files)
     plans = [ShardPlan(widths, (head_start or {}).get(shard, 0)) for shard in range(count)]
-    known = []
+    known, unknown = [], []
     for index, name in enumerate(files):
-        if name not in durations:
-            shards[index] = stable_shard(name, count)
-            continue
         if name in serial:
             kind = "alone" if runs_alone(name) else "dev"
         else:
             kind = "browser" if runs_browser(name) else "plain"
         config = vite_config(name) if kind == "dev" else ""
-        known.append((round(durations[name] * 1000), name, kind, config, index))
-    for cost, _, kind, config, index in sorted(known, key=lambda item: (-item[0], item[1])):
-        target = min(range(count), key=lambda shard: (plans[shard].wall(kind, cost, config), plans[shard].total, shard))
-        plans[target].add(kind, cost, config)
-        shards[index] = target
+        (known if name in durations else unknown).append([durations.get(name), name, kind, config, index])
+    estimates = unrecorded_seconds(known)
+    for item in unknown:
+        item[0] = estimates[item[2]]
+    for group in (known, unknown):
+        for seconds, _, kind, config, index in sorted(group, key=lambda item: (-round(item[0] * 1000), item[1])):
+            cost = round(seconds * 1000)
+            target = min(range(count), key=lambda shard: (plans[shard].wall(kind, cost, config), plans[shard].total, shard))
+            plans[target].add(kind, cost, config)
+            shards[index] = target
     return shards
+
+
+def unrecorded_seconds(known: list[list]) -> dict[str, float]:
+    """Each kind's estimate for a file with no recorded duration: the median of the recorded files of
+    that kind, else UNRECORDED_SECONDS. A path hash put the heavy alone files together by chance."""
+    estimates = dict(UNRECORDED_SECONDS)
+    for kind in estimates:
+        recorded = sorted(item[0] for item in known if item[2] == kind)
+        if recorded:
+            estimates[kind] = recorded[len(recorded) // 2]
+    return estimates
 
 
 def order(names: list[str], durations: dict[str, float], direction: str) -> list[str]:

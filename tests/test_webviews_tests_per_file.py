@@ -10,7 +10,6 @@ the real one, so no web test runs here.
 
 import os
 import json
-import hashlib
 import importlib.util
 import pathlib
 import shutil
@@ -825,11 +824,11 @@ class PerFileRunner(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("CMUX_WEB_TEST_SHARD_HEAD_START", result.stderr)
 
-    def test_unrecorded_files_split_by_a_stable_hash_of_their_path(self):
+    def test_unrecorded_files_split_evenly_not_by_a_hash_of_their_path(self):
+        """With no manifest a path hash split 40 files 7 to 14 a shard; each now counts as its kind's estimate."""
         names = [f"test/{index}.test.ts" for index in range(40)]
-        expected = {name: int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % 4 + 1 for name in names}
-        got = {name: n for n in (1, 2, 3, 4) for name in self.run_runner(names, shard=n, shard_count=4)[2]}
-        self.assertEqual(got, {f"./{name}": shard for name, shard in expected.items()})
+        got = [len(self.run_runner(names, shard=n, shard_count=4)[2]) for n in (1, 2, 3, 4)]
+        self.assertEqual(got, [10, 10, 10, 10])
 
     def test_a_config_warms_on_its_shortest_file_and_the_rest_start_longest_first(self):
         """accent-glass-invariants warmed its config alone for 549 s of an 18.6 min shard: it came
@@ -1162,6 +1161,41 @@ class ShardHelper(unittest.TestCase):
         split = [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), "2"],
                                 cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
         self.assertEqual(sorted(len(shard) for shard in split), [1, 17], split)
+
+    def split_alone(self, files, alone, durations, count):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "test").mkdir()
+        for name in files:
+            (temp / name).write_text("// cmux-web-test-alone\n// vite.config.acpmux-pane.mjs\n" if name in alone else "")
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes(b"".join(name.encode() + b"\0" for name in alone))
+        (temp / "d.json").write_text(json.dumps(durations))
+        return [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), str(count)],
+                               cwd=temp, capture_output=True, check=True).stdout.decode().split("\0")[:-1]
+                for n in range(1, count + 1)]
+
+    def test_without_a_manifest_the_alone_files_still_part(self):
+        """2026-11-18: web-subarea-scope's restore (the runner pool's cache store since f4eff4eb) found no
+        manifest, every file went by a hash of its path, and accent-glass-invariants 3, 5 and 9 (about
+        6.5 min each, alone, in series) fell on shard 6 of every pull request: shards 4 and 6 reached the
+        40 min timeout-minutes and were cancelled (jobs 134770299763, 134770299864, 134775268290).
+        Thirteen alone files on 12 shards: one each, and one shard two."""
+        alone = [f"test/accent-glass-invariants-{index}.test.ts" for index in range(1, 14)]
+        files = alone + [f"test/plain{index:03}.test.ts" for index in range(240)]
+        split = self.split_alone(files, set(alone), {}, 12)
+        self.assertEqual(sorted(sum(name in alone for name in shard) for shard in split), [1] * 11 + [2], split)
+        self.assertEqual(sorted(name for shard in split for name in shard), sorted(files))
+
+    def test_an_unrecorded_alone_file_counts_as_its_kinds_median_after_the_recorded_files(self):
+        """A recorded 400 s alone file sits on shard 1, 40 s of plain files on shard 2: a new alone file
+        (the median, 400 s) goes beside the plain files, and no recorded file moves."""
+        files = ["test/glass-1.test.ts", "test/glass-new.test.ts", "test/plain.test.ts"]
+        alone = {"test/glass-1.test.ts", "test/glass-new.test.ts"}
+        recorded = {"test/glass-1.test.ts": 400, "test/plain.test.ts": 40}
+        before = self.split_alone([name for name in files if name in recorded], alone, recorded, 2)
+        split = self.split_alone(files, alone, recorded, 2)
+        self.assertEqual(split, [["test/glass-1.test.ts"], ["test/glass-new.test.ts", "test/plain.test.ts"]])
+        self.assertEqual([[name for name in shard if name in recorded] for shard in split], before)
 
     def test_the_split_takes_the_runners_widths_and_refuses_bad_ones(self):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
