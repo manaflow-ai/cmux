@@ -182,18 +182,6 @@
             "web / react-apps-check ("
           ]
         },
-        "react-doctor": {
-          "exact": [
-            "web / react-doctor"
-          ],
-          "prefixes": []
-        },
-        "runners": {
-          "exact": [],
-          "prefixes": [
-            "web / runners / "
-          ]
-        },
         "web-db-migrations": {
           "exact": [
             "web / web-db-migrations"

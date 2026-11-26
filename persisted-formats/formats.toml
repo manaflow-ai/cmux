@@ -185,6 +185,9 @@ key = "cmux.acpmux.addedGitHubRepos.v1"
 key = "cmux.acpmux.backgroundFocus"
 
 [[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
 key = "cmux.acpmux.cloud.signedIn"
 
 [[storage_key]]
