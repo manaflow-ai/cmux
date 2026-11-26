@@ -50,7 +50,7 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
             let target = run.get("target").and_then(Value::as_str).unwrap_or_default();
             match target.split_once(':') {
                 Some(("pr", n)) if valid_target(target) && n.len() <= 9 => {
-                    out.push(target.to_owned())
+                    out.push(target.to_owned());
                 }
                 _ => return Err("go takes the PR tried on: pr:N".into()),
             }
