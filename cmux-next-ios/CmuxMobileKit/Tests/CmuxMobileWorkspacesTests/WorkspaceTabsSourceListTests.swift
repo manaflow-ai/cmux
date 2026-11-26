@@ -19,6 +19,16 @@ import SwiftUI
         WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory())
     }
 
+    /// A deferred tab refresh is scheduled on the main actor. Wait for the
+    /// value the test reads, with a bound, instead of assuming a number of
+    /// scheduler turns is enough under load.
+    static func waitForKitTabBuilds(_ source: WorkspaceTabsSource, _ expected: Int) async throws {
+        for _ in 0..<3000 where source.kitTabBuilds < expected {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(source.kitTabBuilds == expected, "kit tab builds reached " + String(expected) + " within 30 s")
+    }
+
     /// A publish that changes another workspace (or nothing the kit shows)
     /// rebuilds no tab and tells nobody who read `tabs` or `activeTabID`.
     @Test func anotherWorkspaceChangingRebuildsNothing() throws {
@@ -161,11 +171,10 @@ import SwiftUI
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
-        for _ in 0..<5 { await Task.yield() }
+        try await Self.waitForKitTabBuilds(source, before + 1)
         #expect(source.kitTabBuilds == before + 1)
         // The second read finds the store: nothing more.
         _ = source.chatStore(agent, workspace)
-        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before + 1)
     }
 
@@ -203,7 +212,6 @@ import SwiftUI
         source.overviewIdleChanged(false)
         let before = source.kitTabBuilds
         _ = source.chatStore(agent, workspace)
-        for _ in 0..<5 { await Task.yield() }
         #expect(source.kitTabBuilds == before)
         source.overviewIdleChanged(true)
         #expect(source.kitTabBuilds == before + 1)
