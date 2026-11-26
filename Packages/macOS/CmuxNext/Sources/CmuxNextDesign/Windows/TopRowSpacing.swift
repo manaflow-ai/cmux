@@ -17,10 +17,12 @@ public struct TopRowSpacing {
     public init() {}
 
     /// Every top-row button's height and largest width: the band's toggle, Back and Forward, and the sidebar's +.
-    public static var buttonSide: CGFloat { Metrics.sidebarHeaderHeight }
+    /// A look's `appearance.metrics.toolbarButtonSize` sets it; unset, the sidebar header's height.
+    public static var buttonSide: CGFloat { Metrics.lookOverride(.toolbarButtonSize) ?? Metrics.sidebarHeaderHeight }
 
     /// Classic's 6 pt between its 20 pt buttons, three tenths of a button on the half-point grid.
-    public static var groupGap: CGFloat { (buttonSide * 0.3 * 2).rounded() / 2 }
+    /// A look's `appearance.metrics.toolbarButtonGap` sets it.
+    public static var groupGap: CGFloat { Metrics.lookOverride(.toolbarButtonGap) ?? (buttonSide * 0.3 * 2).rounded() / 2 }
 
     /// The one ink gap between the lights and the toggle's glyph and between consecutive glyphs: classic's
     /// button gap plus two margins of an arrow (``glyphExtent``) in its button.
