@@ -40,8 +40,13 @@ public final class LaunchReveal {
     /// Regions shown by their deadline, not their data (the launch marks' `reveal.<region>.by_deadline`).
     @ObservationIgnored public private(set) var shownByDeadline: Set<LaunchRegion> = []
     @ObservationIgnored private let deadline: Duration
+    /// The launch's first window frame (the app's `FirstFrameGate`), for a region's view that holds its
+    /// own launch work until after it (``FirstFrameHold``). nil: no gate (tests), that work runs at once.
+    @ObservationIgnored public var firstFrame: FirstFrameGate?
     /// The pending waits of ``whenReady(_:orAfter:_:)``, by timer; each leaves at its region's ready or its fire.
     @ObservationIgnored private var waits: [ObjectIdentifier: DemandTimer] = [:]
+    /// Page views wait for the first window frame (``LaunchPageDeferral``); the app binds its gate.
+    @ObservationIgnored public let pages = LaunchPageDeferral()
 
     /// - Parameter deadline: How long after the first `hold` every region
     ///   shows anyway.

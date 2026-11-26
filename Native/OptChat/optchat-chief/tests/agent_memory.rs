@@ -536,3 +536,32 @@ fn the_cli_keeps_chief_flags_inside_note_text() {
         "{log}"
     );
 }
+
+/// An agent that searches with its whole question still finds the note that answers it: no entry
+/// holds every word of the question, so the search falls back to the entries holding the most of
+/// its words.
+#[test]
+fn a_whole_question_finds_the_note_that_answers_it() {
+    let home = short_home();
+    seed(home.path());
+    let index = index(home.path());
+    let hits = index
+        .search("Which builds need the heavy wrapper on the fleet?", 3)
+        .unwrap();
+    assert!(!hits.is_empty(), "no hits");
+    assert!(
+        hits[0]
+            .text
+            .contains("big-red builds need the heavy wrapper"),
+        "{hits:?}"
+    );
+    // Every word held by one entry is still that entry alone, as before.
+    assert_eq!(index.search("polling loop", 10).unwrap().len(), 1);
+    // A question none of whose words any entry holds is still no hits.
+    assert!(
+        index
+            .search("quantum zebra orchestras", 3)
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -617,6 +617,14 @@ fn tui_bytes_run(
     // When the last coalesced paint started: the next waits a display frame after it.
     let mut last_paint = f64::NEG_INFINITY;
     let trim = |text: &str| text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+    // Output to paint as cmux-mobile-host times it (cmux-output-paint): when each output event
+    // left the Mac, and each presented frame with the bytes the phone had parsed by then, both
+    // on the replay's clock. The run is offline, so the ring keeps every event; the 0 baseline
+    // lets the first event count too.
+    let mut stamps = cmux_output_paint::SendStamps::new(usize::MAX);
+    let mut paints = vec![cmux_output_paint::Paint { through: 0, at_us: 0 }];
+    let mut parsed = 0u64;
+    let half_rtt = link.as_ref().map_or(0.0, |link| link.rtt_ms as f64 / 2.0);
 
     // One `output` event leaving the Mac's attach worker at `due` (virtual ms): `held` are the
     // writes (when the Mac's terminal got each, and what it was for) the event carries.
@@ -637,6 +645,7 @@ fn tui_bytes_run(
         let encode_ms = ms(started);
         mac_free.set(start + encode_ms);
         let sent = mac_free.get();
+        stamps.sent(bytes.len() as u64, (sent * 1000.0) as u64);
         let arrived = wire.deliver((sent * 1000.0) as u64, event.len()) as f64 / 1000.0;
         let started = Instant::now();
         let value: serde_json::Value =
@@ -654,6 +663,7 @@ fn tui_bytes_run(
             let start = due.max(phone_free);
             last_paint = start;
             phone_free = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
+            paints.push(presented(parsed, phone_free));
         }
         // When the phone reads the event off its socket: once it is done with the last.
         let took = arrived.max(phone_free);
@@ -664,6 +674,7 @@ fn tui_bytes_run(
         }
         let started = Instant::now();
         phone.vt_write(&data);
+        parsed += data.len() as u64;
         let parse_ms = ms(started);
         let started = Instant::now();
         phone_state.update(&mut phone).map_err(vt_err)?;
@@ -703,6 +714,12 @@ fn tui_bytes_run(
             phone_free = took + decode_ms + paint_ms;
             (paint_ms, (phone_free / FRAME_MS).ceil() * FRAME_MS)
         };
+        if !scenario.phone_coalesce {
+            paints.push(cmux_output_paint::Paint {
+                through: parsed,
+                at_us: (present * 1000.0) as u64,
+            });
+        }
 
         for (t, _) in held {
             metrics.push("mac_queue_ms", "ms", start - t);
@@ -767,20 +784,21 @@ fn tui_bytes_run(
         while let Some((t, write, bytes)) = writes.next() {
             let start = writer_ready(t, mac_free.get(), &unread.borrow());
             let (mut merged, mut held) = (bytes, vec![(t, write)]);
-            while let Some((t, write, bytes)) =
-                writes.next_if(|(t, _, _)| *t <= start && merged.len() < MERGE_MAX_BYTES)
-            {
+            while let Some((t, write, bytes)) = writes.next_if(|(t, _, bytes)| {
+                *t <= start && merged.len() + bytes.len() <= MERGE_MAX_BYTES
+            }) {
                 merged.extend_from_slice(&bytes);
                 held.push((t, write));
             }
             send(start, &merged, &held, &mut mac, metrics)?;
         }
-        drop(send);
         if !waiting.is_empty() {
             let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
-            coalesced_paint(&mut waiting, start, waiting_cost, metrics);
+            let done = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
+            paints.push(presented(parsed, done));
         }
         finish_tui_bytes_run(scenario, metrics, events, wire_total);
+        output_to_paint(metrics, &stamps, &paints, half_rtt);
         return Ok(());
     }
     for (t, write, bytes) in writes {
@@ -809,13 +827,48 @@ fn tui_bytes_run(
         let due = last_sent.map_or(0.0, |sent| sent + interval.unwrap_or(0.0));
         send(due, &pending, &held, &mut mac, metrics)?;
     }
-    drop(send);
     if !waiting.is_empty() {
         let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
-        coalesced_paint(&mut waiting, start, waiting_cost, metrics);
+        let done = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
+        paints.push(presented(parsed, done));
     }
     finish_tui_bytes_run(scenario, metrics, events, wire_total);
+    output_to_paint(metrics, &stamps, &paints, half_rtt);
     Ok(())
+}
+
+/// A coalesced paint done at `done` (virtual ms), presented at the next vsync with the
+/// `through` bytes the phone had parsed by then.
+fn presented(through: u64, done: f64) -> cmux_output_paint::Paint {
+    let present = (done / FRAME_MS).ceil() * FRAME_MS;
+    cmux_output_paint::Paint { through, at_us: (present * 1000.0) as u64 }
+}
+
+/// The run's output to paint through cmux-output-paint's `window`, as one value per stat:
+/// `output_to_paint_ms_{p50,p95,max}` (sent to presented, the downlink in it) and the same
+/// less half the link's round trip. The phone's frames are placed at their real present here,
+/// so unlike the host's number no report trip back is in it.
+fn output_to_paint(
+    metrics: &mut Metrics,
+    stamps: &cmux_output_paint::SendStamps,
+    paints: &[cmux_output_paint::Paint],
+    half_rtt_ms: f64,
+) {
+    let Some(window) = cmux_output_paint::window(stamps, paints, Some(half_rtt_ms)) else {
+        metrics.declare("output_to_paint_ms_p95", "ms");
+        return;
+    };
+    let mut column = |name: &str, column: &cmux_output_paint::Column| {
+        metrics.push(&format!("{name}_p50"), "ms", column.p50_ms);
+        metrics.push(&format!("{name}_p95"), "ms", column.p95_ms);
+        metrics.push(&format!("{name}_max"), "ms", column.max_ms);
+    };
+    column("output_to_paint_ms", &window.raw);
+    if let Some(less) = &window.less_half_rtt {
+        column("output_to_paint_less_half_rtt_ms", less);
+    }
+    metrics.count("output_to_paint_events", window.raw.events as f64);
+    metrics.count("output_to_paint_partial", if window.partial { 1.0 } else { 0.0 });
 }
 
 /// `phone_coalesce`'s paint: on the main thread from `main_free` (its events parsed, a display
@@ -848,8 +901,8 @@ fn coalesced_paint(
 /// The socket's unread bytes past which the Mac's writer blocks (a send buffer plus a receive
 /// buffer, about macOS's defaults).
 const SOCKET_WINDOW: usize = 128 * 1024;
-/// `merge_ready`'s cap per event, `OUTPUT_COALESCE_MAX_BYTES`'s value.
-const MERGE_MAX_BYTES: usize = 1 << 20;
+/// `merge_ready`'s cap per event, `DRAIN_MAX_BYTES`'s value (a read past it starts the next event).
+const MERGE_MAX_BYTES: usize = 256 * 1024;
 
 /// When the writer can start an event due at `due`: after its last write, and once the phone has
 /// read enough of `unread` (in order) to leave at most `SOCKET_WINDOW` bytes unread.
@@ -933,6 +986,7 @@ mod tests {
     use super::*;
 
     fn recordings() -> Inputs {
+        // affected-reads: cmux-tui/crates/cmux-agent-cli-render/tests/fixtures/claude-code-2.1.310/pty.jsonl webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         Inputs::load_repo(&repo).expect("the PTY and chat fixtures (a full checkout)")
     }

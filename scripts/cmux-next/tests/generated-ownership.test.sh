@@ -133,6 +133,7 @@ rows=(
   "1|plans/cmux-next/action-surfaces.json|0|1|out"                # the Mac action export
   "1|plans/cmux-next/action-catalog.json|0|1|out"                 # the full catalog travels with its surface report
   "1|schemas/settings/settings-schema.json|0|1|out"               # the Mac settings export
+  "1a|cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/actions/agentPaneReload|1|1|none"  # a settled marker's deletion
   "1b|Packages/macOS/CmuxNext/ci-target-graph.json|1|1|out"
   "1c|-"                                                          # a no-op: page strings are build output
   "1d|cmux-tui/bindings/go/raw/generated_ops.go|1|1|out"
@@ -142,7 +143,7 @@ rows=(
   "1e1|web/data/next-docs/settings-reference.generated.json|1|-|out" # bot-only
   "1e1'|web/data/next-docs/settings-reference.generated.json|1|-|out"  # without --docs-shortcuts; bot-only
   "1e2|cmux-tui/crates/cmux-app-host/generated/scopes.json|1|1|out"
-  "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/scopes.json|1|1|none"
+  "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/samples/agent-status/cmux-app.json|1|1|none"
   "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it (generated_outputs.py bot-only)
   "1e4|-"                                                          # a no-op: the display suite list is derived where read
   "1f|scripts/lint-namespace-types-ratchet.txt|1|1|out"
@@ -156,6 +157,8 @@ rows=(
   "4|cmux-tui/crates/cmux-core/src/lib.rs|1|1|none"               # cargo fmt
   "4|Native/OptChat/optchat-chief/src/main.rs|1|1|none"
   "5|cmux-tui/Cargo.lock|1|0|none"                                # a lock: apply refuses lockfiles by design
+  "5a|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift|1|1|none"  # uniffi Swift bindings
+  "6|scripts/ci/job-inputs-always.json|0|1|none"                  # job_inputs.py fix: PR autofix only (--job-inputs), never remade on a moved tip
 )
 
 # Each step of base-autofix.sh has a row, and each row names a step it has.

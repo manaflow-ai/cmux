@@ -70,7 +70,9 @@ export OPTCHAT_ANTHROPIC_BASE_URL="$base_url"
 export CARGO_TARGET_DIR="$root/.build/chief-evals-target"
 build_side() {
   local side="$1" sha="$2" src="$work/src-$1"
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet --depth 1 origin "$sha"
+  local depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha"
   git worktree add --quiet --detach "$src" "$sha"
   (cd "$src/Native/OptChat/optchat-chief" && cargo build --release --locked --example chief_eval)
   cp "$CARGO_TARGET_DIR/release/examples/chief_eval" "$work/chief_eval-$side"

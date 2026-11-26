@@ -16,6 +16,7 @@ import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState"
 import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
 import { keptPrefix, noteKeptPrefix, PrefixFlatCache } from "../conversation/prefixFlatMap";
+import type { SilentTurn } from "../conversation/silentTurns";
 
 /// One running thing in the tray: a subagent (nested ones moved in under their parent), a
 /// background command, or a chat the agent started.
@@ -28,7 +29,13 @@ export type TrayItem =
       /// The subagent whose call started it, when one did and the chat knows it: its line names it.
       owner?: Subagent;
     }
-  | { kind: "session"; id: string; session: StartedSession };
+  | { kind: "session"; id: string; session: StartedSession }
+  /// A turn something other than the person started that said nothing (conversation/silentTurns.ts):
+  /// only ever a finished line, never in what runs.
+  | { kind: "turn"; id: string; turn: SilentTurn };
+
+/// A silent turn's line mark: the clock the transcript's background-turn line draws.
+export const SILENT_TURN_ICON = "history";
 
 /// A tray line's key: a command's is the call that started it, which stays when the registry lists a
 /// command only the transcript knew, so its line is the same node running and finished.
@@ -175,6 +182,7 @@ export function commandStatus(command: BackgroundCommand): SubagentStatus {
 /// lingers there (Leo, 2026-11-12: "if these failed, I don't know why they still show up"): its
 /// failure stays where it ended, the transcript's failed line with its Retry, and in Session Info.
 export function endedInFailure(item: TrayItem): boolean {
+  if (item.kind === "turn") return false;
   if (item.kind === "command") return commandStatus(item.command) === "failed";
   if (item.kind === "session") return item.session.state === "failed";
   const { state } = item.agent;
@@ -183,7 +191,13 @@ export function endedInFailure(item: TrayItem): boolean {
 
 /// When an item started, if known.
 export const itemStart = (item: TrayItem): number | undefined =>
-  item.kind === "agent" ? item.agent.startedAt : item.kind === "command" ? item.command.startedAt : undefined;
+  item.kind === "agent"
+    ? item.agent.startedAt
+    : item.kind === "command"
+      ? item.command.startedAt
+      : item.kind === "turn"
+        ? item.turn.startedAt
+        : undefined;
 
 /// Done lines by row id, kept while what they say holds, so the turns built on them stay the same
 /// objects (conversation/turns.ts `turnViewFrom` reuses turns whose rows did not change).

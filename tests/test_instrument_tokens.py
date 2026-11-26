@@ -114,6 +114,25 @@ class InstrumentTokenTests(unittest.TestCase):
             data['tokens'][0]['offToken'][0]['line'] = 3
             self.assertIn('refresh the entry', tokens.stale_off_token(data, Path(tmp))[0])
 
+    def test_stylesheet_source_reads_every_fallback(self):
+        # A value only a stylesheet sets: the token reads the fallback of each var(--instrument-*, X).
+        token = {'name': 'result.size', 'instrument': '12 / 14', 'unit': 'prose', 'drawnOn': 'x',
+                 'today': {'file': 'a.css', 'path': '--instrument-result-size', 'value': '12 / 14'}}
+        data = {'tokens': [token]}
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = Path(tmp) / 'a.css'
+            sheet.write_text('.x { font-size: calc(1px * var(--instrument-result-size, 12 / 14)); }\n'
+                             '.y { --s: var(--a, var(--instrument-result-size, 12  /  14)); }\n')
+            self.assertEqual([], tokens.drift(data, Path(tmp)))
+            sheet.write_text(sheet.read_text() + '.z { font-size: calc(1px * var(--instrument-result-size, 13 / 14)); }\n')
+            self.assertIn('A default moved', tokens.drift(data, Path(tmp))[0])
+            sheet.write_text('.x {}\n')
+            self.assertIn('no declaration', tokens.drift(data, Path(tmp))[0])
+        self.assertIn('--instrument-result-size: 12 / 14;', tokens.css(data | {'version': '0'}))
+        token['today']['path'] = '--instrument-other'
+        with self.assertRaisesRegex(tokens.TokenError, "token's own property"):
+            tokens.validate({'system': 'Instrument', 'version': '0.0.1', 'questions': {}, 'tokens': [token]})
+
     def test_off_token_entry_shape(self):
         self.token('corner.card')['offToken'].append({'file': 'x.css', 'value': '8px'})
         with self.assertRaisesRegex(tokens.TokenError, 'offToken entry'):

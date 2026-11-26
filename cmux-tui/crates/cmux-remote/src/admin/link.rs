@@ -131,7 +131,7 @@ async fn serve(
                         stream
                     }
                     Err(error) => {
-                        let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                        let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                             connections.shutdown().await;
                             return Err(AdminError::Io(error));
                         };

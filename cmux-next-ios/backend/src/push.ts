@@ -225,6 +225,13 @@ export const MAILBOX_TTL_MS = 10 * 60_000
 export const MAX_MAILBOX_SEALED = 16_384
 /** Pending replies one Mac may have. */
 export const MAILBOX_PENDING_LIMIT = 32
+/** The longest `hold` a phone may ask for an item ("Store and forward", API 0.18.0): a Mac asleep overnight. */
+export const MAILBOX_MAX_HOLD_MS = 24 * 60 * 60_000
+/** Items held longer than MAILBOX_TTL_MS that one (Mac, phone) pair may have queued, and their sealed characters. */
+export const MAILBOX_HOLD_LIMIT = 64
+export const MAILBOX_HOLD_BYTES = 524_288
+/** Items one `mailbox` frame carries, and how many may wait for their ack on one Mac socket. */
+export const MAILBOX_PAGE = 32
 /** Whether `text` is a sealed blob as clients send it: non-empty base64url of at most `max` characters. */
 export const isSealedText = (text: unknown, max: number): text is string => typeof text === "string" && text.length > 0 && text.length <= max && BASE64URL.test(text)
 

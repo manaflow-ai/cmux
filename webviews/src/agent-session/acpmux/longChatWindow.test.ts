@@ -11,6 +11,8 @@ import { settleReact } from "../../../test/support/domTeardown";
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const had = { window: "window" in scope, document: "document" in scope };
+// Set when direct.ts loads computerUse/computerUseState.ts (the host script's hook), after this file started.
+const hadComputerUseHook = "cmuxAcpmuxComputerUseState" in scope;
 const before = { window: scope.window, document: scope.document };
 beforeAll(() => {
   scope.window = dom.window;
@@ -21,6 +23,7 @@ afterAll(async () => {
   for (const key of ["window", "document"] as const)
     if (had[key]) scope[key] = before[key];
     else delete scope[key];
+  if (!hadComputerUseHook) delete scope.cmuxAcpmuxComputerUseState;
 });
 
 /// Records per turn, and per page the stand-in serves: a page is one turn.

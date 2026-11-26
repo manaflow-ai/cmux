@@ -50,7 +50,12 @@ pub(super) async fn session(
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::cloud_hands::socket",
+    );
     let (mut stream, _) = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect)
         .await
         .map_err(|_| "handshake timed out".to_owned())?

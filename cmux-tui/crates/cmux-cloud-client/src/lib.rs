@@ -169,7 +169,7 @@ pub fn http(
             reqwest::header::HeaderValue::try_from(team).map_err(|_| BuildError::InvalidTeam)?;
         headers.insert(reqwest::header::HeaderName::from_static(TEAM_HEADER), value);
     }
-    let http = reqwest::Client::builder()
+    let http = cmux_egress::client_builder("cmux_cloud_client")
         .default_headers(headers)
         .user_agent(user_agent)
         .redirect(reqwest::redirect::Policy::none())

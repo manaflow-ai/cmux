@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 
 /// A GitHub App token that lets git on this Mac clone one repository the cmux GitHub App reaches, for a
@@ -58,7 +59,7 @@ extension CloudGitHubPicker {
         request.setValue("Bearer \(install)", forHTTPHeaderField: "Authorization")
         let prepared = request
         guard let answer = try? await withDeadline(.seconds(20), label: "POST /v1/integrations/github/token", {
-            try await URLSession.shared.data(for: prepared)
+            try await CmuxEgress.shared(site: "CmuxNextCloud.CloudGitHubCloneToken").data(for: prepared)
         }), let http = answer.1 as? HTTPURLResponse else { return nil }
         return CloudGitHubCloneToken.parse(status: http.statusCode, body: answer.0, repo: repo)
     }

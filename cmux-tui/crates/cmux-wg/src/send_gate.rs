@@ -41,8 +41,24 @@ pub(crate) const LOWAT_HORIZON: Duration = Duration::from_millis(5);
 /// `DATA_CHUNK`), so a slow or idle connection still takes a whole frame
 /// and holds the next one ready. At 10 Mbit/s it is 13 ms of data.
 pub(crate) const MIN_LOWAT_BYTES: usize = 16 * 1024;
-/// The ceiling: the socket's send buffer, the bound before this gate.
-pub(crate) const MAX_LOWAT_BYTES: usize = crate::tcp_stack::SOCKET_BUFFER_BYTES;
+/// The ceiling: the send buffer this gate replaced as the bound (256 KiB),
+/// 51 ms at 40 Mbit/s and still past [`LOWAT_HORIZON`] at 400 Mbit/s. A
+/// larger window ([`crate::tcp_stack::DEFAULT_STREAM_WINDOW`]) adds bytes in
+/// flight, not unsent bytes an echo waits behind.
+pub(crate) const MAX_LOWAT_BYTES: usize = 256 * 1024;
+/// The floor under a stream's send window cap: the fixed window every
+/// stream had before the window was sized by the path (256 KiB). Loopback and
+/// LAN paths never need more, and on them a larger flight was slower
+/// (1,300 against 800 Mbit/s on loopback, the queue in front of each segment
+/// growing with it).
+pub(crate) const MIN_SEND_WINDOW: usize = 256 * 1024;
+/// The send window cap is this many bandwidth-delay products: room for the
+/// rate to double each round trip until the path, not the cap, limits it.
+const SEND_WINDOW_BDPS: f64 = 2.0;
+/// How long the smallest smoothed RTT stands for the path's own round trip
+/// before a newer one replaces it (BBR's min_rtt filter): a roam to a longer
+/// path is learned within this.
+const MIN_RTT_WINDOW: Duration = Duration::from_secs(10);
 /// The shortest delivery-rate sample: below it a sample is mostly the
 /// granularity of ACKs.
 const MIN_SAMPLE: Duration = Duration::from_millis(10);
@@ -151,11 +167,32 @@ pub(crate) struct SendPacer {
     /// estimate decayed by an eighth per sample if that is higher (a flow
     /// that pauses keeps its rate for a few round trips).
     rate: f64,
+    /// The smallest smoothed RTT seen in the current [`MIN_RTT_WINDOW`], and
+    /// when it was seen: the round trip without the queue this stream builds.
+    min_rtt: Option<(Duration, Instant)>,
 }
 
 impl SendPacer {
     pub(crate) fn new(gate: Arc<SendGate>) -> Self {
-        Self { gate, written: 0, sample: None, rate: 0.0 }
+        Self { gate, written: 0, sample: None, rate: 0.0, min_rtt: None }
+    }
+
+    /// The most bytes this stream should keep in flight: [`SEND_WINDOW_BDPS`]
+    /// times its delivery rate times its round trip without queueing, from
+    /// [`MIN_SEND_WINDOW`] up to `buffer` (the socket's send buffer). The
+    /// round trip is the windowed minimum, not the smoothed RTT, which grows
+    /// with the stream's own queue and would raise the cap without end.
+    pub(crate) fn send_window(&self, buffer: usize) -> usize {
+        let floor = MIN_SEND_WINDOW.min(buffer);
+        let Some((rtt, _)) = self.min_rtt else {
+            return floor;
+        };
+        let bytes = SEND_WINDOW_BDPS * self.rate * rtt.as_secs_f64();
+        if bytes.is_finite() && bytes > 0.0 {
+            (bytes as usize).clamp(floor, buffer.max(floor))
+        } else {
+            floor
+        }
     }
 
     /// The driver moved `bytes` into the socket.
@@ -173,6 +210,14 @@ impl SendPacer {
         unsent: usize,
         srtt: Option<Duration>,
     ) {
+        if let Some(srtt) = srtt {
+            let stale = self.min_rtt.is_none_or(|(min, at)| {
+                srtt <= min || now.saturating_duration_since(at) >= MIN_RTT_WINDOW
+            });
+            if stale {
+                self.min_rtt = Some((srtt, now));
+            }
+        }
         let lowat = self.lowat(now, send_queue, srtt);
         self.gate.update(unsent, lowat);
     }
@@ -230,6 +275,33 @@ mod tests {
         fn wake(self: Arc<Self>) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
+    }
+
+    #[test]
+    fn the_send_window_follows_rate_times_the_unqueued_round_trip() {
+        let buffer = 4 << 20;
+        let mut pacer = SendPacer::new(Arc::new(SendGate::default()));
+        // No round trip measured: the old fixed window.
+        assert_eq!(pacer.send_window(buffer), MIN_SEND_WINDOW);
+        let start = Instant::now();
+        pacer.update(start, 0, 0, Some(Duration::from_millis(100)));
+        // 10 MB/s over 100 ms is 1 MB a round trip: twice that.
+        pacer.rate = 10e6;
+        assert_eq!(pacer.send_window(buffer), 2_000_000);
+        // A queue that raises the smoothed RTT does not raise the cap.
+        pacer.update(start + Duration::from_secs(1), 0, 0, Some(Duration::from_millis(400)));
+        pacer.rate = 10e6;
+        assert_eq!(pacer.send_window(buffer), 2_000_000);
+        // Past the filter's window the longer path is taken as the path.
+        pacer.update(start + Duration::from_secs(11), 0, 0, Some(Duration::from_millis(400)));
+        pacer.rate = 10e6;
+        assert_eq!(pacer.send_window(buffer), buffer);
+        // Loopback: a tiny product stays at the floor.
+        pacer.update(start + Duration::from_secs(12), 0, 0, Some(Duration::from_micros(100)));
+        pacer.rate = 160e6;
+        assert_eq!(pacer.send_window(buffer), MIN_SEND_WINDOW);
+        // A buffer under the floor is the cap.
+        assert_eq!(pacer.send_window(64 * 1024), 64 * 1024);
     }
 
     #[test]

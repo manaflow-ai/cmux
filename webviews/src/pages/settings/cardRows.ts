@@ -86,6 +86,9 @@ export const APP_THEME_KEY = "appearance.appTheme";
 export const THEME_EDITS_KEY = "appearance.themeEdits";
 /** appearance.accent: drawn here as the swatch popup, after the app theme. */
 export const ACCENT_KEY = "appearance.accent";
+/** appearance.selection: whether the selected row and tab take the accent, drawn here as its setting
+ * row right after the accent (another App Theme key: its group would draw a second card for it). */
+export const SELECTION_KEY = "appearance.selection";
 /** appearance.highlightColor: drawn here as its setting row, after the accent (the App Theme group's
  * last key: without it the page drew a second "App Theme" card for this one row). */
 export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";
@@ -95,6 +98,9 @@ export const ROTATE_FAVORITES_KEY = "appearance.rotateFavoriteThemes";
 /** appearance.themeFile: the look from a file in the themes folder, drawn here as its setting row
  * after the Highlight Color (another App Theme key: its group would draw a second card for it). */
 export const THEME_FILE_KEY = "appearance.themeFile";
+/** customize.doctorNotice: the customization notices toggle, drawn here as its setting row after the
+ * theme file (the App Theme group's last key: its group would draw a second card for it). */
+export const DOCTOR_NOTICE_KEY = "customize.doctorNotice";
 /** appearance.favoriteThemes: the starred themes, shared by every theme picker on the page. */
 export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
 
@@ -103,6 +109,7 @@ export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
 export const SPACE_ROWS: ReadonlySet<string> = new Set([
   "sidebar.showSpaces",
   "sidebar.spacesPosition",
+  "appearance.metrics.spaceButtonSpacing",
   "sidebar.spacesVisibility",
 ]);
 

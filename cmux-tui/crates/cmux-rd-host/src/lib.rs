@@ -4,14 +4,14 @@
 //!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264] [--no-udp-link] [--link-stun HOST:PORT,...]
 //!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
-//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--monitor N | --window ID (Linux X11: one monitor, or one X window followed through moves; ends when it is closed or resized)] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--monitor N (Linux X11: one monitor)] [--window ID (one window followed through moves, ends when it is closed or resized; Linux X11: an X window id, macOS: a CGWindowID from serve's `windows` line)] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
-//!   bench    --addr HOST:4103 --token-fd N [--mode view|control] [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
+//!   bench    --addr HOST:4103 --token-fd N [--mode view|control] [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--marker-scale N/D (the picture is N/D of the marker's screen: a --max-width share)] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle [--geometry WxH+X+Y (a titled window there, not full screen)]
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
-//!            stdin and stdout (src/serve.rs); macOS and Linux
+//!            stdin and stdout (src/serve.rs; Windows: src/windows_serve.rs)
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
 //!            private Unix socket to the secure link (src/connect.rs)
 //!   view     [DEVICE] [--scope full|view] (Linux) view and control another of your devices
@@ -19,9 +19,11 @@
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
-//!   windows-host enable|run|status|share off   (Windows) this PC on the device hub as a
-//!            `windows` device with the same hub client (src/screen_host/, src/windows_host.rs);
-//!            it lists and captures, and serves no session until `serve` has a Windows port
+//!   windows-host enable|share on|off|run|requests|approve|deny|status   (Windows) this PC as a
+//!            device hub screen host, with linux-host's hub client, consent and session
+//!            serving (src/screen_host/, src/windows_host.rs)
+//!   windows-serve-selftest [--scope view|control] [--duration-s 4]   (Windows) one `serve`
+//!            session played by a viewer on this machine, no hub (src/windows_serve/selftest.rs)
 //!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   request-permission screen-recording|accessibility   macOS's prompt for that one grant,
 //!            then the snapshot (src/permissions.rs; the Screen Sharing helper's)
@@ -85,8 +87,12 @@ mod observe;
 mod permissions;
 #[cfg(feature = "bench")]
 mod process_cpu;
-// Wayland sharing: the portal handshakes and grant (`portal-dbus`) and the PipeWire capture
-// (`portal`), chosen by the capture-backend seam in desktop.rs.
+// Wayland sharing: mutter's own screen cast on GNOME, else the portal handshakes and grant
+// (`portal-dbus`), and the PipeWire capture (`portal`), chosen by the capture-backend seam in
+// desktop.rs.
+#[cfg(all(feature = "portal-dbus", target_os = "linux"))]
+#[allow(dead_code)]
+mod mutter;
 #[cfg(all(feature = "portal", target_os = "linux"))]
 #[allow(dead_code)]
 mod pipewire_capture;
@@ -135,6 +141,8 @@ mod wg_carrier;
 mod windows;
 #[cfg(windows)]
 mod windows_host;
+#[cfg(all(feature = "link", windows))]
+mod windows_serve;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -206,6 +214,14 @@ pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `cmux-rd bench --help`. Probes feature-detect bench options by reading it (cmuxterm-hq's
+/// screen-share-customize probe looks for `--marker-scale`), so it names every option bench.rs
+/// reads; `bench_usage_names_every_option` fails when one is added without a line here.
+#[cfg_attr(
+    not(all(feature = "bench", any(target_os = "linux", target_os = "macos"))),
+    allow(dead_code)
+)]
+const BENCH_USAGE: &str = "usage: cmux-rd bench --addr HOST:4103 (default 127.0.0.1:4103) --token-fd N [--link 1 (the secure link instead of a socket; link builds)] [--mode view|control] [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--deadline-ms 200 (reassembly deadline)] [--max-datagram BYTES] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--type TEXT (send TEXT as one text event)] [--upstream mic|camera|screen] [--upstream-frames 100] [--at X,Y] [--marker-origin X,Y] [--marker-scale N/D (the picture is N/D of the marker's screen: a --max-width share)] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--vt-prewarm 0|1] [--eval-local 1] [--eval-netem-relay 1 (loopback evals)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]";
 const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]";
 
 /// Commands the usage line names that a build may leave out (by feature or platform).
@@ -280,7 +296,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
     #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
     if cmd == "bench" && args.len() == 2 && matches!(args[1].as_str(), "-h" | "--help") {
-        println!("usage: cmux-rd bench [--addr HOST:PORT] [--mode view|control] [--input key|click|scroll|none] [--at X,Y] [--samples N] [--snapshot FILE]");
+        println!("{BENCH_USAGE}");
         return 0;
     }
     // Subcommands and positional words of its own (`share on`, `approve SESSION`).
@@ -354,6 +370,10 @@ pub fn run_cli(args: &[String]) -> i32 {
         // Versioned aliases prove the worker supports signed carrier selection.
         // Old app callers keep their original commands and legacy setup format.
         "serve" | "serve-v2" => serve::run(&opts),
+        #[cfg(all(feature = "link", windows))]
+        "serve" => windows_serve::run(&opts),
+        #[cfg(all(feature = "link", windows))]
+        "windows-serve-selftest" => windows_serve::selftest(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" | "connect-v2" => connect::run(),
         "permissions" => permissions::run(),
@@ -398,6 +418,25 @@ mod cli_tests {
             assert!(msg.contains("--features bench"), "{msg}");
         }
         assert!(unknown_command("windows-host").starts_with("not in this build"));
+    }
+
+    #[test]
+    fn bench_usage_names_every_option() {
+        let src = include_str!("bench.rs");
+        let mut seen = 0;
+        for call in ["opts.get(\"", "opts.num_or(\"", "opts.str_or(\""] {
+            for (i, _) in src.match_indices(call) {
+                let rest = &src[i + call.len()..];
+                let key = &rest[..rest.find('"').unwrap()];
+                seen += 1;
+                assert!(
+                    BENCH_USAGE.contains(&format!("[--{key} ")) || BENCH_USAGE.contains(&format!(" --{key} ")),
+                    "bench.rs reads --{key}, but `cmux-rd bench --help` (BENCH_USAGE) does not name it"
+                );
+            }
+        }
+        assert!(seen > 20, "found only {seen} option reads in bench.rs");
+        assert!(BENCH_USAGE.contains("[--marker-scale N/D"));
     }
 
     #[test]

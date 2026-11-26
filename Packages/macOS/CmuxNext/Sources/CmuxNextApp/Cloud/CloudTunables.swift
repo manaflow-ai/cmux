@@ -21,5 +21,8 @@ nonisolated struct CloudTunables {
         AgentPaneTunables.updatePeersAutomatically.value && updateCloudMachinesAutomatically.value
     }
 
-    static var all: [TunableDescriptor] { [updateCloudMachinesAutomatically.descriptor] }
+    /// Wake on intent (hq#21300), off by default; its rules are Rust's (cmux-cloud-handlers `wake_hint`).
+    static let wakeOnIntent = Tunable<Bool>.toggle("cloud.wakeOnIntent", PageTunables.section, "Wake Cloud machines on focus", help: "A paused Cloud machine starts waking when you focus its chat; unused for 30 seconds, it pauses again.", default: true, code: "CloudTunables.wakeOnIntent")
+
+    static var all: [TunableDescriptor] { [updateCloudMachinesAutomatically.descriptor, wakeOnIntent.descriptor] }
 }

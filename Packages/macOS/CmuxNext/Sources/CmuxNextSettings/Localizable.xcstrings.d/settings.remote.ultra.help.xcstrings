@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.remote.ultra.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يرسل بيانات إصلاح لتبقى الشبكات التي تفقد الحزم سريعة. الوضع الدائم يستهلك 2 إلى 3 أضعاف البيانات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Šalje podatke za popravak da mreže koje gube pakete ostanu brze. Uvijek troši 2 do 3 puta više podataka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sender reparationsdata, så netværk med pakketab forbliver hurtige. Altid bruger 2 til 3 gange dataene."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sendet Reparaturdaten, damit verlustbehaftete Netzwerke schnell bleiben. Immer nutzt 2- bis 3-mal so viele Daten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envía datos de reparación para que las redes con pérdidas sigan siendo rápidas. Siempre usa unas 2 o 3 veces los datos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envoie des données de réparation pour que les réseaux avec pertes restent rapides. Toujours utilise 2 à 3 fois plus de données."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Invia dati di riparazione, così le reti che perdono pacchetti restano veloci. Sempre usa 2-3 volte i dati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "修復データを送り、パケットを失うネットワークでも速さを保ちます。「常に」ではデータ量が約 2〜3 倍になります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ញើទិន្នន័យជួសជុល ដើម្បីឲ្យបណ្ដាញដែលបាត់កញ្ចប់នៅតែលឿន។ ជានិច្ច ប្រើទិន្នន័យ 2 ទៅ 3 ដង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "복구 데이터를 보내 손실이 많은 네트워크에서도 빠르게 유지합니다. 항상은 데이터를 2~3배 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sender reparasjonsdata så nettverk med pakketap holder seg raske. Alltid bruker 2 til 3 ganger dataene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wysyła dane naprawcze, aby sieć gubiąca pakiety pozostała szybka. Zawsze zużywa 2–3 razy więcej danych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envia dados de reparo para que redes com perdas continuem rápidas. Sempre usa de 2 a 3 vezes os dados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отправляет данные для восстановления, чтобы сеть с потерями оставалась быстрой. «Всегда» расходует в 2–3 раза больше данных."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่งข้อมูลซ่อมแซมเพื่อให้เครือข่ายที่ทำแพ็กเก็ตหายยังคงเร็ว เสมอจะใช้ข้อมูลราว 2 ถึง 3 เท่า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kayıplı ağlar hızlı kalsın diye onarım verisi gönderir. Her zaman, 2 ila 3 kat veri kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Надсилає дані для відновлення, щоб мережа з утратами лишалася швидкою. «Завжди» використовує у 2–3 рази більше даних."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gửi dữ liệu sửa lỗi để mạng bị mất gói vẫn nhanh. Luôn luôn dùng gấp 2 đến 3 lần dữ liệu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "发送修复数据，让丢包的网络保持流畅。“始终”会使用 2 到 3 倍的数据量。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "傳送修復資料，讓掉封包的網路維持順暢。「永遠」會使用 2 到 3 倍的資料量。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

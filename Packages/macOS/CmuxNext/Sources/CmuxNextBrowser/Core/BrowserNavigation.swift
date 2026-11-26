@@ -25,6 +25,9 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
     /// none, so its tabs show cmux's pages; so does an agent-driven
     /// Chromium tab for a certificate error.
     public var engineShowsPage = false
+    /// Loading the address again would send a form again or reload a form's result (the failed navigation was a
+    /// POST, or the shown document came from one): a retry is the person's choice, never automatic (BR-R1).
+    public var sentForm = false
 
     public init(domain: String, code: Int, message: String, failingURL: URL? = nil) {
         self.domain = domain
@@ -50,6 +53,17 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
         return domain == NSURLErrorDomain && [
             NSURLErrorServerCertificateUntrusted, NSURLErrorServerCertificateHasBadDate,
             NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
+        ].contains(code)
+    }
+
+    /// A failure of the network on the way to a reachable page (offline, timed out, the connection dropped or
+    /// could not be made, the name did not resolve): loading the address again later is likely to work, so the error
+    /// page reloads it by itself while it is in sight (Chrome's `NetErrorAutoReloader`), unless ``sentForm``.
+    public var isTransientNetworkFailure: Bool {
+        guard domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost,
+            NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed,
         ].contains(code)
     }
 

@@ -40,9 +40,9 @@ fn the_three_plans_hours_divide_by_the_standard_machine() {
 #[test]
 fn reads_the_plan_wrapped_as_a_read_answer() {
     let inner = plan(1, 8, json!(2), json!(90_000));
-    assert_eq!(read(&json!({ "value": inner.clone() })), read(&inner));
-    assert_eq!(read(&json!({ "plan": inner.clone() })), read(&inner));
-    assert_eq!(read(&json!({ "value": { "plan": inner.clone() } })), read(&inner));
+    assert_eq!(read(&json!({ "value": inner })), read(&inner));
+    assert_eq!(read(&json!({ "plan": inner })), read(&inner));
+    assert_eq!(read(&json!({ "value": { "plan": inner } })), read(&inner));
 }
 
 #[test]

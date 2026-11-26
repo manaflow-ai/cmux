@@ -10,6 +10,7 @@
 
   // The terminal theme, and its own colors (appearance.themeEdits of that theme).
   "appearance.theme": "Soft Blue",
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#0b1d1f", "foreground": "#e6f7f5", "selection": "#17494a", "accent": "#39c5bb" },
   "appearance.accent": "theme",
 
