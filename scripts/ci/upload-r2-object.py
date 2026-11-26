@@ -138,6 +138,14 @@ def _read_existing_object(
     with _open_signed_request(get, timeout=120) as response:
         existing = response.read()
     actual_digest = hashlib.sha256(existing).hexdigest()
+    if actual_digest != expected_digest and args.keep_existing:
+        # Several valid encodings exist for one subject (a Sigstore bundle is
+        # signed afresh on every run): the first published bytes stay.
+        print(
+            f"Kept the published object: s3://{args.bucket}/{args.key} "
+            f"(published={actual_digest}, this run={expected_digest})"
+        )
+        return True
     if actual_digest != expected_digest:
         raise RuntimeError(
             f"immutable R2 object already exists with a different SHA-256: "
@@ -162,8 +170,18 @@ def main() -> int:
         action="store_true",
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
+    parser.add_argument(
+        "--keep-existing",
+        action="store_true",
+        help=(
+            "With --write-once, keep an existing object even when its bytes differ, and never write over it "
+            "(for an object any of several byte strings satisfies, such as a re-signed attestation bundle)"
+        ),
+    )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     args = parser.parse_args()
+    if args.keep_existing and not args.write_once:
+        parser.error("--keep-existing needs --write-once")
     if not args.content_type:
         content_type, encoding = mimetypes.guess_type(args.file)
         # A compressed file is not the unencoded type returned by guess_type.
