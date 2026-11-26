@@ -512,5 +512,39 @@ class Units(unittest.TestCase):
             docs.rewrite("on:\n  pull_request:\n", "w.yml")
 
 
+class FallbackListsFilesFromGit(unittest.TestCase):
+    """The gate's API reads failed (403) on every sampled run of 11-25, so a full-ci label called ci.yml a second
+    time on small code PRs; the merge commit the gate checks out lists the same files."""
+
+    def test_the_merge_commit_lists_the_changed_files(self) -> None:
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", "-b", "base", tmp], check=True)
+            Path(tmp, "a.md").write_text("a")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            subprocess.run([*git, "checkout", "-qb", "head"], check=True)
+            Path(tmp, "web").mkdir()
+            Path(tmp, "web", "x.ts").write_text("x")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "head"], check=True)
+            self.assertIsNone(docs.merge_commit_files(tmp))  # not a merge commit
+            subprocess.run([*git, "checkout", "-q", "base"], check=True)
+            Path(tmp, "b.md").write_text("b")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "base 2"], check=True)
+            subprocess.run([*git, "merge", "-q", "--no-ff", "--no-edit", "head"], check=True)
+            files = docs.merge_commit_files(tmp)
+            self.assertEqual(files, ["web/x.ts"])
+            # A code file the git listing found: the label event's own ci.yml run covers it, nothing is called.
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"base": {"ref": "feat-cmux-next"}}}
+            calls = {"ci.yml": {"branches": None, "types": ["labeled"]}}
+            self.assertEqual(docs.plan_fallback(event, calls, files, None, None), [])
+            self.assertEqual(docs.plan_fallback(event, calls, None, None, None), ["ci.yml"])
+
+
 if __name__ == "__main__":
     unittest.main()

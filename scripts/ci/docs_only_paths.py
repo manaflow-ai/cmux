@@ -32,6 +32,7 @@ import argparse
 import datetime
 import json
 import os
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -271,6 +272,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit and its parents: the changed files come from git when the API cannot list them.
+          fetch-depth: 2
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
@@ -346,6 +349,21 @@ def _epoch(stamp: str) -> float:
     return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
 
 
+def merge_commit_files(cwd: str | None = None) -> list[str] | None:
+    """Every path the checked-out merge commit changes against the base tip (both sides of a rename, as
+    pr_router.changed_files reads them); None when HEAD is no merge commit or git fails."""
+    try:
+        parents = subprocess.run(["git", "rev-list", "--parents", "-n", "1", "HEAD"], cwd=cwd, check=True,
+                                 capture_output=True, text=True).stdout.split()
+        if len(parents) != 3:
+            return None
+        out = subprocess.run(["git", "diff", "--name-only", "--no-renames", "-z", "HEAD^1", "HEAD"], cwd=cwd,
+                             check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return [p for p in out.split("\0") if p]
+
+
 def fallback_main() -> int:
     """--fallback-plan, in the gate job: writes missing=<JSON list> to $GITHUB_OUTPUT. Any read that fails counts as
     unread, which calls more, never fewer."""
@@ -370,7 +388,14 @@ def fallback_main() -> int:
             if len(set(names)) >= total:
                 files = names + renamed_from
     except Exception as error:  # noqa: BLE001 - fail open
-        print(f"could not list the changed files ({error}): calling every due workflow", file=sys.stderr)
+        print(f"could not list the changed files ({error})", file=sys.stderr)
+    if files is None and 0 < total:
+        # The API read failed (a 403 on every gate of 11-25 19:14Z-23:49Z sampled), and calling ci.yml on a
+        # full-ci label then ran the whole CI a second time beside the run its label event already started:
+        # 23 calls, about 5.1k runner-minutes in 5.1 h. The merge commit lists the same files.
+        files = merge_commit_files()
+        if files is not None:
+            print(f"listed the changed files from the merge commit: {len(files)}")
     try:
         sha = pr["head"]["sha"]
         found: list[dict] = []

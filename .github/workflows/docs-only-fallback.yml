@@ -42,6 +42,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit and its parents: the changed files come from git when the API cannot list them.
+          fetch-depth: 2
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
