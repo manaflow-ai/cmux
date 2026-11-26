@@ -68,9 +68,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.shortcutLayout` | string | `"followLayout"` | `followLayout`, `qwertyPositions` | Keyboard Layout. Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Stable gets builds that ran a week without problems; Canary and Dev get them first. |
-| `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
+| `updates.automatic` | string | `"download"` | `off`, `notify`, `download`, `idle` | Automatic Updates. Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running. |
 | `updates.checkIntervalSeconds` | real | `3600` | 900 to 604800 | Check Every |
-| `updates.downloadAutomatically` | boolean | `true` |  | Download Updates Automatically. Off: cmux asks before downloading. It always asks before restarting. |
 | `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. One click on Update downloads, installs and restarts. Terminals and agents keep running. |
 | `updates.whatsNewInstall` | boolean | `false` |  | Install Versions from What's New. An Install button for each version listed in What's New. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
@@ -78,7 +77,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.daemon` | string | `"off"` | `off`, `every-merge` | Live Background Updates. Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
-| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running. |
 | `updates.installWhenIdleMinutes` | real | `15` | 1 to 240 | Idle Time Before Updating. How long cmux must be idle before Update When Idle installs. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
@@ -137,7 +135,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `models.spreadUsage` | boolean | `true` |  | Spread Usage Across My Subscriptions. When one subscription runs out, a chat moves to another with the same model. |
 | `agents.cacheCompact.enabled` | boolean | `true` |  | Compact Before the Cache Expires. Compacts an idle Claude chat while its cache is warm, so the next message costs less. |
 | `agents.cacheCompact.minContextPercent` | real | `30` | 10 to 95 | Only Above Context Used (%). Chats using less of their context window than this are left as they are. |
-| `agents.cacheCompact.minContextTokens` | real | `60000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
+| `agents.cacheCompact.minContextTokens` | real | `20000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
 | `agents.coldWake.enabled` | boolean | `true` |  | Batch Wakes of Cold Chats. Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once. |
 | `agents.coldWake.compact` | boolean | `true` |  | Compact Cold Chats Before Waking. A large chat whose cache expired is compacted before batched messages arrive. |
 | `agents.coldWake.compactAboveTokens` | real | `100000` | 10000 to 500000 | Compact Cold Chats Above (Tokens). Cold chats with less context than this are woken without compacting. |
@@ -260,6 +258,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.dividerHitWidth` | real |  | 1 to 24 | Divider Drag Width |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
 | `appearance.metrics.sidebarRowHeight` | real |  | 20 to 48 | Workspace Row Height |
+| `appearance.metrics.sidebarRowInset` | real |  | 0 to 24 | Workspace Row Inset. The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's. |
+| `appearance.metrics.sidebarRowPadding` | real |  | 0 to 24 | Workspace Row Padding. Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's. |
+| `appearance.metrics.sidebarRowGap` | real |  | 0 to 12 | Workspace Row Gap. The gap between two sidebar rows. Unset is the density's. |
+| `appearance.metrics.sidebarRowHeightWithSubtitle` | real |  | 28 to 96 | Two-Line Row Height. A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line. |
+| `appearance.metrics.toolbarButtonSize` | real |  | 16 to 40 | Toolbar Button Size. The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's. |
+| `appearance.metrics.toolbarButtonGap` | real |  | 0 to 16 | Toolbar Button Gap. The space between neighboring icon buttons in the title bar. Unset is three tenths of a button. |
+| `appearance.metrics.toolbarButtonCornerRadius` | real |  | 0 to 20 | Toolbar Button Corner. The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does. |
+| `appearance.metrics.toolbarButtonActiveFill` | real |  | 0 to 0.4 | Active Button Fill. How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill. |
+| `appearance.metrics.headerDivider` | real |  | 0 to 1 | Header Divider. How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's. |
+| `appearance.metrics.spacingScale` | real |  | 0.5 to 2 | Spacing. One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's. |
+| `appearance.metrics.composerPadding` | real |  | 0 to 24 | Composer Padding. The room from the chat prompt box's sides to its text and controls. Unset is the density's. |
+| `appearance.metrics.composerMinHeight` | real |  | 32 to 160 | Composer Height. The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's. |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
 | `appearance.liquidGlass` | boolean | `false` |  | Liquid Glass. Off draws the composer, menus, popovers and cards as solid surfaces with a plain border. |
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out. |

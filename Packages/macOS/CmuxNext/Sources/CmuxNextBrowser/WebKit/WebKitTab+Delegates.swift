@@ -49,6 +49,13 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        // GitHub's return to the App's Setup URL for this build's connect: the app finishes it, and no page loads.
+        if navigationAction.targetFrame?.isMainFrame ?? true {
+            let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
+            if BrowserExternalApps.shared.handOffReturn(url, firstPage: first, close: { [weak self] in self?.emit(.close) }) {
+                return decisionHandler(.cancel, preferences)
+            }
+        }
         // An Open Desktop page is a Cloud machine's screen, reachable only from a Chromium tab over
         // the app's Cloud tunnel; in WebKit it would be this Mac's own loopback.
         if BrowserNavigationGuard.isCloudDesktop(url) { return decisionHandler(.cancel, preferences) }

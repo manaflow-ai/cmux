@@ -644,7 +644,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
+                                    message: [MetricKey.spacingScale, .toolbarButtonActiveFill, .headerDivider].map(\.rawValue).contains(name)
+                                        ? "expected a number from \(range.lowerBound) to \(range.upperBound); clamped"
+                                        : "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }
