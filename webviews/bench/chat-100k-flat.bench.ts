@@ -492,13 +492,14 @@ try {
       const pages: { page: Page; cdp: CDPSession }[] = [];
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
-        if (process.env.INJECT_CSS) await page.addInitScript((css) => {
-          document.addEventListener("DOMContentLoaded", () => {
-            const st = document.createElement("style");
-            st.textContent = css;
-            document.head.append(st);
-          });
-        }, process.env.INJECT_CSS);
+        if (process.env.INJECT_CSS)
+          await page.addInitScript((css) => {
+            document.addEventListener("DOMContentLoaded", () => {
+              const st = document.createElement("style");
+              st.textContent = css;
+              document.head.append(st);
+            });
+          }, process.env.INJECT_CSS);
         await page.goto(urlFor(index));
         await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
           timeout: 180_000,
@@ -1146,6 +1147,24 @@ try {
             ).metrics.map((m) => [m.name, m.value]),
           );
         const m0 = await metric();
+        const traceEvents: {
+          name: string;
+          ph: string;
+          dur?: number;
+          tid: number;
+          pid: number;
+          ts: number;
+          cat: string;
+        }[] = [];
+        const tracing = process.env.ROUND_TRACE && round === 1;
+        const onData = (e: { value: typeof traceEvents }) => traceEvents.push(...e.value);
+        if (tracing) {
+          shownCdp.on("Tracing.dataCollected", onData);
+          await shownCdp.send("Tracing.start", {
+            categories: "devtools.timeline,disabled-by-default-devtools.timeline,blink,cc,v8,gpu,toplevel",
+            transferMode: "ReportEvents",
+          });
+        }
         await shownPage.evaluate(() => {
           const w = window as unknown as {
             __rm?: { removed: number; added: number; kinds: Record<string, number>; obs: MutationObserver };
@@ -1160,6 +1179,11 @@ try {
           const size = (n: Node) => (n instanceof Element ? 1 + n.getElementsByTagName("*").length : 0);
           st.obs = new MutationObserver((ms) => {
             for (const m of ms) {
+              if (m.type === "attributes") {
+                const key = `attr ${(m.target as Element).className?.toString().slice(0, 30)} ${m.attributeName}`;
+                st.kinds[key] = (st.kinds[key] ?? 0) + 1;
+                continue;
+              }
               m.removedNodes.forEach((n) => {
                 st.removed += size(n);
                 if (n instanceof Element) {
@@ -1170,7 +1194,7 @@ try {
               m.addedNodes.forEach((n) => (st.added += size(n)));
             }
           });
-          st.obs.observe(document.body, { childList: true, subtree: true });
+          st.obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
           w.__rm = st;
         });
         if (profile && round === 0) {
@@ -1200,6 +1224,33 @@ try {
             }
           }),
         );
+        if (tracing) {
+          const done = new Promise((r) => shownCdp.once("Tracing.tracingComplete", r));
+          await shownCdp.send("Tracing.end");
+          await done;
+          shownCdp.off("Tracing.dataCollected", onData);
+          // Self time per event name on the busiest thread (the renderer main thread), complete events only.
+          const byTid = new Map<string, number>();
+          for (const e of traceEvents)
+            if (e.ph === "X" && e.dur) byTid.set(`${e.pid}:${e.tid}`, (byTid.get(`${e.pid}:${e.tid}`) ?? 0) + e.dur);
+          const main = [...byTid].sort((x, y) => y[1] - x[1])[0]?.[0];
+          const evs = traceEvents
+            .filter((e) => e.ph === "X" && e.dur && `${e.pid}:${e.tid}` === main)
+            .sort((x, y) => x.ts - y.ts || y.dur! - x.dur!);
+          const self = new Map<string, number>();
+          const stack: { end: number; name: string }[] = [];
+          for (const e of evs) {
+            while (stack.length && stack.at(-1)!.end <= e.ts) stack.pop();
+            if (stack.length) self.set(stack.at(-1)!.name, (self.get(stack.at(-1)!.name) ?? 0) - e.dur!);
+            self.set(e.name, (self.get(e.name) ?? 0) + e.dur!);
+            stack.push({ end: e.ts + e.dur!, name: e.name });
+          }
+          const top = [...self]
+            .sort((x, y) => y[1] - x[1])
+            .slice(0, 18)
+            .map(([k, v]) => `${k} ${(v / 1000).toFixed(0)}`);
+          console.log(`  ${name} round 1 trace self ms: ${top.join(", ")}`);
+        }
         const m1 = await metric();
         const d = (k: string) => m1[k] - m0[k];
         console.log(
