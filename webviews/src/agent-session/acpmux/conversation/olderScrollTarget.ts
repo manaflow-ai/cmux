@@ -1,4 +1,5 @@
 import { layoutScrollTop, physicalScrollTop, type ScrollCoordinateNode } from "./scrollCoordinates";
+import { writeScrollTop } from "./scrollController";
 
 /// A native scrollbar drag can move into the estimated room above the rows before the next
 /// history page arrives. Keep the reader's requested logical position while the room is consumed,
@@ -25,6 +26,6 @@ export function olderScrollTargetTop(target: number | undefined, room: number): 
 export function holdOlderScrollTarget(node: ScrollCoordinateNode, target: number, room: number): boolean {
   const next = olderScrollTargetTop(target, room);
   if (next !== undefined && Math.abs(layoutScrollTop(node) - next) > 0.5)
-    node.scrollTop = physicalScrollTop(node, next);
+    writeScrollTop(node, physicalScrollTop(node, next), "older");
   return room <= target + 0.5;
 }

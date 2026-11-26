@@ -184,6 +184,10 @@ on:
         description: deploy-production with image_rollback only, which production deploy of the rollback this is
         type: string
         default: ""
+      image_roll_redeploy:
+        description: deploy-production with image_rollback only, set by image-roll-settle; image_rollback is a roll whose production deploy never ran, deployed again (not a rollback)
+        type: boolean
+        default: false
 
 concurrency:
   # A label event for any other label gets a group of its own, so it never
@@ -1137,8 +1141,9 @@ jobs:
   # After an image roll commit's production deploy and smoke (cloud-vm-image-roll.yml, subject "cmux-vm: image
   # roll "), and after each production deploy of a rollback (subject "cmux-vm: image rollback ", or the
   # deploy-production dispatch with image_rollback this job sends). `auto-roll.ts settle` decides:
-  #   roll      green (the product create booted the image) records it. Anything else (failed, cancelled, timed
-  #             out, skipped) lands a rollback commit that takes the image out of both lists
+  #   roll      green (the product create booted the image) records it. A deploy that never ran (skipped: its
+  #             check failed first) dispatches deploy-production again with image_roll_redeploy, at most
+  #             ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out) lands a rollback commit that takes the image out of both lists
   #             (image-roll-push.sh rollback), first or not, so a newer roll's own rollback can never bring it
   #             back; only an image already gone from both lists needs nothing. A cancel proves nothing: the
   #             deploy queue never cancels a running deploy, so a cancel is a person or a timeout.
@@ -1200,6 +1205,7 @@ jobs:
           IN_IMAGE: ${{ inputs.image_rollback }}
           IN_RUN: ${{ inputs.image_roll_run }}
           IN_ATTEMPT: ${{ inputs.image_rollback_attempt }}
+          IN_REDEPLOY: ${{ inputs.image_roll_redeploy }}
           DEPLOY: ${{ needs.deploy-production.result }}
           PRODUCT: ${{ needs.smoke-production.outputs.product }}
           BOOT: ${{ needs.smoke-production.outputs.boot_image }}
@@ -1212,6 +1218,7 @@ jobs:
             if [[ "$MESSAGE" == "cmux-vm: image rollback "* ]]; then kind=rollback; fi
           else
             run="$IN_RUN" image="$IN_IMAGE" kind=rollback attempt="$IN_ATTEMPT"
+            if [ "$IN_REDEPLOY" = true ]; then kind=roll; fi
             [[ "$run" =~ ^[0-9]{1,20}$ && "$image" =~ ^cloud-native-auto-[a-z0-9-]{1,44}$ && "$attempt" =~ ^[1-9][0-9]?$ ]] \
               || { echo "::error title=Image roll::bad image_rollback, image_roll_run or image_rollback_attempt"; exit 1; }
           fi
@@ -1295,11 +1302,14 @@ jobs:
           IMAGE: ${{ steps.roll.outputs.image }}
           ROLL: ${{ steps.roll.outputs.run }}
           NEXT: ${{ steps.roll.outputs.next }}
+          KIND: ${{ steps.roll.outputs.kind }}
         run: |
           set -euo pipefail
+          redeploy=false; what="rollback is not verified yet"
+          if [ "$KIND" = roll ]; then redeploy=true what="roll's production deploy did not run"; fi
           gh workflow run cmux-vm.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f action=deploy-production \
-            -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT"
-          echo "::warning title=Image rollback::${IMAGE}'s rollback is not verified yet; production deploy ${NEXT} dispatched"
+            -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT" -f image_roll_redeploy="$redeploy"
+          echo "::warning title=Image ${KIND}::${IMAGE}'s ${what}; production deploy ${NEXT} dispatched"
       - name: Record the production smoke and any rollback
         if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
         env:
@@ -1544,10 +1554,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
