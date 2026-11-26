@@ -88,6 +88,22 @@ jobs:
           # A batch run or probe tests inputs.sha; under the batch caller github.sha is its tip.
           ref: ${{ inputs.sha || github.sha }}
 
+      # The sweep builds acpmux's test profile (several GiB of target) and then runs thousands of seeds; a pool host
+      # admitted at the pool's per-job need had too little left (run 45768539377, 2026-11-26: "No space left on
+      # device", 50 MB free, every leg). scripts/ci/pool-make-room.sh (cmux#58361) runs the pool hook's room phase
+      # with this job's need, bounded; it never fails the job and does nothing off a pool host or before it lands.
+      - name: Make room on the pool host
+        if: runner.os == 'Linux' && startsWith(runner.name, 'cmux-runner-pool-')
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          if [ -x scripts/ci/pool-make-room.sh ]; then
+            scripts/ci/pool-make-room.sh "$((25 * 1024 * 1024 * 1024))" 120
+          else
+            df -h "$GITHUB_WORKSPACE" || true
+          fi
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
