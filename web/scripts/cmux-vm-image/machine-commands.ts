@@ -102,6 +102,15 @@ DEVICE_NAME="snapshot-websocket-smoke-$$"
 T0="$(date +%s%3N)"
 TIMELINE=""
 mark() { TIMELINE="$TIMELINE $1=+$(( $(date +%s%3N) - T0 ))ms"; }
+# set -e alone stops silently: rebake run 45875662667 failed this step with
+# empty stdout and stderr. Name the line, the command, its status, the
+# timeline and the last RPC answers ($ROOT/answers), so a red says what broke.
+on_error() {
+  local status=$? line=$1 command=$2
+  mark failed
+  echo "cmux-tui websocket smoke: line $line exited $status: $command (timeline:$TIMELINE); answers: $(tail -c 600 "$ROOT/answers" 2>/dev/null | tr -s '[:space:]' ' '); connector stderr: $(tail -c 300 "$ROOT/connect.err" 2>/dev/null | tr -s '[:space:]' ' ')" >&2
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 CONNECT_PID=""
 INVITATION_ID=""
 DEVICE_FINGERPRINT=""
@@ -110,7 +119,11 @@ PROCESS_ID=""
 rm -rf "$ROOT"
 mkdir -m 700 -p "$ROOT/state"
 rpc() {
-  "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
+  local out status=0
+  out="$("$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1")" || status=$?
+  printf '%s\n' "$out" >>"$ROOT/answers"
+  printf '%s\n' "$out"
+  return "$status"
 }
 cleanup() {
   if [ -n "$CONNECT_PID" ]; then

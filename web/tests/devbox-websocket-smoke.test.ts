@@ -52,7 +52,8 @@ case "$1 $2 \${3:-}" in
       exit 1
     fi
     case "$REQUEST" in
-      *'"capabilities"'*) echo '{"type":"capabilities"}' ;;
+      *'"capabilities"'*)
+        if [ -n "\${FAKE_BAD_CAPABILITIES:-}" ]; then echo '{"type":"error","message":"fake refusal"}'; else echo '{"type":"capabilities"}'; fi ;;
       *'"open-workspace"'*) echo '{"id":"ws-1"}' ;;
       *'"spawn-process"'*) printf '%s' "$REQUEST" >"$F/spawn"; echo '{"process":"proc-1"}' ;;
       *'"snapshot-process-terminal"'*)
@@ -112,6 +113,15 @@ describe("cmux-tui WebSocket smoke", () => {
     expect(result.stderr).toContain("the connector never recorded the daemon in its state dir, not within 1s of the approval");
     expect(result.stderr).toMatch(/timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms gave-up=\+\d+ms/);
     expect(result.stderr).not.toContain("no known daemon matches this route");
+  }, 30_000);
+
+  // Rebake run 45875662667: a set -e stop printed nothing at all.
+  test("a check that fails after the connect names its line, command and the RPC answer", async () => {
+    const result = await runSmoke({ FAKE_BAD_CAPABILITIES: "1" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/cmux-tui websocket smoke: line \d+ exited 1: jq -e '\.type == "capabilities"'/);
+    expect(result.stderr).toMatch(/timeline: connector=\+\d+ms pending=\+\d+ms approved=\+\d+ms pinned=\+\d+ms failed=\+\d+ms/);
+    expect(result.stderr).toContain("fake refusal");
   }, 30_000);
 
   test("a connector that exits before its request is pending fails at once with its stderr", async () => {
