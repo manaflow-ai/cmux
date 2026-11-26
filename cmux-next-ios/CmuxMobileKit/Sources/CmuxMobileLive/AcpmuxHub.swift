@@ -1011,7 +1011,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             let previous = promptChain
             // The files already uploading since their pick go with this prompt; emptying the
             // composer after Send does not cancel them.
-            let prestaged = prestager.claim(attachments)
+            let prestaged = prestager.claim(attachments, directory: baseDirectory)
             let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }

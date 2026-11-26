@@ -72,7 +72,10 @@ final class AttachmentPrestager {
             entry.task.cancel()
             entries[id] = nil
         }
-        guard let upload else { return }
+        guard let upload else {
+            cancelAll()
+            return
+        }
         for attachment in attachments where wanted.contains(attachment.id) && entries[attachment.id] == nil {
             let payload: LinkUpload.Payload
             if let data = attachment.data { payload = .data(data) } else if let url = attachment.fileURL { payload = .file(url) } else { continue }
@@ -106,10 +109,15 @@ final class AttachmentPrestager {
 
     /// Hands the early uploads of a sent prompt's attachments to it: no later ``sync(_:upload:)``
     /// (the composer emptied by Send) cancels them.
-    func claim(_ attachments: [AgentAttachment]) -> [String: Entry] {
+    func claim(_ attachments: [AgentAttachment], directory: String? = nil) -> [String: Entry] {
         var claimed: [String: Entry] = [:]
         for attachment in attachments {
-            if let entry = entries.removeValue(forKey: attachment.id) { claimed[attachment.id] = entry }
+            guard let entry = entries.removeValue(forKey: attachment.id) else { continue }
+            if entry.directory == directory {
+                claimed[attachment.id] = entry
+            } else {
+                entry.task.cancel()
+            }
         }
         return claimed
     }

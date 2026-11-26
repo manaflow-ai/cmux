@@ -153,6 +153,7 @@ public final class TerminalModel {
     /// person sends again or edits (termfix-r13 D5, T-INPUT-17).
     public internal(set) var composerNotice: String?
     @ObservationIgnored private var uploadTask: Task<Void, Never>?
+    @ObservationIgnored private var uploadAttemptID = UUID()
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
@@ -957,16 +958,38 @@ public final class TerminalModel {
             var paths: [String] = []
             for attachment in pending {
                 do {
-                    paths.append(try await uploader(try attachment.payload(), attachment.name))
+                    if let entry = claimed[attachment.id] {
+                        do {
+                            paths.append(try await entry.task.value)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            let transfer = try await attachment.transferPayload()
+                            try Task.checkCancellation()
+                            paths.append(try await uploader(transfer.payload, transfer.name))
+                        }
+                    } else {
+                        let transfer = try await attachment.transferPayload()
+                        try Task.checkCancellation()
+                        paths.append(try await uploader(transfer.payload, transfer.name))
+                    }
                 } catch {
                     guard let self else { return }
+                    guard self.uploadAttemptID == attemptID else { return }
+                    self.attachmentPrestager.cancelClaimed()
                     self.isUploading = false
+                    self.uploadTask = nil
+                    self.syncAttachmentUploads()
+                    if error is CancellationError { return }
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
             }
             guard let self else { return }
+            guard self.uploadAttemptID == attemptID else { return }
+            self.attachmentPrestager.releaseClaimed()
             self.isUploading = false
+            self.uploadTask = nil
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
             let draft = self.composerText
             if pressReturn { self.controller?.noteSent(draft) }
@@ -981,6 +1004,17 @@ public final class TerminalModel {
         }
     }
 
+    /// Stops an attachment send without discarding the draft or its tiles.
+    public func cancelAttachmentSend() {
+        guard isUploading else { return }
+        uploadAttemptID = UUID()
+        attachmentPrestager.cancelClaimed()
+        uploadTask?.cancel()
+        uploadTask = nil
+        isUploading = false
+        syncAttachmentUploads()
+    }
+
     static func message(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
@@ -988,6 +1022,7 @@ public final class TerminalModel {
 
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
+        syncAttachmentUploads()
     }
 
     /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
@@ -997,7 +1032,9 @@ public final class TerminalModel {
     }
 
     func removeAttachment(_ id: ComposerAttachment.ID) {
+        if isUploading { cancelAttachmentSend() }
         attachments.removeAll { $0.id == id }
+        syncAttachmentUploads()
         if attachments.isEmpty { attachmentError = nil }
     }
 
