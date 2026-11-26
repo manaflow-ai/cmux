@@ -69,6 +69,12 @@
       "status": "build"
     },
     {
+      "id": "design-scale-swift",
+      "generator": "scripts/cmux-next/gen-design-scale-swift.py",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift"],
+      "status": "build"
+    },
+    {
       "id": "settings-sources",
       "generator": "scripts/cmux-next/gen-settings-sources.py",
       "outputs": [
@@ -92,7 +98,13 @@
       "id": "type-scale",
       "generator": "scripts/cmux-next/gen-type-scale.py",
       "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"],
-      "inputs": ["schemas/type-scale/**"],
+      "inputs": [
+        "schemas/type-scale/**",
+        "schemas/design-scale/scene-scale.json",
+        "schemas/design-scale/design-scale.json",
+        "schemas/layout-grid/layout-grid.json",
+        "schemas/motion-scale/motion-scale.json"
+      ],
       "check": ["--check"],
       "status": "committed"
     },

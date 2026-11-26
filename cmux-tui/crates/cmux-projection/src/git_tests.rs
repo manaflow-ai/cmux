@@ -346,7 +346,7 @@ fn sixteen_parallel_reads_run_at_most_the_cap_of_git_processes() {
     let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
     let readme = projection.manifest.resolve("README.md").unwrap();
     let main_rs = projection.manifest.resolve("crate/src/main.rs").unwrap();
-    let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources.clone()));
+    let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
     assert_eq!(blobs.pooled(), 0, "a mount nobody read starts no git process");
 
     let start = Arc::new(std::sync::Barrier::new(16));
