@@ -267,6 +267,11 @@ class StoreAndCheckTest(unittest.TestCase):
         self.assertEqual(self.run_cli("compare", a, a), 0)
         self.assertEqual(self.run_cli("compare", a, b), 1)
         self.assertEqual(self.run_cli("compare", a, self.root / "nope.png"), 2)
+        # A crash (here: the diff picture's directory is a file) is an error, never a failed comparison that
+        # --warn-only would turn green.
+        blocker = self.root / "blocker"
+        blocker.write_text("")
+        self.assertEqual(self.run_cli("compare", a, b, "--diff-out", blocker / "d.png"), 2)
 
 
 if __name__ == "__main__":

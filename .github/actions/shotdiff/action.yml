@@ -62,8 +62,11 @@ runs:
         args=(check --manifest "$MANIFEST" --store "$STORE" --shots "$SHOTS" --title "$TITLE"
               --report "$GITHUB_STEP_SUMMARY" --json-out "$out")
         [ -n "$DIFF_DIR" ] && args+=(--diff-dir "$DIFF_DIR")
+        # GitHub runs bash with -e: let a failed check reach the warn-only branch below.
+        set +e
         "$RUNNER_TEMP/shotdiff-venv/bin/python" -I "$SCRIPT" "${args[@]}"
         status=$?
+        set -e
         echo "json=$out" >> "$GITHUB_OUTPUT"
         if [ "$status" = 0 ]; then echo "result=pass" >> "$GITHUB_OUTPUT"; exit 0; fi
         echo "result=fail" >> "$GITHUB_OUTPUT"

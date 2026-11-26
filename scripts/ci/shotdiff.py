@@ -49,6 +49,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -573,6 +574,9 @@ def main(argv: list[str] | None = None) -> int:
         return _run(args)
     except ShotdiffError as error:
         print(f"shotdiff: {error}", file=sys.stderr)
+        return 2
+    except Exception:  # noqa: BLE001 - a crash is an error (2), never a failed comparison (1) warn-only would hide
+        traceback.print_exc()
         return 2
 
 
