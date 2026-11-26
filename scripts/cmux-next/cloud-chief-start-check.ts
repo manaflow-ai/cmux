@@ -74,7 +74,8 @@ function call(binary: string, request: Record<string, unknown>, timeoutMs: numbe
       if (line.ok === true) resolve(line.body);
       else reject(new Error(`${request.call}: ${JSON.stringify(line.error).slice(0, 800)}`));
     });
-    // The tail (the owner's Claude credential) follows the request's newline, as `cmux cloud api` takes it: stdin only.
+    // The tail after the first newline is the owner's Claude credential, as the Mac app sends it: stdin only,
+    // never in argv or the request JSON.
     child.stdin.end(tail ? `${JSON.stringify(request)}\n${tail}` : JSON.stringify(request));
   });
 }
@@ -97,6 +98,19 @@ const unitFacts = async (exec: Exec) => {
   return Object.fromEntries(out.split("\n").map((l) => l.split("=", 2) as [string, string]));
 };
 const journal = (exec: Exec) => exec(asRoot("journalctl -u cmux-chief.service --no-pager -o cat -n 60"), 30_000).then((r) => r.stdout.trim().slice(-2500));
+/** What a missing reply leaves on the machine: the Chief's log, the daemon that carries its cloud conversation, its turn traces. */
+const replyEvidence = (exec: Exec) =>
+  exec(
+    asRoot(
+      [
+        "echo '== cmux-chief.service'; journalctl -u cmux-chief.service --no-pager -o short-iso -n 120 | tail -c 6000",
+        "echo '== daemon on the Chief socket'; s=$(head -n 1 /etc/cmux/daemon-socket 2>/dev/null); echo \"socket $s\"; ps -eo pid,etimes,args | grep '[c]mux-tui' | head -5",
+        "echo '== journal since 8 min, cloud and daemon lines'; journalctl --no-pager -o short-iso --since '-8 min' | grep -iE 'cmux-tui|cloud|conversation|websocket|subscri|wake|turn|acpmux|claude|error|warn' | grep -v ' sudo' | tail -n 120 | tail -c 9000",
+        "echo '== traces'; d=/home/cmux/.cmux/mux/optchat/traces; ls -lt $d 2>/dev/null | head -5; f=$(ls -t $d 2>/dev/null | head -n 1); [ -n \"$f\" ] && tail -c 3000 \"$d/$f\"",
+      ].join("; "),
+    ),
+    60_000,
+  ).then((r) => `${r.stdout.trim()}\n${r.stderr.trim().slice(-500)}`, (e) => `(evidence failed: ${String(e).slice(0, 300)})`);
 
 const REPLY_DEADLINE_MS = 240_000;
 const rowText = (m: any): string =>
@@ -217,7 +231,10 @@ async function main(): Promise<number> {
     await J.step("Chief host on the machine", async () => {
       const r = await exec("command -v optchat-chief || test -x /home/cmux/.local/bin/optchat-chief && echo local || echo absent");
       const found = r.stdout.trim().split("\n").at(-1) ?? "";
-      if (found !== "absent") return { value: null, detail: `image has ${found}` };
+      // An image baked before cmux#56352 has a unit that never reads the turn credential chief_start writes.
+      const unit = await exec("grep -c turn.env /etc/systemd/system/cmux-chief.service 2>/dev/null || echo 0");
+      const reads = (unit.stdout.trim().split("\n").at(-1) ?? "0") !== "0" ? "reads" : "does not read";
+      if (found !== "absent") return { value: null, detail: `image has ${found}; its unit ${reads} /run/cmux-chief/turn.env; credential mode: ${auth.mode}` };
       await upload(api, machine, exec, readFileSync(binaryPath), "/home/cmux/.local/bin/optchat-chief");
       return { value: null, detail: "absent from the image: this run's build in ~/.local/bin" };
     });
@@ -292,7 +309,7 @@ async function main(): Promise<number> {
       const sentAt = Date.now();
       await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
       const reply = await chiefReply(api, conversation, chief, seen, word, REPLY_DEADLINE_MS, J.secrets);
-      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await journal(exec)}`);
+      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await replyEvidence(exec)}`);
       return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
@@ -301,7 +318,7 @@ async function main(): Promise<number> {
       const r = await api.raw("POST", "/v1/chief/messages", { chiefId: chief, text: "Reply with only the word again", clientMessageId: `chief-start-${run}-web` }, 30_000);
       // The platform's /c/ surface (cmux-platform#1637) signs in with its page cookie; where this Worker does not
       // serve it to a bearer, the step says so and the reply check above stands.
-      if (r.status === 404) return { value: null, detail: `POST /v1/chief/messages is not deployed on ${backend.api} (404)` };
+      if (r.status === 404 || r.status === 401 || r.status === 403) return { value: null, detail: `POST /v1/chief/messages answered HTTP ${r.status} to a bearer on ${backend.api}; not read here` };
       if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
       const reply = await chiefReply(api, conversation, chief, seen, "again", REPLY_DEADLINE_MS, J.secrets);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
