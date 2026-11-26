@@ -55,7 +55,7 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
                    'published-build', 'check-nightly-app-store-shelf',
                    'build-nightly-inputs', 'build-nightly-remote-daemon', 'check-nightly-webviews', 'early-nightly-webviews', 'republish-nightly-next', 'visual-gate-nightly-verdict')
 # Portable credentialed jobs use one-job owned Linux VMs, including write-token controls.
-EPHEMERAL_CONTROL_JOBS = ('runner-preflight', 'decide', 'await-release-surface-ack', 'pick-nightly-build-runner', 'attest-nightly-remote-daemon', 'pick-nightly-sign-runner', 'find-nightly-next-recovery', 'route-visual-gate-nightly', 'report-visual-gate-nightly', 'report-nightly-fix-forward', 'pick-nightly-next-signer', 'published-in', 'retry-nightly-next', 'fixit-handoff', 'report-nightly-failure', 'close-nightly-failure-issue')
+EPHEMERAL_CONTROL_JOBS = ('runner-preflight', 'decide', 'await-release-surface-ack', 'pick-nightly-build-runner', 'attest-nightly-remote-daemon', 'pick-nightly-sign-runner', 'find-nightly-next-recovery', 'route-visual-gate-nightly', 'report-visual-gate-nightly', 'report-nightly-fix-forward', 'pick-nightly-next-signer', 'published-in', 'retry-nightly-next', 'fixit-handoff', 'report-nightly-failure', 'close-nightly-failure-issue', 'report-nightly-shelf-red')
 EPHEMERAL_PUBLISHER_JOBS = ('promote-nightly-next', 'promote-nightly-next-acked', 'publish-nightly', 'keep-published-dsyms', 'republish-nightly-deltas')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
