@@ -182,6 +182,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-feed"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
@@ -506,6 +519,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-feed",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",

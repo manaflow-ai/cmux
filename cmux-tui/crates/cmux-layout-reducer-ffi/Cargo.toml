@@ -7,7 +7,7 @@ license = "GPL-3.0-or-later"
 publish = false
 # In cmux-app-ffi's workspace (its Cargo.lock), outside cmux-tui's.
 workspace = "../cmux-app-ffi"
-description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions, NEXT Cloud's configuration rules, the cloud task follower, NEXT Cloud's machine record and rules, the Cloud action handlers' rules, the window handlers' rules and the WebRTC screen stream's rules"
+description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions, NEXT Cloud's configuration rules, the cloud task follower, NEXT Cloud's machine record and rules, the Cloud action handlers' rules, the window handlers' rules, the WebRTC screen stream's rules and the Feed's rules"
 
 
 [lib]
@@ -27,6 +27,8 @@ cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 # The WebRTC screen stream's rules (src/screen.rs: `screen_*`).
 cmux-rd-screen = { path = "../cmux-rd-screen" }
 cmux-tab-discard = { path = "../cmux-tab-discard" }
+# The Feed's rules (src/app_feed.rs: `app_feed_*`).
+cmux-app-feed = { path = "../cmux-app-feed" }
 cmux-browser-rules = { path = "../cmux-browser-rules" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 cmux-window-rules = { path = "../cmux-window-rules" }
