@@ -174,6 +174,8 @@ fn hub() -> Arc<Hub> {
 /// One line a client read, kept small: a long hold reads hundreds of thousands.
 struct Ev {
     at: Instant,
+    /// The line's length.
+    bytes: usize,
     /// A response's id.
     id: Option<i64>,
     result: Option<Value>,
@@ -228,6 +230,7 @@ impl Client {
                 let ev = match &m {
                     None => Ev {
                         at,
+                        bytes: line.len(),
                         id: v.get("id").and_then(Value::as_i64),
                         result: v.get("result").cloned(),
                         error: v.get("error").cloned(),
@@ -238,6 +241,7 @@ impl Client {
                     Some(_) if !notes => continue,
                     Some(name) => Ev {
                         at,
+                        bytes: line.len(),
                         id: None,
                         result: None,
                         error: None,
@@ -884,6 +888,24 @@ async fn measure(
         ("gated_live_events", delta("gatedLiveEvents")),
         ("link_replaced", u64::from(replaced)),
     ]);
+    // What A's client read from the change's end to the fresh mark, by 100 ms: whether the
+    // carry is a trickle (bytes ahead of the mark) or a wait (nothing, then everything).
+    {
+        let log = ca.log.lock().unwrap();
+        let mut buckets = BTreeMap::<u64, (u64, u64, BTreeMap<String, u64>)>::new();
+        for e in log.iter().skip(from).filter(|e| e.at >= end && e.at <= at) {
+            let b = buckets.entry((e.at - end).as_millis() as u64 / 100 * 100).or_default();
+            b.0 += 1;
+            b.1 += e.bytes as u64;
+            *b.2.entry(e.method.clone().unwrap_or_else(|| "reply".into())).or_default() += 1;
+        }
+        let rows: Vec<Value> =
+            buckets.into_iter().map(|(t, (n, b, m))| json!([t, n, b, m])).collect();
+        println!(
+            "PAIRTIMELINE {}",
+            json!({"path": path, "condition": condition, "tag": tag, "fresh_ms": ms(at - end), "buckets": rows})
+        );
+    }
     let picked = picked.await.ok();
     let produced = echo_at(&cb, from_b, &fresh, Duration::from_secs(5)).await;
     let heard =
