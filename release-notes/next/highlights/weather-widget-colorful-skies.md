@@ -1,5 +1,6 @@
 title: Weather widgets show the sky in color
 category: improved
+docs: https://cmux.com/docs/next/settings
 gallery: apps.weather-widget/small-clear-day
 before: apps.weather-widget/small-clear-day-flat
 
