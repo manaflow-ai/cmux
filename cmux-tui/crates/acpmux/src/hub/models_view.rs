@@ -84,6 +84,20 @@ fn reported_json((id, name): &(String, String), catalog: &Catalog) -> Value {
     v
 }
 
+/// The reasoning levels the agent's model list names (`known_efforts`) on each row that declares
+/// none: a profile's or the catalog's own `efforts` win.
+fn add_variant_efforts(
+    models: &mut [Value],
+    levels: &std::collections::HashMap<String, Vec<String>>,
+) {
+    for model in models {
+        let Some(found) = model["id"].as_str().and_then(|id| levels.get(id)) else { continue };
+        if model.get("efforts").is_none() {
+            model.set("efforts", json!(found));
+        }
+    }
+}
+
 /// Adds `entry` unless its id is listed; a listed declared model gets the curated fields it lacks.
 fn push_or_fill(models: &mut Vec<Value>, entry: Value) {
     let Some(existing) = models.iter_mut().find(|m| m["id"] == entry["id"]) else {
@@ -238,6 +252,7 @@ impl Hub {
     pub async fn models_catalog(&self) -> Value {
         let cfg = self.config.read().await;
         let known = self.known_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let efforts = self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let refused = self.refused_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let probe_errors = self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let catalog = self.catalog.current();
@@ -265,6 +280,9 @@ impl Hub {
             }
             if let Some(live) = &live {
                 crate::live_models::overlay(&mut models, live);
+            }
+            if let Some(levels) = efforts.get(name) {
+                add_variant_efforts(&mut models, levels);
             }
             let disabled: &[String] = curated.as_ref().map_or(&[], |c| &c.disabled);
             drop_disabled(&mut models, disabled);
