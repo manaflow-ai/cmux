@@ -90,9 +90,10 @@ pub fn content(facts: &Facts) -> Content {
     if let Some(tab) = tab {
         let tab: Vec<&str> = tab.graphemes(true).collect();
         let said: Vec<&str> = headline.graphemes(true).collect();
-        if said.len() > tab.len() + 1 && said[..tab.len()] == tab[..] && said[tab.len()] == " " {
-            let rest = &said[tab.len() + 1..];
-            state = rest[0].to_uppercase() + &rest[1..].concat();
+        if said.len() > tab.len() + 1 && said.starts_with(&tab) && at(&said, tab.len(), " ") {
+            if let Some((head, more)) = tail(&said, tab.len() + 1).split_first() {
+                state = head.to_uppercase() + &more.concat();
+            }
         }
     }
     let subtitle: Vec<&str> = [non_empty(&state), poster].into_iter().flatten().collect();
@@ -136,12 +137,12 @@ fn clip(text: &str, limit: usize, on_word: bool) -> String {
     if all.len() <= limit || limit <= 1 {
         return text.to_owned();
     }
-    let mut cut = &all[..limit - 1];
+    let mut cut = seg(&all, 0, limit - 1);
     if on_word
         && let Some(space) = cut.iter().rposition(|grapheme| whitespace(grapheme))
         && cut.len() - space < 30
     {
-        cut = &cut[..space];
+        cut = seg(cut, 0, space);
     }
     cut.concat().trim().to_owned() + "…"
 }
@@ -185,14 +186,29 @@ fn at(line: &[&str], index: usize, text: &str) -> bool {
     line.get(index) == Some(&text)
 }
 
+/// The grapheme at `index`, "" past the end.
+fn grapheme<'s>(line: &[&'s str], index: usize) -> &'s str {
+    line.get(index).copied().unwrap_or("")
+}
+
+/// `line[from..to]`, empty when out of range.
+fn seg<'a, 's>(line: &'a [&'s str], from: usize, to: usize) -> &'a [&'s str] {
+    line.get(from..to).unwrap_or(&[])
+}
+
+/// `line[from..]`, empty past the end.
+fn tail<'a, 's>(line: &'a [&'s str], from: usize) -> &'a [&'s str] {
+    line.get(from..).unwrap_or(&[])
+}
+
 /// `^#{1,6}\s+` removed.
 fn strip_heading(line: Vec<&str>) -> Vec<&str> {
     let hashes = line.iter().take_while(|grapheme| **grapheme == "#").count();
     if !(1..=6).contains(&hashes) || !line.get(hashes).is_some_and(|g| whitespace(g)) {
         return line;
     }
-    let spaces = line[hashes..].iter().take_while(|grapheme| whitespace(grapheme)).count();
-    line[hashes + spaces..].to_vec()
+    let spaces = tail(&line, hashes).iter().take_while(|grapheme| whitespace(grapheme)).count();
+    tail(&line, hashes + spaces).to_vec()
 }
 
 /// `^(>\s?)+` removed.
@@ -204,7 +220,7 @@ fn strip_quote(line: Vec<&str>) -> Vec<&str> {
             end += 1;
         }
     }
-    line[end..].to_vec()
+    tail(&line, end).to_vec()
 }
 
 /// `^[-*+]\s+` as "• ".
@@ -213,8 +229,8 @@ fn bullet(line: Vec<&str>) -> String {
     if !marked || !line.get(1).is_some_and(|g| whitespace(g)) {
         return line.concat();
     }
-    let spaces = line[1..].iter().take_while(|grapheme| whitespace(grapheme)).count();
-    "• ".to_owned() + &line[1 + spaces..].concat()
+    let spaces = tail(&line, 1).iter().take_while(|grapheme| whitespace(grapheme)).count();
+    "• ".to_owned() + &tail(&line, 1 + spaces).concat()
 }
 
 /// A match starting at the index: where it ends and what replaces it.
@@ -230,7 +246,7 @@ fn replace_all(text: &str, rule: Rule) -> String {
             out.push_str(&replacement);
             index = end;
         } else {
-            out.push_str(line[index]);
+            out.push_str(grapheme(&line, index));
             index += 1;
         }
     }
@@ -242,11 +258,11 @@ fn bracketed(line: &[&str], open: usize, at_least: usize) -> Option<(usize, usiz
     if !at(line, open, "[") {
         return None;
     }
-    let close = open + 1 + line[open + 1..].iter().position(|g| *g == "]")?;
+    let close = open + 1 + tail(line, open + 1).iter().position(|g| *g == "]")?;
     if close - open - 1 < at_least || !at(line, close + 1, "(") {
         return None;
     }
-    let paren = close + 2 + line[close + 2..].iter().position(|g| *g == ")")?;
+    let paren = close + 2 + tail(line, close + 2).iter().position(|g| *g == ")")?;
     Some((close, paren + 1))
 }
 
@@ -256,13 +272,13 @@ fn image(line: &[&str], start: usize) -> Option<(usize, String)> {
         return None;
     }
     let (close, end) = bracketed(line, start + 1, 0)?;
-    Some((end, line[start + 2..close].concat()))
+    Some((end, seg(line, start + 2, close).concat()))
 }
 
 /// `\[([^\]]+)\]\([^)]*\)` as its text.
 fn link(line: &[&str], start: usize) -> Option<(usize, String)> {
     let (close, end) = bracketed(line, start, 1)?;
-    Some((end, line[start + 1..close].concat()))
+    Some((end, seg(line, start + 1, close).concat()))
 }
 
 /// `(\*\*|__)(\S(?:.*?\S)?)\1` as its text.
@@ -277,15 +293,15 @@ fn bold(line: &[&str], start: usize) -> Option<(usize, String)> {
     // The optional group first (greedy), its middle as short as it can be (lazy).
     let mut last = text + 1;
     while last < line.len() {
-        if !whitespace(line[last]) && closes(last + 1) {
-            return Some((last + 3, line[text..=last].concat()));
+        if !whitespace(grapheme(line, last)) && closes(last + 1) {
+            return Some((last + 3, seg(line, text, last + 1).concat()));
         }
-        if newline(line[last]) {
+        if newline(grapheme(line, last)) {
             break;
         }
         last += 1;
     }
-    closes(text + 1).then(|| (text + 3, line[text].to_owned()))
+    closes(text + 1).then(|| (text + 3, grapheme(line, text).to_owned()))
 }
 
 /// `(^|[^\w*])\*(\S(?:[^*]*?\S)?)\*(?![\w*])` as its lead and text: single-star
@@ -303,23 +319,23 @@ fn emphasis(line: &[&str], start: usize) -> Option<(usize, String)> {
         if !at(line, star, "*") {
             continue;
         }
-        let lead = line[start..star].concat();
+        let lead = seg(line, start, star).concat();
         let text = star + 1;
         if line.get(text).is_none_or(|g| whitespace(g)) {
             continue;
         }
         let mut last = text + 1;
         while last < line.len() {
-            if !whitespace(line[last]) && at(line, last + 1, "*") && free(last + 2) {
-                return Some((last + 2, lead + &line[text..=last].concat()));
+            if !whitespace(grapheme(line, last)) && at(line, last + 1, "*") && free(last + 2) {
+                return Some((last + 2, lead + &seg(line, text, last + 1).concat()));
             }
-            if line[last] == "*" {
+            if grapheme(line, last) == "*" {
                 break;
             }
             last += 1;
         }
         if at(line, text + 1, "*") && free(text + 2) {
-            return Some((text + 2, lead + line[text]));
+            return Some((text + 2, lead + grapheme(line, text)));
         }
     }
     None
@@ -333,11 +349,11 @@ fn strike(line: &[&str], start: usize) -> Option<(usize, String)> {
     let text = start + 2;
     let mut end = text + 1;
     while end <= line.len() {
-        if newline(line[end - 1]) {
+        if newline(grapheme(line, end - 1)) {
             return None;
         }
         if at(line, end, "~") && at(line, end + 1, "~") {
-            return Some((end + 2, line[text..end].concat()));
+            return Some((end + 2, seg(line, text, end).concat()));
         }
         end += 1;
     }

@@ -211,7 +211,7 @@ pub fn looks_like_alert(title: &str, level: Level) -> bool {
 
 fn clipped(text: &str, limit: usize) -> &str {
     match text.grapheme_indices(true).nth(limit) {
-        Some((end, _)) => &text[..end],
+        Some((end, _)) => text.get(..end).unwrap_or(text),
         None => text,
     }
 }
