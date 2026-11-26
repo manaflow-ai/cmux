@@ -373,6 +373,18 @@ struct BillingRig {
         #expect(rig.model.offersFailure == .productUnavailable)
     }
 
+    @Test func emptyStoreReloadKeepsEarlierOffers() async throws {
+        let rig = await BillingRig()
+        await rig.model.refresh()
+        let earlier = rig.model.offers.map(\.product.id)
+        #expect(!earlier.isEmpty)
+        await rig.store.configure(products: [])
+        await rig.model.refresh()
+
+        #expect(rig.model.offers.map(\.product.id) == earlier)
+        #expect(rig.model.offersFailure == nil)
+    }
+
     @Test func signOutClearsAccountState() async throws {
         let rig = await BillingRig()
         await rig.model.refresh()

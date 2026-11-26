@@ -422,13 +422,18 @@ public final class BillingModel {
         }
         guard generation == accountGeneration else { return }
         let byID = Dictionary(products.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        offers = account.products
+        let loaded = account.products
             .compactMap { reference in
                 byID[reference.productID].map {
                     BillingOffer(planID: reference.planID, product: $0, billingPeriod: reference.billingPeriod)
                 }
             }
             .sorted { ($0.planID, $0.billingPeriod) < ($1.planID, $1.billingPeriod) }
+        // StoreKit can answer a reload with no products for a moment (the
+        // plans screen's refresh on appear, ios-billing job 139465607159):
+        // offers from an earlier load stay on screen, as after a thrown read.
+        if loaded.isEmpty, !offers.isEmpty { return }
+        offers = loaded
         if offers.isEmpty {
             offersFailure = .productUnavailable
             await captureProductsFailed(reason: BillingFailure.productUnavailable.analyticsReason, generation: generation)
