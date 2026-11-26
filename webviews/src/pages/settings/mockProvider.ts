@@ -306,6 +306,7 @@ export type MockWorktreeProject = {
 
 export class MockSettingsProvider {
   slack: SlackConnection = { connected: false, teams: [] };
+  slackAllowance: number | null = null;
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -406,6 +407,16 @@ export class MockSettingsProvider {
         installUrl: "https://platform.example/v1/slack/apps/r0/install?ticket=example",
       }),
       "cmux.settings.slack.open": () => ({}),
+      "cmux.settings.slack.awake": (params) => {
+        if ("allowance_seconds" in params) this.slackAllowance = params.allowance_seconds as number | null;
+        return {
+          allowance_seconds: this.slackAllowance ?? 7200,
+          default_seconds: 7200,
+          max_seconds: 86400,
+          days: 7,
+          senders: [],
+        };
+      },
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -1136,6 +1147,7 @@ export class MockSettingsProvider {
       "cmux.settings.slack.request",
       "cmux.settings.slack.create_app",
       "cmux.settings.slack.open",
+      "cmux.settings.slack.awake",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
