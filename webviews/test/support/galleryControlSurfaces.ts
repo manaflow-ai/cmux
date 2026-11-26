@@ -47,6 +47,13 @@ export async function galleryControlSurfaces({ part, parts }: GalleryControlPart
       reason: "The tray line is one full-width control; its embedded Stop shares its wash, never a second box.",
     },
     {
+      selector: ".acpmux-running-tray__head",
+      kind: "hover",
+      control: ".acpmux-running-tray__head .acpmux-hat-face",
+      reason:
+        "The hat's subagent faces sit inside the tray header's one full-width button (HatFaces.tsx: a nested button is invalid HTML); hovering a face is hovering the header, so they share its wash, never a box of their own.",
+    },
+    {
       selector: ".acpmux-edited-head[data-header-toggle]",
       kind: "hover",
       control: ".acpmux-edited-head[data-header-toggle] > .acpmux-edited-toggle",
