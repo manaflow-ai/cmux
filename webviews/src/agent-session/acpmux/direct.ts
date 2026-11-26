@@ -4478,7 +4478,8 @@ export class AcpmuxDirectClient {
     const asked = Date.now();
     void this.typed(
       "_acpmux/events",
-      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"] },
+      // In order: answered after the records acpmux queued before it, so one still on its way is not read as missed.
+      { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"], inOrder: true },
       STALL_CHECK_MS,
     ).then(
       (result) => {
@@ -11125,6 +11126,18 @@ export class AcpmuxDirectClient {
         running.turnId !== this.runningTurnId
       )
         this.rows.placeAfterCurrent(id);
+      // A compaction the person steered into while it ran ends where its live line stood, under
+      // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
+      // animation for compaction and a message sent/steered during compaction is weird ... layout
+      // shifts and awkward looking animations"). One look over the rows since it started (a few).
+      else if (
+        compaction.state !== "running" &&
+        running?.seq !== undefined &&
+        this.rows
+          .rowsFrom(running.seq + 1)
+          .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined)
+      )
+        this.rows.placeAfterCurrent(id);
     }
   }
 
@@ -13823,6 +13836,31 @@ export class AcpmuxDirectClient {
     }
     return toolApplied(result?.applied);
   }
+  /// Replaces the shown chat's Sources folders (`_acpmux/set_directories`): the daemon persists the
+  /// list and restarts the harness on the same conversation with the remaining folders.
+  async setDirectories(
+    additionalDirectories: readonly string[],
+    renderedSessionId = this.actingSessionId,
+    expectedAdditionalDirectories?: readonly string[],
+  ): Promise<void> {
+    const sessionId = renderedSessionId;
+    if (!sessionId || sessionId !== this.actingSessionId) throw new Error(translate("error.notOpen"));
+    const generation = this.selectionGeneration;
+    const result = await this.request("_acpmux/set_directories", {
+      sessionId,
+      additionalDirectories: [...additionalDirectories],
+      ...(expectedAdditionalDirectories ? { expectedAdditionalDirectories: [...expectedAdditionalDirectories] } : {}),
+    });
+    if (
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      this.summary &&
+      Array.isArray(result?.additionalDirectories)
+    ) {
+      this.summary = { ...this.summary, additionalDirectories: result.additionalDirectories };
+      this.emit("session changed");
+    }
+  }
   /// Auto for the shown chat `sessionId` (autoSession/autoSession.ts; acpmux
   /// `_acpmux/auto_session/set`): on or off, and with `keepInCloud` whether a chat the Cloud runs
   /// stays there when this Mac is back. acpmux answers the chat's `autoSession`, which the pane
@@ -14303,6 +14341,12 @@ export class AcpmuxDirectClient {
   /// Account menu. Each route says whether it `serves` the session's harness family.
   async routes(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/route/list", { sessionId });
+  }
+  /// Each chat's dot signature (`session/signature`, cmux-wallpaper signature.rs):
+  /// `{signatures: {<id>: Glyph}}`. Asked only while appearance.agentSignature is on
+  /// (conversation/agentSignatureModel.ts), at most 512 ids at once.
+  async signatures(sessionIds: string[]): Promise<unknown> {
+    return this.request("session/signature", { sessionIds: sessionIds.slice(0, 512) });
   }
   /// Binds chat `sessionId` to route `routeId` (null: back to its default) through
   /// `_acpmux/chat/route.set`. acpmux restarts the harness on it and resumes the same agent
@@ -15780,6 +15824,7 @@ export class AcpmuxDirectClient {
         return false;
       }
       console.warn("agent pane: taking over the session failed", error);
+      // retry-prompt-ok: taking over a session is the person's choice (it moves control of another's chat).
       this.transient(knownRefusalText(error) ?? translate("watch.takeOverFailed"), "error");
       return false;
     }
