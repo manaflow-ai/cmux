@@ -396,7 +396,7 @@ def main():
     # FALLBACK_RETRIES_LOST_LEGS_ON_LINUX: the plan names the builder, a Mac unless every failed leg
     # never reached its link (then Linux, once, on attempt 1).
     _check(fallback["with"]["darwin_builder"] == "${{ needs.darwin-fallback-plan.outputs.builder }}"
-           and "builder=mac\n" in plan_steps,
+           and "builder=mac\n" in plan_steps and 'echo "builder=$builder" >> "$GITHUB_OUTPUT"' in plan_steps,
            "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")

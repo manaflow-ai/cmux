@@ -312,18 +312,29 @@ class Launched:
             pass
 
 
+def executable_paths(executable: Path) -> set[str]:
+    """The paths ps may name EXECUTABLE by: as given and resolved. LaunchServices starts a bundle at its resolved path,
+    so an app copied under /tmp runs as /private/tmp/... (pure but for the resolve)."""
+    return {str(executable), os.path.realpath(executable)}
+
+
+def pids_running(ps_out: str, paths: set[str]) -> set[int]:
+    """Pids in `ps -axo pid=,comm=` output PS_OUT whose executable is one of PATHS (pure)."""
+    pids = set()
+    for line in ps_out.splitlines():
+        pid, _, comm = line.strip().partition(" ")
+        if comm.strip() in paths and pid.isdigit():
+            pids.add(int(pid))
+    return pids
+
+
 def running_pids(executable: Path) -> set[int]:
-    """Pids whose executable is EXECUTABLE (ps comm is the full path on macOS)."""
+    """Pids whose executable is EXECUTABLE (ps comm is the full path on macOS), under either of its paths."""
     try:
         out = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
         return set()
-    pids = set()
-    for line in out.splitlines():
-        pid, _, comm = line.strip().partition(" ")
-        if comm.strip() == str(executable) and pid.isdigit():
-            pids.add(int(pid))
-    return pids
+    return pids_running(out, executable_paths(executable))
 
 
 def open_args(app: Path, env: dict, fifo: Path, log_path: Path) -> list[str]:
@@ -360,7 +371,7 @@ def ls_launch(app: Path, env: dict, out_log: Path) -> tuple[Launched, int]:
             time.sleep(0.01)
     if pid is None:
         os.close(fd)
-        raise RuntimeError("open returned but no new process of the app showed within 15 s")
+        raise RuntimeError(f"open returned but no new process of the app showed within 15 s (looked for {sorted(executable_paths(executable))})")
     return Launched(pid), fd
 
 
