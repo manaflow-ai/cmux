@@ -47,11 +47,19 @@ restore_lock() { cmp -s "$work/Cargo.lock" "$rust_dir/Cargo.lock" || cp "$work/C
 trap 'restore_lock; rm -rf "$work"' EXIT
 
 cd "$rust_dir"
-# Ask cargo where it builds: CI sets CARGO_TARGET_DIR (or a config file does), so target/ is a guess.
-target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib >&2
+# Ask the build where it wrote the library: CI sets CARGO_TARGET_DIR, a config file may, and a lane VM's
+# cargo wrapper picks a per-build target slot that `cargo metadata` does not report.
+library="$(cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib --message-format=json-render-diagnostics \
+  | python3 -c 'import json,sys
+name=sys.argv[1]
+for line in sys.stdin:
+    m=json.loads(line)
+    if m.get("reason")=="compiler-artifact":
+        for f in m.get("filenames",[]):
+            if f.endswith("/"+name): print(f)' "$lib" | tail -n 1)"
+[[ -n "$library" && -f "$library" ]] || { echo "error: cargo built no $lib" >&2; exit 1; }
 cargo run --release -j "$jobs" -p cmux-mobile-link-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library "$target_dir/release/$lib" --language swift --out-dir "$work/out" >&2
+  generate --library "$library" --language swift --out-dir "$work/out" >&2
 generated="$work/out/CmuxMobileLinkFFI.swift"
 [[ -s "$generated" ]] || { echo "error: uniffi-bindgen wrote no CmuxMobileLinkFFI.swift" >&2; exit 1; }
 
