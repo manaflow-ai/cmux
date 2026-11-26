@@ -31,9 +31,8 @@ pub mod peer;
 pub mod plan;
 pub mod pointer;
 pub mod public;
+pub mod publish;
 pub mod seed;
-pub mod publish;
-pub mod publish;
 pub mod store;
 pub mod wire;
 
