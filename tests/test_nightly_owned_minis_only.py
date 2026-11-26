@@ -87,6 +87,16 @@ HOSTED_TAIL_JOBS = {
     # pull-requests: write token, so the one-job JIT VM rather than the shared persistent cmux-linux pool.
     "published-in": "up to 300 min of paced PR comments through the API (7.5 s a write); compiles nothing",
 }
+# The post-feed dispatch jobs (#56483): a refused dispatch moves to cmux-bot's and the CI pools' installation hours at
+# once instead of sleeping out github.token's (run 45562645699 slept 18.4 and 12.9 min), so each mints those App
+# tokens. #56483 moved them off the mini to keep the keys off it; they take the one-job JIT VM, not the PR-shared
+# persistent Linux runners. They run in the push run too (after nightly-next-one or publish), so a slow JIT start
+# delays the push group's end: the stated cost, as for HOSTED_LOOP_JOBS. They hold only the dispatch keys. job -> why.
+HOSTED_DISPATCH_JOBS = {
+    "wake-nightly-next-tick": "asks main's nightly-next tick; a refused dispatch moves to another App's hour",
+    "dispatch-published-in": "asks for the post-publication run; a refused dispatch moves to another App's hour",
+}
+HOSTED_DISPATCH_SECRETS = {"CMUX_BOT_APP_KEY", "CMUX_CI_POOL_KEYS"}
 # Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on an ephemeral
 # VM (GitHub-hosted Ubuntu then, JIT_LABEL now). job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
 # runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
@@ -102,6 +112,7 @@ HOSTED_LOOP_JOBS = {
 # (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
+HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
@@ -111,13 +122,6 @@ CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-t
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
-# The post-feed dispatchers (#56483) mint App tokens (cmux-bot and the CI pools), so they left the nightly mini for the
-# same reserved-label route: the keys stay off the mini, and a refused dispatch moves to another installation's hour.
-# Unlike CMUX_LINUX_JOBS they hold a secret; their route is exactly NIGHTLY_PINNED_RUNS_ON. job -> why.
-NIGHTLY_LINUX_CONTROLS = {
-    "wake-nightly-next-tick": "dispatches main's nightly-next tick with App tokens (#56483)",
-    "dispatch-published-in": "dispatches the post-publication run with App tokens (#56483)",
-}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -198,14 +202,15 @@ class EveryJobOnOurMinis(unittest.TestCase):
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
                 continue
+            if name in HOSTED_DISPATCH_JOBS:
+                if (workflow_jobs.runs_on_cells(job) != [HOSTED_DISPATCH_RUNS_ON]
+                        or not workflow_jobs.secret_names(job) <= HOSTED_DISPATCH_SECRETS):
+                    failures[name] = "a post-feed dispatch takes the one-job JIT VM and holds only the dispatch keys"
+                continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
                 if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
-                continue
-            if name in NIGHTLY_LINUX_CONTROLS:
-                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]:
-                    failures[name] = "a nightly Linux control takes only the reserved label, then cmux-linux"
                 continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
             cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
@@ -254,7 +259,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
         off = {name for name in JOBS if not JOBS[name].get("uses")
                and ((routes := manaflow_routes(name)) is None or any(OFF_THE_MINIS.search(route) for route in routes))}
-        self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS),
+        self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS)
+                         | set(HOSTED_DISPATCH_JOBS),
                          "a nightly job may not leave our minis")
         for name in sorted(off):
             with self.subTest(job=name, ephemeral="jit-only"):
@@ -269,7 +275,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(workflow_jobs.secret_names(JOBS[name]), set(), "the preflight holds no secret")
                 # issues: write only, for the nightly-next-failure notice (the job's GITHUB_TOKEN; no secret).
                 self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
-        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
+        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS, *HOSTED_DISPATCH_JOBS):
             with self.subTest(job=name):
                 permissions = JOBS[name].get("permissions")
                 writes = isinstance(permissions, dict) and "write" in permissions.values()
