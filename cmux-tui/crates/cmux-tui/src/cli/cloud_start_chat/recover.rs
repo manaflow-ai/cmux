@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{Deadline, Machine, Outcome, Request, Runner, at, fresh, make_room, run_once};
+use super::{
+    Deadline, Machine, Outcome, Request, Runner, at, fresh, make_room, run_once, start_fault,
+};
 
 /// Declares [`Class`] and [`Class::ALL`] from one list, so `ALL` names every variant by construction.
 macro_rules! classes {
@@ -27,10 +29,11 @@ macro_rules! classes {
             $($(#[$doc])* $name,)*
         }
 
-        #[cfg(test)]
         impl Class {
             /// Every class, in declaration order.
             pub(super) const ALL: &'static [Class] = &[$(Class::$name,)*];
+            /// Each class's variant name, in [`Class::ALL`]'s order (start_fault.rs reads `CMUX_CLOUD_FAULT` by it).
+            pub(super) const NAMES: &'static [&'static str] = &[$(stringify!($name),)*];
         }
     };
 }
@@ -222,7 +225,10 @@ pub(super) fn recover(
                 pause = pause.saturating_mul(2).min(RERUN_MAX_PAUSE);
                 reruns = reruns.saturating_add(1);
                 current = again;
-                let next = run_once(runner, &current);
+                let next = start_fault::take().map_or_else(
+                    || run_once(runner, &current),
+                    |class| start_fault::error(class, &current),
+                );
                 annotate(keep_new_machine(next, made), reruns)
             }
             // Used up: the failure stands.

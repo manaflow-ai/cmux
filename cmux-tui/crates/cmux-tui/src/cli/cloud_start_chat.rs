@@ -1307,7 +1307,10 @@ impl Progress {
 /// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
-    let outcome = run_once(runner, request);
+    // `CMUX_CLOUD_FAULT` (start_fault.rs, unset by default): the probe's fault drill answers that class's error in
+    // place of this start, so the table below is measured on it against production.
+    let outcome = start_fault::take()
+        .map_or_else(|| run_once(runner, request), |class| start_fault::error(class, request));
     // Every failure goes through the one recovery table (recover.rs): a new machine this run made that never came
     // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
     // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
@@ -3595,6 +3598,7 @@ mod folder;
 mod fresh;
 mod internal;
 mod recover;
+mod start_fault;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
