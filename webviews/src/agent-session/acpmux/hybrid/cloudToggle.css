@@ -325,3 +325,35 @@ button.acpmux-hybrid-tri__name {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Three-state, a hybrid start (RFD 0078 "the start"): the chosen glyph alone says the step. Booting:
+   the cloud breathes, dull, while the chat already runs here. Ready and moving: the cloud takes the
+   look's color; moving adds a sweep across it. Live: lit and still. Failed: dull with the warning
+   dot, and the name says the chat keeps running here. Reduced motion: no breath, no sweep. */
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-start="booting"] .acpmux-hybrid-tri__cloud {
+  animation: acpmux-hybrid-breathe var(--cmux-breath-period, 2.4s) var(--cmux-breath-ease, ease-in-out) infinite;
+}
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-start="moving"] .acpmux-hybrid-tri__cloud {
+  stroke-dasharray: 3 2;
+  animation: acpmux-hybrid-sweep calc(var(--cmux-breath-period, 2.4s) / 2) linear infinite;
+}
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-start="failed"] .acpmux-hybrid-tri__cloud {
+  opacity: 0.6;
+  fill: none;
+}
+.acpmux-hybrid-tri__name[data-start] { cursor: default; }
+@keyframes acpmux-hybrid-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+@keyframes acpmux-hybrid-sweep {
+  to { stroke-dashoffset: -10; }
+}
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
+:root[data-cmux-motion="off"] .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud,
+:root[data-cmux-motion="off"] .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
+  .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud { animation: none; }
+}

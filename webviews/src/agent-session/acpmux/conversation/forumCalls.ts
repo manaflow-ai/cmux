@@ -14,17 +14,25 @@ import type { McpCall } from "./mcpCalls";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-export type ForumTool = "post" | "reply" | "search";
+/// post, reply, search: the cmux-forum MCP server's tools (this file) and the agent-forum CLI's
+/// commands of the same names; show, list, ask, close: the CLI's alone (forumShellCalls.ts).
+export type ForumTool = "post" | "reply" | "search" | "show" | "list" | "ask" | "close";
 
 export type ForumThreadRef = {
   number?: number;
+  /// `hosted` or `hq` when the agent-forum CLI named the forum the thread is on.
+  mark?: string;
   title?: string;
   space?: string;
+  /// question, finding, article, research: the agent-forum CLI's tag for the thread.
+  kind?: string;
   state?: string;
   comments?: number;
   /// An https link into the thread, when the forum gave one.
   url?: string;
   snippet?: string;
+  /// YYYY-MM-DD the thread last changed.
+  updated?: string;
 };
 
 export type ForumCall = {
@@ -39,17 +47,24 @@ export type ForumCall = {
   hits: ForumThreadRef[];
   /// A failed call's first line of error text.
   error?: string;
+  /// close: answered, but the thread stays open (the CLI closes only threads this lane filed).
+  stillOpen?: boolean;
+  /// ask: refused, an open thread asks this already (that thread is `thread`).
+  refused?: boolean;
+  /// The agent cut the CLI's answer (`| head`, `| grep`): `hits` and a thread's `comments` are what
+  /// it kept, not all there are, so the card names no count.
+  partial?: boolean;
 };
 
 const SERVER = /^cmux[-_]forum$/i;
-const TOOLS: Record<string, ForumTool> = { post: "post", reply: "reply", search: "search" };
+const TOOLS: Record<string, "post" | "reply" | "search"> = { post: "post", reply: "reply", search: "search" };
 const DOTTED = /^cmux[-_]forum[.:](post|reply|search)\b/i;
 const MAX_HITS = 10;
 
 /// The forum call `tool` made, or nil for any other call. `named` is its parsed MCP name, when it
 /// has one (mcpCalls.ts `mcpCall`).
 export function forumCall(tool: Tool, named: McpCall | undefined): ForumCall | undefined {
-  let which: ForumTool | undefined;
+  let which: "post" | "reply" | "search" | undefined;
   let args: unknown;
   if (named) {
     if (!SERVER.test(named.server)) return undefined;

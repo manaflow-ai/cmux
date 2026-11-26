@@ -45,13 +45,24 @@ fn stand_in_agent() {
 /// A stand-in "acpmux" at `bin`: a copy of this test binary (a copied system binary is killed
 /// on macOS), run as `stand_in_agent_host`.
 fn agent_host(bin: &Path) -> Child {
-    Command::new(bin)
+    let mut command = Command::new(bin);
+    command
         .args(["stand_in_agent_host", "--exact", "--test-threads=1"])
         .env(STAND_IN, "host")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-        .expect("start the agent host")
+        .stdout(Stdio::null());
+    // A parallel test that forks while `install` still holds the copy open for writing
+    // leaves the child with that fd until it execs: Linux refuses the exec with ETXTBSY
+    // for that moment (the same race `claude_shim.rs` waits out).
+    for _ in 0..50 {
+        match command.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            result => return result.expect("start the agent host"),
+        }
+    }
+    command.spawn().expect("start the agent host")
 }
 
 fn install(to: &Path) {

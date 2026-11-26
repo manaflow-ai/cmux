@@ -295,7 +295,7 @@ fn gh_pr_settlements(script: &str) -> Option<Vec<(Target, bool)>> {
                     || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
             })
             .collect();
-        if let ["lane-gh", "call", action @ ("land" | "close"), repo, ..] = words[..] {
+        if let ["lane-gh", "call", action @ ("land" | "close"), repo, ..] = words.as_slice() {
             // A lane VM's broker call, `lane-gh call land OWNER/REPO '{"number": 5, ...}'`.
             let targets: &mut Vec<(Target, bool)> = found.get_or_insert_with(Vec::new);
             if let Some(n) = LANE_GH_NUMBER
@@ -306,18 +306,18 @@ fn gh_pr_settlements(script: &str) -> Option<Vec<(Target, bool)>> {
             {
                 targets.push((
                     Target::Url(format!("https://github.com/{repo}/pull/{n}")),
-                    action == "land",
+                    *action == "land",
                 ));
             }
             continue;
         }
-        if !matches!(words.get(..3), Some(["gh", "pr", "merge" | "close"])) {
+        let ["gh", "pr", action @ ("merge" | "close"), args @ ..] = words.as_slice() else {
             continue;
-        }
+        };
         let targets: &mut Vec<(Target, bool)> = found.get_or_insert_with(Vec::new);
-        let merged = words[2] == "merge";
+        let merged = *action == "merge";
         let (mut repo, mut first, mut auto) = (None, None, false);
-        let mut rest = words[3..].iter().map(|w| w.trim_matches(|c| c == '\'' || c == '"'));
+        let mut rest = args.iter().map(|w| w.trim_matches(|c| c == '\'' || c == '"'));
         while let Some(word) = rest.next() {
             if word == "--auto" {
                 auto = true;

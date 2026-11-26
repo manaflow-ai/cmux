@@ -88,9 +88,10 @@ class Classify(unittest.TestCase):
             # Hand-written files beside generated ones (not in the package's .cmux-sdk-manifest.json).
             "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java": "source",
             "cmux-tui/bindings/go/raw/client.go": "source",
-            # Every other generated family (scripts/cmux-next/generated_merge.py).
-            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "generated",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift": "generated",
+            # Every other generated family (scripts/cmux-next/generated_merge.py). The web protocol
+            # types (#50853) and the settings Swift (#50929) are built, no longer committed.
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift": "generated",
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "source",
             # Hand-written registries: cmux-insertions-v1, never kept.
             "cmux-tui/crates/cmux-agent-pane-policy/policy.json": "source",
             "cmux-tui/crates/acpmux/docs/acpmux-schema.json": "source",
@@ -166,6 +167,8 @@ class OpenPrsQuery(unittest.TestCase):
 
     def setUp(self):
         nb.DETAILS.clear()
+        nb.LISTED.clear()
+        nb.LISTED_AT.clear()
 
     def node(self, number: int, draft: bool = False, state: str = "SUCCESS") -> dict:
         return {"id": f"PR_{number}", "number": number, "title": "t", "url": "u", "isDraft": draft,
@@ -286,6 +289,84 @@ class OpenPrsQuery(unittest.TestCase):
             prs = nb.open_prs(gh)
         self.assertEqual([item.files for item in prs], [["a"], ["b"]])
 
+    def test_a_needed_count_reads_details_in_number_order_and_stops_when_full(self):
+        """3,808 open PRs (2026-11-25): reading every candidate's details ran into GitHub's
+        secondary rate limit. select takes the lowest numbers, so reading stops once
+        `need` are eligible; the rest are named next batch, unread."""
+        numbers = list(range(1, 2 * nb.DETAIL_PAGE + 4))
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(n) for n in reversed(numbers)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        details = {(f"PR_{n}", ""): ([".github/workflows/x.yml"] if n == 2 else ["a"], [], None) for n in numbers}
+        gh, seen = self.fake(pages, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            prs = nb.open_prs(gh, need=nb.DETAIL_PAGE)
+            eligible, skipped = nb.select(prs, nb.now(), limit=nb.DETAIL_PAGE)
+        read = sorted(int(item[1][3:]) for item in seen if item[0] == "detail")
+        self.assertEqual(read, numbers[:2 * nb.DETAIL_PAGE])  # #2 is out, so a second page fills it
+        self.assertEqual([pr.number for pr in eligible], [n for n in numbers[:nb.DETAIL_PAGE + 1] if n != 2])
+        self.assertIn("not read", skipped[numbers[-1]])
+        self.assertIn("workflows", skipped[2])
+
+    def test_only_reads_details_for_the_named_prs(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, seen = self.fake(pages, {("PR_2", ""): (["b"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            prs = nb.open_prs(gh, fresh=True, only={2})
+        self.assertEqual([item[1] for item in seen if item[0] == "detail"], ["PR_2"])
+        self.assertEqual([pr.files for pr in prs], [[], ["b"]])
+
+    def delta_fake(self, lists: dict[str, list[dict]], details: dict) -> tuple[nb.GitHub, list]:
+        """lists["full"|"changed"|"gone"]: one page each; detail queries as in fake."""
+        gh, seen = self.fake([], details)
+        detail = gh.graphql
+
+        def graphql(query, **variables):
+            if "pullRequests(" not in query:
+                return detail(query, **variables)
+            kind = "gone" if "CLOSED" in query else "changed" if "UPDATED_AT" in query else "full"
+            seen.append(("list", kind))
+            return {"repository": {"pullRequests": {"nodes": lists[kind],
+                                                    "pageInfo": {"hasNextPage": True, "endCursor": "more"}
+                                                    if kind != "full" else {"hasNextPage": False, "endCursor": None}}}}
+        gh.graphql = graphql
+        return gh, seen
+
+    def test_a_serve_poll_lists_only_what_changed_since_the_last_list(self):
+        """~3,800 open PRs (2026-11-25): each 60 s serve poll listed about 80 pages.
+        Between full lists a poll reads PRs updated since the last one, stops at the
+        first older one (no second page), and drops PRs closed or merged since."""
+        fresh_at = (nb.now() + dt.timedelta(seconds=5)).isoformat()
+        old_at = (nb.now() - dt.timedelta(hours=1)).isoformat()
+        lists = {"full": [self.node(1), self.node(2), self.node(3)]}
+        details = {(f"PR_{n}", ""): (["a"], [], None) for n in (1, 2, 3, 4)}
+        gh, seen = self.delta_fake(lists, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh, need=nb.MAX_PRS)
+            moved = self.node(3)
+            moved["headRefOid"] = "f" * 40
+            lists["changed"] = [dict(self.node(4), updatedAt=fresh_at), dict(moved, updatedAt=fresh_at),
+                                dict(self.node(1), updatedAt=old_at)]
+            lists["gone"] = [{"number": 2, "updatedAt": fresh_at}, {"number": 9, "updatedAt": old_at}]
+            seen.clear()
+            prs = nb.open_prs(gh, need=nb.MAX_PRS)
+        self.assertEqual([item for item in seen if item[0] == "list"], [("list", "changed"), ("list", "gone")])
+        self.assertEqual([(pr.number, pr.sha) for pr in prs], [(1, self.node(1)["headRefOid"]), (3, "f" * 40),
+                                                               (4, self.node(4)["headRefOid"])])
+        # #1 was not re-listed: its checks are read again, not taken from the cache.
+        self.assertIn(("detail", "PR_1", True, ""), seen)
+
+    def test_a_full_list_comes_back_after_its_window_and_for_landing(self):
+        lists = {"full": [self.node(1)], "changed": [], "gone": []}
+        gh, seen = self.delta_fake(lists, {("PR_1", ""): (["a"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh, need=nb.MAX_PRS)
+            seen.clear()
+            nb.open_prs(gh, fresh=True, only={1})
+            nb.LISTED_AT[0] -= dt.timedelta(seconds=nb.FULL_LIST_SECONDS + 1)
+            nb.open_prs(gh, need=nb.MAX_PRS)
+        self.assertEqual([item[1] for item in seen if item[0] == "list"], ["full", "full"])
+
     def test_landing_rechecks_without_the_cache(self):
         pages = [{"repository": {"pullRequests": {"nodes": [self.node(1)],
                                                    "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
@@ -316,6 +397,33 @@ class OpenPrsQuery(unittest.TestCase):
                    subprocess.CompletedProcess([], 0, '{"data": {"ok": 1}}', "")]
         with mock.patch.object(nb.subprocess, "run", side_effect=replies), mock.patch.object(nb.time, "sleep"):
             self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
+
+
+    def test_a_rate_limit_waits_out_its_named_reset(self):
+        gh = nb.GitHub("o/r")
+        limited = "[RATE_LIMITED] not sent; retry after 27s, resets at 08:05:55Z"
+        replies = [subprocess.CompletedProcess([], 75, "", limited),
+                   subprocess.CompletedProcess([], 0, '{"data": {"ok": 1}}', "")]
+        with mock.patch.object(nb.subprocess, "run", side_effect=replies), \
+                mock.patch.object(nb.time, "sleep") as slept:
+            self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
+        slept.assert_called_once_with(28.0)
+
+    def test_a_rate_limit_that_persists_still_fails(self):
+        gh = nb.GitHub("o/r")
+        limited = subprocess.CompletedProcess([], 75, "", "retry after 900s")
+        with mock.patch.object(nb.subprocess, "run", return_value=limited), \
+                mock.patch.object(nb.time, "sleep") as slept, self.assertRaises(RuntimeError):
+            gh.graphql("query { x }")
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [120.0] * 3)
+
+    def test_a_refusal_is_not_retried(self):
+        gh = nb.GitHub("o/r")
+        refused = subprocess.CompletedProcess([], 1, "", "refused: retry after 5s")
+        with mock.patch.object(nb.subprocess, "run", return_value=refused) as ran, \
+                mock.patch.object(nb.time, "sleep"), self.assertRaises(RuntimeError):
+            gh.graphql("query { x }")
+        self.assertEqual(ran.call_count, 1)
 
 
 class Debounce(unittest.TestCase):
@@ -1825,7 +1933,8 @@ class WorkflowShape(unittest.TestCase):
 
     def test_debounce_runs_the_trusted_controller(self):
         checkout = self.jobs["debounce"]["steps"][0]
-        self.assertEqual(checkout["with"]["ref"], "feat-cmux-next")
+        # checkout names the branch in full, so it fetches one branch (#51926).
+        self.assertEqual(checkout["with"]["ref"], "refs/heads/feat-cmux-next")
         self.assertFalse(checkout["with"]["persist-credentials"])
         self.assertIn("head.repo.full_name == github.repository", self.jobs["debounce"]["if"])
 

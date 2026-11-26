@@ -51,6 +51,7 @@ import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
@@ -60,7 +61,7 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashComman
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { claimedReply } from "./conversation/waitingAskStore";
-import { type QueuedEntry, shownText, heldReason } from "./composerQueueModel";
+import { type QueuedEntry, shownText, heldReason, uniqueById, queueSummary } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { revealControls } from "../../ui/revealCover";
@@ -311,7 +312,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // Whether a long queue shows whole (the composer keys this component by chat).
   const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
   // The person's prompts only: another agent's message draws in the transcript.
-  const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
+  const shown = uniqueById(ownQueue(queue)).filter((entry) => !leaving.has(entry.id));
   // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
   // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
   // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
@@ -911,7 +912,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     label: (
       <>
         {label}
-        <span className="ui-menu-shortcut">{key}</span>
+        <span className="ui-menu-shortcut">
+          <KeyHint keys={key} />
+        </span>
       </>
     ),
     onSelect,
@@ -1155,6 +1158,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
+        title={queueSummary(shown.length, t)}
       >
         {paused && (
           <li className="acpmux-queue-paused">

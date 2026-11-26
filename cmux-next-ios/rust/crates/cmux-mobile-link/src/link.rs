@@ -433,8 +433,17 @@ struct Queues {
     control: VecDeque<Frame>,
     input: VecDeque<Frame>,
     bulk: HashMap<u32, VecDeque<Frame>>,
-    /// Bulk channels with queued frames, in round-robin order.
+    /// Bulk channels with queued frames, in round-robin order. The channel
+    /// whose turn it is now is not in it but in `turn`.
     turns: VecDeque<u32>,
+    /// The bulk channel whose turn it is, with the bytes it may still send
+    /// in this turn. A turn is [`DATA_CHUNK`] bytes, not one frame: frames
+    /// smaller than a chunk (a terminal's echo, one key at a time) go
+    /// together in one turn, so a channel of small frames gets the same
+    /// share of the stream as a channel of full chunks. Counted by frames,
+    /// an echo got one key per 16 KiB of another channel's output, and on a
+    /// link slower than 16 KiB per key its backlog grew without end.
+    turn: Option<(u32, usize)>,
     /// Queued payload bytes per channel (input and bulk).
     bytes: HashMap<u32, usize>,
     shutdown: bool,
@@ -565,14 +574,7 @@ impl Outbox {
         }
         let frame = if let Some(frame) = queues.input.pop_front() {
             frame
-        } else if let Some(channel) = queues.turns.pop_front() {
-            let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
-            let frame = queue.pop_front().expect("a turn has a frame");
-            if queue.is_empty() {
-                queues.bulk.remove(&channel);
-            } else {
-                queues.turns.push_back(channel);
-            }
+        } else if let Some(frame) = Self::pop_bulk(&mut queues) {
             frame
         } else if queues.shutdown {
             return Some(Next::Shutdown);
@@ -588,6 +590,36 @@ impl Outbox {
             self.room.notify_waiters();
         }
         Some(Next::Frame(frame))
+    }
+
+    /// The next bulk frame, round robin per channel by bytes: the channel
+    /// whose turn it is goes on while its next frame fits what is left of
+    /// its [`DATA_CHUNK`]; then the next channel's turn starts (its first
+    /// frame always goes).
+    fn pop_bulk(queues: &mut Queues) -> Option<Frame> {
+        if let Some((channel, left)) = queues.turn.take() {
+            let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
+            let size = queue.front().expect("a turn has a frame").queue_bytes();
+            if size <= left {
+                let frame = queue.pop_front().expect("a turn has a frame");
+                if queue.is_empty() {
+                    queues.bulk.remove(&channel);
+                } else {
+                    queues.turn = Some((channel, left - size));
+                }
+                return Some(frame);
+            }
+            queues.turns.push_back(channel);
+        }
+        let channel = queues.turns.pop_front()?;
+        let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
+        let frame = queue.pop_front().expect("a turn has a frame");
+        if queue.is_empty() {
+            queues.bulk.remove(&channel);
+        } else {
+            queues.turn = Some((channel, DATA_CHUNK.saturating_sub(frame.queue_bytes())));
+        }
+        Some(frame)
     }
 
     async fn next(&self, held: &AtomicBool) -> Next {
@@ -4425,6 +4457,39 @@ mod tests {
         assert!(other < Duration::from_millis(800), "other channel echo took {other:?}");
     }
 
+    /// Bulk turns are by bytes: a channel of one-key echo frames sends all
+    /// it has queued (up to a chunk) in one turn, not one key per chunk of
+    /// another channel's output (the typing_echo lossy-3 starvation).
+    #[test]
+    fn a_bulk_turn_is_a_chunk_of_bytes_not_one_frame() {
+        let outbox = Outbox::default();
+        for _ in 0..4 {
+            outbox.push(Class::Bulk, Frame::new(1, FrameType::Data, vec![b'x'; DATA_CHUNK]));
+        }
+        for _ in 0..20 {
+            outbox.push(Class::Bulk, Frame::new(2, FrameType::Data, vec![b'k'; 8]));
+        }
+        let order: Vec<u32> = std::iter::from_fn(|| match outbox.pop(false) {
+            Some(Next::Frame(frame)) => Some(frame.channel),
+            _ => None,
+        })
+        .collect();
+        let mut expected = vec![1];
+        expected.extend([2; 20]);
+        expected.extend([1, 1, 1]);
+        assert_eq!(order, expected);
+        // Full chunks still alternate one per turn.
+        for channel in [1, 2, 1, 2] {
+            outbox.push(Class::Bulk, Frame::new(channel, FrameType::Data, vec![b'x'; DATA_CHUNK]));
+        }
+        let order: Vec<u32> = std::iter::from_fn(|| match outbox.pop(false) {
+            Some(Next::Frame(frame)) => Some(frame.channel),
+            _ => None,
+        })
+        .collect();
+        assert_eq!(order, [1, 2, 1, 2]);
+    }
+
     /// With the input lane attached, input does not share the flooded
     /// stream at all.
     #[tokio::test]
@@ -5449,6 +5514,109 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(500), screen.recv()).await,
             Ok(Some(ChannelEvent::Data(_)))
         ));
+    }
+
+    /// Mixed builds (RFD 0164 row 1): a phone and a Mac of any two
+    /// generations (no class lanes; `classes` only; `classes` with
+    /// `classes-screen-v1`) agree the same lanes through
+    /// [`crate::classes::ClassLanes`], the dial's own negotiation, and
+    /// keystrokes and screen updates still arrive once each: keystrokes as
+    /// datagrams across a dark stream where both listed `classes`, on the
+    /// stream once it is back otherwise.
+    #[tokio::test(start_paused = true)]
+    async fn mixed_builds_negotiate_down_and_still_deliver() {
+        use crate::classes::ClassLanes;
+        let generations =
+            [ClassLanes::offer(false, false), ClassLanes::offer(true, false), ClassLanes::offer(true, true)];
+        for phone_offer in generations {
+            for mac_offer in generations {
+                let case = format!("phone {phone_offer:?}, mac {mac_offer:?}");
+                // The phone dials with its lanes; the Mac lists back what it agreed.
+                let mac_agreed = mac_offer.agreed(&phone_offer.lanes());
+                let phone_agreed = phone_offer.agreed(&mac_agreed.lanes());
+                let both = ClassLanes::offer(
+                    phone_offer.classes && mac_offer.classes,
+                    phone_offer.screen && mac_offer.screen,
+                );
+                assert_eq!((phone_agreed, mac_agreed), (both, both), "{case}");
+
+                let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+                let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+                phone.attach_liveness_datagrams(LivenessDatagrams {
+                    classes: phone_agreed.classes,
+                    screen: phone_agreed.screen,
+                    ..phone_lane
+                });
+                mac.attach_liveness_datagrams(LivenessDatagrams {
+                    classes: mac_agreed.classes,
+                    screen: mac_agreed.screen,
+                    ..mac_lane
+                });
+                for link in [&phone, &mac] {
+                    assert_eq!(
+                        (link.class_datagrams(), link.screen_datagrams()),
+                        (both.classes, both.screen),
+                        "{case}"
+                    );
+                }
+                let server = tokio::spawn({
+                    let mac = mac.clone();
+                    async move {
+                        let keys = mac.accept().await.expect("keys");
+                        let screen = mac.accept().await.expect("screen");
+                        (keys.channel, screen.channel)
+                    }
+                });
+                let keys = phone.open_on("keys", serde_json::json!({}), Lane::Input).await.unwrap();
+                let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+                let (mut mac_keys, mac_screen) = server.await.unwrap();
+                assert_eq!(screen.screen_class(), both.screen, "{case}");
+
+                dark.send_replace(true);
+                for key in 0u8..3 {
+                    keys.send(Bytes::from(vec![key; 3])).await.unwrap();
+                }
+                if !both.classes {
+                    assert!(
+                        tokio::time::timeout(Duration::from_millis(100), mac_keys.recv()).await.is_err(),
+                        "{case}: a key crossed a dark stream with no class datagrams agreed"
+                    );
+                    dark.send_replace(false);
+                }
+                for key in 0u8..3 {
+                    match tokio::time::timeout(Duration::from_millis(500), mac_keys.recv()).await {
+                        Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], &[key; 3], "{case}"),
+                        other => panic!("{case}: key {key}: {other:?}"),
+                    }
+                }
+                dark.send_replace(false);
+                assert!(phone.ping().await.is_ok(), "{case}");
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(200), mac_keys.recv()).await.is_err(),
+                    "{case}: a key arrived twice"
+                );
+
+                let (mac_tx, _mac_rx) = mac_screen.split();
+                assert_eq!(mac_tx.screen_class(), both.screen, "{case}");
+                mac_tx.send_screen(None, b"state").await.unwrap();
+                match tokio::time::timeout(Duration::from_millis(500), screen.recv()).await {
+                    Ok(Some(ChannelEvent::Data(bytes))) => {
+                        let payload = if both.screen {
+                            crate::classes::screen_message(&bytes).expect("a screen message").payload.to_vec()
+                        } else {
+                            bytes.to_vec()
+                        };
+                        assert_eq!(payload, b"state", "{case}");
+                    }
+                    other => panic!("{case}: screen: {other:?}"),
+                }
+                assert!(phone.ping().await.is_ok(), "{case}");
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err(),
+                    "{case}: a screen update arrived twice"
+                );
+            }
+        }
     }
 
     /// Each side's flags are what negotiation agreed (both listed the lane),

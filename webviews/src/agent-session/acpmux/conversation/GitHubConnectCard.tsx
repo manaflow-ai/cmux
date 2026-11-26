@@ -5,12 +5,15 @@
 // chat's Continue once the person is back, so the session goes on by itself. Its look is the
 // turn's failure card's (TurnRows.tsx TurnFailure), the notice the reader already knows.
 import { useContext, useEffect, useState } from "react";
+import { Popover } from "../../../ui/Popover";
+import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { useT, type StringKey } from "../i18n";
 import { actionRefusal } from "../actionRefusal";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { settingsAskCard } from "./settingsAskCard.experiment";
 import { GitHubMark } from "./icons";
+import "../needsYou/needsYou.css";
 import { useTranscriptReadOnly } from "./readOnly";
 import { TurnActionsContext } from "./turnActions";
 import {
@@ -37,12 +40,15 @@ export function GitHubConnectCardView({
   offer,
   onConnect,
   onContinue,
+  askKey,
 }: {
   need: GitHubConnectNeed;
   phase: GitHubConnectPhase;
   offer: boolean;
   onConnect?: () => void;
   onContinue?: () => void;
+  /// The ask's identity (chat, turn and call), so its popover opens by itself once, never on a redraw.
+  askKey?: string;
 }) {
   const t = useT();
   // An agent's own ask (`settings_ask`) draws as the settings-ask-card experiment says; a failed
@@ -71,6 +77,17 @@ export function GitHubConnectCardView({
         : phase.kind === "refused"
           ? (phase.reason ?? t("githubConnect.notRun"))
           : cause;
+  if (askArm === "popover")
+    return (
+      <SettingsAskPopover
+        line={line}
+        phase={phase}
+        offer={offer}
+        onConnect={onConnect}
+        onContinue={onContinue}
+        askKey={askKey}
+      />
+    );
   if (askArm === "needs")
     return (
       <section
@@ -108,6 +125,89 @@ export function GitHubConnectCardView({
           <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
         </span>
       )}
+    </div>
+  );
+}
+
+/// Asks whose popover has opened by itself already (or was put away): a redraw, or the transcript
+/// drawing the turn again, keeps it as the person left it.
+const shownAsks = new Set<string>();
+
+/// The settings-ask-card experiment's `popover` arm (Leo, 2026-11-25: "what about just a simple
+/// styled consistently popover for that specific setting? a la something similar to needs you or
+/// whatever"): a chip under the turn with the Needs you mark, and anchored to it the Needs you
+/// popover's surface (needsYou.css `.acpmux-needs-you`) holding just that one setting's control. It
+/// opens by itself once, without taking the composer's focus; Escape or a press outside puts it
+/// away, and the chip opens it again.
+function SettingsAskPopover({
+  line,
+  phase,
+  offer,
+  onConnect,
+  onContinue,
+  askKey,
+}: {
+  line: string;
+  phase: GitHubConnectPhase;
+  offer: boolean;
+  onConnect?: () => void;
+  onContinue?: () => void;
+  askKey?: string;
+}) {
+  const t = useT();
+  const done = phase.kind === "continuing";
+  const [open, setOpenState] = useState(() => !done && !(askKey !== undefined && shownAsks.has(askKey)));
+  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (askKey !== undefined) shownAsks.add(askKey);
+  }, [askKey]);
+  const setOpen = (next: boolean) => setOpenState(next && !done);
+  const trigger = usePopoverTrigger(open && !done, setOpen);
+  return (
+    <div
+      className="cv-settings-ask-anchor cv-github-connect"
+      data-github-connect={phase.kind}
+      data-settings-ask="popover"
+      aria-live="polite"
+    >
+      <button
+        type="button"
+        ref={setChip}
+        className="cv-settings-ask-chip"
+        data-open={open && !done ? "true" : undefined}
+        aria-label={`${t("githubConnect.needsYou")}: ${line}`}
+        {...trigger}
+      >
+        <span className="cv-settings-ask-chip__dot" aria-hidden="true" />
+        <GitHubMark size={14} className="cv-settings-ask__icon" />
+        <span className="cv-settings-ask-chip__label">{done ? line : t("githubConnect.connect")}</span>
+      </button>
+      <Popover
+        id={trigger["aria-controls"]}
+        open={open && !done && chip !== null}
+        onOpenChange={(next) => setOpen(next)}
+        anchor={chip}
+        label={t("githubConnect.needsYou")}
+        className="acpmux-needs-you cv-settings-ask-popover"
+        side="top"
+        align="start"
+        initialFocus={false}
+      >
+        <div
+          className="cv-settings-ask-popover__panel"
+          data-github-connect={phase.kind}
+          role={phase.kind === "refused" ? "alert" : undefined}
+        >
+          <div className="acpmux-needs-you-head">
+            <span className="acpmux-needs-you-title">{t("githubConnect.needsYou")}</span>
+          </div>
+          <div className="cv-settings-ask__row">
+            <GitHubMark size={16} className="cv-settings-ask__icon" />
+            <span className="cv-settings-ask__line text-fg">{line}</span>
+            {offer && <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />}
+          </div>
+        </div>
+      </Popover>
     </div>
   );
 }
@@ -207,6 +307,7 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
       offer={offer !== undefined}
       onConnect={connect}
       onContinue={goOn}
+      askKey={phaseKey}
     />
   );
 }

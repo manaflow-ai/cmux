@@ -30,7 +30,7 @@ fn running() -> Harness {
     h.connect();
     h.say("user_local", "finish the migration");
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     h
 }
@@ -54,7 +54,7 @@ fn stop_then_continue_reopens_the_messages_and_runs_one_turn() {
     assert_eq!(action(&mut h, None)["continued"], true);
     assert_eq!(h.brain.awaiting_replies()[0].id, "msg_1");
     while prompts(&h) < 2 {
-        h.step();
+        h.poll_step();
     }
     assert_eq!(
         action(&mut h, None)["continued"],
@@ -84,7 +84,7 @@ fn continue_restarts_a_stopped_turn_without_reply_obligations() {
         text: "[chief:peer] Finish the ongoing migration.".into(),
     });
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     assert!(h.brain.awaiting_replies().is_empty());
     stop(&mut h);
@@ -113,7 +113,7 @@ fn retry_reopens_and_answers_the_named_message() {
     assert_eq!(action(&mut h, Some(&message.id))["retried"], true);
     assert_eq!(h.brain.awaiting_replies()[0].id, message.id);
     while prompts(&h) < 2 {
-        h.step();
+        h.poll_step();
     }
     let prompt = Value::Array(h.agents.inner.lock().unwrap().prompts[1].clone()).to_string();
     assert!(
@@ -242,7 +242,7 @@ fn continue_retains_the_stopped_turns_approval_floor() {
     h.connect();
     h.say("user_local", "finish the migration");
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
     stop(&mut h);

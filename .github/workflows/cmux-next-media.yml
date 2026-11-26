@@ -123,7 +123,7 @@ jobs:
   route:
     name: Pick the tour runner
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -157,6 +157,7 @@ jobs:
             release-notes/next/highlights
             release-notes/next/clips
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Decide whether this pull request gets a tour
@@ -256,7 +257,8 @@ jobs:
       # plan records no clips and leaves the pick as it was.
       - name: Plan the What's New clips
         id: clips
-        if: ${{ steps.decide.outputs.wanted == 'true' && github.event_name != 'pull_request' && steps.last_toured.outputs.defer != 'true' }}
+        # Also on a tip under the gap: a clip still waiting tours it anyway (the hold step below).
+        if: ${{ steps.decide.outputs.wanted == 'true' && github.event_name != 'pull_request' }}
         continue-on-error: true
         env:
           # The waiting befores' shared app is the newest nightly tip before them (one GET of nightly.yml's runs).
@@ -277,9 +279,26 @@ jobs:
           echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
 
+      # A tip under the gap defers only when no What's New clip is waiting. On 2026-11-25 tip 4755643e
+      # (run 45692277328) deferred 50 min after tour run 45680711758 failed at checkout, and the two
+      # clips that tour owed waited for a tip past the gap that the stalled nightly never pushed.
+      - name: Hold a tip under the gap with no clips waiting
+        id: hold
+        if: ${{ steps.decide.outputs.wanted == 'true' && steps.last_toured.outputs.defer == 'true' }}
+        env:
+          CLIPS_PLAN: ${{ steps.clips.outputs.plan }}
+        run: |
+          if [ -n "$CLIPS_PLAN" ] && [ "$CLIPS_PLAN" != "[]" ]; then
+            echo "under the gap, but What's New clips wait: touring anyway"
+            echo "held=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "under the gap and no clips wait: deferring"
+            echo "held=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Pick an owned gui runner
         id: pick
-        if: ${{ steps.decide.outputs.wanted == 'true' && steps.last_toured.outputs.defer != 'true' }}
+        if: ${{ steps.decide.outputs.wanted == 'true' && steps.hold.outputs.held != 'true' }}
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
@@ -309,7 +328,12 @@ jobs:
     # 35 min to reach its web bundles (job 115856352658). A tour builds in the
     # slot it claims on the Mac, so it reuses that slot's warm DerivedData
     # whichever pull request toured there last (scripts/ci/media_tag_lock.py).
-    timeout-minutes: 120
+    # The job's clock runs from the runner's setup. On 2026-11-25 (job
+    # 139295566977) setup, both builds and the before/after capture took 116
+    # min, so a 120 min cap cancelled "Record What's New clips" 4 min into its
+    # own 45 and the media hand-off after it: no clip that night. 180 leaves
+    # that step its whole 45 and the hand-off its time.
+    timeout-minutes: 180
     # actions: read finds and downloads another run's base app artifact.
     permissions:
       actions: read
@@ -338,6 +362,30 @@ jobs:
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+
+      # The job's clock: the clips stop 12 min before the job's cap, so the media the capture already
+      # recorded still uploads. Run 45572451860 captured every tour, then its clips ran the job into the
+      # cap at 10:10Z and "Keep the media" never ran: 2 Mac hours, no media.
+      # The cap counts from the job's start, not this step's: in run 45636169467 "Set up runner" took
+      # 17.6 min, so a clock started here ran past the cap and the clips were cancelled again. The
+      # clock starts when this job's Runner.Worker process did (local ps, no API call).
+      - name: Start the tour's clock
+        run: |
+          now=$(date +%s) start=$now pid=$$
+          while [ "${pid:-1}" -gt 1 ]; do
+            case "$(ps -o command= -p "$pid" 2>/dev/null)" in
+              *Runner.Worker*)
+                et=$(ps -o etime= -p "$pid" | tr -d ' ') d=0
+                case "$et" in *-*) d=${et%%-*} et=${et#*-} ;; esac
+                IFS=: read -r a b c <<< "$et"
+                if [ -n "$c" ]; then secs=$(( 10#$a * 3600 + 10#$b * 60 + 10#$c )); else secs=$(( 10#$a * 60 + 10#$b )); fi
+                start=$(( now - 10#$d * 86400 - secs ))
+                break ;;
+            esac
+            pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+          done
+          echo "The job started $(( now - start )) s ago."
+          echo "TOUR_JOB_START=$start" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -778,13 +826,31 @@ jobs:
           cp "$RUNNER_TEMP/clips-plan.json" "$out/plan.json"
           # First, so the publish job runs on what was recorded even when an extra before app times out.
           echo "count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$out/plan.json")" >> "$GITHUB_OUTPUT"
+          # The clips stop 12 min before this job's own timeout-minutes, read from this file, so the
+          # deadline follows the cap whatever it is set to.
+          cap=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["jobs"]["tour"]["timeout-minutes"])' \
+            .github/workflows/cmux-next-media.yml 2>/dev/null) || cap=120
+          case "$cap" in ''|*[!0-9]*) cap=120 ;; esac
+          TOUR_DEADLINE=$(( ${TOUR_JOB_START:-$(date +%s)} + (cap - 12) * 60 ))
+          echo "Job cap ${cap} min; clips stop in $(( TOUR_DEADLINE - $(date +%s) )) s."
+          # A command, stopped with SIGTERM (tour.py unwinds and stops its app) at the job's clock.
+          bounded() {
+            local left=$(( ${TOUR_DEADLINE:-0} - $(date +%s) ))
+            if [ "${TOUR_DEADLINE:-0}" = 0 ]; then "$@"; return; fi
+            if [ "$left" -le 60 ]; then echo "::warning title=What's New clip::out of job time; skipped: $*"; return 124; fi
+            "$@" & local pid=$!
+            ( sleep "$left" && echo "::warning title=What's New clip::stopped at the job's clock" && kill -TERM "$pid" 2>/dev/null ) & local dog=$!
+            wait "$pid"; local rc=$?
+            pkill -P "$dog" 2>/dev/null; kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null
+            return "$rc"
+          }
           record() {  # ROLE APP [--before SHA]
             local role="$1" app="$2"; shift 2
             # Highlight ids are lowercase words and dashes: one path per word.
             # shellcheck disable=SC2046 # split on purpose, one tour path per word
             set -- $(python3 "$clips" tours --plan "$out/plan.json" --role "$role" --dir "$RUNNER_TEMP/clip-tours" "$@")
             [ "$#" -gt 0 ] || return 0
-            python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
+            bounded python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
               || echo "::warning title=What's New clip::a $role tour failed (exit $?); its clip is left out"
           }
           record after "$HEAD_APP"
@@ -798,7 +864,7 @@ jobs:
               && git -C "$tree" submodule update --init --recursive \
               && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh) \
               && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
-                "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
+                bounded "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
               || { echo "::warning title=What's New clip::no app at $sha; its befores wait"; continue; }
             app="$(sed -n 's/^clip_before_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
             record before "$app" --before "$sha"
@@ -861,7 +927,7 @@ jobs:
     name: Publish the What's New clips
     needs: tour
     if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.tour.outputs.clips != '' && needs.tour.outputs.clips != '0' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     environment: pr-media
     permissions:
@@ -881,6 +947,7 @@ jobs:
             scripts/cmux-next/media/whats-new-clips.py
             scripts/cmux-next/media/tour.py
             release-notes/next/clips
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -919,7 +986,7 @@ jobs:
     name: Hand the tour to the publisher
     needs: [route, tour]
     if: ${{ github.event_name == 'pull_request' && !cancelled() && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # actions: write starts the publisher; nothing here can write pr-media.
     permissions:
@@ -962,7 +1029,7 @@ jobs:
     # nightly tour spans many pull requests and a batch dispatch has none, so
     # neither posts: the tour's artifact is the result.
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish_run != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # OCR of every still and of one frame per second of each video comes first.
     timeout-minutes: 30
     # The private-terms secret lives only in this environment, which admits only
@@ -996,6 +1063,7 @@ jobs:
             scripts/cmux-next/media/publish.py
             scripts/cmux-next/flicker-check.py
             scripts/cmux-next/recording-shifts-report.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The pull request to comment on: the one the handed-off run was for, read

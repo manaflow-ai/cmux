@@ -124,8 +124,14 @@ impl Supervisor {
             // A view mounted again under its id (Reload) keeps its old scene
             // on screen until this one: its first scene replaces it.
             let replacing = inner.mounts.contains_key(&key);
+            // A Reload keeps the pane's open (`pane_flow.rs`): it binds again below.
+            inner.pane_opens.detach(&key);
+            let mut context = context;
+            // A Reload keeps the view's kept state (`view_state.rs`).
+            super::view_state::carry(inner.mounts.get(&key), app, &export, &mut context);
             let mut outs = self.unmount_locked(&mut inner, &key);
             let host_key = HostKey { app: app.to_string(), preview };
+            self.pane_mount_bind_locked(&mut inner, &key, &host_key, interface, &mut context);
             if !preview {
                 self.note_launch_mount_locked(&mut inner, app);
             }
@@ -204,6 +210,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
+        self.pane_mount_gone_locked(inner, key, &mount.host.app);
         self.signals_mount_gone(key);
         self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {

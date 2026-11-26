@@ -306,26 +306,40 @@ impl State {
 
     /// Takes `pr` in place of what was known of its URL; its links are those of its body.
     pub(crate) fn put_pr(&mut self, mut pr: PullRequest) -> PullRequest {
-        if let Some(old) = self.prs.get(&pr.url) {
+        let old = self.prs.get(&pr.url);
+        if let Some(old) = old {
             if pr.repo.is_none() {
                 pr.repo = old.repo.clone();
             }
             if pr.number.is_none() {
                 pr.number = old.number;
             }
-            for id in &old.asks {
-                if let Some(urls) = self.by_ask.get_mut(id) {
-                    urls.retain(|u| *u != pr.url);
+        }
+        // State-only and duplicate observations do not change the reverse index. For a
+        // changed body, touch only this PR's removed/added links, never the whole ledger.
+        if old.is_none_or(|old| old.asks != pr.asks) {
+            for id in old.into_iter().flat_map(|old| &old.asks) {
+                if pr.asks.contains(id) {
+                    continue;
+                }
+                let empty = self.by_ask.get_mut(id).is_some_and(|urls| {
+                    urls.retain(|url| *url != pr.url);
+                    urls.is_empty()
+                });
+                if empty {
+                    self.by_ask.remove(id);
+                }
+            }
+            for id in &pr.asks {
+                if old.is_some_and(|old| old.asks.contains(id)) {
+                    continue;
+                }
+                let urls = self.by_ask.entry(id.clone()).or_default();
+                if !urls.contains(&pr.url) {
+                    urls.push(pr.url.clone());
                 }
             }
         }
-        for id in &pr.asks {
-            let urls = self.by_ask.entry(id.clone()).or_default();
-            if !urls.contains(&pr.url) {
-                urls.push(pr.url.clone());
-            }
-        }
-        self.by_ask.retain(|_, urls| !urls.is_empty());
         self.prs.insert(pr.url.clone(), pr.clone());
         pr
     }

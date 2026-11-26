@@ -16,6 +16,8 @@ CMUX_CEF_* variable of this process's environment reaches the app (the resize-sy
 window-resize-feel.sh). Judges nothing: the films are read by a person or a frame analysis. Kills only its own app.
 """
 import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
+# cmux NEXT's config folder: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+NEXT_DIR = "cmux-next" if sys.platform == "darwin" else "cmux"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
@@ -187,9 +189,9 @@ with open(config, "w") as f:
     f.write("{}\n")
 acp_home = os.path.join(opts.out, "acpmux")
 xdg = os.path.join(opts.out, "xdg")
-os.makedirs(os.path.join(xdg, "cmux", "harnesses"), exist_ok=True)
+os.makedirs(os.path.join(xdg, NEXT_DIR, "harnesses"), exist_ok=True)
 os.makedirs(acp_home, exist_ok=True)
-profile = os.path.join(xdg, "cmux", "harnesses", "fake.toml")
+profile = os.path.join(xdg, NEXT_DIR, "harnesses", "fake.toml")
 with open(profile, "w") as f:
     f.write(f'id = "fake"\nname = "Fake"\ncommand = "/usr/bin/python3"\nargs = [{json.dumps(FAKE_AGENT)}]\n')
 os.chmod(profile, 0o600)
