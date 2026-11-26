@@ -416,8 +416,9 @@ public final class AppHealth: Sendable {
 
     /// A part id for the ledger: its kind and a short name (`page:4F2A…` keeps 8 characters after the kind).
     static func ledgerName(_ id: String) -> String {
-        guard let colon = id.firstIndex(of: ":") else { return String(id.prefix(24)) }
-        return String(id[...colon]) + String(id[id.index(after: colon)...].prefix(8))
+        let parts = id.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let kind = parts.first, let name = parts.last else { return String(id.prefix(24)) }
+        return kind + ":" + name.prefix(8)
     }
 
     private func tick() {

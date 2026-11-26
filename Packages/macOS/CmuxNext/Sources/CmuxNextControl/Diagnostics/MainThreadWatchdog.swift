@@ -363,7 +363,7 @@ public final class MainThreadWatchdog: Sendable {
             mainWakeCount.add(1, ordering: .relaxed)
             busy.noteAwake()
             // The deadlines that may run early run on this wake instead of waking the app again.
-            WakeCoalescer.shared.wake()
+            WakeupLedger.shared.coalescer.wake()
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
         } else if asleep, !wasAsleep {

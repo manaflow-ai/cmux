@@ -28,11 +28,12 @@ public final class DemandTimer: Sendable {
 
     /// - Parameter early: How long before its deadline the timer may run on another wake (zero: never).
     public init(owner: String, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                early: Duration = .zero, coalescer: WakeCoalescer = .shared) {
+                early: Duration = .zero, coalescer: WakeCoalescer? = nil) {
         self.owner = owner
         self.clock = clock
         self.ledger = ledger
         self.early = early
+        let coalescer = coalescer ?? ledger.coalescer
         self.coalescer = coalescer
         coalescerID = coalescer.makeID()
     }

@@ -10,8 +10,8 @@ import CmuxNextCompat
 /// wake comes inside the window does its own deadline wake the app. A deadline with no `early` never rides.
 ///
 /// ``wake()`` is cheap when nothing is due: one atomic load and one clock read. Entries run outside the lock.
+/// The app's one coalescer is ``WakeupLedger/coalescer`` of the shared ledger.
 public final class WakeCoalescer: Sendable {
-    public static let shared = WakeCoalescer()
 
     private struct Entry {
         /// When the window opens (``now`` nanoseconds).
