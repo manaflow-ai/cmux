@@ -4,6 +4,122 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchParams {
+    pub q: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItemRangesItem {
+    pub start: i64,
+    pub length: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItem {
+    pub conversation: ConversationId,
+    pub title: Option<String>,
+    pub seq: i64,
+    pub message_id: String,
+    pub author: ParticipantId,
+    pub created_at: Timestamp,
+    pub snippet: String,
+    pub ranges: Vec<HomeSearchResultHitsItemRangesItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResult {
+    pub hits: Vec<HomeSearchResultHitsItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes home.search declares.
+    HomeSearchError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).
+    HomeSettingsSetOp {
+        name: "home.settings.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: HomeSettingsSetParams,
+        result: HomeSettingsSetResult,
+        error: HomeSettingsSetError,
+    }
+}
+
+wire_enum! {
+    HomeSettingsSetParamsAllowRequestsFrom {
+        Anyone = "anyone",
+        Teams = "teams",
+        Nobody = "nobody",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSettingsSetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discoverable_by_email: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discoverable_by_phone: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_requests: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_same_domain: Option<bool>,
+}
+
+wire_enum! {
+    HomeSettingsSetResultAllowRequestsFrom {
+        Anyone = "anyone",
+        Teams = "teams",
+        Nobody = "nobody",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSettingsSetResult {
+    pub discoverable_by_email: bool,
+    pub discoverable_by_phone: bool,
+    pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
+    pub email_requests: bool,
+    pub trust_same_domain: bool,
+}
+
+wire_errors! {
+    /// The error codes home.settings.set declares.
+    HomeSettingsSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Enroll the calling install's machine as a host in the team directory.
     HostEnrollOp {
@@ -767,138 +883,4 @@ pub struct IntegrationCompleteResultResources {
     pub repos: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_by_github_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteResult {
-    pub id: ConnectionId,
-    pub owner: TeamId,
-    pub created_by: UserId,
-    pub provider: IntegrationProvider,
-    pub account: Option<IntegrationCompleteResultAccount>,
-    pub scopes_requested: Vec<String>,
-    pub scopes_granted: Vec<String>,
-    pub status: ConnectionStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status_detail: Option<String>,
-    pub sharing: IntegrationCompleteResultSharing,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resources: Option<IntegrationCompleteResultResources>,
-    pub created_at: i64,
-    pub updated_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub return_to: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub configure_url: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes integration.complete declares.
-    IntegrationCompleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationNotConfigured = "integration.not_configured",
-        IntegrationStateInvalid = "integration.state_invalid",
-        MutationIndeterminate = "mutation.indeterminate",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.
-    IntegrationConnectOp {
-        name: "integration.connect",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationConnectParams,
-        result: IntegrationConnectResult,
-        error: IntegrationConnectError,
-    }
-}
-
-wire_enum! {
-    IntegrationConnectParamsSharing {
-        Private = "private",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationConnectParams {
-    pub provider: IntegrationProvider,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scopes: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sharing: Option<IntegrationConnectParamsSharing>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub return_to: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationConnectResult {
-    pub connection: Connection,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorize_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connected: Option<BoolLit<true>>,
-}
-
-wire_errors! {
-    /// The error codes integration.connect declares.
-    IntegrationConnectError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationLimit = "integration.limit",
-        IntegrationNotConfigured = "integration.not_configured",
-        PolicyDenied = "policy.denied",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the team's connections the caller may use (no secrets) and which providers this deployment can connect.
-    IntegrationListOp {
-        name: "integration.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationListParams,
-        result: IntegrationListResult,
-        error: IntegrationListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResultProvidersItem {
-    pub provider: IntegrationProvider,
-    pub configured: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResult {
-    pub connections: Vec<Connection>,
-    pub providers: Vec<IntegrationListResultProvidersItem>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes integration.list declares.
-    IntegrationListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
 }
