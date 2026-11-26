@@ -3,7 +3,8 @@
 // daemon (`apps.settings.set`), which checks it against the manifest, stores it with the install
 // and hands it to the running extension at once (`settings.changed`); the rows then show the values
 // the daemon answered. Reset to Default (the row's right-click menu) sends `null`, the manifest's
-// default. The card reads when it mounts.
+// default. The card reads when it mounts and again whenever the installed extensions change
+// (`cmux.settings.extensions.changed`: an install, a removal, or a manifest saved and hot reloaded).
 import { useEffect, useId, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { Input } from "../../../ui/Input";
@@ -28,14 +29,22 @@ export function ExtensionsCard() {
 
   useEffect(() => {
     let live = true;
-    void store.extensionSettings().then((result) => {
-      if (!live) return;
-      setApps(result.apps);
-      setUnavailable(result.unavailable);
-      if (!result.unavailable) setError(result.error);
-    });
+    // Only the newest read draws: a slow earlier answer can't put an older schema back.
+    let reads = 0;
+    const read = () => {
+      const read = ++reads;
+      void store.extensionSettings().then((result) => {
+        if (!live || read !== reads) return;
+        setApps(result.apps);
+        setUnavailable(result.unavailable);
+        setError(result.unavailable ? null : result.error);
+      });
+    };
+    const stop = store.onExtensionsChanged(read);
+    read();
     return () => {
       live = false;
+      stop();
     };
   }, [store]);
   // A DEV-only setting (`x-cmux-devOnly`, a prototype's switch) shows only in DEV builds.
