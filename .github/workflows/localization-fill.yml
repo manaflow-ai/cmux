@@ -69,7 +69,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: refs/heads/main
           path: main
           sparse-checkout: |
             scripts
