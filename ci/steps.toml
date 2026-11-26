@@ -308,6 +308,9 @@ exit "$rc"
 [step.cache-receipts]
 job = "linux"
 timeout = 300
+# A pull request runs it on every workflow change (--pr-scope keeps its whole route): the read-only guard says no
+# pull request job holds the cache-writer credentials, and a poisoned cache found after landing is already written.
+pr_scope = false
 title = "CI cache receipt contract"
 about = "cache restore receipts classify a restore, and their test is deterministic"
 inputs = [
@@ -440,6 +443,8 @@ about = "every acpmux method and param key the Swift app names is in the acpmux 
 inputs = [
   "Packages/macOS/CmuxNext/Sources/**",
   "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+  "scripts/cmux-next/gen-agent-pane-policy-swift.py",
   "scripts/ci/check-swift-acpmux-protocol.py",
   "scripts/ci/swift-acpmux-protocol-allowlist.txt",
   "tests/test_check_swift_acpmux_protocol.py",
@@ -469,6 +474,11 @@ inputs = [
   "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**",
   "scripts/cmux-next/check-app-platform.sh",
   "scripts/cmux-next/sync-app-runtime.sh",
+  # gen-cmux-global.ts's catalog inputs (loadCatalog): a pull request that added actions to action-surfaces.json
+  # left schema/merged/index.json stale on the base without routing this check (11-24, the merged index's 21 ids).
+  "plans/cmux-next/action-surfaces.json",
+  "backend/catalog/cloud-operations.json",
+  "cmux-tui/spec/resource-operations-v2.json",
 ]
 run = "bash scripts/cmux-next/check-app-platform.sh"
 
@@ -1033,6 +1043,9 @@ bun run vercel-build
 [step.security-holes]
 job = "linux"
 timeout = 300
+# A pull request runs it on every change (not left to the post-merge batch, --pr-scope): a secret or a workflow hole
+# found after landing is already out.
+pr_scope = false
 title = "Workflow security holes and secrets"
 about = "the ratchet's tests pass, the change adds no workflow security hole (zizmor) and no secret (gitleaks), and no job is pinned to one runner size"
 inputs = ["**"]
@@ -2167,7 +2180,9 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
 # incremental state (it only fills the disk), the ghostty-next gitlink's sources, Zig from PATH.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
-export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+# Fork pull requests use a 4-vCPU Linux runner. Keep cold rustc fan-out within that
+# runner's memory budget after an unrestricted compile killed rustc with SIGKILL.
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 unset CMUX_ZIG ZIG
 # The last feat-cmux-next push's build (read only; a miss builds cold): unchanged crates are not compiled again.
 ../scripts/ci/cmux-tui-test-target.sh restore
@@ -2345,6 +2360,9 @@ python3 scripts/tests/test_pr_scoped_lint_gates.py
 job = "linux"
 timeout = 360
 alone = true
+# A pull request runs it on its whole route (--pr-scope keeps it): the one rule that fails it, a namespace type the
+# pull request adds, is read from the pull request's own diff (--pr), which the post-merge batch does not have.
+pr_scope = false
 title = "Package conventions lint"
 about = "the iOS package conventions gate on the files the pull request changes (package-conventions-gate.sh --pr), warn-only into feat-cmux-next but for an added namespace type"
 inputs = [
@@ -2440,6 +2458,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",

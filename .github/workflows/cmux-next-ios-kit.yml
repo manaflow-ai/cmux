@@ -46,6 +46,7 @@ on:
       - "Packages/Shared/CmuxEgress/**"
       - "Packages/Shared/CmuxGhosttyKit/**"
       - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxLiveCode/**"
       - "Packages/Shared/CmuxScreenKit/**"
       - "Packages/Shared/CmuxSpinner/**"
       - "Packages/Shared/CmuxTheme/**"
@@ -377,6 +378,9 @@ jobs:
     permissions:
       contents: read
       actions: read  # the fleet-built xcframework: this run's jobs and artifacts
+    outputs:
+      # kit-sim-pool reads this through needs, with no jobs API poll (its poll 403ed every minute, run 45826673120).
+      sim_uploaded: ${{ steps.sim-upload.outcome == 'success' }}
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -859,50 +863,25 @@ jobs:
           key: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
 
   # The simulator tests on the fleet pool for a kit run whose Mac is a Blacksmith one (see "Build the iOS simulator
-  # tests for the pool"): waits for that Mac's upload, submits from this owned Linux runner (a tailnet peer of the
+  # tests for the pool"): runs after the kit job (needs, no API poll), submits from this owned Linux runner (a tailnet peer of the
   # controller), and reports the pool's verdict and seconds next to the Mac simulator step's. Advisory in "shadow".
   kit-sim-pool:
-    needs: runner
+    needs: [runner, kit-tests]
     name: CmuxMobileKit iOS simulator tests (fleet pool)
     if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name != 'pull_request' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && contains(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on, 'blacksmith') }}
     runs-on: cmux-linux
     timeout-minutes: 90
-    permissions:
-      actions: read
+    permissions: {}
     steps:
-      - name: Wait for the Mac's simulator test build
+      - name: The Mac's simulator test build
         id: wait
         env:
-          GH_TOKEN: ${{ github.token }}
-          RUN: ${{ github.run_id }}
-          ATTEMPT: ${{ github.run_attempt }}
-          REPO: ${{ github.repository }}
+          UPLOADED: ${{ needs.kit-tests.outputs.sim_uploaded }}
+          KIT: ${{ needs.kit-tests.result }}
         run: |
-          set +e -uo pipefail
-          # One jobs read a minute: the upload step's outcome, or the kit job's end without one.
-          # curl and python3, not gh: this job has no checkout, and the first base run (45594390658)
-          # died on its first gh read with no output. A failed read is logged and retried, never fatal.
-          for _ in $(seq 1 50); do
-            state="$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=50" |
-              python3 -c '
-          import json, sys
-          for job in json.load(sys.stdin).get("jobs", []):
-              if job["name"].startswith("CmuxMobileKit tests"):
-                  step = next((s for s in job.get("steps") or [] if s["name"] == "Upload the iOS simulator test build"), None)
-                  print("%s/%s" % (step["status"], step["conclusion"]) if step else "none/none", job["status"])
-                  break
-          else:
-              print("absent")')"
-            [ -n "$state" ] || state="read-failed"
-            echo "$(date -u +%H:%M:%S) $state"
-            case "$state" in
-              completed/success*) echo "uploaded=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
-              completed/*|*" completed") echo "uploaded=false" >> "$GITHUB_OUTPUT"; echo "the kit job made no simulator test build ($state)"; exit 0 ;;
-            esac
-            sleep 60
-          done
-          echo "uploaded=false" >> "$GITHUB_OUTPUT"; echo "no simulator test build within 50 min"
+          # needs: kit-tests, not a jobs API poll: run 45826673120's poll got a 403 every minute for 36 min.
+          if [[ "$UPLOADED" == true ]]; then echo "uploaded=true" >> "$GITHUB_OUTPUT"
+          else echo "uploaded=false" >> "$GITHUB_OUTPUT"; echo "the kit job made no simulator test build (kit-tests $KIT)"; fi
 
       - name: Fleet pool run
         id: pool
@@ -917,7 +896,7 @@ jobs:
           [[ -n "$CONTROLLER" ]] || { echo "no CMUX_FLEET_CONTROLLER variable"; exit 1; }
           client="$RUNNER_TEMP/fleet-client"; dir="$RUNNER_TEMP/sim-linux"
           mkdir -p "$client" "$dir"
-          curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json"
+          for try in 1 2 3; do curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json" && break; [[ $try == 3 ]] && { echo "the controller did not answer from $RUNNER_NAME"; exit 1; }; sleep 20; done
           python3 - "$client" "$CONTROLLER" <<'EOF'
           import hashlib, json, sys, urllib.request
           from pathlib import Path
