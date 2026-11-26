@@ -6,7 +6,7 @@
 #   a_paired_mac_lists_and_allows_a_waiting_request_over_its_link_socket    (--mac: a probe phone dials over a link)
 # Each runs `cmux mobile pair-requests list` and `allow ID --fingerprint FP` and asserts hostd's PairAnswer (allow).
 # Leo's ask c-45c37458ea ("surely we dont need to be bottled this hard by a click").
-#   cmux-ci run --label measure --script scripts/measure/pair-allow-readback.sh --ref <sha> [--arg=dmg=URL]
+#   cmux-ci run --class isolated --label measure --os macos --script scripts/measure/pair-allow-readback.sh --ref <sha> [--arg=dmg=URL]
 set -uo pipefail
 dmg=""
 for arg in "$@"; do
@@ -18,7 +18,7 @@ done
 # shellcheck source-path=SCRIPTDIR source=../cmux-next/lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
 cmux_next_require_fleet pair-allow-readback.sh "cargo test" "none (a measurement)" \
-  "cmux-ci run --label measure --script scripts/measure/pair-allow-readback.sh --ref SHA"
+  "cmux-ci run --class isolated --label measure --os macos --script scripts/measure/pair-allow-readback.sh --ref SHA"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$HOME/.cargo/bin:$PATH"
 if [[ -z "$dmg" ]]; then
@@ -40,6 +40,8 @@ ditto "$src" "$work/app.app"
 hdiutil detach "$mnt" >/dev/null; mnt=""
 plist="$work/app.app/Contents/Info.plist"
 echo "PAR nightly $(plutil -extract CFBundleShortVersionString raw -o - "$plist") build $(plutil -extract CFBundleVersion raw -o - "$plist")"
+# The tests come from the step's --ref, the CLI from the NIGHTLY: name the NIGHTLY's own commit too.
+plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */PAR nightly plist /'
 cli="$(find "$work/app.app/Contents" -type f -perm -u+x -name cmux 2>/dev/null | head -1)"
 [[ -n "$cli" ]] || { echo "PAR no cmux CLI in the bundle"; exit 3; }
 echo "PAR cli ${cli#"$work/app.app/"}: $(HOME="$work" "$cli" --version 2>&1 | head -1)"
@@ -51,5 +53,5 @@ CMUX_PAIR_REQUESTS_CLI="$cli" cargo test --locked -p cmux-mobile-host --test hos
   --nocapture --test-threads=1 2>&1 | tee "$work/test.log"
 status=${PIPESTATUS[0]}
 grep -E '^test .* (ok|FAILED)$|^test result' "$work/test.log" | sed 's/^/PAR /'
-echo "PAR exit=$status"
+echo "PAR exit=$status step $(git -C "$root" rev-parse HEAD) nightly $(plutil -extract CFBundleVersion raw -o - "$plist")"
 exit "$status"
