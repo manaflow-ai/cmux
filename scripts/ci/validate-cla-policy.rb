@@ -116,6 +116,21 @@ CLA_ACTION_PINNED_SUCCESSORS = [
     6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
     manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
     a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+  ].freeze,
+  # The own-read-pool successor of the read-token successor (2026-11-26): the
+  # e7f0b10 action reads CLA_READ_TOKEN as a comma-separated list it tries in
+  # order, skipping an entry that answers 401 and dropping empty ones. cla.yml
+  # moves to it and passes `${{ secrets.CLA_READ_TOKEN }},${{
+  # steps.glaeda-token.outputs.token }}`: CLA's own read-only quota-goblin-9006
+  # installation first, then the shared glaeda-route one that runs out every
+  # hour. An expired secret falls back (a `||` did not), and an unset one
+  # leaves only a leading comma. The header comment describes it; the runner
+  # and every other step are unchanged.
+  %w[
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+    manaflow-ai/cla-github-action@e7f0b10f3f492799c6a0af6f7a7e90812b96c113
+    3f4c03e3acbc61639c161f241ad2330a95bf097acb645833c4d9293c45eac529
   ].freeze
 ].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
@@ -260,7 +275,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
+EXPECTED_GUARD_SCRIPT_DIGEST = "79d84f4ab3f138a0532673a8fcf1121350a175f236d45136858e49aa806d802a"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1490,6 +1505,7 @@ def run_action_transition_regression_matrix!
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
   read_from_ref, read_from, read_to_ref, read_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(0)
+  pool_from_ref, pool_from, pool_ref, pool_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(-1)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -1530,7 +1546,16 @@ def run_action_transition_regression_matrix!
     ["read-token action with unpinned bytes", read_from_ref, read_to_ref, true, read_from, nil, nil, false, "0" * 64],
     ["read-token bytes from unreviewed base", read_from_ref, read_to_ref, true, "0" * 64, nil, nil, false, read_to],
     ["read-token bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, read_to],
-    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to]
+    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to],
+    ["read-token successor to own read pool", pool_from_ref, pool_ref, true, pool_from, nil, nil, true, pool_to],
+    ["own read pool no-op", pool_ref, pool_ref, false, pool_to, nil, nil, true],
+    ["own read pool to final", pool_ref, final, true, pool_to, nil, nil, true],
+    ["own read pool reverted", pool_ref, pool_from_ref, true, pool_to, nil, nil, false, pool_from],
+    ["own read pool bytes under the old action", pool_from_ref, pool_from_ref, true, pool_from, nil, nil, false, pool_to],
+    ["own read pool action with the old bytes", pool_from_ref, pool_ref, true, pool_from, nil, nil, false, pool_from],
+    ["own read pool action with unpinned bytes", pool_from_ref, pool_ref, true, pool_from, nil, nil, false, "0" * 64],
+    ["own read pool action without a policy change", pool_from_ref, pool_ref, false, pool_from, nil, nil, false],
+    ["own read pool with helper", pool_from_ref, pool_ref, true, pool_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, pool_to]
   ]
 
   failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
