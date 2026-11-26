@@ -180,6 +180,13 @@ impl EarlyJoin {
         }))))
     }
 
+    /// Ends the join now, if no one took it yet (no plan will).
+    pub(super) fn abort(&self) {
+        if let Some(handle) = lock(&self.0).take() {
+            handle.abort();
+        }
+    }
+
     /// The join's outcome, once: `None` when it failed or was taken already.
     pub(super) async fn take(&self) -> Option<super::super::relay::RelayCarrier> {
         let handle = lock(&self.0).take()?;
@@ -1868,6 +1875,8 @@ async fn run_control(
 /// `roam_turn_allocated`, `roam_gathered`), which keep filling in after
 /// this returns.
 pub async fn network_changed() -> Vec<(String, Timeline)> {
+    // The new network's proxy (and whether it inspects TLS) is asked afresh.
+    crate::egress::network_changed();
     let sessions = live();
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });

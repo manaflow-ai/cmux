@@ -81,11 +81,8 @@ final class SidebarBridge {
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
         wireSubagentOpen()
-        // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
-        // a group or a machine list.
-        container.sidebarView.removesOnDragOut = { [weak model] id in
-            (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.ref == .builtIn(.chief)
-        }
+        // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
+        container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
             _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
         }

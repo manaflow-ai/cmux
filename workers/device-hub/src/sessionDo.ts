@@ -18,6 +18,10 @@ interface Meta {
 }
 
 const RELAYED = new Set(["offer", "answer", "candidate", "bye"]);
+// Relayed from the host only: the protocol it serves instead of the one the viewer offered
+// (`{type:'transport', transport:'cmux.rd/1'}` from a Mac whose app is closed, or a Linux
+// desktop), so the viewer reattaches and offers that one (cmuxterm-hq#18912).
+const RELAYED_FROM_HOST = new Set(["transport"]);
 const MAX_MESSAGE = 64 * 1024;
 const MAX_QUEUE = 256;
 
@@ -161,7 +165,7 @@ export class SessionDO extends DurableObject<Env> {
       }
       return;
     }
-    if (typeof type !== "string" || !RELAYED.has(type)) return;
+    if (typeof type !== "string" || !(RELAYED.has(type) || (role === "host" && RELAYED_FROM_HOST.has(type)))) return;
     const peers = this.ctx.getWebSockets(other(role));
     if (peers.length > 0) {
       for (const p of peers) p.send(message);

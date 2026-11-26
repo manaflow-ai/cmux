@@ -67,9 +67,22 @@ impl Hub {
             return false;
         }
         self.recheck_live_models(agent, &list);
+        // Only a report that lists `availableModels` says what the levels are: a resumed chat's
+        // answer without them keeps the ones known.
+        let lists_ids = models.and_then(|m| m.get("availableModels")).is_some_and(Value::is_array);
+        let efforts_changed = lists_ids && {
+            let efforts = crate::model_catalog::variant_efforts(&list, models);
+            let mut known = self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner);
+            let old = if efforts.is_empty() {
+                known.remove(agent)
+            } else {
+                known.insert(agent.to_owned(), efforts.clone())
+            };
+            old.unwrap_or_default() != efforts
+        };
         let old = self.known_models.lock().unwrap().insert(agent.to_owned(), list.clone());
         self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner).remove(agent);
-        old.is_none_or(|old| old != list)
+        efforts_changed || old.is_none_or(|old| old != list)
     }
 
     /// Startup's model lists from disk: the live lists, then the ACP probes'. A models read
@@ -199,6 +212,7 @@ impl Hub {
     /// ACP harness again, and wait for the answers (bounded).
     pub async fn refresh_models(self: &Arc<Self>) {
         self.known_models.lock().unwrap().clear();
+        self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner).clear();
         self.acp_from_disk.lock().unwrap_or_else(PoisonError::into_inner).clear();
         self.probe_models_with(true, true, None).await;
     }
