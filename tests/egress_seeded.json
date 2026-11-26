@@ -1,0 +1,213 @@
+{
+ "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
+ "todo_max": 22,
+ "sites": {
+  "acpmux::happy_dial::http_client": {
+   "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
+  },
+  "acpmux::hub::forum_hosted": {
+   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+  },
+  "acpmux::range_fetch": {
+   "none": "GETs with only a Range header and the acpmux user-agent: a public release archive (managed Codex install) or the URL the person typed (acpmux fetch URL); no auth, cookie or person data"
+  },
+  "acpmux::send_trace": {
+   "none": "a cloud start's two timing spans (epoch ms, a cold flag) and the machine's id, posted to the platform edge (platform.cmux.internal): no token, cookie, prompt or person text"
+  },
+  "chatmux_relay": {
+   "test": "cmux-tui/crates/chatmux-relay/src/seeded_tests.rs::pairing_start_sends_the_name_in_the_body_and_never_the_secret"
+  },
+  "chatmux_relay::journal_forwarder": {
+   "test": "cmux-tui/crates/chatmux-relay/src/journal_forwarder_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_body"
+  },
+  "chatmux_relay::pairing": {
+   "test": "cmux-tui/crates/chatmux-relay/src/seeded_tests.rs::ceremony_upgrade_carries_neither_the_secret_nor_the_name"
+  },
+  "chatmux_relay::session": {
+   "test": "cmux-tui/crates/chatmux-relay/src/seeded_tests.rs::session_upgrade_carries_no_token_owner_or_root"
+  },
+  "cmux_autocloud::login": {
+   "test": "cmux-tui/crates/cmux-autocloud/src/login.rs::seeded_secrets_ride_only_where_stack_needs_them"
+  },
+  "cmux_cloud_api::http": {
+   "test": "cmux-tui/crates/cmux-cloud-api/src/http_seeded_tests.rs::seeded_secrets_go_only_where_the_rule_allows"
+  },
+  "cmux_cloud_api::machine_io": {
+   "test": "cmux-tui/crates/cmux-cloud-api/src/machine_io/seeded_tests.rs::seeded_secrets_ride_only_in_authorization_and_bodies"
+  },
+  "cmux_cloud_client": {
+   "test": "cmux-tui/crates/cmux-cloud-client/tests/seeded_secret.rs::the_bearer_rides_only_in_authorization"
+  },
+  "cmux_cloud_environment::client_config": {
+   "test": "cmux-tui/crates/cmux-cloud-environment/tests/seeded_secret.rs::the_client_config_fetch_carries_no_person_state"
+  },
+  "cmux_coderouter": {
+   "test": "cmux-tui/crates/cmux-coderouter/tests/seeded_secret.rs::the_scoped_key_stays_local_and_the_bearer_rides_only_in_authorization"
+  },
+  "cmux_git_cache::server": {
+   "none": "the fleet's git and crates cache server, not the app: it fetches what its git and cargo clients ask for from the upstreams its operator configured (--upstream, --edge, --peer, --crates-index, --crates-dl), passing on only each client's own request and credential; it adds no secret of its own"
+  },
+  "cmux_mobile_host::auth": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
+  },
+  "cmux_mobile_host::services::acpmux": {
+   "none": "a WebSocket to the Mac's own acpmux listener only: connect_acpmux_as refuses any host that is not loopback, so its bearer never leaves the machine"
+  },
+  "cmux_mobile_link::api": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::api_bearer_rides_only_in_authorization"
+  },
+  "cmux_mobile_link::dial::relay": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::relay_join_sends_the_token_only_in_authorization"
+  },
+  "cmux_mobile_link::hub": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::hub_join_sends_the_token_only_in_authorization_and_the_secret_nowhere"
+  },
+  "cmux_mobile_link::signaling": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::signaling_upgrade_sends_the_token_only_in_authorization"
+  },
+  "cmux_no_checkout::github": {
+   "test": "cmux-tui/crates/cmux-no-checkout/src/github_seeded_tests.rs::the_token_rides_only_in_authorization"
+  },
+  "cmux_projection::peers": {
+   "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_seed_token_rides_only_in_authorization"
+  },
+  "cmux_projection::s3": {
+   "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_s3_secret_key_never_leaves_only_its_signature_does"
+  },
+  "cmux_server::cloud_http_transport": {
+   "test": "cmux-tui/crates/cmux-server/tests/seeded_secret.rs::the_poster_sends_its_bearer_only_in_authorization"
+  },
+  "cmux_server::pairing::network": {
+   "test": "cmux-tui/crates/cmux-server/tests/seeded_secret.rs::pairing_sends_the_collect_secret_only_in_the_wait_protocol"
+  },
+  "cmux_server::store::fetch": {
+   "none": "header-less GETs of the signed channel's manifest, signature and package URLs (HttpsFetcher::open sets no auth, cookie or custom header): the request carries no person data"
+  },
+  "cmux_session_cloud::store": {
+   "test": "cmux-tui/crates/cmux-session-cloud/tests/seeded_secret.rs::a_chat_goes_out_sealed_and_the_credential_only_in_authorization"
+  },
+  "cmux_stack_auth::wire": {
+   "test": "cmux-tui/crates/cmux-stack-auth/tests/seeded_secret.rs::each_token_and_address_rides_only_where_its_call_needs_it"
+  },
+  "cmux_tailnet::localapi": {
+   "none": "the node's own LocalAPI, plain http to the 127.0.0.1 port tsnet serves in this process (the gate classes it Local, capture never redirects it): its password never leaves the machine"
+  },
+  "cmux_tui::carrier::adopt": {
+   "none": "a header-less GET of the signed machine channel file (CHANNEL_URL), no auth, no redirect: the request carries no person data"
+  },
+  "cmux_tui::carrier::answer": {
+   "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_carrier_source_sends_its_bearer_and_team_only_in_their_headers"
+  },
+  "cmux_tui::carrier::tunnel": {
+   "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
+  },
+  "cmux_tui::cli::app::web_pieces": {
+   "todo": true
+  },
+  "cmux_tui::cli::autocloud": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
+  },
+  "cmux_tui::cli::automation_webhook_fire": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs::the_seeded_secret_never_leaves_the_machine"
+  },
+  "cmux_tui::cli::cloud_client_session": {
+   "todo": true
+  },
+  "cmux_tui::cli::cloud_hands::socket": {
+   "todo": true
+  },
+  "cmux_tui::cli::cloud_journey": {
+   "todo": true
+  },
+  "cmux_tui::cli::cloud_start_chat::direct": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
+  },
+  "cmux_tui::cli::customize::pr": {
+   "todo": true
+  },
+  "cmux_tui::cli::ext::share": {
+   "todo": true
+  },
+  "cmux_tui::cli::hub": {
+   "todo": true
+  },
+  "cmux_tui::cli::inference_gateway": {
+   "todo": true
+  },
+  "cmux_tui::cli::inference_gateway_admin": {
+   "todo": true
+  },
+  "cmux_tui::cli::inference_setup": {
+   "todo": true
+  },
+  "cmux_tui::cli::key_broker": {
+   "todo": true
+  },
+  "cmux_tui::cli::machine_join": {
+   "todo": true
+  },
+  "cmux_tui::cli::mcp_servers": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
+  },
+  "cmux_tui::cli::runnable_link": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_query"
+  },
+  "cmux_tui::cli::video": {
+   "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
+  },
+  "cmux_tui::cloud_conversations_backend": {
+   "todo": true
+  },
+  "cmux_tui::devices::setup::verbs": {
+   "todo": true
+  },
+  "cmux_tui::link::sync_cli::store": {
+   "todo": true
+  },
+  "cmux_tui::owner_start::background_checks": {
+   "none": "header-less GETs of the signed feature-flag file and the npm/PyPI registry entry: no cookie, token or person data in the request"
+  },
+  "cmux_tui::owner_start::crash_forward": {
+   "test": "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward_tests.rs::seeded_secrets_never_reach_the_wire"
+  },
+  "cmux_tui::remote_cli::acpmux_peer": {
+   "todo": true
+  },
+  "cmux_tui::vm_tailnet": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/tests.rs::seeded_credentials_ride_only_to_the_server_that_mints"
+  },
+  "cmux_tui_core::apps::community": {
+   "none": "a GET of the public app registry pages: no auth or person data in the request"
+  },
+  "cmux_tui_core::apps::egress": {
+   "todo": true
+  },
+  "cmux_tui_core::apps::git_source": {
+   "none": "header-less GETs of a public repository's refs, archive and release (no token, cookie or credential; a private repository 404s), and the anonymous install ping {ref, commit} with no user id"
+  },
+  "cmux_tui_core::blob_fetch": {
+   "todo": true
+  },
+  "cmux_tui_core::language_packs": {
+   "none": "a GET of the pack URL from the signed manifest, no auth, no redirect: the request carries only the pack name"
+  },
+  "cmux_tui_core::server::agent_session_share_room": {
+   "todo": true
+  },
+  "cmux_tui_core::server::forum_routed": {
+   "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+  },
+  "cmux_tui_core::server::machine_state_push": {
+   "none": "a receive-only WebSocket: its upgrade GET carries only the person's lease bearer (authorization) and team (x-cmux-team) to the platform origin the watch named, https or loopback, redirects refused (machine_state_push_tests.rs a_redirect_is_refused_not_followed, only_https_or_loopback_platforms_get_a_bearer); it sends no frame, and cmux_egress::capture has no WebSocket path to seed"
+  },
+  "cmux_vm_pool::http": {
+   "todo": true
+  },
+  "cmux_weft::admin": {
+   "todo": true
+  },
+  "cmux_weft::client::relay_pool": {
+   "todo": true
+  }
+ }
+}

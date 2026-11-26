@@ -1,4 +1,37 @@
 {
+  "mobile.billing.plan.next_plus": {
+    "class": "brand",
+    "source": "Plus"
+  },
+  "settings.choice.keyStyleVim": {
+    "class": "brand",
+    "source": "Vim"
+  },
+  "settings.choice.keyStyleEmacs": {
+    "class": "brand",
+    "source": "Emacs"
+  },
+  "settings.choice.keyStyleStandard": {
+    "source": "Standard",
+    "identityLocales": {
+      "de": {
+        "reason": "Standard is the standard German word for the default choice.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "fr": {
+        "reason": "Standard is the standard French word for the default choice.",
+        "values": [
+          "Standard"
+        ]
+      }
+    }
+  },
+  "settingsPage.chiefContact.slack": {
+    "class": "brand",
+    "source": "Slack"
+  },
   "argument.value.dev": {
     "class": "brand",
     "source": "DEV"
@@ -336,16 +369,6 @@
   "notification.remoteRelay.title": {
     "class": "format",
     "source": "%1$@: %2$@"
-  },
-  "appHealth.line": {
-    "class": "format",
-    "source": "%1$@: %2$@"
-  },
-  "sidebar.restoring.details": {
-    "source": "Details",
-    "identityLocales": {
-      "de": "Details is the standard German word for details; a translated entry is still required."
-    }
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",

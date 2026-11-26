@@ -4,11 +4,7 @@ For work under `cmux-next-ios/`, the NEXT iPhone app. The root [CLAUDE.md](../CL
 This is the iPhone app. `ios/` is the retired classic app: don't change or install it. iOS is
 Aziz's area (`azooz2003-bit`).
 
-**Manaflow AI team members and their agents:** also read the private
-[cmux-next-ios skill](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/ios/cmux-next-ios/SKILL.md)
-in cmuxterm-hq. It has the fleet hosts, the open iOS work and who to message. Ask there before
-starting something another agent may already have open. External contributors can skip it; the
-link returns 404 for them.
+Maintainers: team-specific workflow notes live in the maintainers' private docs.
 
 ## See your change: edit to visible
 
@@ -17,36 +13,10 @@ covers your change:
 
 | Route | Edit to visible | Use it for |
 |---|---|---|
-| Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | `build` from a few minutes to about 40 min, mostly queue (measured below) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
-| Always-on simulator, `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435), 2026-11-23): your checkout's diff, warm-rebuilt and relaunched | about 16 s | Any change, from any checkout, no fleet step. One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Simulator step: `scripts/ci/cmux-next-ios-sim.sh build` on a Mac with Xcode (evidence in `artifacts/ios-sim/evidence.zip`) | `build` takes a few minutes; the Rust FFI xcframework is cached by its inputs | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
+| Always-on simulator, `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435), 2026-11-23): your checkout's diff, warm-rebuilt and relaunched | about 16 s | Any change, from any checkout, no simulator step. One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
 | Swift live code, `ios-live swift` / `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `ios-sim.sh` not on `feat-cmux-next` yet; check `ls scripts/live-code/ios-sim.sh`) | about 1.9 s once it lands | DEBUG simulator builds only. Until `ios-sim.sh` is on the branch, `ios-live swift` and `undo` refuse ("not a live code build") and `swap` is the live route. A patch that changes a `some View` type is refused; use `swap` for those |
 
-### From a lane VM (Linux, no Mac)
-
-A lane VM has no Xcode, but every step below runs from it through the fleet. Push your branch
-first: each command takes the exact pushed SHA.
-
-```bash
-SHA=$(git rev-parse HEAD)   # pushed
-
-# 1. Compile a Swift package the kit links (Packages/iOS/*, Packages/Shared/*): bare name, repeatable.
-cmux-ci compile-check --ref "$SHA" --package CmuxMobileShellModel
-
-# 2. Run one kit test suite on a fleet iPhone simulator (TARGET/SUITE or TARGET/SUITE/test).
-cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" \
-  --arg test --arg only=CmuxMobileLiveTests/LinkRecoveryTests --artifact artifacts/ios-sim/evidence.zip
-
-# 3. One simulator screenshot of the app at launch.
-cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" \
-  --arg build --artifact artifacts/ios-sim/evidence.zip
-cmux-ci artifact STEP_ID /tmp/ev/evidence.zip   # STEP_ID is printed when the step ends
-cd /tmp/ev && unzip -q evidence.zip              # screens/launch.png, SUMMARY.md, build.log, app-log.txt
-```
-
-Measured from a lane VM on 2026-11-22: step 1 took 4 min 2 s end to end (36 s of compiling, the rest
-queue; job `7b91777edac21acc8f892f3a`); step 3 took 39 min 41 s end to end on a fleet simulator Mac (the
-Rust FFI xcframework missed its cache and took 308 s; FFI plus app build 581 s; the rest was queue,
-boot and install). The FFI is cached by its inputs, so a Swift-only change skips those 308 s.
 What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 2026-11-23):
 
 - Kit tests (`cmux-next-ios-kit.yml`, about 17 min): run with no label on a PR touching `cmux-next-ios/**` or
@@ -60,18 +30,17 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 - `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
   billing files in the app.
 - Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
-  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+  `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
 
 ## Try a PR on the person's phone: cmux Dev
 
 `cmux-next-ios/scripts/try.sh <PR|branch|sha|.>`, from the Mac the phone is attached to, puts that commit on every
 connected iPhone as **cmux Dev** (`dev.cmux.mobile.dev`): the iPhone twin of `cmux app try PR`. One app that
 every try replaces in place, so its sign-in and its pairing with the person's NIGHTLY Mac stay; it has no dev tag,
-so it shows their real data (the Demo build's rule). The fleet builds only the unsigned device app
+so it shows their real data (the Demo build's rule). A build step makes only the unsigned device app
 (`cmux-next-ios-sim.sh try`, keyed by the commit, cached on the Mac); the Mac signs, installs and launches it.
 `--sign-in` signs it in with the `personal` profile (first install), `--backend ORIGIN` points it at another
-Cloud backend, `try.sh status` lists the last tries and their times. Design and phases (built ahead, the in-app
-Try PR picker, Swift hot patches on the device): cmuxterm-hq `docs/design/ios-dev-channels.md`.
+Cloud backend, `try.sh status` lists the last tries and their times.
 
 ## Hand-off command
 
@@ -91,7 +60,7 @@ end-of-task run does not use it. A step that ends because no sign-in session rea
 is sent once more by itself.
 
 **Backend.** Both apps talk to the tag's own backend stack by default. `review.sh` runs
-`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug>` beside the fleet builds, then:
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug>` beside the builds, then:
 - the Mac app gets the stack's tailnet origin (`backend.json`);
 - the phone gets its public origin, `https://api.s<N>.wdev.cmux.dev`, which works off the tailnet
   behind the authenticating gateway. Its readiness receipt must name the stack's mobile Worker. When
@@ -141,16 +110,18 @@ failure: `linked with <Mac> over the tailnet (--forbid-tailnet): ...`.
 
 It does, in order, and exits non-zero if any phone fails a check or none is connected:
 
-1. Builds on the fleet at the pushed head: the tagged cmux NEXT Mac app (`cmux-ci build cmux`,
-   published to HQ, Tag Opener `http://127.0.0.1:17320/<task-slug>`), and in one simulator step
+1. Builds at the pushed head: the tagged cmux NEXT Mac app (Tag Opener
+   `http://127.0.0.1:17320/<task-slug>`), and in one simulator step
    (`cmux-next-ios-sim.sh handoff tag=<task-slug>`) the iPhone app (Demo configuration with the
    DEBUG developer surface, bundle `dev.cmux.mobile.<task-slug>`, home-screen name
-   "cmux <task-slug>", the tag's cloud build space `dev:<task-slug>` like its Mac's, an unsigned device app) plus the fleet simulator check: signed in with the
+   "cmux <task-slug>", the tag's cloud build space `dev:<task-slug>` like its Mac's, an unsigned device app) plus the simulator check: signed in with the
    agent account's session (from your Mac, `--sign-in agent`), relaunched with no credentials and
    signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
    never frontmost), signed in to the `personal` account.
-3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
+3. On every connected, paired iPhone of this Mac's person (a new phone plugged in by USB is
+   registered; a phone this Mac does not know that it reaches only over Wi-Fi, such as a
+   teammate's test phone, is skipped and reported; `--device-id` names one): signs a copy with this Mac's
    Apple Development identity and a development profile that names the phone, installs it through
    the sanctioned install, and launches it signed in with the `personal` profile and the
    tagged Mac named to focus (`CMUX_MOBILE_FOCUS_MAC`, a device id). The tagged Mac's dev auto-approve
@@ -183,11 +154,8 @@ What it needs:
   extensions) that names each phone; the team wildcard profile covers all three. A phone no
   profile names gets a `BLOCKED: signing failed` line: register it in the team first. The phone
   needs Developer Mode, to be unlocked, and to trust this Mac. No Tailscale.
-- A fleet simulator worker. It needs no agent account file: the step is sent with
-  `cmux-ci run --sign-in agent`, which signs the shared agent
-  account in on this Mac for that step alone, seals it to the worker, and revokes it when the step
-  ends (hq build-fleet `sign_in`; the step reads it with `scripts/lib/fleet-signin-session.sh`).
-  `cmux-ci run` follows the step while it delivers the session, so review.sh never detaches it.
+- A simulator worker for the simulator step. It needs no agent account file: the step reads a
+  session signed in for it alone with `scripts/lib/fleet-signin-session.sh`.
 
 Its scripts: `scripts/review.sh` (the command), `scripts/sign_device_app.py` (local signing),
 `scripts/review_mac.py` (the tagged Mac over its control socket), `scripts/handoff_receipt.py`
@@ -214,15 +182,16 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Landing an iOS PR
 
-A PR that changes iOS code waits for Aziz's review. It lands without him only when it's proven
-correct and fully functional, with its implications written in the PR. merge_hold reads one line in
-the PR body:
+An iOS PR lands like any other `feat-cmux-next` PR: green CI and a review SHIP at the exact head. Nobody
+waits on Aziz or tells him after (Leo, 2026-11-23: "i already told interim-coord: do not hold. if you can
+argue for it strongly, then just merge it. we do not hold on people and arbitrary things and blockers than
+can be solved. ever."; "you dont have to keep telling aziz"). His reviews are welcome as follow-ups.
 
-- `iOS-hold: strict fix`: a basic correctness fix, plus an independent review SHIP at the exact head
-  that confirms it.
-- `iOS-hold: proven`: a test that fails without the change and passes with it (run links), the flow
-  working end to end in a simulator or on a device, a `## Implications` section, and a review SHIP at
-  the exact head that confirms all three.
+land-judge still asks a PR that changes iOS UI code for its case, one of these lines in the body:
 
-A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` hold nothing.
-Either way, post a comment on the PR that mentions Aziz so he knows it's coming.
+- `Merge-case: <why it should merge now>` (at least 8 words), the usual route.
+- `iOS-hold: strict fix` with a one-paragraph `## ELI5` section (at most 120 words).
+- `iOS-hold: proven` with a test that fails without the change, the flow working in a simulator or on a
+  device, a `## Implications` section, and a review SHIP at the head that confirms them.
+
+A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` need no case.

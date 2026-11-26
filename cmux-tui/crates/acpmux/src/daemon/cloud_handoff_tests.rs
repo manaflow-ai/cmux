@@ -607,25 +607,54 @@ async fn a_session_closed_twice_is_remembered_once() {
     assert!(r.closed.contains(S));
 }
 
-/// Past MAX_TRACKS sessions each reporting a turn, a new session is not followed.
+/// Every session reporting a turn is followed, past the old cap of 4096: only quiet sessions are
+/// forgotten to make room.
 #[tokio::test]
-async fn the_followed_sessions_are_bounded() {
+async fn every_session_reporting_a_turn_is_followed() {
     let (mut r, fake) = reporter();
-    for i in 0..MAX_TRACKS {
+    for i in 0..QUIET_TRACKS_KEPT + 10 {
         r.tracks.insert(
             format!("acp_{i}"),
             Track { now: Now::Reporting { turn: 1, last: None }, ..Track::default() },
         );
     }
-    r.step(S, began(1)).await;
-    assert_eq!(r.tracks.len(), MAX_TRACKS);
-    assert!(fake.0.lock().unwrap().sent.is_empty());
-    // A quiet session makes room.
-    r.tracks.get_mut("acp_0").unwrap().now = Now::Quiet;
     fake.answer([ok(1, "running")]);
     r.step(S, began(1)).await;
-    assert!(r.tracks.len() <= MAX_TRACKS);
+    assert_eq!(r.tracks.len(), QUIET_TRACKS_KEPT + 11);
     assert_eq!(fake.take(), [s(1, "running", None)]);
+    // Quiet sessions are forgotten to make room; reporting ones stay.
+    for i in 0..100 {
+        r.tracks.get_mut(&format!("acp_{i}")).unwrap().now = Now::Quiet;
+    }
+    fake.answer([ok(1, "running")]);
+    r.step("acp_new", began(1)).await;
+    assert!(r.tracks.contains_key(S) && r.tracks.contains_key("acp_new"));
+    assert!(r.tracks.len() < QUIET_TRACKS_KEPT + 11);
+    let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (&sent[0]["session"], &sent[0]["turn"], &sent[0]["status"]),
+        (&json!("acp_new"), &json!(1), &json!("running"))
+    );
+}
+
+/// A turn's end waits to be sent again however many others wait (the old cap was 4096).
+#[tokio::test]
+async fn every_unsent_turn_end_waits_to_be_sent_again() {
+    let (mut r, _fake) = reporter();
+    let later = |turn| Later {
+        turn,
+        status: "done",
+        note: None,
+        tries: 0,
+        at: tokio::time::Instant::now(),
+    };
+    for i in 0..5000 {
+        r.send_later(&format!("acp_{i}"), later(1));
+    }
+    r.send_later(S, later(2));
+    assert_eq!(r.later.len(), 5001);
+    assert_eq!(r.later.get(S).map(|l| l.turn), Some(2));
 }
 
 /// After the queue dropped steps, no needs-you or running goes on a turn being reported (its
@@ -1010,4 +1039,37 @@ fn a_cloud_agent_socket_is_seen_when_made_later_and_kept_once_gone() {
     assert_eq!(reports_to(&socket, &seen), linux, "the socket made later");
     std::fs::remove_file(&socket).unwrap();
     assert_eq!(reports_to(&socket, &seen), linux, "the agent restarting");
+}
+
+/// #54378: the reporter that sends each hand-off step could panic and end, and the loop that
+/// queues steps for it then ended quietly too: no hand-off was reported until the daemon
+/// restarted. Its panic is now the loop's, and the supervised loop starts both again.
+#[tokio::test]
+async fn a_reporter_that_panics_starts_the_hand_off_loop_again() {
+    let root = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+    let session = "handoff-reporter-panics";
+    crate::supervise::arm_panic("hand-off reporter", session);
+    let looped = {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud hand-off", &hub.fatal.clone(), move || {
+            handoff_loop(hub.clone())
+        })
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut again = false;
+    while std::time::Instant::now() < deadline {
+        hub.emit_for_test(session, "status", json!({"status": "closed"}));
+        if crate::supervise::armed_passes("hand-off reporter", session) >= 2 {
+            again = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    looped.abort();
+    assert!(again, "no step was reported again after the reporter panicked");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }

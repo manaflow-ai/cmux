@@ -296,6 +296,8 @@ public final class ChromiumWarmup {
     /// moment, so the tab after this one joins a live window.
     public func webTabLikely() {
         webTabIntent = true
+        // A web spare released while every web tab slept (`CEFSpareWindow.webPagesChanged`) is made again.
+        engine.webPageLikely()
         guard spareDeferred, !waiting else { return }
         warmStarted()
     }

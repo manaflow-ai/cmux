@@ -13,6 +13,7 @@ import { VirtualTranscript } from "../App";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "../composer/fieldGrowthEvent";
 import type { AcpmuxRow } from "../model";
 import { MOTION_MS, MOTION_SETTLE } from "../../../motion/scale.generated";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { REPLY } from "./streamingTextFixture";
 import {
   CARD_DRAFT,
@@ -93,7 +94,10 @@ export function CompoundPane({
           {now.queue > 0 && <div data-compound-queue style={{ height: now.queue }} />}
           <form className="acpmux-composer" onSubmit={(event) => event.preventDefault()}>
             <div className="acpmux-composer-strip-placeholder" />
-            <div className="acpmux-composer-box">
+            <div
+              className="acpmux-composer-box"
+              data-page-glass="docked composer specimen: the page's glass, as ComposerBox.tsx"
+            >
               <div className="acpmux-md-field" style={{ height: now.card - CARD_EMPTY + FIELD_EMPTY }} />
               <div style={{ height: CARD_EMPTY - FIELD_EMPTY }} />
             </div>
@@ -124,12 +128,17 @@ function clickLine(target: HTMLElement) {
 }
 
 /// The prompt field grows by `lines` on its own motion and tells the transcript, as
-/// composer/fieldGrowth.ts does when its motion starts.
+/// composer/fieldGrowth.ts does when its motion starts. Out of full motion (Reduce Motion, motion
+/// off) the field takes its height in the frame and tells no one, as fieldGrowth.ts does.
 function growField(root: ParentNode, lines: number) {
   const field = root.querySelector<HTMLElement>(".acpmux-md-field");
   if (!field) return;
   const from = field.getBoundingClientRect().height;
   const to = from + lines * LINE;
+  if (motionMode(field.ownerDocument) !== "full") {
+    field.style.height = `${to}px`;
+    return;
+  }
   const duration = MOTION_MS.standard;
   const animation = field.animate([{ height: `${from}px` }, { height: `${to}px` }], {
     duration,

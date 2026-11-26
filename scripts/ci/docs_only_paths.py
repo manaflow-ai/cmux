@@ -14,8 +14,9 @@ Push, schedule and workflow_dispatch triggers are never filtered.
 
 GitHub matches `paths:` against only a pull request's first 300 changed files, and filters label events too. FALLBACK
 (.github/workflows/docs-only-fallback.yml, written by `--sync`) is the one unfiltered workflow that covers both: its
-gate runs only for a pull request of more than 300 files or a `full-ci`/`dev-build` label, and calls each workflow of
-WORKFLOWS (each also has `workflow_call:`) that should have started and shows no run at the head. It fails open.
+gate runs on every push of a pull request (and on a `full-ci`/`dev-build` label), and calls each workflow of
+WORKFLOWS (each also has `workflow_call:`) that should have started and shows no run at the head, or whose run of this
+event never started: completed `failure`/`startup_failure` with zero jobs (cmux#56364). It fails open.
 
 tests/test_ci_docs_only_prs.py is the detector: a docs-only pull request starts only the workflows its ALLOWED table
 names (the required checks, which must always start, and the cheap policy and merge-contract checks, each with its
@@ -32,7 +33,9 @@ import argparse
 import datetime
 import json
 import os
+import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -72,12 +75,14 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     # Generated (scripts/cmux-next/generated_outputs.py OUTPUTS): cmux-next-pr-autofix's drift check reads a hand edit.
     "plans/cmux-next/actions.md",
     "docs/mdm/managed-preferences.md",
+    "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md",
     # Read by a ci-guards group test (test_no_guard_group_test_reads_docs lists any new one).
     "docs/ci/health-report.md",  # tests/test_ci_health_report.py
     "docs/privacy.md",  # tests/test_outbound_hosts.py
+    "docs/network-requirements.md",  # tests/test_network_allowlist.py
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
-    "cmux-tui/README.md",  # tests/test_testbox_demo_cleanup.sh -> scripts/blacksmith-testbox-demo.sh
+    "cmux-tui/README.md",  # the Testbox tour named its public fallback here
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",
@@ -87,6 +92,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "cmux-tui/crates/cmux-extension-sdk/README.md",
     "cmux-tui/vendor/terminput-crossterm/README.md",
     "mux/packages/brain/conformance/README.md",
+    "Native/OptChat/chief-kernel/src/turn_checks.md",
 )
 
 # The workflows whose pull_request trigger carries DOCS_ONLY_PATHS. None is a required check: a required check that
@@ -156,6 +162,14 @@ def rewrite(text: str, name: str) -> str:
 # gate job (no runner unless one of those can have happened) lists the changed files and the runs at the head through
 # the API and calls, as a reusable workflow in the same pull_request context, each of WORKFLOWS that should have
 # started and did not. Whatever it cannot read, it calls (fails open to full CI).
+#
+# A run GitHub created and never started counts as missing too. On cmux#56364 (head 40124f05, 2026-11-26 02:41:09Z)
+# ci.yml, cmux-next-guards.yml and pr-router.yml each ended `failure` with zero jobs and no logs at the moment they
+# were created; ci-web.yml, which ci.yml starts, never ran, so the head had no webview verdict and nothing said so.
+# The gate now runs on every push, reads the jobs of each run of this event that ended failure, and calls the
+# callable ones of zero jobs; it names every zero-job run (callable or not, pr-router.yml is not) as an error
+# annotation. Only a settled zero-job run is missing: a queued or running run, or one whose jobs it could not read,
+# may still run its suites, so the gate waits for it (ZERO_JOB_WAIT_SECONDS) and then names it, never calls it.
 FALLBACK = ".github/workflows/docs-only-fallback.yml"
 PATHS_FILTER_LIMIT = 300  # GitHub evaluates path filters against this many changed files
 FILES_API_LIMIT = 3000  # pulls/{n}/files lists at most this many
@@ -169,6 +183,9 @@ UNCOVERED_TYPES = ("edited",)
 PUSH_ACTIONS = DEFAULT_TYPES  # a push's run supersedes the pull request's older one; any other event runs on its own
 # A run of a label event is created with the event; the gate's own run is created at the same moment.
 SAME_EVENT_SLACK_SECONDS = 120
+NEVER_STARTED = ("failure", "startup_failure")  # a run GitHub created and never started ends one of these, zero jobs
+ZERO_JOB_WAIT_SECONDS = 120  # how long the gate waits for a run of this event that has no jobs yet to settle
+ZERO_JOB_POLL_SECONDS = 20
 
 
 def pull_request_config(root: Path, name: str) -> dict:
@@ -193,20 +210,35 @@ def job_id(name: str) -> str:
     return Path(name).stem
 
 
-def label_guard() -> str:
-    """ci.yml's guard: into feat-cmux-next, a label event for any other label skips (test_ci_label_events_skip_full_ci)."""
-    labels = json.dumps(list(LABEL_OPT_INS), separators=(",", ":"))
+# ci.yml's labels: the opt-ins plus the land handoff (scripts/ci/head_tier.py land rule). A docs-only pull request
+# runs no CI tier, so the fallback does not start ci.yml on `ready-to-land`.
+CI_LABELS = LABEL_OPT_INS + ("ready-to-land",)
+
+
+def label_guard(labels_read: tuple[str, ...] = LABEL_OPT_INS) -> str:
+    """A label guard: into feat-cmux-next, adding any label not in LABELS_READ, or removing any label, skips
+    (test_ci_label_events_skip_full_ci; removing a coverage label asks for less than the head's run did, cmux#58222).
+    The fallback's reads LABEL_OPT_INS, ci.yml's CI_LABELS."""
+    labels = json.dumps(list(labels_read), separators=(",", ":"))
     return ("!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
-            "(github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
-            f"!contains(fromJSON('{labels}'), github.event.label.name))")
+            f"(github.event.action == 'labeled' && !contains(fromJSON('{labels}'), github.event.label.name) || "
+            "github.event.action == 'unlabeled'))")
 
 
 def gate_condition() -> str:
+    """Every push or review-ready event (a sibling run of it may never start, at any size), a CI label, and an unlabel
+    of one over the 300-file limit; any other label event skips with no runner."""
     labels = json.dumps(list(LABEL_OPT_INS), separators=(",", ":"))
     over = f"github.event.pull_request.changed_files > {PATHS_FILTER_LIMIT}"
-    return ("${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && " + over + ") || "
+    return ("${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled') || "
             f"(contains(fromJSON('{labels}'), github.event.label.name) && (github.event.action == 'labeled' || "
             + over + "))) && " + label_guard() + " }}")
+
+
+# Why a call grants a scope, written above it (workflow, scope): note.
+CALL_GRANT_NOTES = {
+    (".github/workflows/ci.yml", "statuses"): "ci.yml's changes job: head_tier.py's land carry rule reads cmux/land-tier.",
+}
 
 
 def render_fallback(root: Path) -> str:
@@ -224,10 +256,12 @@ name: docs-only fallback
 # The workflows in scripts/ci/docs_only_paths.py WORKFLOWS carry the docs-only `paths:` block, and GitHub matches a
 # pull request's `paths:` against only its first {PATHS_FILTER_LIMIT} changed files: a pull request of {PATHS_FILTER_LIMIT} prose files and one
 # code file could start none of them. Their filter also filters label events, so `full-ci` or `dev-build` on a
-# docs-only pull request started nothing. The gate runs (one small Linux job) only when the pull request has more
-# than {PATHS_FILTER_LIMIT} changed files or one of those labels is added; every other event skips it with no runner. It lists the
-# changed files and the head's runs through the API and calls, in this pull_request's own context, each workflow that
-# should have started and shows no run; whatever it cannot read, it calls (tests/test_ci_docs_only_prs.py).
+# docs-only pull request started nothing. And GitHub can create a run that never starts: on cmux#56364 ci.yml ended
+# `failure` with zero jobs, so ci-web.yml never ran. The gate (one small Linux job) runs on every push and on those
+# labels; any other label event skips it with no runner. It lists the changed files and the head's runs through the
+# API and calls, in this pull_request's own context, each workflow that should have started and shows no run or only a
+# settled zero-job run of this event, and names every zero-job run; whatever it cannot read, it calls, except a run it
+# cannot tell never started, which it names (tests/test_ci_docs_only_prs.py).
 #
 # A call passes no secrets: a called step that reads one gets an empty value, as on a fork's pull request. Signing, R2 cache writes
 # and media publishing stay inside the protected environments of the workflows that own them.
@@ -249,7 +283,7 @@ jobs:
     # Into feat-cmux-next a label event for any other label skips with no runner
     # (tests/test_ci_label_events_skip_full_ci.py).
     if: {gate_condition()}
-    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}}}
+    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}}}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -262,12 +296,17 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit and its parents' trees: merge_files() and merge_commit_files() list the changed paths
+          # with git, no API call.
+          fetch-depth: 2
+          filter: blob:none
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
             scripts/ci/deadline_http.py
             scripts/ci/check_reusable_workflow_permissions.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: List the workflows that should have started and did not
         id: plan
@@ -280,7 +319,9 @@ jobs:
     for name in WORKFLOWS:
         job = job_id(name)
         grant = call_permissions(root, name)
-        lines = [f"      {scope}: {level}" for scope, level in sorted(grant.items())]
+        lines = [line for scope, level in sorted(grant.items())
+                 for line in ([f"      # {CALL_GRANT_NOTES[(name, scope)]}"] if (name, scope) in CALL_GRANT_NOTES else [])
+                 + [f"      {scope}: {level}"]]
         permissions = "\n" + "\n".join(lines) if lines else " {}"
         out += f"""
   {job}:
@@ -298,7 +339,9 @@ def plan_fallback(event: dict, calls: dict, files: list[str] | None, runs: list[
     """The workflows (file names) FALLBACK calls for this pull_request event.
 
     `files` is every changed path, or None when the API could not list them all; `runs` is the head's pull_request
-    runs ({"path", "created": epoch seconds}), or None when unread; `since` is when this event's runs were created.
+    runs ({"path", "created": epoch seconds, "status", "conclusion", "jobs": count or None when unread}), or None
+    when unread; `since` is when this event's runs were created. A run of this event that never started (never_started)
+    does not count as a run: the workflow is called when nothing else of its shows a start.
     """
     pr = event.get("pull_request") or {}
     action = str(event.get("action") or "")
@@ -311,14 +354,79 @@ def plan_fallback(event: dict, calls: dict, files: list[str] | None, runs: list[
     if files is not None and docs_only(files):
         # Every filter skipped, as it should: only a label asking for CI runs what listens for it.
         return due if asked else []
-    if files is not None and len(files) <= PATHS_FILTER_LIMIT:
+    seen_all = files is not None and len(files) <= PATHS_FILTER_LIMIT
+    if seen_all and runs is None:
         return []  # GitHub saw every file, and one is not docs: each due workflow started on its own.
     if runs is None:
         return due
     label_event = action in LABEL_ACTIONS
-    started = {Path(str(run.get("path") or "")).name for run in runs
-               if not label_event or since is None or float(run.get("created") or 0) >= since - SAME_EVENT_SLACK_SECONDS}
+    this_event = [run for run in runs if since is None
+                  or float(run.get("created") or 0) >= since - SAME_EVENT_SLACK_SECONDS]
+    dead = {_name(run) for run in this_event if never_started(run)}
+    started = {_name(run) for run in (this_event if label_event else runs) if not never_started(run)}
+    if seen_all:
+        # Each due workflow started on its own; call only one whose run of this event never started.
+        return [name for name in due if name in dead and name not in started]
     return [name for name in due if name not in started]
+
+
+def merge_files(head_sha: str, root: Path = Path(".")) -> list[str] | None:
+    """The files the pull request's merge commit (the gate's checkout, fetch-depth 2) changes against its base parent,
+    or None when the checkout is not that commit's merge of HEAD_SHA (a stale or missing merge ref) or git fails.
+
+    No REST call: the gate's pulls/{n}/files and actions/runs reads answered 403 on every one of the 61 gates of
+    2026-11-24T09Z..11-25T09Z that called a workflow (the repository's GITHUB_TOKEN budget was spent), and each then
+    called every due workflow, so a `full-ci` label on a pull request of 17 to 26 files ran ci.yml twice for one head
+    (1.6k runner-minutes that day). The merge's own change is a subset of the pull request's three-dot diff (a merge
+    differs from its base parent only where the head side changed a file), so a code file here is a code file GitHub's
+    `paths:` saw; an all-docs list proves nothing and the caller reads the API as before.
+    """
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True,
+                              timeout=60).stdout
+    try:
+        if git("rev-parse", "HEAD^2").strip() != head_sha:
+            return None
+        return [line for line in git("diff", "--no-renames", "--name-only", "HEAD^1", "HEAD").splitlines() if line]
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _name(run: dict) -> str:
+    return Path(str(run.get("path") or "")).name
+
+
+def never_started(run: dict) -> bool:
+    """A run GitHub created and never started: completed, failure or startup_failure, and zero jobs read. A queued or
+    running run, or one whose jobs were not read (jobs None), may still run its suites: not this."""
+    return (run.get("status") == "completed" and run.get("conclusion") in NEVER_STARTED
+            and run.get("jobs") == 0)
+
+
+def unsettled(run: dict) -> bool:
+    """A run of this event the gate cannot call yet: no job read and not settled, or a failed one whose jobs it could
+    not read. It may still start; the gate waits for it, then names it."""
+    if run.get("status") == "completed":
+        return run.get("conclusion") in NEVER_STARTED and run.get("jobs") is None
+    return not run.get("jobs")
+
+
+def zero_job_report(runs: list[dict] | None, since: float | None, missing: list[str]) -> list[str]:
+    """One line per run of this event that never started or may not have: the gate prints each as an error."""
+    if runs is None:
+        return []
+    lines = []
+    for run in runs:
+        if since is not None and float(run.get("created") or 0) < since - SAME_EVENT_SLACK_SECONDS:
+            continue
+        name, ident = _name(run), run.get("id", "?")
+        if never_started(run):
+            fate = "called here" if name in missing else "not callable here: rerun it"
+            lines.append(f"{name} run {ident} ended {run.get('conclusion')} with zero jobs, never started; {fate}")
+        elif unsettled(run):
+            lines.append(f"{name} run {ident} is {run.get('status')} with "
+                         f"{'unread' if run.get('jobs') is None else 'zero'} jobs; not called (it may still start)")
+    return lines
 
 
 def _api(path: str) -> object:
@@ -337,6 +445,53 @@ def _epoch(stamp: str) -> float:
     return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
 
 
+def merge_commit_files(total: int) -> list[str] | None:
+    """Every path the checked-out merge commit changes against its first parent (the base tip), both sides of a rename,
+    from git alone: the gate checks out the pull request's merge commit with its parent (fetch-depth 2). It answers
+    when the REST budget is spent. On 2026-11-25 19:14Z the files and runs reads both got 403, the gate failed open
+    and called ci.yml on a 2-file pull request that ci.yml was already running (run 45682654194): about 300 runner-min
+    for one label. ci.yml's fallback calls were 8,083 runner-min over 11-24 22Z..11-25 22Z. None when git cannot say,
+    or lists fewer paths than the pull request's changed_files (TOTAL), which the caller treats as unread."""
+    try:
+        done = subprocess.run(["git", "diff", "--name-only", "--no-renames", "-z", "HEAD^1", "HEAD"],
+                              capture_output=True, text=True, timeout=60, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    names = [name for name in done.stdout.split("\0") if name]
+    return names if names and len(set(names)) >= total else None
+
+
+def read_runs(repo: str, sha: str, own: str, since: float) -> list[dict]:
+    """The head's pull_request runs but the gate's own, with the job count of each run that ended failure (of any
+    event) or of this event (created since SINCE) that has not started a job (queued): a completed failure with zero
+    jobs never started, a queued one with zero has not yet. An in_progress run has a job running and a green one ran, so neither is read:
+    a push reads a few jobs lists, not one per run. A job read that fails leaves jobs None (unread), which never calls."""
+    found: list[dict] = []
+    for page in range(1, 6):
+        batch = _api(f"/repos/{repo}/actions/runs?head_sha={sha}&event=pull_request&per_page=100&page={page}")
+        for run in batch["workflow_runs"]:
+            if str(run["id"]) == own:
+                continue
+            entry = {"id": run["id"], "path": str(run["path"]).split("@")[0], "created": _epoch(run["created_at"]),
+                     "status": run.get("status"), "conclusion": run.get("conclusion")}
+            this_event = entry["created"] >= since - SAME_EVENT_SLACK_SECONDS
+            if run.get("status") == "in_progress":
+                entry["jobs"] = 1  # a job is running
+            elif (this_event and run.get("status") != "completed") or (
+                    run.get("status") == "completed" and run.get("conclusion") in NEVER_STARTED):
+                # Any event's failed run is read: an earlier event's zero-job failure left unread would count as
+                # started and keep this event's zero-job run of the same workflow from being called (a reopen).
+                try:
+                    entry["jobs"] = int(_api(f"/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=1")["total_count"])
+                except Exception as error:  # noqa: BLE001 - unread: named, never called
+                    print(f"could not read run {run['id']}'s jobs ({error})", file=sys.stderr)
+                    entry["jobs"] = None
+            found.append(entry)
+        if len(batch["workflow_runs"]) < 100:
+            break
+    return found
+
+
 def fallback_main() -> int:
     """--fallback-plan, in the gate job: writes missing=<JSON list> to $GITHUB_OUTPUT. Any read that fails counts as
     unread, which calls more, never fewer."""
@@ -348,6 +503,15 @@ def fallback_main() -> int:
     runs: list[dict] | None = None
     since: float | None = None
     total = int(pr.get("changed_files") or 0)
+    if 0 < total <= PATHS_FILTER_LIMIT:
+        merged = merge_files(str((pr.get("head") or {}).get("sha") or ""))
+        if merged and not docs_only(merged):
+            # GitHub's filter saw every file and one is code: each due workflow started on its own (plan_fallback).
+            missing = plan_fallback(event, calls, merged, [], None)
+            print(f"changed files: {total} (from the merge commit, not docs-only); calling: {missing or 'none'}")
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                out.write(f"missing={json.dumps(missing, separators=(',', ':'))}\n")
+            return 0
     try:
         if 0 < total <= FILES_API_LIMIT:
             names: list[str] = []
@@ -361,22 +525,30 @@ def fallback_main() -> int:
             if len(set(names)) >= total:
                 files = names + renamed_from
     except Exception as error:  # noqa: BLE001 - fail open
-        print(f"could not list the changed files ({error}): calling every due workflow", file=sys.stderr)
-    try:
-        sha = pr["head"]["sha"]
-        found: list[dict] = []
-        for page in range(1, 6):
-            batch = _api(f"/repos/{repo}/actions/runs?head_sha={sha}&event=pull_request&per_page=100&page={page}")
-            found += [{"path": str(run["path"]).split("@")[0], "created": _epoch(run["created_at"])}
-                      for run in batch["workflow_runs"]]
-            if len(batch["workflow_runs"]) < 100:
-                break
-        runs = found
-        since = _epoch(_api(f"/repos/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}")["created_at"])
-    except Exception as error:  # noqa: BLE001 - fail open
-        print(f"could not read the head's runs ({error}): calling every due workflow", file=sys.stderr)
-        runs = None
+        print(f"could not list the changed files ({error}): reading them from the merge commit", file=sys.stderr)
+    if files is None and 0 < total <= FILES_API_LIMIT:
+        files = merge_commit_files(total)
+        if files is None:
+            print("could not read the merge commit's files either: calling every due workflow", file=sys.stderr)
+    own = os.environ["GITHUB_RUN_ID"]
+    deadline = time.monotonic() + ZERO_JOB_WAIT_SECONDS
+    while True:
+        try:
+            since = _epoch(_api(f"/repos/{repo}/actions/runs/{own}")["created_at"])
+            runs = read_runs(repo, pr["head"]["sha"], own, since)
+        except Exception as error:  # noqa: BLE001 - fail open
+            print(f"could not read the head's runs ({error}): calling every due workflow", file=sys.stderr)
+            runs, since = None, None
+        waiting = [] if runs is None else [run for run in runs if unsettled(run) and (
+            since is None or float(run.get("created") or 0) >= since - SAME_EVENT_SLACK_SECONDS)]
+        if not waiting or time.monotonic() >= deadline:
+            break
+        print(f"waiting for {len(waiting)} run(s) of this event with no jobs yet: "
+              f"{', '.join(_name(run) for run in waiting)}", file=sys.stderr)
+        time.sleep(ZERO_JOB_POLL_SECONDS)
     missing = plan_fallback(event, calls, files, runs, since)
+    for line in zero_job_report(runs, since, missing):
+        print(f"::error title=a run that never started::{line}")
     print(f"changed files: {total} ({'listed' if files is not None else 'not listed'}); calling: {missing or 'none'}")
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"missing={json.dumps(missing, separators=(',', ':'))}\n")

@@ -37,6 +37,8 @@ on:
       - web/services/vms/drivers/linuxRelease.ts
       - web/services/vms/drivers/types.ts
       - web/services/vms/clientGrant.ts
+      - web/services/vms/identity.ts
+      - web/services/vms/workUser.ts
       - web/services/vms/guest*.ts
       - web/services/vms/guestCliDistribution.json
       - web/services/vms/networkPolicy.ts
@@ -47,6 +49,8 @@ on:
       - web/scripts/devbox-image-common.ts
       - web/scripts/cmux-vm-image/machine-health.ts
       - web/scripts/cmux-vm-image/dns.ts
+      - web/scripts/cmux-vm-image/machine-commands.ts
+      - web/scripts/cmux-vm-image/metadata-guard.ts
       - images/cmux-vm/machine-health/**
       - "!web/services/vms/images/**/*.md"
       - web/scripts/devbox-rebake.ts
@@ -82,7 +86,7 @@ jobs:
     # One canonical branch: the Freestyle account and the devbox-rebake/* PRs
     # are shared, so a dispatch from any other ref does nothing.
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # A full bake + ladder takes about 20 minutes (run 40399656939); a run still
     # going after 6 hours is stuck, the one case a started bake may end.
     timeout-minutes: 360
@@ -96,17 +100,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          # Only this head's history: pinCmuxTui walks the last 80 cmux-tui
+          # commits (about 250 commits deep on 11-25). fetch-depth 0 also pulls
+          # every one of the repo's ~38k branches, and that fetch ran 52 minutes
+          # in run 45606215332 and lost its runner in run 45601932580.
+          fetch-depth: 2000
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Every later gh call waits out an installation rate limit instead of
+      # failing the job: run 45834104567 (11-26) planned needed=true, then died
+      # on the open-PR lookup's "API rate limit exceeded" before baking, and a
+      # push run is not rerun by lanes, so the bake waited for the next input push.
+      - name: Make gh wait out a rate limit
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/gh_budget_wait.sh" --install
 
       # Read-only, for the open-PR lookup; the job's own token stays contents: read.
       - name: Mint the lookup token

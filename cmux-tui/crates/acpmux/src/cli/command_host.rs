@@ -36,6 +36,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// The lane hosts as one cell (RFD 0181): each one's live sessions against its lane cap,
+    /// the hosts past it, and the ones fleet-registry.json keeps work off (held or stopped)
+    /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
+    /// and the registry, and changes nothing.
+    Cells,
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -54,7 +59,20 @@ pub enum PeerCmd {
     /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
-    Load,
+    /// `--watch`: sample once a second and print one JSON line each time a line
+    /// is crossed (memory available under 25% / 10%, an OOM kill, CPU saturated
+    /// 5 minutes, disk under 10% or 2 GiB), until stdout closes.
+    Load {
+        /// Sample once a second and print an event line when a line is crossed.
+        #[arg(long)]
+        watch: bool,
+        #[command(flatten)]
+        lines: crate::host_load_watch::Lines,
+    },
+    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
+    /// it in the background when the last split is old.
+    #[command(name = "disk-walk", hide = true)]
+    DiskWalk,
     /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
     /// stdin: one JSON object, or an array of them, in; the verdict (or an
     /// array of verdicts) out, as JSON. Pure: reads no host and starts no
@@ -169,6 +187,14 @@ pub enum PeerCmd {
     Deps {
         #[command(subcommand)]
         cmd: DepsCmd,
+    },
+    /// Run VMs for the hub on this host (RFD 0100's host agent): `serve` makes, pauses,
+    /// resumes and destroys `cmux-*` VMs through libvirt and enforces each VM's lease here,
+    /// with no hosted reaper. Commands come from a local spool (`apply`) until the hub's
+    /// command lease is served.
+    Hypervisor {
+        #[command(subcommand)]
+        cmd: HypervisorCmd,
     },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
@@ -333,6 +359,20 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// A unix socket here that reaches OWNER's lane-gh broker over the held carrier link (RFD
+    /// 0127 cut 2) instead of an `ssh -R` forward: one carrier stream per connection, so
+    /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
+    /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
+    BrokerForward {
+        /// The machines whose broker to reach (names in the hub's address book), in order of
+        /// preference: each connection goes to the first whose broker answered its last
+        /// progress check, and fails over before any of its bytes are sent.
+        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
+        owners: Vec<String>,
+        /// Where to listen (a stale socket there is replaced; a served one is left alone).
+        #[arg(long, value_name = "PATH")]
+        socket: std::path::PathBuf,
+    },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
     /// ed25519 key when this machine has none (never over an existing key).
@@ -383,6 +423,110 @@ pub enum VaultCmd {
     },
     /// Remove a kept key (`keep`) from this machine.
     Drop { name: String },
+    /// List every secret this user's processes and files can reach, by name and
+    /// path only (never a value), and exit 1 when anything but the owner's
+    /// harness login or this machine's own identity is reachable (exit 2: the
+    /// audit could not see everything). A Cloud chat's VM runs it after a move.
+    Audit,
+}
+
+/// Where `machine hypervisor` keeps its state and talks to libvirt.
+#[derive(clap::Args, Clone, Debug)]
+pub struct HypervisorOpts {
+    /// State folder: leases.json, status.json, the command spool and the VM disks
+    /// (default: ~/.acpmux/hypervisor).
+    #[arg(long, value_name = "DIR")]
+    pub state_dir: Option<PathBuf>,
+    /// libvirt connection URI (`virsh -c`), such as qemu:///system.
+    #[arg(long, value_name = "URI")]
+    pub connect: Option<String>,
+    /// What a slot is: a KVM guest (libvirt), or a pod on this host (a systemd slice
+    /// whose init runs in bwrap), for hosts that cannot run VMs.
+    #[arg(long, value_enum, default_value_t = HypervisorDriverKind::Libvirt)]
+    pub driver: HypervisorDriverKind,
+    /// With --driver pods: the folder of pod roots (default: <state dir>/pods).
+    #[arg(long, value_name = "DIR")]
+    pub pods_dir: Option<PathBuf>,
+    /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
+    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`. With `serve --source
+    /// hub` each new pod's init also gets a one-time join token the host minted for its slot
+    /// in CMUX_JOIN_TOKEN and its hub in CMUX_JOIN_HUB: an init `sh -c 'printf "%s\n"
+    /// "$CMUX_JOIN_TOKEN" | acpmux machine join --hub "$CMUX_JOIN_HUB"; unset
+    /// CMUX_JOIN_TOKEN; exec acpmux daemon'` joins the pod as its own machine.
+    #[arg(long, value_name = "PROGRAM")]
+    pub pod_init: Option<String>,
+    /// An argument for --pod-init; repeat for more.
+    #[arg(long = "pod-init-arg", value_name = "ARG", allow_hyphen_values = true)]
+    pub pod_init_args: Vec<String>,
+    /// With --driver pods: a variable of serve's own environment to hand each pod's init,
+    /// by name, so its value never shows in an argv (a model token); repeat for more.
+    #[arg(long = "pod-env", value_name = "NAME")]
+    pub pod_env: Vec<String>,
+    /// With --driver pods: a host path every pod sees read-only at its own path, such as a
+    /// harness installed under a home (`~/.local/share/claude`); repeat for more.
+    #[arg(long = "pod-bind", value_name = "PATH")]
+    pub pod_bind: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorSourceKind {
+    Spool,
+    Hub,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorDriverKind {
+    Libvirt,
+    Pods,
+}
+
+#[derive(Subcommand)]
+pub enum HypervisorCmd {
+    /// Apply queued commands and enforce leases, every --interval-secs: a VM past its
+    /// delete-after is destroyed; one past its max run or idle time, or whose lease the hub
+    /// stopped renewing, or with no lease at all, is paused to disk, never deleted.
+    Serve {
+        #[command(flatten)]
+        opts: HypervisorOpts,
+        /// The qcow2 base image each VM's overlay disk is backed by.
+        #[arg(long, value_name = "FILE")]
+        base_image: Option<PathBuf>,
+        /// libvirt network the VMs attach to.
+        #[arg(long, default_value = "default")]
+        network: String,
+        /// Domain XML template ({{name}}, {{vcpus}}, {{memory_mib}}, {{disk}},
+        /// {{network}}, {{seed_disk}}); a KVM default when omitted.
+        #[arg(long, value_name = "FILE")]
+        template: Option<PathBuf>,
+        /// Seconds between passes.
+        #[arg(long, default_value_t = 5)]
+        interval_secs: u64,
+        /// One pass, then exit.
+        #[arg(long)]
+        once: bool,
+        /// Where commands come from: the local spool `apply` writes, or the hub's command
+        /// lease for this joined machine (`acpmux machine join` first; its own credential).
+        #[arg(long, value_enum, default_value_t = HypervisorSourceKind::Spool)]
+        source: HypervisorSourceKind,
+        /// With --source hub: the most commands one lease takes (1 to 32).
+        #[arg(long, default_value_t = 8)]
+        lease_max: u32,
+    },
+    /// Queue one command for `serve`, as JSON on stdin: {"verb":"create","slot":"a1",
+    /// "spec":{"vcpus":2,"memoryMib":4096},"lease":{"deleteAfterSecs":86400}}; verbs are
+    /// create, pause, resume, destroy, renew, touch and end.
+    Apply {
+        #[command(flatten)]
+        opts: HypervisorOpts,
+        /// The command's id (default: the time and the slot).
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// List this host's cmux VMs, their state and lease.
+    Ls {
+        #[command(flatten)]
+        opts: HypervisorOpts,
+    },
 }
 
 #[derive(Subcommand)]

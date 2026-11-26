@@ -13,11 +13,18 @@ pub const AGENT: &str = "Chief";
 pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
 calls; take it into account and go on.";
 
-/// The spec's one system prompt for turns and compactions (gist 3c190e0,
-/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief, with
-/// one Chief-only change: its "Turns" paragraph says to delegate
-/// (`CHIEF_TURNS`). The spec text itself stays as written in optchat-core.
+const COMPACTIONS_HEADER: &str = "# Compactions\n";
+const TURNS_HEADER: &str = "# Turns\n";
+
+/// The Chief turn's base prompt from the spec (gist 3c190e0, section 5;
+/// `optchat_core::TAELIN_PROMPT`), with the compactor-only section removed
+/// and its "Turns" paragraph replaced by `CHIEF_TURNS`.
 pub fn base_prompt() -> String {
+    without_compactions(full_base_prompt())
+}
+
+/// The complete shared prompt before the placement-specific cmux section.
+fn full_base_prompt() -> String {
     let spec = optchat_core::system_prompt(AGENT, MIDRUN);
     // Spec 5a: the turn's input is a frozen view and the log after it.
     let spec = if spec.contains(VIEW_END) {
@@ -31,6 +38,28 @@ pub fn base_prompt() -> String {
         // The spec text moved: keep it, and add the rule after it.
         format!("{spec}\n\n{CHIEF_TURNS}")
     }
+}
+
+/// Remove the compactor-only section from a Chief turn's base prompt.
+fn without_compactions(prompt: String) -> String {
+    match prompt.split_once(COMPACTIONS_HEADER) {
+        Some((before, _)) => before.trim_end().to_owned(),
+        None => prompt,
+    }
+}
+
+/// The compactor's system prompt. It keeps the identity and view description
+/// needed to interpret the input, then gives only the compaction contract. The
+/// Chief's turn rules and cmux instructions do not apply to a compaction.
+pub fn compactor_system_text() -> String {
+    let prompt = full_base_prompt();
+    let (before_compactions, compactions) = prompt
+        .split_once(COMPACTIONS_HEADER)
+        .expect("the shared prompt has a compactions section");
+    let view = before_compactions
+        .split_once(TURNS_HEADER)
+        .map_or(before_compactions, |(view, _)| view);
+    format!("{view}{COMPACTIONS_HEADER}{compactions}")
 }
 
 /// The spec's paragraph on background reports (optchat-core TAELIN_PROMPT).
@@ -59,11 +88,12 @@ fn cloud_base_prompt(offered: &[String]) -> String {
         spec.replacen(SPEC_BACKGROUND, "", 1)
     };
     let turns = cloud_turns(&has);
-    if spec.contains(SPEC_TURNS) {
+    let spec = if spec.contains(SPEC_TURNS) {
         spec.replacen(SPEC_TURNS, &turns, 1)
     } else {
         format!("{spec}\n\n{turns}")
-    }
+    };
+    without_compactions(spec)
 }
 
 /// `CHIEF_TURNS` with each sentence that names a tool kept only when the
@@ -98,16 +128,17 @@ send(text) and keep any closing text short{}.",
     }
     let mut replies = String::from(
         "Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task, at most 15 words
-each: its state, its links (PR, run, sha range) and what is still open.
+most 25 words. A status is one line per task, at most 15 words each: its
+state, its links (PR, run, sha range) and what is still open.
 Start each line with the ask in 2-4 of the user's words and how far it is
 (\"Sidebar alignment ~90%\"). Never nest bullets.
-A report of findings: its answer in at most 3 lines.
+A finished report or a tool's findings (not work just started): one line of the plan (what you do next),
+then the result itself, not a paraphrase: findings, numbers, error lines or
+diff summary, word for word when short.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
 you could not check or link unless it changes what the user does, and never
-what you have not looked at yet (\"I haven't checked\", \"I don't know X
-yet\"): give what you know in one line.
+what you have not looked at yet: give what you know in one line.
 Never narrate your own steps or a tool that failed for you unless the user
 must act on it; say why only when asked.",
     );
@@ -286,19 +317,18 @@ task before that line. When several messages arrive at once, answer the quick
 ones first, each in its own send, and only then start the slow ones.
 
 Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task or agent, at most
-15 words each: its state, its links (workspace, PR, run, sha range) and what
-is still open. The user switches between many tasks: start each line with
+most 25 words. A status is one line per task or agent, at most 15 words
+each: its state, its links (workspace, PR, run, sha range) and what is
+still open. The user switches between many tasks: start each line with
 the ask in 2-4 of the user's words and how far it is (\"Sidebar alignment
 ~90%: chips share one right edge\"), never the agent id alone. For what is
 left, say it will get done and do what gets it done in that turn, unless the
-user says otherwise. Link everything that has a link. Never nest bullets;
-never repeat a report's list. Starting work: who does it (the first line, before the
+user says otherwise. Link everything that has a link. Never nest bullets.
+Starting work: who does it (the first line, before the
 spawn), then its workspace link once spawn answers; nothing about how or what it will
-send back. Relaying a report: the outcome and its
-links; leave out the cause, the fix and the tests unless the user asked why.
-A report of findings: its answer in at most 3 lines; the rest stays in the
-agent's chat. Passing the user's words on to an agent: one line that you did,
+send back. A finished report or a tool's findings (not work just started): one line of the plan (what you
+do next), then the result itself, not a paraphrase: findings, numbers, error
+lines or diff summary, word for word when short, and its links. Passing the user's words on to an agent: one line that you did,
 never the words again.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
@@ -373,8 +403,8 @@ earlier in the chat holds like one in their profile. Never ask what the
 profile or the memory already answers.
 
 Open loops: when you promise something for later or take an ask that
-cannot be finished in this turn (a reminder, \"after the deploy\", \"when Leo
-is online\", a deadline), write loops/<task>.md with memory_write and set a
+cannot be finished in this turn (a reminder, \"after the deploy\", \"when they
+are back\", a deadline), write loops/<task>.md with memory_write and set a
 follow-up for when it is due (follow_up, or watch for an outside event);
 forget the loop when the work ends. When asked what is still open, answer
 from your loops/ files, not from the chat. The <chief-memory> block after the chat lists your
@@ -435,9 +465,9 @@ macro_rules! github_wait_rule {
         "- GitHub waits: never poll GitHub yourself: no loop with `sleep` around
   `gh`, no `gh api` or `gh run view` re-read on a timer, no `gh event listen`
   of your own. Wait with one waiter that wakes you once: acpmux `run_wait`
-  for an Actions run or a pull request's checks (it waits through glaeda-gh
-  when the machine has it, else one shared `gh` watch, and messages you when
-  it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
+  for an Actions run or a pull request's checks (it waits through the
+  machine's one GitHub poller, else one shared `gh` watch, and messages you
+  when it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
   read one now (both read the machine's one GitHub poller, so they cost you
   no GitHub calls). Without acpmux's tools, run one `timeout 1800 gh run
   watch RUN_ID --repo OWNER/REPO` or `gh pr checks N --watch --interval 30`
@@ -445,8 +475,7 @@ macro_rules! github_wait_rule {
   thing your work needs, wait in the foreground and end once: a background
   wait that ends after you stop wakes you, then Chief, again. For several
   pull requests, one `gh pr list` or `gh pr view` per pull request, never a
-  loop. Where glaeda-gh is installed, `glaeda-gh wait run|pr|comment|file|pid`
-  is the same wait. Every wait has a deadline sized to the job; past it,
+  loop. Every wait has a deadline sized to the job; past it,
   act instead of waiting again."
     };
 }
@@ -575,6 +604,10 @@ macro_rules! home_rule {
   description names; `head -4 ~/.cmux/chief/skills/*/SKILL.md
   $MUX_HOME/skills/*/SKILL.md` lists them (your tool packs' skills are
   in yours: `chief pack list`).
+- Verify: say a thing is sent, done or fixed only after you saw it (read
+  it back, a test run, the chat's state). An agent's or subagent's
+  diagnosis is a claim: check it against real data (the diff, logs, a
+  run) before you pass it on, and say what you verified.
 - After work: when a subagent's work or your own is done, think what the
   user would want to see next, and show it unasked: the diff of the commits
   it landed, a preview of a page, gallery or screenshot it made, or the file
@@ -603,8 +636,8 @@ macro_rules! home_rule {
   by topic, unless the user asks; the host makes the one \"Chief's
   workspaces\" group itself. A subagent's workspace is named after its
   title: start each spawn task with a `Title: <2-5 words>` line (never
-  \"User (u…)\"; `#<N>: <3-5 words>` when the work is one issue or pull
-  request, so the user finds it by its number), and an `Expect: <minutes>m` line when it should run long.
+  \"User (u…)\"; `<N>: <3-5 words>` when the work is one issue, so the
+  user finds it by its number), and an `Expect: <minutes>m` line when it should run long.
   Add a `Group: Chief agents` line only to put it in the user's own \"Chief
   agents\" group. Nothing closes a subagent's workspace on its own; `control
   show` moves one to the top of the sidebar and `control hide` moves it into
@@ -613,22 +646,30 @@ macro_rules! home_rule {
 - Agent chats: \"send Claude\", \"send Codex\" or \"start Claude on X\"
   means one new agent chat per task in the cmux app, never a subagent, a
   terminal or a message to a chat already open (a terminal only when the
-  user says terminal). Follow the `send-agents` skill. Each chat gets its
-  own workspace at the top of the sidebar, titled `<issue#>: <3-5 word
-  liner>` (the number of the issue or pull request the work is for; without
-  one, 3-5 words of what it does; never \"fix\" or \"task N\"): `cmux --json
-  agents chat new --top --harness claude|codex --cwd <repo> --name
-  \"<title>\" -- \"<prompt>\"`. Leave out --model and --effort, so the
-  harness's own default runs, unless the user names a model or effort. One
-  agent per issue: look in `cmux --json workspace list` first and send to
-  the chat already on it (`cmux agents chat send`) instead of a second one.
-  Its prompt holds the user's words for the task and the standing rules for
-  agents the skill lists (do the work itself, with no other chats or
-  workspaces; open a pull request in the right split of its own workspace
-  and keep going until it is ready; quit any dev build it launched; never
-  move the user's focus). Say it was sent only after `cmux agents chat state
-  <chat>` shows it running, with a link to its workspace. When its pull
-  request merges, close the workspace you made for it.
+  user says terminal). Follow the `send-agents` skill. Start each yourself,
+  never through a helper chat or workspace. Work in a GitHub repository
+  with no issue yet gets one first (`gh issue create`, a short summary in
+  your words, never the raw prompt). Each chat gets its own workspace at
+  the top of the sidebar, titled exactly `<issue#>: <3-5 word liner>` (the
+  issue's number, no \"#\", never the pull request's; `PR #<n>: <3-5
+  words>` when there is only a pull request; never \"fix\" or \"task N\"):
+  `cmux --json agents chat new --top --harness claude --model
+  claude-opus-5-5 --effort medium --cwd <repo> --name \"<title>\" --
+  \"<prompt>\"` (Claude on Opus 5.5 at medium effort; Codex is `--harness
+  codex` on its defaults; a model or effort the user names wins). Never
+  `workspace create` first: it adds a terminal. One agent per issue: look
+  in `cmux --json workspace list` first and send to the chat already on it
+  (`cmux agents chat send`) instead of a second one. Its prompt holds the
+  user's words for the task and the standing rules for agents the skill
+  lists (do the work itself, with no other chats or workspaces; make a
+  complete fix, not only an investigation; open a pull request in the right
+  split of its own workspace and keep going until it is ready; quit any dev
+  build it launched once it verified; never move the user's focus). Say it
+  was sent only after `cmux agents chat state <chat>` shows it running,
+  with a link to its workspace. Squash-merge a ready pull
+  request to `feat-cmux-next` once its change is verified and conflict-free;
+  others wait for the user. When its pull request merges, close the
+  workspace you made for it.
 - Workspaces: make, rename, reorder, split and close them yourself with the
   `cmux` CLI, by id (`ws_…`, `pane_…`), never by a title alone or the
   `current` and `focused` selectors (those are what the user looks at):
@@ -739,7 +780,7 @@ cmux Home, and your final reply of each turn is posted there.
   Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate
-  them in a task. Say only what is new: goal, scope, facts, what to report.
+  them in a task. Say only what is new: goal, scope, facts, when to stop.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
@@ -758,10 +799,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `chief engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `chief engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -772,15 +813,15 @@ cmux Home, and your final reply of each turn is posted there.
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
   only the folders the work is in, or ask the user where something is.
-- The tools `zoom` and `date` (MCP server `optchat`) read your memory.
+- The tools `zoom`, `date` and `recall` (MCP server `optchat`) read your
+  memory; `remember` and `memory_write` add to it.
 ",
     home_rule!()
 );
 
-/// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
-/// section, then the user's own instructions file (spec 5), read once per
-/// host start so every turn's prompt stays byte-identical. Compactions send
-/// the same text (host.rs), so they read it from the turns' cache entry.
+/// The system prompt (the session's CLAUDE.md): the Chief turn's base prompt,
+/// the cmux section, then the user's own instructions file (spec 5), read once
+/// per host start so every turn's prompt stays byte-identical.
 pub fn claude_md(user: Option<&str>) -> String {
     system_text(user, &Tools::Mcp)
 }
@@ -895,8 +936,8 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
         Tools::Cloud(offered) => cloud_instructions(offered),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{base}\n\n{cmux}\n"),
+        Some(user) => format!("{base}\n{cmux}\n\n{user}\n"),
+        None => format!("{base}\n{cmux}\n"),
     }
 }
 
@@ -974,7 +1015,7 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
-  what to report. Each one's report reaches you as a message,
+  when to stop. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Versions: `cmux version --json` (or the `version` tool, which adds
@@ -992,10 +1033,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `{chief} engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `{chief} engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -1023,11 +1064,12 @@ prompt: they say who the user is, how their files are organized and how
 they want work done.
 
 Your first message holds the view below, then your task. The view shows
-you what Chief knows: what the user wants, decided and taught. Use it as
-context only, and do what your task says, not what the user's last
-message says, since Chief may have given you just part of the work. Your
-final reply is your report to Chief. Chief may send you more messages, even
-while you work.";
+what Chief knows: what the user wants, decided and taught. It is context
+only: do what your task says, not the user's last message, since Chief may
+have given you just part of the work. Stop when the task's stop condition
+holds. Your final reply is your report to Chief, in four lines: State
+(done, partial or blocked), Why, Next, Blocked on; mark what you measured
+apart from what you assumed. Chief may send you more messages.";
 
 /// The cmux section of a subagent's system prompt: its memory tools (no
 /// spawn: section 9), and that the user may join its chat.
@@ -1131,6 +1173,11 @@ report.
   `--no-verify`, unless the hook fails only on files you did not touch;
   then say so in your report.
 {github}
+- Skills: Chief's skills, the ones cmux ships among them, are in
+  `~/.cmux/chief/skills/<name>/SKILL.md` when that folder exists.
+  `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them; read a
+  skill's SKILL.md before you do what its description names, instead of
+  working it out again.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or
@@ -1245,7 +1292,7 @@ pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the h
 pub const AUTOMATION_DESCRIPTION: &str = "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; a GitHub event such as CI failing is not one). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. A run missed while this computer slept or cmux was closed runs once as soon as it is back; a job that must run on time while it sleeps is a cloud automation (`cmux automation create NAME --target cloud`).";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. tasks id items: keep the task list its chat and its sidebar row show (what is done, what is next), for a long task whose harness keeps no plan of its own; send the whole list each time, [] clears it; a harness plan (TodoWrite, update_plan) replaces yours. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";

@@ -206,7 +206,7 @@ const GROUPS: &[Group] = &[
             verb("file-read", "{target} --path /FILE", "Read a file", "ファイルを読む"),
             verb(
                 "file-write",
-                "{target} --path /FILE --contents TEXT",
+                "{target} --path /FILE --contents TEXT|--contents-file FILE",
                 "Write text to a file",
                 "ファイルにテキストを書き込む",
             ),
@@ -607,6 +607,12 @@ TEAM KEYS (one shared key per agent for the team; owners and admins)
   cmux cloud team-keys remove claude|codex --team TEAM_ID
 A team key overrides each member's own key on the team's Cloud machines.
 
+YOUR OWN CLOUD (a team's own GCP project as its machine pool; team admins)
+  cmux cloud provider gcp status --team TEAM_ID --json
+  cmux cloud provider gcp set --team TEAM_ID --project ID --zone ZONE --service-account EMAIL --pool-size N
+  cmux cloud provider gcp off --team TEAM_ID
+Then `cmux vm new --provider gcp` makes the team's machines there, metered like every Cloud machine.
+
 CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
@@ -642,6 +648,12 @@ claude は `claude setup-token` を実行し、トークンを表示せずに取
   cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
   cmux cloud team-keys remove claude|codex --team TEAM_ID
 チームキーは、チームの Cloud マシンで各メンバー自身のキーより優先されます。
+
+自分のクラウド（チーム自身の GCP プロジェクトをマシンプールとして使う、チーム管理者）
+  cmux cloud provider gcp status --team TEAM_ID --json
+  cmux cloud provider gcp set --team TEAM_ID --project ID --zone ZONE --service-account EMAIL --pool-size N
+  cmux cloud provider gcp off --team TEAM_ID
+その後 `cmux vm new --provider gcp` でチームのマシンがそこに作られ、他の Cloud マシンと同じく計測されます。
 
 クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]

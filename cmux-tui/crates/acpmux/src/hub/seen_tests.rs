@@ -360,3 +360,28 @@ async fn the_cursor_survives_a_restart_of_the_daemon() {
     assert_eq!(restarted.read_through(&s, ALICE), Some(seen - 1));
     restarted.shutdown_all().await;
 }
+
+/// An idle daemon writes nothing (idle-gpu-disk): a seen cursor set to where it is, read state
+/// set to what it is, saves nothing (each metadata commit bumps the chat's `summary_gen`).
+#[tokio::test]
+async fn seen_state_set_to_what_it_is_saves_once() {
+    let (hub, s) = chat().await;
+    let end = notes(&hub, &s, 3);
+    let saves = || s.summary_gen.load(Ordering::SeqCst);
+    let before = saves();
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, end), end);
+    assert!(saves() > before, "the first move saves");
+    let before = saves();
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, end), end);
+    assert_eq!(hub.mark_read_back(&s, OWNER_READER, end), end);
+    assert_eq!(saves(), before, "the cursor set where it is saved");
+
+    hub.mark_unread_answered(&s).expect("marked unread");
+    let (before, seq) = (saves(), s.seq.load(Ordering::SeqCst));
+    hub.mark_unread_answered(&s).expect("still unread");
+    assert_eq!((saves(), s.seq.load(Ordering::SeqCst)), (before, seq), "unread again wrote");
+    hub.mark_read_answered(&s).expect("marked read");
+    let (before, seq) = (saves(), s.seq.load(Ordering::SeqCst));
+    hub.mark_read_answered(&s).expect("still read");
+    assert_eq!((saves(), s.seq.load(Ordering::SeqCst)), (before, seq), "read again wrote");
+}

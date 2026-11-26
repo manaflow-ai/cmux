@@ -1,10 +1,12 @@
-import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import type { ListCommand } from "../../ui/keyStyle";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 // AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
 // would pull this New Tab screen into the chat page's first script.
 import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
@@ -22,7 +24,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, FolderRecency, homePath, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -47,8 +49,9 @@ import {
   NEW_TAB_LABELS,
   prefixedEdit,
   cycleKind,
-  recentSessions,
+  RecentChats,
 } from "./newTabModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 function escapedLiteral(value: string): string {
   return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");
@@ -212,14 +215,22 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
+  // The chats' folders newest first (sessionList.ts `FolderRecency`) and the recent rows
+  // (newTabModel.ts `RecentChats`), each kept at the cost of the chats that changed: a key typed, or a
+  // chat working elsewhere, costs this page no pass over every listed chat
+  // (test/new-tab-no-whole-list-passes.test.tsx).
+  const [lists] = useState(() => ({ folders: new FolderRecency(), recent: new RecentChats() }));
+  const localFolders = lists.folders.of(snapshot.sessions);
+  const newestProject = useMemo(
+    () => (home ? firstProject(localFolders, home, knownProjects) : undefined),
+    [localFolders, home, knownProjects],
+  );
   const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
     ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started, home, knownProjects) ??
-        mostRecentProject(snapshot.sessions, home, knownProjects) ??
-        cwd));
+      : (firstProject(started, home, knownProjects) ?? newestProject ?? cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
   // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
   // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
@@ -301,22 +312,12 @@ export function NewTabPage({
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
-  const {
-    attachments,
-    setAttachments,
-    pending,
-    originalFailures,
-    unsettled,
-    cancel,
-    retry,
-    attachError,
-    drop,
-    dropLanded,
-  } = useAttachmentIntake({
-    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
-    dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
-  });
+  const { attachments, setAttachments, pending, originalFailures, unsettled, cancel, attachError, drop, dropLanded } =
+    useAttachmentIntake({
+      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+      pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
+      dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
+    });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
@@ -386,7 +387,8 @@ export function NewTabPage({
   // The failure line sits where the rows float: they wait for the next edit, which clears the line.
   const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
-  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const recentChats = lists.recent;
+  const recent = useMemo(() => (open ? recentChats.of(snapshot.sessions) : []), [open, recentChats, snapshot.sessions]);
   const rows = useMemo(
     () =>
       open
@@ -538,8 +540,35 @@ export function NewTabPage({
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
+  // `app.keyStyle`. The prompt keeps its typing: Emacs' Ctrl-N/P step the rows as the arrows do,
+  // and Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the rows, where j/k, gg/G and l or Return
+  // pick as the arrows and Return do and / goes back to the prompt. Their Esc is the page's.
+  const listTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const runListCommand = (command: ListCommand, inField: boolean): boolean | void => {
+    if (!rows.length) return false;
+    if (command === "list.next" || command === "list.previous") {
+      setSelected((current) => stepSelection(current, command === "list.next" ? 1 : -1, rows.length));
+      return;
+    }
+    if (inField) {
+      if (command !== "list.leave" || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+      return;
+    }
+    if (command === "list.first" || command === "list.last")
+      setSelected(command === "list.first" ? 0 : rows.length - 1);
+    else if (command === "list.open") {
+      const row = rows[selected];
+      if (row) activate(row);
+    } else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
+    else return false;
+  };
+  const fieldKeys = useListKeys({ onCommand: (command) => runListCommand(command, true) });
+  const rowKeys = useListKeys({ onCommand: (command) => runListCommand(command, false) });
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;
+    fieldKeys(event);
+    if (event.defaultPrevented) return;
     const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
@@ -615,7 +644,13 @@ export function NewTabPage({
     <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
-        <form className="acpmux-newtab-box" onSubmit={submit}>
+        <form
+          className="ui-glass ui-glass-floats acpmux-newtab-box"
+          // The composer family's one material: the App's popover glass, as the suggestions under it. In
+          // the page's flow, so no cover: nothing scrolls under it.
+          data-host-glass="popover"
+          onSubmit={submit}
+        >
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -627,7 +662,9 @@ export function NewTabPage({
             onBlur={(event) => {
               if (
                 fieldElement()?.contains(event.target) &&
-                !fieldElement()?.contains(event.relatedTarget as Node | null)
+                !fieldElement()?.contains(event.relatedTarget as Node | null) &&
+                // A key style's leave hands the keyboard to the rows: they stay up.
+                !list.current?.contains(event.relatedTarget as Node | null)
               )
                 setFocused(false);
             }}
@@ -688,12 +725,15 @@ export function NewTabPage({
                 >
                   <KindIcon kind={option} />
                   <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                  {hotkeys[option] && <KeyHint keys={hotkeys[option]!} />}
                 </button>
               ))}
             </fieldset>
           </div>
           {command.input}
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
           <AttachmentStrip
             attachments={attachments}
             pending={pending}
@@ -707,7 +747,6 @@ export function NewTabPage({
               cancel(id);
               field.current?.focus();
             }}
-            onRetry={retry}
             originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
@@ -760,10 +799,26 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The App's popover glass, as every Popover: the list floats over the page, which blurs in place under it.
+            data-host-glass="popover"
+            data-host-glass-cover=""
+            // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
+            data-popup-settle="results"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={t(NEW_TAB_LABELS.suggestions)}
+            tabIndex={listTakesKeys ? -1 : undefined}
+            onKeyDown={(event) => {
+              rowKeys(event);
+              if (event.defaultPrevented || event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              runListCommand("list.open", false);
+            }}
+            onBlur={(event) => {
+              const next = event.relatedTarget as Node | null;
+              if (!list.current?.contains(next) && !fieldElement()?.contains(next)) setFocused(false);
+            }}
           >
             <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
               {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
@@ -793,7 +848,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
+                    {index === selected && <KeyHint keys="↩" />}
                   </span>
                 </div>
               ))}
@@ -812,6 +867,7 @@ export function NewTabPage({
         <div className="acpmux-newtab-failed" role="alert">
           <p className="acpmux-newtab-failed-message">{t(NEW_TAB_LABELS.openFailedKind[openFailed.kind])}</p>
           <button type="button" className="acpmux-newtab-failed-retry ui-ghost" onClick={openFailed.retry}>
+            {/* retry-prompt-ok: opens the tab again: a chat sends its prompt (a paid model request), a terminal runs its command. */}
             {t(NEW_TAB_LABELS.openRetry)}
           </button>
           {openFailed.detail && <ErrorDetails text={openFailed.detail} className="acpmux-newtab-failed-details" />}
