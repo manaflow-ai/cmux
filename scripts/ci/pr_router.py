@@ -32,7 +32,9 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
   land_handoff_only
              true for a workflow that starts only on a land's own heads: the `labeled` event that adds
              ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
-             is GitHub's base merge (land's update-branch). Any other head, full tier or not, skips it;
+             is GitHub's base merge (land's update-branch), and the merge train's tip. The label handoff
+             itself skips it unless $CI_MC_HANDOFF_LABEL_SKIP is 0 (handoff_label_skip). Any other head,
+             full tier or not, skips it;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -84,6 +86,20 @@ FULL_CI_ONLY_JOBS = ("web-browser",)
 def full_ci_only_jobs() -> tuple[str, ...]:
     """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
     return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
+# A land_handoff_only callee (the machine channel PR head build) skips the label handoff itself and builds only
+# the merge train's tip and land's update-branch head. 13-17Z 2026-11-26: 72 of 112 PR head builds (1,769 of
+# 3,002 runner-min) came from a ready-to-land or full-ci label being added, 66 of the 102 PRs built had not merged
+# by 20Z, and a labeled head had fallen behind the base by its merge (0 of 18 merges squashed their own head's
+# tree, #58765), so find never took those builds. yap-goblin's unlabel/relabel of ready-to-land rebuilt the same
+# head up to 3 times. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_MC_HANDOFF_LABEL_SKIP=0 turns this off (passed in by pr-router.yml).
+
+
+def handoff_label_skip() -> bool:
+    """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
+    return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -209,6 +225,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and not handoff and not land_update:
             why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
                          f"update-branch head")
+            continue
+        if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
+            why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
+                         f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
             continue
         if added and added in config.get("labels", []):
             start.append(name)

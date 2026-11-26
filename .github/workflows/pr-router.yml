@@ -115,6 +115,9 @@ jobs:
           # The browser suites (pr-pipeline.yml's web-browser job) run on a PR only with `full-ci`; base pushes run
           # them (pr_router.py FULL_CI_ONLY_JOBS); 0 turns that off.
           CI_PR_BROWSER_FULL_CI_ONLY: ${{ vars.CI_PR_BROWSER_FULL_CI_ONLY || '1' }}
+          # The machine channel PR head build skips a ready-to-land/full-ci label handoff and builds the merge train's
+          # tip and land's update-branch head only (pr_router.py handoff_label_skip); 0 builds the label handoff too.
+          CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
