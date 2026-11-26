@@ -18,6 +18,7 @@ use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::attachments::AttachmentRejected;
 use crate::conversation_store::inbox::InboxOp;
 use crate::conversation_store::runs::RunRejected;
+use crate::conversation_store::scheduled::ScheduleRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
@@ -214,6 +215,10 @@ impl HomeInboxParams {
 pub(super) struct InboxOpParams {
     conversation: String,
     op: Value,
+    /// Optional (`conversation-inbox-op-once-v1`): a resend with the same id answers the
+    /// first result and writes nothing.
+    #[serde(default)]
+    op_id: Option<String>,
 }
 
 /// Default page of `conversation-thread`.
@@ -311,6 +316,7 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
+        .or_else(|| error.downcast_ref::<ScheduleRejected>().map(|r| r.0.to_string()))
 }
 
 /// The `error_details` of a conversation reject that has them: the keyed
@@ -331,6 +337,9 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     if error.downcast_ref::<RunRejected>().is_some() {
         return Some(RunRejected::CODE.to_string());
     }
+    if error.downcast_ref::<ScheduleRejected>().is_some() {
+        return Some(ScheduleRejected::CODE.to_string());
+    }
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
@@ -345,7 +354,7 @@ fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+pub(super) fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_owner_client(client),
         "local conversations require a trusted local connection"
@@ -642,12 +651,34 @@ pub(super) fn cloud_rows_failure(error: &anyhow::Error) -> &'static str {
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of
 /// a conversation it takes part in, and publishes `conversation-inbox-changed`
 /// to the caller's connections. Not a conversation op: no rev, no ledger
-/// (values are absolute, so a retry writes the same state).
+/// (values are absolute, so a retry writes the same state). With an `op_id`
+/// (`conversation-inbox-op-once-v1`) a resend answers the first result and
+/// writes and publishes nothing (`conversation_inbox_once.rs`).
 pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
-    let InboxOpParams { conversation, op } = params;
-    let op: InboxOp = decode(op, "op")?;
+    let InboxOpParams { conversation, op, op_id } = params;
     let actor = mux.conversation_principal(client);
+    let key = match op_id {
+        None => None,
+        Some(id) if !id.is_empty() && id.len() <= crate::conversation_inbox_once::OP_ID_MOST => {
+            Some(format!("{actor}\0{id}"))
+        }
+        Some(_) => anyhow::bail!(
+            "bad request: op_id must be a non-empty string of at most {} bytes",
+            crate::conversation_inbox_once::OP_ID_MOST
+        ),
+    };
+    let once = format!("{conversation}\0{op}");
+    mux.inbox_op_once(key, once, || inbox_op_run(mux, conversation, actor, op))
+}
+
+fn inbox_op_run(
+    mux: &Mux,
+    conversation: String,
+    actor: String,
+    op: Value,
+) -> anyhow::Result<Value> {
+    let op: InboxOp = decode(op, "op")?;
     let state = mux.conversation_write(
         |store| store.apply_inbox_op(&conversation, &actor, &op),
         |state| {
@@ -972,6 +1003,10 @@ fn preview_words() -> cmux_conversation::PreviewWords {
 #[cfg(test)]
 #[path = "conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "conversation_inbox_once_tests.rs"]
+mod inbox_once_tests;
 
 #[cfg(test)]
 #[path = "conversation_attachment_tests.rs"]

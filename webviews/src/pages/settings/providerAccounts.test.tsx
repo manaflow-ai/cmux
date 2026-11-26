@@ -281,3 +281,14 @@ function page0(): HarnessesState["harnesses"] {
     { id: "codex", name: null, kind: "acp", source: "path", problem: null },
   ];
 }
+
+// Feature map `usage-per-account` (Leo, 2026-11-23): "a hover line names the last miss cause".
+test("an account's usage hover names its last prompt cache miss and its cause, and a cause it does not know reads as unknown", async () => {
+  const { cacheMissLine } = await import("./components/ProviderAccounts");
+  const at = Date.UTC(2026, 10, 23, 14, 5);
+  expect(cacheMissLine({ cause: "expired", at }, "en-US")).toMatch(/^Last prompt cache miss .*: the cache expired$/);
+  expect(cacheMissLine({ cause: "model", at }, "en-US")).toEndWith(": the model changed");
+  expect(cacheMissLine({ cause: "something-new", at }, "en-US")).toEndWith(": cause unknown");
+  expect(cacheMissLine({ cause: "expired", at: 0 })).toBeUndefined();
+  expect(cacheMissLine(undefined)).toBeUndefined();
+});

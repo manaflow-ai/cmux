@@ -104,8 +104,6 @@ class ShardSize(unittest.TestCase):
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
-            self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
 
     def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
         """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
@@ -489,6 +487,37 @@ class OneBaseCheck(unittest.TestCase):
             done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--failed-files",
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
+
+    def test_the_lone_picked_shard_lands_in_the_download_root_itself(self):
+        """What refused #48267 and #50979 on 2026-11-22: both change only Swift, so web-subarea-scope picked one
+        shard, and react-apps-base-check failed with "react-apps-head-results-shard1 has no
+        webviews-head-results.json" while shard 1 had uploaded its 165 files and the download verified the same
+        digest. actions/download-artifact (pinned 37930b1c) extracts into the download root, with no folder of the
+        artifact's name, whenever `artifacts.length === 1`, so the folder this join read never exists for a pull
+        request that ran one shard. A shard's own folder still wins wherever there is one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            flat = tmp / "in"
+            flat.mkdir()
+            (flat / history.HEAD_RESULTS).write_text(json.dumps({TEST: False}))
+            (flat / "runner").mkdir()
+            (flat / "runner/run-webviews-tests.sh").write_text("# shard 1\n")
+            (flat / "raw-logs").mkdir()
+            (flat / "raw-logs/summary").write_text("FAIL x /r/test_agent.log\n")
+            matrix = json.dumps([{"shard": 1, "shard_count": 8}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(flat), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1})
+            self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
+            self.assertEqual((tmp / "out/raw-logs/summary").read_text(), "FAIL x /r/test_agent.log\n")
+            # One shard with a folder of its own (the artifact was not alone in the download): that folder is read,
+            # never a stale map lying beside it in the root.
+            self.shard(tmp / "two", 1, {TEST: True})
+            (tmp / "two" / history.HEAD_RESULTS).write_text(json.dumps({"test/stale.test.ts": False}))
+            self.assertIsNone(history.join_heads(tmp / "two", [1], tmp / "out3"))
+            self.assertEqual(json.loads((tmp / "out3" / history.HEAD_RESULTS).read_text()), {TEST: True})
 
     def test_a_pull_request_joins_only_the_shards_it_ran(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1043,8 +1072,14 @@ class Workflow(unittest.TestCase):
             self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
         self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
-        self.assertIn("actions/cache/save@", upkeep)
-        self.assertNotIn("actions/cache/save@", scope)
+        self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
+        self.assertNotIn("cache-save", scope)
+        # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
+        # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
+        for text in (upkeep, scope):
+            self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache/", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache/history\.json\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]

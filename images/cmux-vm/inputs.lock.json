@@ -60,6 +60,7 @@
         "arping": "2.24-1build2",
         "at-spi2-common": "2.52.0-1build1",
         "at-spi2-core": "2.52.0-1build1",
+        "bc": "1.07.1-3ubuntu4",
         "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.9",
         "bind9-host": "1:9.18.39-0ubuntu0.24.04.9",
         "bind9-libs": "1:9.18.39-0ubuntu0.24.04.9",
@@ -371,6 +372,7 @@
         "arping=2.24-1build2": { "path": "pool/universe/a/arping/arping_2.24-1build2_amd64.deb", "sha256": "ede568517727d4393f466e3c7708d582042b8d1280cc6e33b828d7068f893659", "size": 32678 },
         "at-spi2-common=2.52.0-1build1": { "path": "pool/main/a/at-spi2-core/at-spi2-common_2.52.0-1build1_all.deb", "sha256": "7e05959b067031468f21ae46c6653a6813f1dccd994ef12a0b5f75de0ed346b6", "size": 8674 },
         "at-spi2-core=2.52.0-1build1": { "path": "pool/main/a/at-spi2-core/at-spi2-core_2.52.0-1build1_amd64.deb", "sha256": "ea2d24a3219ba639f72dadf92b896fe31dd2ffd8659432e0cee2362726b63ff4", "size": 56650 },
+        "bc=1.07.1-3ubuntu4": { "path": "pool/main/b/bc/bc_1.07.1-3ubuntu4_amd64.deb", "sha256": "cb85d5929476088533b3c5e1db2de5ab4593a69fa54243710f762197dbaea60d", "size": 85264 },
         "bind9-dnsutils=1:9.18.39-0ubuntu0.24.04.9": { "path": "pool/main/b/bind9/bind9-dnsutils_9.18.39-0ubuntu0.24.04.9_amd64.deb", "sha256": "edb46901460a673ebb73c8d6742a2c0243fee673dff70a53f6ade420ba260f09", "size": 155980 },
         "bind9-host=1:9.18.39-0ubuntu0.24.04.9": { "path": "pool/main/b/bind9/bind9-host_9.18.39-0ubuntu0.24.04.9_amd64.deb", "sha256": "6230d7e1f6d7a5b356fc1dde8afb3e65574a760ffec4c51018dcfad79a1bc98e", "size": 50472 },
         "bind9-libs=1:9.18.39-0ubuntu0.24.04.9": { "path": "pool/main/b/bind9/bind9-libs_9.18.39-0ubuntu0.24.04.9_amd64.deb", "sha256": "8398995816db0090f7320717b6fade84f4c7ea353a04282fd4b29d1183b5b2b9", "size": 1263158 },
@@ -645,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "45ed727f30d1a623ba43d98d634b84b838a713db",
-      "url": "https://files.cmux.com/cmux-tui/45ed727f30d1a623ba43d98d634b84b838a713db/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "ee867a5ca67b996ad9d7a426f47d25b4f1268859e149ed1a08388b6f6548c3f2",
-      "size": 141288720,
+      "version": "6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7",
+      "url": "https://files.cmux.com/cmux-tui/6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "3e973e77a3a909c6a89b16819f1a8d99232fada45bfb968ad8ea7b4e5a7edaee",
+      "size": 170289664,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/45ed727f30d1a623ba43d98d634b84b838a713db/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44991824725; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45739215246; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "45ed727f30d1a623ba43d98d634b84b838a713db",
-      "url": "https://files.cmux.com/cmux-tui/45ed727f30d1a623ba43d98d634b84b838a713db/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "30702890c573cae8cafc0dd31e147c19325e00e52e97761439360b19f36436a6",
-      "size": 4869200,
+      "version": "6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7",
+      "url": "https://files.cmux.com/cmux-tui/6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "a09c89fad14f75669364f815656610b63e0b273181aada3da059b4ee91a45471",
+      "size": 4972744,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/45ed727f30d1a623ba43d98d634b84b838a713db/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44991824725; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/6fde033d9d34b65f8d1ce65c2440b67e6bae7cb7/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45739215246; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
@@ -709,11 +711,12 @@
     {
       "name": "codex",
       "version": "0.160.0",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-x86_64-unknown-linux-musl.tar.gz",
-      "sha256": "306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13",
-      "size": 109304578,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "4fcc47ab57f52ff75363951a8761146cd10c8288bd86fed45487dbb204a16b71",
+      "size": 160727443,
       "format": "tar.gz",
-      "bin": { "codex": "codex-x86_64-unknown-linux-musl" },
+      "bin": { "codex": "bin/codex" },
+      "companions": ["bin/codex-code-mode-host"],
       "versionArgs": ["--version"],
       "expect": "0.160.0"
     },
@@ -774,6 +777,25 @@
       "expect": "1.0.77"
     },
     {
+      "name": "agy",
+      "version": "1.5.17",
+      "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-x64/cli_linux_x64.tar.gz",
+      "sha256": "6304b4f592ae97e59231cfb1b365ee29c155750c9a881f0cc8efe5f5281077cf",
+      "size": 102886235,
+      "format": "tar.gz",
+      "bin": { "agy": "antigravity" },
+      "versionArgs": ["--version"],
+      "expect": "1.5.17",
+      "otherArches": {
+        "aarch64": {
+          "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-arm/cli_linux_arm64.tar.gz",
+          "sha256": "d6d2b88493e6e02854da478b215cd1dd98fd8cf985b6be37829dacadea4ffc07",
+          "size": 93662528
+        }
+      },
+      "source": "Antigravity CLI 1.5.17 from the official installer's release manifests (https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json and linux_arm64.json, read 2026-11-25). Each archive holds one file, `antigravity`, linked here as `agy`. The manifests' sha512 values matched the downloads: x64 71a967aa16e0ab5d87196bcd6772130bdab55b2fd768cd24d21b1da401ff9f60280b976cad3dc14a2d646233b0eaf8caf87c490eed73044d54550cbb3d8d67d2, arm64 e4f086d0730b325cfd438ea90396ee78eb23a3110ef7f792824c8817b8d0432462b7b5f91b3d933fc1932a6f4ba73de505e2e96f44448c9fb2427292ead716f7. The sha256 values and sizes are those downloads'. `agy install`, which edits shell profiles, is never run."
+    },
+    {
       "name": "workerd",
       "version": "1.20260924.1",
       "url": "https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20260924.1.tgz",
@@ -805,6 +827,19 @@
       "bin": { "juicefs": "juicefs" },
       "versionArgs": ["version"],
       "expect": "1.4.1"
+    },
+    {
+      "name": "sccache",
+      "version": "0.20.0",
+      "url": "https://github.com/mozilla/sccache/releases/download/v0.20.0/sccache-v0.20.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "c3c5db9cd7e3be12b7bab350d8fe8ae7dcfb7269d5432b269e0dffa1a87c6ed2",
+      "size": 10547998,
+      "format": "tar.gz",
+      "bin": { "sccache": "sccache-v0.20.0-x86_64-unknown-linux-musl/sccache" },
+      "versionArgs": ["--version"],
+      "expect": "sccache 0.20.0",
+      "notices": ["sccache-v0.20.0-x86_64-unknown-linux-musl/LICENSE"],
+      "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
     },
     {
       "name": "cmux-cua",
@@ -885,17 +920,17 @@
     },
     {
       "name": "cmux-rd",
-      "version": "0.2.8",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.8/cmux-rd-0.2.8-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "cb62708f01683dc5b18da85f98c2dc8dc5e847598ab957c1d4f3b49cff5d230b",
-      "size": 9785324,
+      "version": "0.2.9",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e",
+      "size": 10234313,
       "format": "tar.gz",
       "bin": {
         "cmux-rd": "bin/cmux-rd"
       },
       "versionArgs": [],
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.8/checksums.txt",
-      "checksumsName": "cmux-rd-0.2.8-x86_64-unknown-linux-gnu.tar.gz",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/checksums.txt",
+      "checksumsName": "cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
       "roles": [
         "desktop"
       ],
@@ -903,7 +938,7 @@
         "LICENSE",
         "THIRD_PARTY_LICENSES.md"
       ],
-      "source": "manaflow-ai/cmux release cmux-rd-v0.2.8 (2026-11-22; tag on aaeeac0b06ce, feat-cmux-next at #49894; release run 45005880299). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), the crate version: since the previous release, a desktop on the virtual display so a viewer never sees an empty screen (#46704), keys reaching the window the person clicked (#47957), a viewer ending a link whose host went silent (#47843), clipboard text sync (#47329) and the join-record heals (#46477, #46734). sha256 and size from checksums.txt and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
+      "source": "manaflow-ai/cmux release cmux-rd-v0.2.9 (2026-11-23; tag on d601762bb060, feat-cmux-next at #50463; release run 45160613949). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), the crate version: since the previous release, a Linux share host on its own display (#51580, #50463). sha256 and size from checksums.txt and the release asset digest. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
     }
   ],
   "roles": {
@@ -922,6 +957,10 @@
     "repo": "https://github.com/manaflow-ai/cmux.git",
     "branch": "feat-cmux-next",
     "dir": "/home/cmux/cmux",
+    "bundleLists": [
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless-rolling.list",
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless.list"
+    ],
     "submodules": ["ghostty-next"],
     "aptRoots": ["libclang-dev"],
     "apt": {

@@ -10,8 +10,11 @@
 #     --arg=base=<sha> --arg=head=<sha> [--arg=rounds=3] [--arg=click_delay=3] \
 #     --artifact .build/update-click-ab/report.tgz --timeout 7200
 #   base=SHA, head=SHA  40-hex commits; head defaults to the checkout
-#   rounds=N            1 to 5 (default 3); click_delay=S  seconds from staged to the click (default 3)
+#   rounds=N            1 to 10 (default 3); click_delay=S  seconds from staged to the click (default 3)
 #   stress=K            K busy loops per core during each update (default 0), for a Mac as loaded as Leo's
+#   frames=1            judge each update for transition frames (ask-ad4a68e740, scripts/measure/update_frames.py): a
+#                       window log every 8 ms (update-frames/watch.swift, no grant) and a display recording (CuaDriver,
+#                       when the Mac has it); prints UCF <side> <round> {...} and the medians gain the verdicts
 # Prints UCA <side> <round> {...} per update and UCA-MEDIAN <side> {...} (scripts/measure/update-click-ab.py), in ms:
 # click_to_relaunch (install_clicked to will_relaunch), click_to_v1_exit, prewarm_wait, prewarm_total (the pre-warm's
 # own "N ms in all", when it ended before the relaunch), v2_first_frame and
@@ -25,8 +28,8 @@ main() {
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py imports it from its parent folder
-  local base="" head rounds=3 delay=3 stress=0 arg rc=0 i side
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
+  local base="" head rounds=3 delay=3 stress=0 frames=0 arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
   for arg in "$@"; do
@@ -36,10 +39,11 @@ main() {
       rounds=*) rounds="${arg#rounds=}" ;;
       click_delay=*) delay="${arg#click_delay=}" ;;
       stress=*) stress="${arg#stress=}" ;;
+      frames=*) frames="${arg#frames=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
-  [[ "$rounds" =~ ^[1-5]$ ]] || { echo "rounds= must be 1 to 5" >&2; exit 2; }
+  [[ "$rounds" =~ ^([1-9]|10)$ ]] || { echo "rounds= must be 1 to 10" >&2; exit 2; }
   [[ "$delay" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "click_delay= takes seconds" >&2; exit 2; }
   [[ "$stress" =~ ^[0-9]{1,2}$ ]] || { echo "stress= takes busy loops per core, 0 to 99" >&2; exit 2; }
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }
@@ -51,15 +55,18 @@ main() {
     build_app "$out" "$side" || { git -c advice.detachedHead=false checkout --quiet --detach "$checkout"; exit 3; }
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout" || exit 3
+  [[ "$frames" == 1 ]] && { frame_tools "$tools" || frames=0; }
   for ((i = 1; i <= rounds; i++)); do
     for side in base head; do
       echo "UCA-ROUND $i $side"
+      [[ "$frames" == 1 ]] && start_frames "$out/frames-$side-$i" "$tools"
       start_stress "$stress"
       GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/run.py" \
         --app "$out/$side/cmux DEV ucab.app" --tag ucab --out "$out/run-$side-$i" --click-at-stage --click-delay "$delay" \
         2>&1 | tee -a "$out/run.log" | sed "s/^/[$side] /"
       [[ ${PIPESTATUS[0]} == 0 ]] || rc=1
       stop_stress
+      [[ "$frames" == 1 ]] && stop_frames "$out/frames-$side-$i" "$out/run-$side-$i" "$tools" "$side" "$i"
     done
   done
   python3 -I "$tools/update-click-ab.py" "$out"
@@ -88,7 +95,56 @@ stop_stress() {
   for pid in ${STRESS_PIDS[@]+"${STRESS_PIDS[@]}"}; do wait "$pid" 2>/dev/null; done
   STRESS_PIDS=()
 }
-trap stop_stress EXIT
+trap 'stop_stress; for p in "$WATCH_PID" "$REC_PID"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done' EXIT
+
+# frames=1: the window watcher and the frame decoder, compiled here (neither needs a TCC grant), and whether
+# CuaDriver can record the display (the one recorder the fleet grants Screen Recording).
+RECORDS=0
+frame_tools() {
+  local tools="$1"
+  xcrun swiftc -O -o "$tools/update-frames-watch" scripts/measure/update-frames/watch.swift >"$tools/swiftc.log" 2>&1 \
+    && xcrun swiftc -O -o "$tools/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift >>"$tools/swiftc.log" 2>&1 \
+    || { echo "UCF cannot compile the frame tools: $(tail -n 5 "$tools/swiftc.log")" >&2; return 1; }
+  cp scripts/measure/update_frames.py "$tools/"
+  if python3 scripts/measure/launch_reveal_record.py preflight >"$tools/preflight.log" 2>&1; then
+    RECORDS=1; echo "UCF recorder CuaDriver"
+  else
+    echo "UCF no display recording ($(tail -n 1 "$tools/preflight.log")): window log only"
+  fi
+}
+WATCH_PID="" REC_PID=""
+start_frames() {
+  local dir="$1" tools="$2" n
+  mkdir -p "$dir"
+  "$tools/update-frames-watch" "ucab" 8 900 >"$dir/windows.ndjson" 2>"$dir/watch.err" &
+  WATCH_PID=$!
+  if [[ "$RECORDS" == 1 ]]; then
+    python3 scripts/measure/launch_reveal_record.py record "$dir/rec" 900 >"$dir/rec.log" 2>&1 &
+    REC_PID=$!
+    for n in $(seq 1 100); do grep -q '^READY' "$dir/rec.log" 2>/dev/null && break; sleep 0.1; done  # sleep-ok: the recorder's start, 10 s at most
+  fi
+}
+stop_frames() {
+  local dir="$1" run="$2" tools="$3" side="$4" round="$5" video size crop
+  [[ -n "$WATCH_PID" ]] && { kill "$WATCH_PID" 2>/dev/null; wait "$WATCH_PID" 2>/dev/null; WATCH_PID=""; }
+  [[ -n "$REC_PID" ]] && { kill -TERM "$REC_PID" 2>/dev/null; wait "$REC_PID" 2>/dev/null; REC_PID=""; }
+  [[ -d "$run" ]] || return 0
+  cp "$dir/windows.ndjson" "$run/" 2>/dev/null
+  [[ -f "$dir/rec.log" ]] && cp "$dir/rec.log" "$run/"
+  video="$(sed -n 's/^VIDEO //p' "$dir/rec.log" 2>/dev/null | tail -n 1)"
+  if [[ -n "$video" && -f "$video" ]]; then
+    cp "$video" "$run/recording.mp4"
+    size="$("$tools/tab-switch-tools" decode "$video" "$dir/probe.gray" 0 0 32 32 32 0 0 2 2 | python3 -c 'import json,sys; print(int(json.load(sys.stdin)["video"][0]))')"
+    if crop="$(python3 -I "$tools/update_frames.py" crop "$run" "$size")"; then
+      # shellcheck disable=SC2086 # crop is four numbers
+      "$tools/tab-switch-tools" decode "$video" "$run/frames.gray" $crop 160 0 0 2 2 | python3 -c 'import json,sys; d=json.load(sys.stdin); d.pop("marker",None); print(json.dumps(d))' >"$run/frames.json"
+    fi
+    rm -f "$dir/probe.gray"
+  fi
+  python3 -I "$tools/update_frames.py" "$run" >"$run/frames-verdict.json"
+  echo "UCF $side $round $(cat "$run/frames-verdict.json")"
+  rm -f "$run/frames.gray"
+}
 
 fetch_checkout() {
   local sha="$1" depth=()

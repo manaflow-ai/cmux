@@ -38,6 +38,7 @@ mod divider;
 mod extension;
 mod file_page;
 mod files_pane;
+mod forum;
 mod git;
 mod hang_reports;
 mod help_link;
@@ -47,6 +48,7 @@ mod home;
 mod home_message;
 mod import;
 mod joined_machine;
+mod key_mode;
 mod layout;
 mod link;
 mod list;
@@ -162,6 +164,7 @@ pub static GROUPS: &[&[Action]] = &[
     history::ACTIONS,
     stash::ACTIONS,
     music::ACTIONS,
+    key_mode::ACTIONS,
     voice_room::ACTIONS,
     now_playing_card::ACTIONS,
     bookmark::ACTIONS,
@@ -170,6 +173,7 @@ pub static GROUPS: &[&[Action]] = &[
     joined_machine::ACTIONS,
     app_store::ACTIONS,
     automations::ACTIONS,
+    forum::ACTIONS,
     tasks::ACTIONS,
     phone::ACTIONS,
     files_pane::ACTIONS,

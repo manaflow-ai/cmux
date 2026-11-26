@@ -24,19 +24,19 @@ enum AppearanceHandlers {
             try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: SettingsDeepLink.appearanceRoute())
             return .done
         })
-        registry.bind("appearance.changeBackground", run: { invocation in
-            let route = SettingsDeepLink.appearanceRoute(background: true, workspace: context.scope(invocation).workspace?.id)
-            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
-        })
+        let openBackground: @MainActor (ActionInvocation) throws -> Void = { try context.services.settingsWindow.show(section: nil, focus: $0.allowsViewChange,
+            route: SettingsDeepLink.appearanceRoute(background: true, workspace: context.scope($0).workspace?.id)) }
+        registry.bind("appearance.changeBackground", run: openBackground)
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)
             return nil
         }
+        BackdropSelectionSetting.bindRecentActions(into: registry, root: { context.services.settings?.snapshot.root ?? .object([:]) }, save: save, openPicker: openBackground)
+        BackdropSelectionSetting.bindFollowDesktop(into: registry, save: save) { [weak services = context.services] in services?.settings?.snapshot.backdropSelection == .desktop }
         SettingChoiceActions.bind(MotionSpeed.allCases, into: registry, id: { "appearance.animationSpeed.\($0.rawValue)" }, path: AnimationSpeedSetting.configPath,
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
-        AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
-        MotionCategoriesSetting.bindActions(into: registry, design: context.design, save: save)
+        AppearanceDesignActions.bind(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
@@ -69,8 +69,6 @@ enum AppearanceHandlers {
         })
     }
 
-    private static let uiScalePath = UIScaleSetting.configPath
-
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
@@ -88,17 +86,17 @@ enum AppearanceHandlers {
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {
-        try requireUnmanaged(uiScalePath, context)
+        try requireUnmanaged(UIScaleSetting.configPath, context)
         let design = context.design
         let next = DesignSettings.clampedUIScale(design.uiScale + CGFloat(delta))
         design.uiScale = next
-        context.writeSetting("set interface scale", uiScalePath, .number(Double(next)), reloadOnFailure: true)
+        context.writeSetting("set interface scale", UIScaleSetting.configPath, .number(Double(next)), reloadOnFailure: true)
     }
 
     private static func resetUIScale(_ context: AppActionContext) throws {
-        try requireUnmanaged(uiScalePath, context)
+        try requireUnmanaged(UIScaleSetting.configPath, context)
         context.design.uiScale = CGFloat(UIScaleSetting.fallback)
-        context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
+        context.writeSetting("reset interface scale", UIScaleSetting.configPath, nil, reloadOnFailure: true)
     }
 
     /// Refuses before anything is applied when an MDM profile or the team

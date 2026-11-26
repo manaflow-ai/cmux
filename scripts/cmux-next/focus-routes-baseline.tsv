@@ -182,7 +182,6 @@ webviews/src/agent-session/acpmux/newtab/ChatFilterMenu.tsx	1
 webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx	23
 webviews/src/agent-session/acpmux/newtab/StyleSwitch.tsx	1
 webviews/src/agent-session/acpmux/pasteProbe.ts	2
-webviews/src/agent-session/acpmux/prototype/WorkspaceShell.tsx	1
 webviews/src/agent-session/acpmux/question/QuestionCard.tsx	4
 webviews/src/agent-session/acpmux/queue/QueueScreen.tsx	4
 webviews/src/agent-session/acpmux/quoteReply.ts	1
@@ -228,11 +227,6 @@ webviews/src/pages/home-channels/Composer.tsx	5
 webviews/src/pages/home-channels/HomeChannelsPage.tsx	2
 webviews/src/pages/home-channels/PeoplePicker.tsx	1
 webviews/src/pages/home-channels/useFileUndo.ts	1
-webviews/src/pages/home-messages/cards/firstRun/FirstRunPanel.tsx	1
-webviews/src/pages/home-messages/list/ConversationList.tsx	7
-webviews/src/pages/home-messages/sheets/GroupInfoSheet.tsx	1
-webviews/src/pages/home-messages/sheets/RecipientField.tsx	2
-webviews/src/pages/home-messages/transcript/MessageComposer.tsx	3
 webviews/src/pages/icon-picker/mount.tsx	1
 webviews/src/pages/keybindings/KeybindingsPage.tsx	2
 webviews/src/pages/markdown/MarkdownFindBar.tsx	1
@@ -260,7 +254,7 @@ webviews/src/pages/shared/searchField.ts	1
 webviews/src/pages/stash/store.ts	1
 webviews/src/pages/tasks/TasksPage.tsx	2
 webviews/src/ui/ContextMenu.tsx	3
-webviews/src/ui/DrillList.tsx	2
+webviews/src/ui/DrillList.tsx	1
 webviews/src/ui/Listbox.tsx	3
 webviews/src/ui/Menu.tsx	1
 webviews/src/ui/Tree.tsx	3

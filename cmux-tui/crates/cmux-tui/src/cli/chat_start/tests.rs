@@ -1679,6 +1679,139 @@ fn a_failing_cmux_acp_keeps_its_pretty_answer() {
     assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
 }
 
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): `cmux device add` printed
+/// `cmux chat --on doora-vm-1 --prompt '…'`, and on a Mac with no cmux session running that
+/// line failed in 0 s with "cannot connect to cmux session": the catalog read had no app to
+/// ask, and that refusal was final. With no session, the joined machine is still found through
+/// acpmux and the account, which need no app.
+#[test]
+fn the_line_device_add_prints_finds_the_machine_with_no_cmux_session() {
+    let no_session = || {
+        Err(json!({"code": "daemon.unreachable", "message": "cannot connect to cmux session",
+                   "details": {}, "retryable": true}))
+    };
+    let on = |on: &'static str| {
+        route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: no_session,
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: unread_peers,
+                    },
+                )
+            },
+            Sources {
+                hub: || vec![json!({"name": "doora-vm-1", "connected": true, "via": "hub"})],
+                rows: || {
+                    Ok(vec![json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1",
+                                   "hostname": "doora-vm-1", "state": "online"})])
+                },
+            },
+        )
+    };
+    assert_eq!(on("doora-vm-1"), joined_at(Some("m_vm1"), "doora-vm-1", "doora-vm-1"));
+    // A name no joined machine has keeps the session's own refusal.
+    assert_eq!(on("nowhere").unwrap_err()["code"], "daemon.unreachable");
+}
+
+/// Door A timing run: two Ubuntu VMs added as doora-vm-1 and doora-vm-2 both have the host
+/// name `ubuntu`. A current acpmux heartbeats with the name it joined with, so the hub lists
+/// `doora-vm-1`: the chat goes to that host, never to the shared host name.
+#[test]
+fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
+    let rows = || {
+        Ok(vec![
+            json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1", "hostname": "ubuntu",
+                   "state": "online"}),
+            json!({"kind": "joined", "id": "m_vm2", "name": "doora-vm-2", "hostname": "ubuntu",
+                   "state": "online"}),
+        ])
+    };
+    let hub = || {
+        vec![
+            json!({"name": "doora-vm-1", "connected": true, "via": "hub"}),
+            json!({"name": "doora-vm-2", "connected": true, "via": "hub"}),
+        ]
+    };
+    for (name, id) in [("doora-vm-1", "m_vm1"), ("doora-vm-2", "m_vm2")] {
+        let found = route_or_joined(
+            Some(name),
+            || {
+                route(
+                    Some(name),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: || Ok(peers()),
+                    },
+                )
+            },
+            Sources { hub, rows },
+        );
+        assert_eq!(found, joined_at(Some(id), name, name));
+    }
+}
+
+/// own-machine-parity run 45367945285: two tagged builds signed in on one Mac (A and B, one host
+/// name), and the hub listing neither yet. A's Machines list shows B joined and connected; the
+/// account rows come from that list ([`joined::rows_from_app_list`]), so `--on B` (by its name or
+/// its `joined:ID`) starts on B by the name it joined with, never on the host name A shares.
+#[test]
+fn a_machine_the_apps_list_shows_joined_is_a_chat_target_by_the_name_it_joined_with() {
+    let row_of = |id: &str, name: &str, state: &str| {
+        json!({"id": format!("joined:{id}"), "kind": "joined", "name": name, "online": true,
+               "linkState": "connected",
+               "joined": {"id": id, "name": name, "hostname": "mac-1795", "state": state,
+                          "platform": "macos"}})
+    };
+    let app_list = json!({"machines": [
+        {"id": "local", "kind": "local", "name": "This Mac", "joined": null},
+        {"id": "vm_1", "kind": "cloud", "name": "cmux-vm", "joined": null},
+        row_of("m_a", "mac-1795-iospair-90001", "online"),
+        row_of("m_b", "mac-1795-iospair-90002", "online"),
+        row_of("m_old", "mac-0001-iospair-90002", "offline"),
+    ]});
+    let rows = joined::rows_from_app_list(&app_list);
+    assert_eq!(rows.len(), 3, "only the joined rows, as account rows: {rows:?}");
+    assert!(rows.iter().all(|row| row["kind"] == "joined"));
+    let on = |on: &str| {
+        route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: no_peers,
+                    },
+                )
+            },
+            Sources { hub: Vec::new, rows: || Ok(joined::rows_from_app_list(&app_list)) },
+        )
+    };
+    let b = joined_at(Some("m_b"), "mac-1795-iospair-90002", "mac-1795-iospair-90002");
+    assert_eq!(on("mac-1795-iospair-90002"), b);
+    assert_eq!(on("joined:m_b"), b);
+    // A host name only one live machine has is still what an older acpmux heartbeats with.
+    let single = || {
+        Ok(vec![json!({"kind": "joined", "id": "m_desk", "name": "Desk Mac",
+                       "hostname": "mini-2", "state": "online"})])
+    };
+    let desk = route_or_joined(
+        Some("Desk Mac"),
+        || Err(json!({"code": "chat_target.unknown_device"})),
+        Sources { hub: Vec::new, rows: single },
+    );
+    assert_eq!(desk, joined_at(Some("m_desk"), "Desk Mac", "mini-2"));
+}
+
 /// cmux#46701: `cmux chat --on cloud` takes what the composer's Cloud start picks: harness,
 /// model, effort, mode, and a folder (`--cwd`, `--from-folder`) or No folder (`--no-folder`).
 /// Each reaches `cloud start-chat`, which checks them again.

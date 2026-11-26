@@ -13,7 +13,7 @@ A look is a [setup](../../examples/looks/studio/cmux-setup.json) (`cmux-setup.js
 | --- | --- | --- | --- |
 | Color | `themes/NAME.json`, picked by `appearance.themeFile` | the terminal and app colors, the sidebar and chat surfaces, borders, glass, density ([theme-recipes.md](theme-recipes.md)) | on save |
 | Type and spacing | `settings` in `cmux-setup.json` | `agentPane.display.font.*`, `agentPane.display.width`, `sidebar.density`, `sidebar.workspaceRow.*` and any other key `cmux settings list` shows as agent-settable | on save |
-| The chat's paint | `agent-pane/theme.css` | only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root` | on save |
+| The chat's paint | `agent-pane/theme.css` | a shared look: only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root`; your own: [any CSS](#your-own-stylesheet-any-css-loading-nothing) | on save |
 | The sidebar | `customize/cmux-app.json` and `customize/main.js` | the hover card (`cmux.hovercard/1`) and row decorations (`cmux.sidebar.rows/1`), [sidebar-customization.md](sidebar-customization.md) | on save |
 
 Install one from its repo with `cmux setup install HOST/OWNER/REPO[/PATH][@REF]` (a look is a small repo of its own, like dotfiles: `cmux setup install github.com/manaflow-ai/cmux-studio-look`), take it off with `cmux setup remove ID`. It is
@@ -28,11 +28,14 @@ change often, so a look sets only these custom properties, on `:root`
 | Token | What it paints |
 | --- | --- |
 | `--cv-text`, `--cv-text-muted`, `--cv-text-dim` | body, secondary and quietest transcript text |
+| `--cv-activity-text` | tool rows and "Worked for"; unset, the theme's text at 58%, which reads under 4.5:1 on an off-white paper, so a light look sets it (the example looks use their `--cv-text-muted`) |
 | `--cv-link`, `--agent-link` | links in replies, and in the rest of the pane |
 | `--cv-card-fill`, `--cv-card-ring` | the card level and its hairline: tool output, edit, error and permission cards, plans, the subagent card (code blocks keep their own fill); unset, the theme's text at 4% and 10% |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
+| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble (white on a blue pill); its quote and Show more take it at 88%, inline code a wash of it; unset, the transcript's text |
 | `--cv-code-edge-fade` | how far a long code line fades at the card's right edge while more lies past; unset, a hard edge |
+| `--cv-composer-icon-radius` | the corner of the in-box composer's + (attach) button and its hover highlight; `50%` is a circle. Claude's one-line composer never reads it; unset, the app's button corner |
 
 ```css
 :root {
@@ -49,14 +52,63 @@ theme or a dark one, and a literal is right for one of them only. Studio 1.0.0's
 0.72)` bubble put black text on mid-grey (2.9:1) over a light theme, and Paper 1.0.0's beige put
 white text on it (1.4:1) over a dark one. Literal colors belong in the theme file.
 
-Every token is paint: it never changes a box, so a look applied, saved again or switched never moves
+Every paint token only paints, and every motion token only times: none changes a box, so a look applied, saved again or switched never moves
 the transcript. Type, width and spacing are settings instead, because the chat estimates row heights
 from them before it draws; a stylesheet that set a font size would make rows jump as they are
 measured.
 
+### Motion: durations and easings
+
+A look also sets how long the chat's own transitions run and on which curve. It never adds a motion
+or changes what moves, so the transcript still never shifts.
+
+| Token | Unset | What it times |
+| --- | --- | --- |
+| `--cmux-motion-quick` | 80ms | a hover's color, a fade in place |
+| `--cmux-motion-micro` | 120ms | popovers, menus and tooltips entering; a small control's change |
+| `--cmux-motion-standard` | 180ms | a panel or card entering, a row's move |
+| `--cmux-motion-large` | 240ms | a sheet, a drawer, the chat switch |
+| `--cmux-motion-settle` | 180ms | a fold or Show more growing or shrinking |
+| `--cmux-motion-send` | 0ms | a sent prompt's room, bubble and the thread's rise |
+| `--cmux-ease-out` | `cubic-bezier(0, 0, 0.58, 1)` | anything entering |
+| `--cmux-ease-spring` | a `linear()` spring | a selection that travels |
+| `--cmux-ease-settle` | `cubic-bezier(0.16, 1, 0.3, 1)` | a fold settling into its height |
+| `--cmux-ease-send` | `cubic-bezier(0.16, 1, 0.3, 1)` | a sent prompt's motion |
+
+A duration is 0 to 600ms (`150ms`, `0.15s`) or another motion token (`var(--cmux-motion-large)`). An
+easing is `cubic-bezier(x1, y1, x2, y2)` with x1 and x2 within 0 to 1, `linear`, `linear(...)` or
+another easing token. `!important` is refused. `check:look-addons` holds every look to these bounds.
+
+```css
+:root {
+  --cmux-motion-micro: 150ms;                   /* popovers and menus */
+  --cmux-ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+```
+
+The person's settings still win. With animations off (`ui.animations.*`) or Reduce Motion, cmux puts
+its own values back on the root, above a look's `:root`, and the chat's off and reduced rules apply as
+before. `ui.animationSpeed` scales the host's own motion (`--agent-motion-*`, set inline), which a
+stylesheet cannot override.
+
 The theme colors (`--agent-text`, `--agent-accent`, `--agent-border` and the rest the host derives
 from your theme) are set on the page by cmux itself, so a stylesheet cannot override them. Set those
 with the theme file's `colors` and `appearance.surfaces.agentPane`.
+
+## Your own stylesheet: any CSS, loading nothing
+
+Your own `agent-pane/theme.css` (and `markdown/theme.css`, `editor/theme.css`) takes any CSS, any
+selector, applied after the surface's built-in styles and kept last in the page, so it wins at equal
+specificity. Class names still change between releases, so a look you share keeps to the tokens
+above; your own file may style anything.
+
+What it may not do is load something by address (`cmux.stylesheetGuard/1`,
+[`schemas/agent-pane/stylesheet-guard.json`](../../schemas/agent-pane/stylesheet-guard.json)): no
+`@import`, no `url()` other than a `data:` URL, no `image-set()` or `src()`, and no backslash escape
+that could spell one. Comments are no way around it. The chat refuses such a sheet whole and keeps the
+last good one on screen (its `<style id="acpmux-user-theme">` carries `data-refused` with the reason),
+and `cmux customize` (status) names the file and the reason, and an apply or profile that would write such a sheet is refused (one you already have, unchanged, never stops an unrelated change). Inline an image as a
+`data:` URL instead.
 
 ## What keeps this true
 

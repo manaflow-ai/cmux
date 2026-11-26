@@ -1223,6 +1223,10 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # The Chief's automations, owned by optchat-chief and passed
+                # through unchanged (automations.rs, issue 25573).
+                "operations.chief.automation.list.result",
+                "operations.chief.automation.update.result.arguments[0]",
                 # Import from Conductor's dry run, owned by the
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
@@ -1634,7 +1638,7 @@ def _operation_catalog(
                 diagnostics, path, text, f"{operation}.params must be an object", operation
             )
             return
-        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
+        allowed = {"selectors", "fields", "extra", "unknown_params", "constraints", "one_of"}
         if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params has a schema hole", operation
@@ -1642,6 +1646,14 @@ def _operation_catalog(
         if value.get("extra") is not False:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params.extra must be false", operation
+            )
+        if "unknown_params" in value and value["unknown_params"] != "refuse":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation}.params.unknown_params must be \"refuse\" when present",
+                operation,
             )
         selector_map = value.get("selectors")
         if not isinstance(selector_map, dict):

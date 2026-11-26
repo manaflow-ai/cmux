@@ -7,17 +7,17 @@ changed="$RUNNER_TEMP/changed-files.txt"
 labels=""
 if [[ "$EVENT_NAME" == pull_request ]]; then
   git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-  if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+  # Live labels on every attempt (docs/ci/cmux-next-workflow-notes.md#note-97): a late synchronize event carries
+  # the labels from before full-ci was added and, sharing the concurrency group, cancels the labeled run.
+  labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
+    echo "::warning::could not read the pull request labels; routing on the event's labels (${EVENT_LABELS:-none})"
     labels="$EVENT_LABELS"
-  else
-    labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
-      echo "::warning::could not read the pull request labels; routing on its paths only"
-      labels=""
-    }
-  fi
+  }
 else
   : > "$changed"
 fi
+# Read by every job's label check as contains(needs.path_route.outputs.labels, ',full-ci,').
+echo "labels=,$labels," >> "$GITHUB_OUTPUT"
 echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
 if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
   # Why: docs/ci/cmux-next-workflow-notes.md#note-391
@@ -191,15 +191,16 @@ else
       --summary "$GITHUB_STEP_SUMMARY" || true
   fi
 fi
-# A draft head, or a base merge into a PR idle 24 h, runs the cheap tier: the Linux checks and the
-# cargo fast tier, no Mac tier (scripts/ci/head_tier.py; a later line of an output wins).
+# A draft head, a ready head without ready-to-land (the land rule), or a base merge into a PR idle 24 h runs
+# the cheap tier: no Mac tier, and no cargo fast tier (set again after its route below; a later line of an
+# output wins). scripts/ci/head_tier.py decides.
 head_tier=""
 if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]]; then
   head_tier="$(python3 -I scripts/ci/head_tier.py tier 2>/dev/null || true)"
 fi
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
   printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
-  echo "- head tier $head_tier (a draft, or a base merge into a PR idle 24 h): Linux checks and the cargo fast tier only; the Mac tiers run when it is marked ready, or on the next push (an empty commit does) once it has a new commit of its own or the full-ci label; adding the label alone does not re-run this workflow." >> "$GITHUB_STEP_SUMMARY"
+  echo "- head tier $head_tier (a draft, a ready head without the ready-to-land label, or a base merge into a PR idle 24 h): path routing only; the cargo fast tier and the Mac tiers run when the ready-to-land or full-ci label is added (the label re-runs this workflow at the same head)." >> "$GITHUB_STEP_SUMMARY"
 fi
 # Whether this pull request changes the cmux-tui it would test against:
 # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
@@ -227,7 +228,32 @@ fi
 # Leo, 2026-11-21: "id rather we simply cut shit now and revisit later." A pull request runs fast-tier-cargo
 # only when its change reaches a cargo or script entry of the fast tier (2.94% of pull request runner-minutes,
 # 0.06% of heads with it as their only own red over 11-13..19: cmuxterm-hq#16094). Any failure reads as reached.
+# Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." Only the entries' own crates,
+# the workspace root and the job's inputs reach it; dependency crates and tree inputs are tested after the merge.
 if [[ "$EVENT_NAME" == pull_request ]]; then
   python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
     --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"
+fi
+# Why: docs/ci/cmux-next-workflow-notes.md#note-557
+# Leo, 2026-11-21: "help 100x ci speed ... while maintaining a partial semblance of checks. and we can infrequenrly
+# have fuller checks." A pull request into feat-cmux-next runs only the Linux fast tier here; every Mac job, the
+# cargo fast tier, web bundles and the tests and compiles they feed run in the feat-cmux-next push run (the batched
+# tier), where a red is fixed forward. full-ci runs everything; dev-build keeps its scheme compile;
+# vars.CI_PR_FAST_ONLY=0 turns this off. Last, so these lines win over every route above.
+if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "${PR_FAST_ONLY:-true}" == true \
+  && ",$labels," != *,full-ci,* ]]; then
+  deferred=(swift_canary cmuxnext_swift mac_release macos swift daemon full fast_tier fast_tier_cargo)
+  # Leo, 2026-11-25: "if like... it works on linux and is at least as fast if not faster, then we ought to just go
+  # ahead." Generated files runs on the Linux pool (generated-files-linux), so a pull request keeps it unless
+  # vars.CI_GENERATED_FILES_LINUX=0 sends it back to the Mac.
+  [[ "${GENERATED_LINUX:-true}" == true ]] || deferred+=(generated)
+  [[ ",$labels," == *,dev-build,* ]] || deferred+=(scheme)
+  printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
+  echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"
+  echo "- PR fast tier (vars.CI_PR_FAST_ONLY): deferred to the feat-cmux-next push run: ${deferred[*]}. The full-ci label runs every tier here." >> "$GITHUB_STEP_SUMMARY"
+fi
+# Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The cheap tier skips the
+# cargo fast tier too; the ready-to-land label runs it at the head handed to land.
+if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
+  echo "fast_tier_cargo=false" >> "$GITHUB_OUTPUT"
 fi

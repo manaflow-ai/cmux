@@ -625,13 +625,22 @@ impl Upstream {
                 Link::Process(Arc::new(Conn::start(&own, &self.prefix)?))
             }
         });
+        // Its own client's name as `title`: a Computer Use server cmux does not start itself (the
+        // acpmux gateway's or a shared helper's) labels the person's approval cards with it, the
+        // name the bridge's own env carries when cmux starts it (`LABEL_ENV` above).
+        let mut client_info = json!({"name": "cmux", "version": env!("CARGO_PKG_VERSION")});
+        if self.is_computer_use()
+            && let Some(client) = super::chat_tools::client_name()
+        {
+            client_info["title"] = json!(client);
+        }
         let init = self
             .request(
                 "initialize",
                 json!({
                     "protocolVersion": PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")},
+                    "clientInfo": client_info,
                 }),
                 START_TIMEOUT,
             )

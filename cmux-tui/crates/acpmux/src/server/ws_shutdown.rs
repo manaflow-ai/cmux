@@ -115,8 +115,10 @@ impl WsShutdown {
 /// let an immediate retry connect to this dying listener. Linux stops a listening socket on
 /// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
+    // A listener handed to the next daemon (`daemon/listener_handover.rs`) is that daemon's too:
+    // a shutdown would stop its queue as well. Its connects wait for the next daemon instead.
     #[cfg(target_os = "linux")]
-    {
+    if !crate::daemon::listener_handover::handed_to_live() {
         use std::os::fd::AsRawFd;
         // SAFETY: shutdown on the listener's own descriptor, open for the whole call.
         unsafe { libc::shutdown(listener.as_raw_fd(), libc::SHUT_RD) };

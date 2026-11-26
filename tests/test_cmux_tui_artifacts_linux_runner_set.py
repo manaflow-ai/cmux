@@ -23,6 +23,8 @@ BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
 
 
+PERSISTENT = "cmux-linux"
+
 def blacksmith_set(job: str) -> set[str]:
     """Members of the pools selected for this job's size and failover."""
     labels = (size_label(WORKFLOW.name, job), failover_label(WORKFLOW.name, job))
@@ -72,6 +74,12 @@ ONE_LABEL_TAIL = "|| 'cmux-linux' }}"
 def one_label(name: str, runs_on: str) -> bool:
     return name in LINUX_LABEL_JOBS or runs_on.rstrip().endswith(ONE_LABEL_TAIL)
 NIGHTLY_TREE_JOBS = ("publish", "publish-tree", "mark-tree-commits")
+# RFD 0021 route by need: the essential nightly controls take the same attempt-1 pin, so no essential nightly job
+# shares a label with PR lanes (no PR job may ask for it: tests/test_ci_nightly_labels_reserved.py).
+NIGHTLY_CONTROL_JOBS = ("reject-untrusted-pin-ref", "push-gate", "tree-preflight", "tree-owner-wait",
+                        "darwin-fallback-plan", "verify-publish", "adopt-commit-manifest", "verify-cdn-publication")
+NIGHTLY_PINNED_JOBS = NIGHTLY_TREE_JOBS + NIGHTLY_CONTROL_JOBS
+NIGHTLY_ARM = "github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || "
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -137,8 +145,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         for job in sorted(LINUX_LABEL_JOBS):
             with self.subTest(job=job):
+                arm = NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS else ""
                 self.assertEqual(jobs[job]["runs-on"],
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm + "'cmux-linux' }}")
         for job in ("build", "build-linux"):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["with"]["linux_runner"], "cmux-linux")
@@ -147,12 +156,14 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         package = WORKFLOW.with_name("cmux-tui-build-package.yml")
         jobs = yaml.safe_load(package.read_text())["jobs"]
         targets = next(step for step in jobs["plan-build"]["steps"] if step.get("id") == "targets")
-        for expr, size in ((jobs["plan-build"]["runs-on"], 2), (jobs["package"]["runs-on"], 16),
-                           (targets["env"]["LINUX_RUNNER"], 16)):
+        # plan-build and package take the nightly's label on attempt 1 when a nightly-path caller says so (RFD 0021).
+        pin = "inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || "
+        for expr, arm in ((jobs["plan-build"]["runs-on"], pin), (jobs["package"]["runs-on"], pin),
+                          (targets["env"]["LINUX_RUNNER"], "")):
             with self.subTest(expression=expr):
-                self.assertEqual(expr, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                self.assertEqual(expr, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm +
                                  "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name "
-                                 "!= github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' " + "}}")
+                                 "!= github.repository && 'ubuntu-24.04' || 'cmux-linux' " + "}}")
 
     def test_the_short_jobs_are_linux_jobs_of_this_workflow(self) -> None:
         names = {name for name, _ in linux_routes()}
@@ -169,10 +180,11 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             if one_label(name, runs_on):
                 with self.subTest(job=name):
                     # A nightly tree job's attempt-1 pin keeps its place before the one label.
-                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()), {"cmux-linux"})
+                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()), {"cmux-linux"})
                 continue
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
+                       | ({PERSISTENT} if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}") else set())
+                       | ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
                 self.assertNotIn(NIGHTLY_JIT, labels)
@@ -184,6 +196,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A write-token job reads only the ephemeral_only linux_4 pool, whose own next member is its overflow
             # (tests/test_ci_ephemeral_pool_readers.py); the switch does not move it.
             if "CI_CLOUD_OVERFLOW_SAVED" not in runs_on and runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux_4 }}"):
+                continue
+            # The persistent pool is one label; there is no other Blacksmith size to move to.
+            if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}"):
                 continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
@@ -210,14 +225,15 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
 
     def test_the_nightly_path_takes_the_owned_pool_first(self) -> None:
         # The tree request and publication jobs use the nightly runners on their first attempt.
-        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name in NIGHTLY_TREE_JOBS]
-        self.assertEqual({name for _, name, _ in routes}, set(NIGHTLY_TREE_JOBS))
+        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name in NIGHTLY_PINNED_JOBS]
+        self.assertEqual({name for _, name, _ in routes}, set(NIGHTLY_PINNED_JOBS) - set(HOSTED_GATE_JOBS))
+        own = len(routes)
         request = "cmux-tui-tree-request.yml"
         jobs = yaml.load((WORKFLOW.parent / request).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
         routes.extend((request, name, job["runs-on"]) for name, job in jobs.items()
                       if "vars.LINUX_RUNNER" in str(job.get("runs-on", ""))
                       or str(job.get("runs-on", "")).rstrip().endswith(ONE_LABEL_TAIL))
-        self.assertGreater(len(routes), len(NIGHTLY_TREE_JOBS))
+        self.assertGreater(len(routes), own, "the tree request's routes are read too")
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
             ("feat-cmux-next push", nightly, NIGHTLY),
