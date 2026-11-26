@@ -25,6 +25,14 @@ struct MacScreenApprovalPersonClickTests {
 
     final class Recorded { var choices: [MacScreenApprovalChoice] = [] }
 
+    /// SECURITY: the prompt's panel is left out of captures (`sharingType` none), as the join consent's is.
+    @Test func panelIsLeftOutOfCaptures() throws {
+        let (prompt, _) = Self.prompt()
+        defer { prompt.update([]) }
+        let panel = try #require(prompt.dialogView?.window)
+        #expect(panel.sharingType == .none, "a screenshot, a recording or an agent's capture never holds Allow")
+    }
+
     /// Return answers nothing, and no Allow shows a key; Escape still denies.
     @Test func noKeyAllows() throws {
         let (prompt, recorded) = Self.prompt()

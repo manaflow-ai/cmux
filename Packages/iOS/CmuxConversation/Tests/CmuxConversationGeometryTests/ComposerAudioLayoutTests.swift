@@ -1,5 +1,9 @@
 import CmuxConversationGeometry
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// Expected frames are Messages' own on iOS 26, read at @3x from a screen

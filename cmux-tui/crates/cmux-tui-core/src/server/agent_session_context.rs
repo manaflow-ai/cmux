@@ -4,7 +4,7 @@
 use super::*;
 
 #[derive(Deserialize)]
-#[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
+#[serde(tag = "op", rename_all = "lowercase")]
 pub(super) enum Params {
     Get {
         surface: SurfaceId,

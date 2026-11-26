@@ -8,6 +8,19 @@ import UniformTypeIdentifiers
 public nonisolated struct LaunchSystemWarmup: Sendable {
     public init() {}
 
+    /// Every step, in order.
+    public nonisolated func all() {
+        displays()
+        appleMenuDevice()
+        glyphStems()
+    }
+
+    /// The first smoothed glyph of each system face reads that face's stem metadata: 45-50 ms on the main thread
+    /// inside the first window frame's commit (`ChromeLabel` drawing through ``GlyphMask``).
+    public nonisolated func glyphStems() {
+        GlyphMask.warmStems()
+    }
+
     /// The display UUID lookup loads ColorSync's display services on first use: 60-90 ms on the main thread while the
     /// first window was placed (`WindowPlacementFallback.displayID`).
     public nonisolated func displays() {

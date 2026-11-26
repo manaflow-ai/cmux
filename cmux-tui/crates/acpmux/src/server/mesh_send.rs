@@ -103,7 +103,11 @@ pub(super) async fn relay(
         Some(_) if !hub.mesh.gate().may_try() => return Some(Err(backing_off(false))),
         Some(post) => post.clone(),
         None => {
-            let to = down_peer_recipient(hub, &delivery.target)?;
+            // A peer that is down, or a machine only the hub reaches (a chat that moved there
+            // over the hub, followed to `HOST/ID`: `Hub::mesh_only_host`).
+            let to = down_peer_recipient(hub, &delivery.target).or_else(|| {
+                hub.mesh_only_host(&delivery.target).then(|| recipient_in(hub, &delivery.target))
+            })?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
             // A class or supersede key goes to the peer itself once it is back, where the
             // receiver reads it as one, rather than as a line of the text (or dropped) now.
@@ -335,7 +339,7 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
 }
 
 /// The first line a relayed message carries its class in: `[question]`.
-fn class_line(class: PromptClass) -> &'static str {
+pub(super) fn class_line(class: PromptClass) -> &'static str {
     match class {
         PromptClass::Block => "[block]",
         PromptClass::Question => "[question]",
@@ -352,7 +356,7 @@ fn class_note(row: &mut Value, inline: Option<PromptClass>, dropped_supersede: b
     if let Some(class) = inline {
         row.insert("classInline".into(), json!(class.as_str()));
         notes.push(format!(
-            "the mesh relay carries no class field: sent with {} as the text's first line",
+            "the mesh relay carries no class field: sent with {} as the text's first line, which the receiving daemon files it by",
             class_line(class)
         ));
     }
@@ -680,6 +684,8 @@ mod tests {
         assert_eq!(relay.by, "glaeda-land");
         assert_eq!(relay.machine, crate::pairing::mesh_host());
         assert_eq!(relay.session, None);
+        // The hub's schema took `session: null` as a 400 (2026-11-24): no session is no key.
+        assert!(from.relay.as_ref().unwrap().get("session").is_none(), "{:?}", from.relay);
         let broker = json!({"by": "lane-gh", "machine": "m", "session": "lane-7"});
         let from = sender(&hub, None, Some("glaeda-land".into()), None, Some(broker.clone()));
         assert_eq!(from.relay, Some(broker.clone()));

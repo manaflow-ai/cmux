@@ -21,7 +21,7 @@ pub type Result<T> = std::result::Result<T, CallError>;
 /// Builds the shared client. reqwest rides rustls without a provider of its own: install ring once.
 pub fn client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_vm_pool::http")
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(30))
         .pool_max_idle_per_host(64)

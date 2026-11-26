@@ -22,6 +22,19 @@ function fakeStack() {
     req.on("end", () => res.end(JSON.stringify({ host: req.headers.host, path: req.url, method: req.method, body })))
   })
   server.on("upgrade", (req, socket) => {
+    if (req.url.startsWith("/v1/refuse204")) {
+      socket.write("HTTP/1.1 204 No Content\r\nx-why: nothing here\r\n\r\n")
+      socket.on("error", () => {})
+      return
+    }
+    if (req.url.startsWith("/v1/refuse")) {
+      // As workerd answers an upgrade it refuses: a plain response, and the connection kept open.
+      const body = JSON.stringify({ refused: req.headers.host })
+      socket.write(`HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\n\r\n${body}`)
+      socket.on("data", (d) => socket.write(`HTTP/1.1 200 OK\r\ncontent-length: 21\r\n\r\n{"stack":"refuser"}\r\n`))
+      socket.on("error", () => {})
+      return
+    }
     const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\nX-Seen-Host: ${req.headers.host}\r\n\r\n`)
     socket.on("data", (d) => socket.write(d)) // raw echo is enough to see bytes cross both ways
@@ -150,6 +163,69 @@ test("a WebSocket upgrade crosses the router both ways with the client's Host", 
   assert.match(got, /^HTTP\/1\.1 101/)
   assert.match(got, /X-Seen-Host: vm\.tail\.ts\.net:4750/)
   assert.match(got, /ping$/)
+  done(router, stack)
+})
+
+test("an upgrade the stack refuses is answered whole and its connection closed, never left joined to that stack", async () => {
+  // Tailscale Serve pools its connections to the router across every stack port. Before 2026-11-25 a refused
+  // upgrade left Serve's connection piped to the refusing stack, and Serve's next request on it (for another
+  // stack's port) reached the refusing stack's wrangler.
+  const refuser = fakeStack()
+  const other = fakeStack()
+  const [rsport, osport] = [await listen(refuser), await listen(other)]
+  const dir = base([
+    { tag: "refuser", state: "running", port: rsport, authorities: ["vm.tail.ts.net:4790"] },
+    { tag: "other", state: "running", port: osport, authorities: ["vm.tail.ts.net:4791"] },
+  ])
+  const router = createRouter({ base: dir, wakeRun: async () => {} })
+  const rport = await listen(router)
+  const got = await new Promise((resolve) => {
+    let buf = ""
+    let sent = false
+    const s = net.connect(rport, "127.0.0.1", () => {
+      s.write("GET /v1/refuse HTTP/1.1\r\nHost: vm.tail.ts.net:4790\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+    })
+    s.on("data", (d) => {
+      buf += d
+      if (!sent && buf.includes("\r\n\r\n")) {
+        sent = true
+        // A kept-alive client's next request, for the other stack, on the same connection.
+        s.write("GET /v1/health HTTP/1.1\r\nHost: vm.tail.ts.net:4791\r\n\r\n", () => {})
+      }
+    })
+    s.on("error", () => {})
+    s.on("close", () => resolve(buf))
+    setTimeout(() => { s.destroy(); resolve(buf + "<<still open>>") }, 2000)
+  })
+  assert.match(got, /^HTTP\/1\.1 401/)
+  assert.match(got, /connection: close/i)
+  assert.match(got, /"refused":"vm\.tail\.ts\.net:4790"/)
+  assert.doesNotMatch(got, /refuser"\}/, "the next request never reaches the refusing stack")
+  assert.doesNotMatch(got, /<<still open>>/, "the router ends the connection after a refused upgrade")
+  done(router, refuser, other)
+})
+
+test("a refused upgrade with no body names no length and still closes", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "nc", state: "running", port: sport, authorities: ["vm.tail.ts.net:4792"] }])
+  const router = createRouter({ base: dir, wakeRun: async () => {} })
+  const rport = await listen(router)
+  const got = await new Promise((resolve) => {
+    let buf = ""
+    const s = net.connect(rport, "127.0.0.1", () => {
+      s.write("GET /v1/refuse204 HTTP/1.1\r\nHost: vm.tail.ts.net:4792\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+    })
+    s.on("data", (d) => (buf += d))
+    s.on("error", () => {})
+    s.on("close", () => resolve(buf))
+    setTimeout(() => { s.destroy(); resolve(buf + "<<still open>>") }, 2000)
+  })
+  assert.match(got, /^HTTP\/1\.1 204/)
+  assert.match(got, /x-why: nothing here/)
+  assert.doesNotMatch(got, /content-length/i, "a 204 names no length")
+  assert.match(got, /connection: close/i)
+  assert.doesNotMatch(got, /<<still open>>/)
   done(router, stack)
 })
 
@@ -334,6 +410,14 @@ test("an open path on a public host never wakes its stack or counts as its activ
     assert.equal(r.status, 503, `${host}${path}`)
     assert.match(r.body, /signed-in request wakes it/)
   }
+  const upgrade = await new Promise((resolve) => {
+    const sock = net.connect(rport, "127.0.0.1", () => sock.write("GET /v1/health HTTP/1.1\r\nHost: api.s3.wdev.cmux.dev\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"))
+    let buf = ""
+    sock.on("data", (d) => (buf += d))
+    sock.on("close", () => resolve(buf))
+    sock.on("error", () => resolve(buf))
+  })
+  assert.match(upgrade, /^HTTP\/1\.1 503/, "an upgrade on an open path neither wakes nor beats")
   assert.equal(wakes, 0)
   assert.throws(() => statSync(beat), "no heartbeat from an open path")
   assert.equal((await get(rport, "api.s3.wdev.cmux.dev", "/v1/me")).status, 200, "an authenticated path (the gateway checked it) wakes it")

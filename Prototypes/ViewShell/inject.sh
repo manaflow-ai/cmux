@@ -37,10 +37,7 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-view-shell-patch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 started=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 
-# The module's every file, as SwiftPM's Debug build compiles it; only the edited ones are linked.
 all=("$sources"/*.swift)
-(cd "$work" && xcrun swiftc -c "${all[@]}" -module-name ViewShell -target "$target" \
-  -Onone -g -enable-testing -DDEBUG -DSWIFT_PACKAGE -swift-version 6)
 # What the running build compiled (an object per file in `ViewShell.build`) and when: a file with
 # no object is new, and one newer than the executable changed since.
 build="${CMUX_VIEW_SHELL_BUILD:-$package/.build/debug}"
@@ -66,6 +63,29 @@ for name in "${names[@]}"; do
   [[ "$name" == main || "$name" == LiveCode ]] && { echo "inject.sh: $name.swift holds the shell's own loop; rebuild for it" >&2; exit 65; }
   objects+=("$work/$name.o")
 done
+
+# The module's every file, as SwiftPM's Debug build compiles it, but only the patch's files' frontend jobs run
+# (patch_compile.py): the driver's plan for this toolchain, these flags and this file list is kept, so neither the
+# driver nor the other files' jobs run each time. Anything the plan cannot do falls back to the whole compile.
+flags=(-module-name ViewShell -target "$target" -Onone -g -enable-testing -DDEBUG -DSWIFT_PACKAGE -swift-version 6)
+plans="${XDG_CACHE_HOME:-$HOME/.cache}/cmux-view-shell/plans"
+key="$(printf '%s\n' "${DEVELOPER_DIR:-}" "$(xcode-select -p 2>/dev/null || true)" "${flags[@]}" "${all[@]}" \
+  | shasum -a 256 | cut -c1-32)"
+plan="$plans/$key.txt"
+if [[ ! -s "$plan" ]]; then
+  mkdir -p "$plans"
+  (cd "$work" && xcrun swiftc -c "${all[@]}" "${flags[@]}" -###) >"$plan.$$" 2>&1 && mv "$plan.$$" "$plan" \
+    || rm -f "$plan.$$"
+fi
+status=0
+python3 "$package/patch_compile.py" --plan "$plan" --work "$work" "${names[@]}" || status=$?
+if ((status == 3)); then
+  echo "inject.sh: the kept compile plan does not cover ${names[*]}; compiling the whole module" >&2
+  rm -f "$plan"
+  (cd "$work" && xcrun swiftc -c "${all[@]}" "${flags[@]}")
+elif ((status)); then
+  exit "$status"
+fi
 
 patch="patch-$(date +%s)-$$.dylib"
 xcrun swiftc -emit-library "${objects[@]}" -o "$work/$patch" -target "$target" -module-name ViewShellPatch \

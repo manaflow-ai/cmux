@@ -48,7 +48,7 @@ extension UpdaterService {
         let urgency = StagedUpdatePrewarm.Urgency()
         prewarmRun = StagedPrewarmRun(build: build, started: ContinuousClock.now, urgency: urgency)
         log.append("launch pre-warm of \(build): started (\(trigger))")
-        let prewarm = StagedUpdatePrewarm(installation: UpdateInstallPreflight.stagedInstallation(bundleIdentifier: bundleIdentifier),
+        let prewarm = StagedUpdatePrewarm(installations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
         let runner = prewarmRunner, log = log, work = work
         // The build's first launch records itself as pre-warmed (`cmux app launch-times`); no test writes the person's marker.
@@ -85,11 +85,19 @@ extension UpdaterService {
             return install()
         }
         run.urgency.raise()
-        prewarmWaitingInstall = PrewarmWaitingInstall(build: run.build, clicked: ContinuousClock.now, install: install)
+        // The bound counts from the click, not from the end of the click's feed read: the two waits
+        // never add up (they took up to 6 s in all, ask-ad4a68e740).
+        let clicked = installClickedAt ?? ContinuousClock.now
+        let left = prewarmInstallWait - (ContinuousClock.now - clicked)
+        guard left > .zero else {
+            log.append("launch pre-warm before install: partial, still running \(StagedUpdatePrewarm.milliseconds(ContinuousClock.now - clicked)) ms after the click; installing")
+            return install()
+        }
+        prewarmWaitingInstall = PrewarmWaitingInstall(build: run.build, clicked: clicked, install: install)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("prewarm_wait_start")
         #endif
-        prewarmWaitTimer.schedule(after: prewarmInstallWait) { @MainActor [weak self] in self?.settlePrewarmWait(done: false) }
+        prewarmWaitTimer.schedule(after: left) { @MainActor [weak self] in self?.settlePrewarmWait(done: false) }
     }
 
     /// The pre-warm `run` (its ``StagedPrewarmRun/urgency``) ended with `line`; an install waiting for it goes on.

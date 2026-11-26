@@ -291,7 +291,8 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["comment"]
         self.assertEqual(job["permissions"]["pull-requests"], "write")
         checkout = job["steps"][0]
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.ref }}")
+        # refs/heads/ since #51926: checkout fetches the one branch, not every branch it prefixes.
+        self.assertEqual(checkout["with"]["ref"], "refs/heads/${{ github.event.pull_request.base.ref }}")
         self.assertIn("scripts/ci/gallery_select.py", checkout["with"]["sparse-checkout"])
         download = job["steps"][1]
         self.assertEqual(download["with"]["name"],
@@ -325,8 +326,16 @@ class WorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(self.text)
         on = workflow.get(True) or workflow["on"]
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
-        # Cut from pull requests on 2026-11-21 (#48517): only the direct-push receipt runs.
-        self.assertNotIn("pull_request", on)
+        # Cut from pull requests on 2026-11-21 (#48517); back on 2026-11-25 for the component
+        # library only (RFD hq#25960 item 9): kit, ui, the shared token CSS and the gallery matrix.
+        pr = on["pull_request"]
+        self.assertEqual(pr["branches"], ["feat-cmux-next"])
+        self.assertEqual(set(pr["types"]), {"opened", "synchronize", "reopened", "edited", "ready_for_review"})
+        self.assertEqual(set(pr["paths"]), {
+            "webviews/src/kit/**", "webviews/src/ui/**",
+            "webviews/src/pages/shared/desktop.css", "webviews/src/pages/shared/pageDensity.css",
+            "scripts/gallery-matrix/**", ".github/workflows/gallery-advisory.yml"})
+        self.assertNotIn("webviews/**", pr["paths"])
         self.assertIn("webviews/**", on["push"]["paths"])
         # A PR's squash merge had its receipt on the PR; a bot push changes no UI.
         cond = self.jobs["capture"]["if"]

@@ -51,8 +51,8 @@ public final class BrowserChromeTabState: Sendable {
         didSet { if let suggestionEngine { chrome?.addressBar.suggestionEngine = suggestionEngine } }
     }
     public var tabKey: String? { didSet { chrome?.addressBar.tabKey = tabKey } }
-    public var profileBadge: BrowserProfileBadge? { didSet { chrome?.addressBar.setProfileBadge(profileBadge) } }
-    public var profileBadgeMenu: (() -> NSMenu?)? { didSet { chrome?.addressBar.profileBadgeMenu = profileBadgeMenu } }
+    /// The tab's browser profile as the toolbar's profile button draws it (nil: its plain glyph, an incognito tab).
+    public var profileBadge: BrowserProfileBadge? { didSet { chrome?.toolbarButtons.profileBadge = profileBadge } }
     public var machineBadgeMenu: (() -> NSMenu?)? { didSet { chrome?.addressBar.machineBadgeMenu = machineBadgeMenu } }
     public var bookmarkStar: BookmarkStarState = .hidden { didSet { chrome?.addressBar.setBookmarkStar(bookmarkStar) } }
     public var onBookmarkStar: ((NSView) -> Void)? { didSet { chrome?.addressBar.onBookmarkStar = onBookmarkStar } }
@@ -200,7 +200,9 @@ struct BrowserChromeTabSwitch {
             chrome.pageOverlays.remove(notice)
         }
         // The cookie import offer waits, hidden, for its tab (it shows once per launch).
-        if let card = chrome.currentCookieImportCard, !card.isHidden {
+        if let card = chrome.currentCookieImportCard, card.wasSeen {
+            chrome.hideCookieImportOffer()  // seen: another tab showing closes it (``BrowserCookieImportCard/wasSeen``)
+        } else if let card = chrome.currentCookieImportCard, !card.isHidden {
             card.heldFor = state
             state.cookieOfferHolder = chrome
             card.isHidden = true

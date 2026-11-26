@@ -34,7 +34,6 @@
         "tests/test_issue_11257_prompt_command_export.py",
         "tests/test_issue_734_shell_integration_none_respected.py",
         "tests/test_memory_resource_diagnostics.py",
-        "tests/test_mobile_stability_soak_attach_contract.py",
         "tests/test_reconcile_entitlements_with_profile.py",
         "tests/test_reload_tag_lock.py",
         "tests/test_shell_histfile_ghostty_zdotdir_regression.py",

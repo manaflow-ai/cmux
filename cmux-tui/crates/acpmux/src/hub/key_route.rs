@@ -121,13 +121,7 @@ impl Hub {
         rest: &str,
         own: &str,
     ) -> Result<Option<Machine>, RpcError> {
-        let mut hosts: Vec<String> = self
-            .peers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .keys()
-            .cloned()
-            .collect();
+        let mut hosts: Vec<String> = self.peers.load().keys().cloned().collect();
         hosts.extend(self.remote_sessions.read().values().map(|r| r.peer.clone()));
         hosts.sort();
         hosts.dedup();
@@ -644,7 +638,7 @@ mod tests {
         list(&hub, "cmux16", "0199bbbb-2222", "deploy", "idle");
         assert_eq!(hub.key_route("deploy").unwrap().as_deref(), Some("cmux16/0199bbbb-2222"));
         let old = named(&hub, "fixer").await;
-        hub.set_status(&old, SessionStatus::Closed);
+        hub.set_status(&old, NotWaiting::Closed);
         list(&hub, "hb", "0199dddd-4444", "fixer", "idle");
         assert_eq!(hub.key_route("fixer").unwrap().as_deref(), Some("hb/0199dddd-4444"));
         // Only closed ones: still one to name, so `session info` reads a finished lane.

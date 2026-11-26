@@ -89,3 +89,34 @@ describe("POST /v1/devices/:id/share-approval", () => {
     expect(await mac.user!.none((f) => f.type === "share.approval")).toBe(true);
   });
 });
+
+// The control approval carrier: the same checks, its own path, format and push, so the owner
+// grants "control for my other signed-in machines" on a Mac from the phone.
+describe("POST /v1/devices/:id/control-approval", () => {
+  const control = { v: "cmux.control-approval.v1" };
+
+  it("carries the owner's device's control approval to the Mac as its own push", async () => {
+    const { account, mac, phone } = await ownerAndMac();
+    const fields = approval(mac.id, phone.id, account.userId, control);
+    const res = await phone.call("POST", `/v1/devices/${mac.id}/control-approval`, { approval: fields });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect(res.json).toEqual({ delivered: true, hostId: mac.id });
+    const push = await mac.user!.next((f) => f.type === "control.approval");
+    expect(push).toEqual({ type: "control.approval", from: phone.id, approval: fields });
+  });
+
+  it("carries one tap as one grant, and only from the device that signed it", async () => {
+    const { account, mac, phone } = await ownerAndMac();
+    const laptop = await Device.create(account, "Laptop", "macos");
+    await laptop.register();
+    // A share approval on the control path, and a control approval on the share path.
+    const share = await phone.call("POST", `/v1/devices/${mac.id}/control-approval`, { approval: approval(mac.id, phone.id, account.userId) });
+    expect(share.status).toBe(400);
+    const crossed = await phone.call("POST", `/v1/devices/${mac.id}/share-approval`, { approval: approval(mac.id, phone.id, account.userId, control) });
+    expect(crossed.status).toBe(400);
+    const relayed = await laptop.call("POST", `/v1/devices/${mac.id}/control-approval`, { approval: approval(mac.id, phone.id, account.userId, control) });
+    expect([relayed.status, relayed.json.error.code]).toEqual([403, "not_asker"]);
+    const other = await phone.call("POST", `/v1/devices/${mac.id}/control-approval`, { approval: approval(mac.id, phone.id, "user_other", control) });
+    expect([other.status, other.json.error.code]).toEqual([403, "other_account"]);
+  });
+});

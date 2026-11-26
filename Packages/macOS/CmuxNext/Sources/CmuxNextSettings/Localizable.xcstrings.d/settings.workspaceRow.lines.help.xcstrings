@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceRow.lines.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأسطر التي يعرضها كل صف مساحة عمل، كقوائم من العناصر، مثل [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. حتى 3 أسطر من 6 عناصر؛ يتصدر الاسم السطر الأول دائمًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linije koje prikazuje svaki red radnog prostora, kao liste stavki, npr. [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Do 3 linije po 6 stavki; naziv je uvijek prvi u prvoj liniji."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linjerne, hver arbejdsområderække viser, som lister af elementer, f.eks. [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Op til 3 linjer med 6 elementer; navnet står altid først på første linje."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Zeilen, die jede Arbeitsbereichszeile zeigt, als Listen von Elementen, etwa [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Bis zu 3 Zeilen mit je 6 Elementen; der Name steht immer am Anfang der ersten Zeile."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las líneas que muestra cada fila de espacio de trabajo, como listas de elementos, por ejemplo [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Hasta 3 líneas de 6 elementos; el nombre siempre encabeza la primera línea."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les lignes qu'affiche chaque rangée d'espace de travail, sous forme de listes d'éléments, par exemple [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Jusqu'à 3 lignes de 6 éléments ; le nom ouvre toujours la première ligne."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le righe mostrate da ogni riga dell'area di lavoro, come elenchi di elementi, ad esempio [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Fino a 3 righe di 6 elementi; il nome apre sempre la prima riga."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各ワークスペース行に表示する行を項目のリストで指定します。例: [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]。最大 3 行、各 6 項目まで。名前は常に 1 行目の先頭です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាត់ដែលជួរកន្លែងធ្វើការនីមួយៗបង្ហាញ ជាបញ្ជីធាតុ ដូចជា [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]។ រហូតដល់ 3 បន្ទាត់ 6 ធាតុ; ឈ្មោះតែងតែនៅដើមបន្ទាត់ទីមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "각 작업 공간 행이 표시하는 줄을 항목 목록으로 지정합니다. 예: [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. 최대 3줄, 줄당 6개 항목이며 이름은 항상 첫 줄 맨 앞에 옵니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linjene hver arbeidsområderad viser, som lister med elementer, for eksempel [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Opptil 3 linjer med 6 elementer; navnet står alltid først på første linje."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wiersze, które pokazuje każdy wiersz obszaru roboczego, jako listy elementów, np. [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Do 3 wierszy po 6 elementów; nazwa zawsze otwiera pierwszy wiersz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As linhas que cada linha de espaço de trabalho mostra, como listas de itens, por exemplo [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Até 3 linhas de 6 itens; o nome sempre abre a primeira linha."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Строки, которые показывает каждая строка рабочего пространства, в виде списков элементов, например [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. До 3 строк по 6 элементов; название всегда идёт первым в первой строке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บรรทัดที่แต่ละแถวเวิร์กสเปซแสดง เป็นรายการของรายการย่อย เช่น [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]] สูงสุด 3 บรรทัด บรรทัดละ 6 รายการ ชื่อจะอยู่ต้นบรรทัดแรกเสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her çalışma alanı satırının gösterdiği satırlar, öğe listeleri olarak, örneğin [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. En fazla 6 öğeli 3 satır; ad her zaman ilk satırın başındadır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рядки, які показує кожен рядок робочого простору, у вигляді списків елементів, наприклад [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. До 3 рядків по 6 елементів; назва завжди йде першою в першому рядку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các dòng mà mỗi hàng không gian làm việc hiển thị, dưới dạng danh sách mục, ví dụ [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Tối đa 3 dòng, mỗi dòng 6 mục; tên luôn đứng đầu dòng đầu tiên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每个工作区行显示的各行，以项目列表表示，例如 [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]。最多 3 行，每行 6 个项目；名称始终位于第一行开头。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每個工作區列顯示的各行，以項目清單表示，例如 [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]。最多 3 行，每行 6 個項目；名稱一律位於第一行開頭。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

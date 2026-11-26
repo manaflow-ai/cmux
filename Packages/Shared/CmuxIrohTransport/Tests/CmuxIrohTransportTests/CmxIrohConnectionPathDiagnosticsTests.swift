@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import IrohLib
 import Testing
@@ -89,3 +90,4 @@ struct CmxIrohConnectionPathDiagnosticsTests {
         #expect(events[1].b == 2)
     }
 }
+#endif

@@ -23,8 +23,8 @@
 //   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
 // - `layout-undeclared`: in a dev build, a box moved on no event the layout-motion contract declares for
 //   its surface (layout/motionAudit.ts): `surface`, `px` (its largest change) and `during` (what was open).
-// - `host-line`: a host line (HostError.tsx: Reconnecting…, Restoring sessions…, Waiting for the
-//   agent service, a failure) came on screen or went: `line`, `state` (shown, cleared), `ms` it showed.
+// - `host-line`: a host line (HostError.tsx: the Restoring sessions… chip, or a failure with its action)
+//   came on screen or went: `line`, `state` (shown, cleared), `ms` it showed.
 // - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
 //   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
 //   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.

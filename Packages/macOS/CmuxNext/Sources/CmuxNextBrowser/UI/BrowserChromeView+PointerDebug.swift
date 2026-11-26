@@ -126,7 +126,7 @@ extension BrowserChromeView {
         if OmnibarPointer.clickable(at: hit, below: toolbar) != nil { return .button }
         var view: NSView? = hit
         while let current = view, current !== toolbar {
-            if current is NSControl || current is any PointerHoverReporting || current is ProfileBadgeView || current is MachineBadgeView {
+            if current is NSControl || current is any PointerHoverReporting || current is MachineBadgeView {
                 return .control
             }
             view = current.superview

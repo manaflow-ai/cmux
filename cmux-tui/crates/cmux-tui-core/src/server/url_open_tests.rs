@@ -39,15 +39,14 @@ fn url_open_does_not_guess_between_frontends() {
 }
 
 #[test]
-fn url_open_disconnect_deadline_and_capacity_are_bounded() {
+fn url_open_disconnect_and_deadline_end_requests_past_the_old_cap_of_16() {
     let broker = URLRequests::default();
     let (writer, _) = captured_writer();
     broker.subscribe(1, vec![TERMINAL.into()], writer).unwrap();
     let mut requests = Vec::new();
-    for _ in 0..CAPACITY {
+    for _ in 0..64 {
         requests.push(broker.prepare(TERMINAL, "https://example.com").unwrap());
     }
-    assert!(broker.prepare(TERMINAL, "https://example.com").is_none());
     broker.0.lock().recover_poison().pending.get_mut(&requests[0].0).unwrap().deadline =
         Instant::now();
     assert!(!broker.claim(&requests[0].0));
@@ -71,4 +70,17 @@ fn url_open_validates_without_rewriting_auth_url_bytes() {
         assert!(!validate_url(url));
     }
     assert!(!validate_url(&format!("https://example.com/{}", "a".repeat(16_384))));
+}
+
+#[test]
+fn url_open_takes_subscribers_past_the_old_cap_of_16() {
+    let broker = URLRequests::default();
+    let terminals: Vec<String> = (0..64).map(|index| format!("term_{index:032x}")).collect();
+    for (client, terminal) in terminals.iter().enumerate() {
+        let (writer, _) = captured_writer();
+        broker.subscribe(client as u64, vec![terminal.clone()], writer).unwrap();
+    }
+    for terminal in &terminals {
+        assert!(broker.prepare(terminal, "https://example.com").is_some());
+    }
 }

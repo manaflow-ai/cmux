@@ -35,7 +35,9 @@ Usage:
       (no key: it uses the GitHub connection you made in cmux)
   cmux hub remove <connection-id> [--json]
   cmux hub actions [--json]
-  cmux hub call <action> [--args JSON] [--connection ID] [--invocation-id ID] [--json]
+  cmux hub call <action> [--FIELD VALUE ... | --args JSON] [--connection ID] [--invocation-id ID] [--json]
+      e.g. cmux hub call stripe.refund.create --charge ch_123 --amount 4200
+      (field values use JSON when valid, or plain text; use --args for reserved flag names)
   cmux hub status <call-id> [--json]
   cmux hub approvals [--json]
       (read only: a person answers an approval in cmux Settings > Integrations, never from this CLI)
@@ -175,6 +177,7 @@ pub(super) fn parse(
     let mut token = None;
     let mut positionals: Vec<String> = Vec::new();
     let mut values: Map<String, Value> = Map::new();
+    let mut action_fields = Map::new();
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -221,6 +224,21 @@ pub(super) fn parse(
             }
             f if verb_flags.contains(&f) => {
                 values.insert(f.trim_start_matches("--").to_owned(), Value::String(value()?));
+            }
+            f if kind == "call" && f.starts_with("--") && f.len() > 2 => {
+                let raw = match inline {
+                    Some(raw) => raw,
+                    None => args
+                        .next()
+                        .filter(|v| !v.starts_with("--"))
+                        .cloned()
+                        .ok_or_else(|| format!("{f} needs a value"))?,
+                };
+                let field = f.strip_prefix("--").unwrap_or(f);
+                let parsed = serde_json::from_str(&raw).unwrap_or(Value::String(raw));
+                if action_fields.insert(field.to_owned(), parsed).is_some() {
+                    return Err(format!("duplicate action field {f}"));
+                }
             }
             f if f.starts_with("--") => return Err(format!("unexpected argument {f}")),
             _ => positionals.push(arg.clone()),
@@ -280,10 +298,14 @@ pub(super) fn parse(
                 [_, extra, ..] => return Err(format!("unexpected argument {extra}")),
             };
             let args = match text("args") {
+                Some(_) if !action_fields.is_empty() => {
+                    return Err("pass action fields individually or in --args".into());
+                }
                 Some(raw) => match serde_json::from_str::<Value>(&raw) {
                     Ok(v @ Value::Object(_)) => Some(v),
                     _ => return Err("--args takes a JSON object".into()),
                 },
+                None if !action_fields.is_empty() => Some(Value::Object(action_fields)),
                 None => None,
             };
             let connection = text("connection");
@@ -574,6 +596,18 @@ fn clean(text: &str, max: usize) -> String {
     text.chars().filter(|c| !c.is_control()).take(max).collect()
 }
 
+/// One field of an answer, or null: reading never panics on a shape the hub did not send.
+fn pick(v: &Value, key: &str) -> Value {
+    v.get(key).cloned().unwrap_or(Value::Null)
+}
+
+/// Sets one view field on an object; anything that is not an object stays as it is.
+fn put(v: &mut Value, key: &str, value: Value) {
+    if let Some(map) = v.as_object_mut() {
+        map.insert(key.to_owned(), value);
+    }
+}
+
 /// The hub's error, kept with its own code and a short, printable message.
 pub(super) fn hub_error(status: u16, body: &Value) -> Value {
     let field = |p: &str| body.pointer(p).and_then(Value::as_str).map(|s| clean(s, 300));
@@ -581,14 +615,19 @@ pub(super) fn hub_error(status: u16, body: &Value) -> Value {
     let message =
         field("/error/message").unwrap_or_else(|| format!("the hub answered HTTP {status}"));
     let mut error = error_json(&code, &message);
-    error["status"] = json!(status);
+    put(&mut error, "status", json!(status));
     if code == "hub.not_found" && status == 404 {
-        error["available"] = json!(false);
-        error["error"]["message"] =
-            json!("the integrations hub is not available on this deployment yet");
+        put(&mut error, "available", json!(false));
+        if let Some(inner) = error.get_mut("error") {
+            put(
+                inner,
+                "message",
+                json!("the integrations hub is not available on this deployment yet"),
+            );
+        }
     }
     if let Some(call) = body.get("call").filter(|c| c.is_object()) {
-        error["call"] = call_view(call);
+        put(&mut error, "call", call_view(call));
     }
     error
 }
@@ -685,7 +724,7 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
             "ok": true,
             "available": false,
             "message": "The integrations hub is not available on this deployment yet.",
-            "connections": [], "approvals": [], "rules": [], "audit": [], "paused": false,
+            "connections": [], "approvals": [], "approvalCards": [], "rules": [], "audit": [], "paused": false,
             "hasStripe": false,
             "hasGithub": false,
         });
@@ -694,12 +733,15 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
         return failed.clone();
     }
     let [c, a, p, l] = answers;
-    let connections = c["connections"].clone();
+    let connections = pick(&c, "connections");
     let has = |provider: &str| {
-        connections.as_array().is_some_and(|list| list.iter().any(|c| c["provider"] == provider))
+        connections
+            .as_array()
+            .is_some_and(|list| list.iter().any(|c| str_of(c, "provider") == Some(provider)))
     };
     let (has_stripe, has_github) = (has("stripe"), has("github"));
-    let paused = p["paused"].as_bool().unwrap_or(false);
+    let (approvals, rules) = (pick(&a, "approvals"), pick(&p, "rules"));
+    let paused = p.get("paused").and_then(Value::as_bool).unwrap_or(false);
     json!({
         "ok": true,
         "available": true,
@@ -708,9 +750,10 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
         "connections": connections,
         "hasStripe": has_stripe,
         "hasGithub": has_github,
-        "approvals": a["approvals"],
-        "rules": p["rules"],
-        "audit": l["audit"],
+        "approvals": approvals,
+        "approvalCards": approval_cards(&approvals, &rules, &connections),
+        "rules": rules,
+        "audit": pick(&l, "audit"),
         "next": l.get("next").cloned().unwrap_or(Value::Null),
     })
 }
@@ -739,12 +782,13 @@ pub(super) fn format_money(minor: i64, currency: &str) -> String {
     let exponent = currency_exponent(currency);
     let sign = if minor < 0 { "-" } else { "" };
     let abs = minor.unsigned_abs();
-    let scale = 10u64.pow(exponent);
-    let whole = abs / scale;
+    let scale = 10u64.checked_pow(exponent).unwrap_or(1);
+    let whole = abs.checked_div(scale).unwrap_or(abs);
     let digits = whole.to_string();
     let mut grouped = String::new();
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        let left = digits.len().saturating_sub(i);
+        if i > 0 && left.is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(ch);
@@ -753,8 +797,11 @@ pub(super) fn format_money(minor: i64, currency: &str) -> String {
     if exponent == 0 {
         format!("{sign}{grouped} {code}")
     } else {
-        let frac = abs % scale;
-        format!("{sign}{grouped}.{frac:0width$} {code}", width = exponent as usize)
+        let frac = abs.checked_rem(scale).unwrap_or(0);
+        format!(
+            "{sign}{grouped}.{frac:0width$} {code}",
+            width = usize::try_from(exponent).unwrap_or(2)
+        )
     }
 }
 
@@ -806,42 +853,73 @@ pub(super) fn connection_view(c: &Value) -> Value {
     let mode = str_of(c, "mode");
     let sharing = str_of(c, "sharing").unwrap_or("private");
     let status = str_of(c, "status").unwrap_or("active");
-    out["providerLabel"] = json!(provider_label(provider));
-    out["title"] = json!(format!(
-        "{} · {}",
-        provider_label(provider),
-        clean(str_of(c, "account").unwrap_or("account"), 120)
-    ));
-    out["modeLabel"] = match mode {
-        Some("test") => json!("Test mode"),
-        Some("live") => json!("Live mode"),
-        _ => Value::Null,
-    };
-    out["sharingLabel"] =
-        json!(if sharing == "team" { "Shared with the team" } else { "Private to you" });
-    out["statusLabel"] = json!(match status {
-        "active" => "Connected",
-        "needs_reauth" => "Needs a new key",
-        other => other,
-    });
-    out["healthy"] = json!(status == "active");
-    out["canRemove"] = json!(c.get("canRemove").and_then(Value::as_bool).unwrap_or(false));
+    put(&mut out, "providerLabel", json!(provider_label(provider)));
+    put(
+        &mut out,
+        "title",
+        json!(format!(
+            "{} · {}",
+            provider_label(provider),
+            clean(str_of(c, "account").unwrap_or("account"), 120)
+        )),
+    );
+    put(
+        &mut out,
+        "modeLabel",
+        match mode {
+            Some("test") => json!("Test mode"),
+            Some("live") => json!("Live mode"),
+            _ => Value::Null,
+        },
+    );
+    put(
+        &mut out,
+        "sharingLabel",
+        json!(if sharing == "team" { "Shared with the team" } else { "Private to you" }),
+    );
+    put(
+        &mut out,
+        "statusLabel",
+        json!(match (status, provider) {
+            ("active", _) => "Connected",
+            ("needs_reauth", "stripe") => "Needs a new key",
+            ("needs_reauth", _) => "Needs to be linked again",
+            (other, _) => other,
+        }),
+    );
+    put(&mut out, "healthy", json!(status == "active"));
+    // A connection the provider stopped honouring (RFD 0055 "Revoke": `needs_reauth`) offers Reconnect: a key
+    // provider takes a new pasted key, an OAuth provider goes through its link again. Null while it works.
+    put(
+        &mut out,
+        "reconnect",
+        match (status, provider) {
+            ("needs_reauth", "stripe") => json!("key"),
+            ("needs_reauth", _) => json!("link"),
+            _ => Value::Null,
+        },
+    );
+    put(&mut out, "canRemove", json!(c.get("canRemove").and_then(Value::as_bool).unwrap_or(false)));
     out
 }
 
 fn action_view(a: &Value) -> Value {
     let mut out = a.clone();
     let risk = str_of(a, "risk").unwrap_or("");
-    out["riskLabel"] = json!(match risk {
-        "read" => "Reads",
-        "mutate-own" => "Changes your data",
-        "mutate-shared" => "Changes shared data",
-        "execute" => "Runs code",
-        "send-external" => "Sends outside",
-        "money" => "Moves money",
-        "destructive" => "Deletes",
-        other => other,
-    });
+    put(
+        &mut out,
+        "riskLabel",
+        json!(match risk {
+            "read" => "Reads",
+            "mutate-own" => "Changes your data",
+            "mutate-shared" => "Changes shared data",
+            "execute" => "Runs code",
+            "send-external" => "Sends outside",
+            "money" => "Moves money",
+            "destructive" => "Deletes",
+            other => other,
+        }),
+    );
     out
 }
 
@@ -875,29 +953,139 @@ fn requester(r: Option<&Value>) -> String {
 pub(super) fn call_view(c: &Value) -> Value {
     let mut out = c.clone();
     let status = str_of(c, "status").unwrap_or("");
-    out["line"] = json!(clean(str_of(c, "summary").unwrap_or("(no summary)"), 500));
-    out["statusLabel"] = json!(call_status_label(status));
-    out["amountText"] = match (c.get("amount").and_then(Value::as_i64), str_of(c, "currency")) {
-        (Some(minor), Some(cur)) => json!(format_money(minor, cur)),
-        _ => Value::Null,
-    };
-    out["actionLabel"] = json!(action_label(str_of(c, "action").unwrap_or("")));
-    out["requestedByText"] = json!(requester(c.get("requestedBy")));
-    out["approvalId"] = c.pointer("/approval/id").cloned().unwrap_or(Value::Null);
-    out["expiresText"] = c
-        .pointer("/approval/expiresAt")
-        .and_then(Value::as_str)
-        .map(|e| json!(format!("Expires {}", short_time(e))))
-        .unwrap_or(Value::Null);
-    out["policyText"] = c
-        .pointer("/policy/reason")
-        .and_then(Value::as_str)
-        .map(|r| json!(clean(r, 300)))
-        .unwrap_or(Value::Null);
+    put(&mut out, "line", json!(clean(str_of(c, "summary").unwrap_or("(no summary)"), 500)));
+    put(&mut out, "statusLabel", json!(call_status_label(status)));
+    put(
+        &mut out,
+        "amountText",
+        match (c.get("amount").and_then(Value::as_i64), str_of(c, "currency")) {
+            (Some(minor), Some(cur)) => json!(format_money(minor, cur)),
+            _ => Value::Null,
+        },
+    );
+    put(&mut out, "actionLabel", json!(action_label(str_of(c, "action").unwrap_or(""))));
+    put(&mut out, "requestedByText", json!(requester(c.get("requestedBy"))));
+    put(&mut out, "approvalId", c.pointer("/approval/id").cloned().unwrap_or(Value::Null));
+    put(
+        &mut out,
+        "expiresText",
+        c.pointer("/approval/expiresAt")
+            .and_then(Value::as_str)
+            .map(|e| json!(format!("Expires {}", short_time(e))))
+            .unwrap_or(Value::Null),
+    );
+    put(
+        &mut out,
+        "policyText",
+        c.pointer("/policy/reason")
+            .and_then(Value::as_str)
+            .map(|r| json!(clean(r, 300)))
+            .unwrap_or(Value::Null),
+    );
     if let Some(e) = c.get("error").filter(|e| e.is_object()) {
-        out["errorText"] = json!(clean(str_of(e, "message").unwrap_or("failed"), 300));
+        put(&mut out, "errorText", json!(clean(str_of(e, "message").unwrap_or("failed"), 300)));
     }
+    let (outcome, tone) = call_outcome(c);
+    put(&mut out, "outcomeText", outcome.map_or(Value::Null, |o| json!(o)));
+    put(&mut out, "outcomeTone", tone.map_or(Value::Null, |t| json!(t)));
     out
+}
+
+/// What became of a call once a person answered it, in one sentence for the Chief card that answered it, with its
+/// tone (`done`, `denied`, `failed`): "Approved. It ran (re_123)." Null while it still waits or runs.
+pub(super) fn call_outcome(c: &Value) -> (Option<String>, Option<&'static str>) {
+    let error = c.pointer("/error/message").and_then(Value::as_str).map(|m| clean(m, 300));
+    match str_of(c, "status").unwrap_or("") {
+        "succeeded" => {
+            let text = match str_of(c, "providerRef") {
+                Some(r) => format!("Approved. It ran ({}).", clean(r, 80)),
+                None => "Approved. It ran.".into(),
+            };
+            (Some(text), Some("done"))
+        }
+        "denied" => (Some("Denied. Nothing ran.".into()), Some("denied")),
+        "failed" => (
+            Some(match error {
+                Some(e) => format!("Approved, but it failed: {e}"),
+                None => "Approved, but it failed.".into(),
+            }),
+            Some("failed"),
+        ),
+        "outcome_unknown" => (
+            Some("Approved, but the hub could not tell whether it ran. Check the provider before trying again.".into()),
+            Some("failed"),
+        ),
+        "expired" => (Some("This approval expired before the answer. Nothing ran.".into()), Some("denied")),
+        "blocked" => (Some("A rule blocked it. Nothing ran.".into()), Some("denied")),
+        _ => (None, None),
+    }
+}
+
+/// What the integration did: the action's verb for one call ("Refund"), where [`action_label`] names the kind.
+pub(super) fn action_title(name: &str) -> String {
+    match name {
+        "stripe.refund.create" => "Refund".into(),
+        "stripe.charges.list" => "List charges".into(),
+        "stripe.charge.get" => "Read a charge".into(),
+        "github.pulls.list" => "List pull requests".into(),
+        "github.issues.list" => "List issues".into(),
+        other => clean(other.rsplit_once('.').map_or(other, |(_, verb)| verb), 60),
+    }
+}
+
+/// One Chief card per approval that waits for a person: which agent asked, which integration and action (with its
+/// amount and the pinned line naming its target), and which rule sent it to the person. A rule is named by its
+/// sentence when the overview listed it; a limit's reason ("over the limit of ...") follows it. With no rule the
+/// hub's default decided, and its reason says so.
+pub(super) fn approval_cards(approvals: &Value, rules: &Value, connections: &Value) -> Value {
+    let by_id = |list: &Value, id: Option<&str>| -> Option<Value> {
+        let id = id?;
+        list.as_array()?.iter().find(|r| str_of(r, "id") == Some(id)).cloned()
+    };
+    let cards = approvals
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|c| str_of(c, "status") == Some("approval_required"))
+                .filter(|c| c.pointer("/approval/id").and_then(Value::as_str).is_some())
+                .map(|c| {
+                    let action = str_of(c, "action").unwrap_or("");
+                    let provider = action.split('.').next().unwrap_or("");
+                    let connection = by_id(connections, str_of(c, "connection"));
+                    let integration = connection
+                        .as_ref()
+                        .and_then(|conn| str_of(conn, "title").map(str::to_owned))
+                        .unwrap_or_else(|| provider_label(provider));
+                    let reason = c.pointer("/policy/reason").and_then(Value::as_str);
+                    let rule = by_id(rules, c.pointer("/policy/rule").and_then(Value::as_str));
+                    let rule_line = match (&rule, reason) {
+                        (Some(r), Some(why)) if why.starts_with("over the limit") => {
+                            format!("{}: {}; {}", rule_owner(r), rule_text(r), clean(why, 200))
+                        }
+                        (Some(r), _) => format!("{}: {}", rule_owner(r), rule_text(r)),
+                        (None, Some(why)) => format!("Rule: {}", clean(why, 300)),
+                        (None, None) => "Rule: the hub's default for this action".into(),
+                    };
+                    json!({
+                        "approvalId": c.pointer("/approval/id").cloned().unwrap_or(Value::Null),
+                        "callId": c.get("id").cloned().unwrap_or(Value::Null),
+                        "agentText": requester(c.get("requestedBy")),
+                        "integrationText": integration,
+                        "actionText": action_title(action),
+                        "amountText": c.get("amountText").cloned().unwrap_or(Value::Null),
+                        "line": c.get("line").cloned().unwrap_or(Value::Null),
+                        "ruleText": rule_line,
+                        "expiresText": c.get("expiresText").cloned().unwrap_or(Value::Null),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Value::Array(cards)
+}
+
+fn rule_owner(rule: &Value) -> &'static str {
+    if str_of(rule, "owner") == Some("team") { "Team rule" } else { "Your rule" }
 }
 
 /// A rule in one sentence: "Ask before Stripe refunds over 50.00 USD, for agent ci (team rule)".
@@ -956,11 +1144,14 @@ pub(super) fn rule_text(rule: &Value) -> String {
 /// A rule with its view fields.
 pub(super) fn rule_view(r: &Value) -> Value {
     let mut out = r.clone();
-    out["text"] = json!(rule_text(r));
-    out["ownerLabel"] =
-        json!(if str_of(r, "owner") == Some("team") { "Team rule" } else { "Your rule" });
-    out["canRemove"] = json!(r.get("canRemove").and_then(Value::as_bool).unwrap_or(false));
-    out["remembered"] = json!(r.get("remembered").and_then(Value::as_bool).unwrap_or(false));
+    put(&mut out, "text", json!(rule_text(r)));
+    put(&mut out, "ownerLabel", json!(rule_owner(r)));
+    put(&mut out, "canRemove", json!(r.get("canRemove").and_then(Value::as_bool).unwrap_or(false)));
+    put(
+        &mut out,
+        "remembered",
+        json!(r.get("remembered").and_then(Value::as_bool).unwrap_or(false)),
+    );
     out
 }
 
@@ -999,18 +1190,22 @@ pub(super) fn audit_view(row: &Value) -> Value {
     } else {
         format!("{label} · {summary} · by {who}")
     };
-    out["eventLabel"] = json!(label);
-    out["line"] = json!(line);
-    out["whenText"] = json!(short_time(str_of(row, "at").unwrap_or("")));
-    out["tone"] = json!(match event {
-        "call.failed"
-        | "call.blocked"
-        | "approval.denied"
-        | "connection.needs_reauth"
-        | "call.outcome_unknown" => "warn",
-        "call.succeeded" | "approval.allowed" | "connection.added" => "good",
-        _ => "plain",
-    });
+    put(&mut out, "eventLabel", json!(label));
+    put(&mut out, "line", json!(line));
+    put(&mut out, "whenText", json!(short_time(str_of(row, "at").unwrap_or(""))));
+    put(
+        &mut out,
+        "tone",
+        json!(match event {
+            "call.failed"
+            | "call.blocked"
+            | "approval.denied"
+            | "connection.needs_reauth"
+            | "call.outcome_unknown" => "warn",
+            "call.succeeded" | "approval.allowed" | "connection.added" => "good",
+            _ => "plain",
+        }),
+    );
     out
 }
 
@@ -1112,7 +1307,7 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::hub")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(45))
@@ -1267,7 +1462,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         [h, rest @ ..] if h == "hub" => rest,
         _ => return None,
     };
-    if rest.is_empty() || rest.iter().any(|a| a == "--help" || a == "-h") || rest[0] == "help" {
+    if rest.is_empty()
+        || rest.iter().any(|a| a == "--help" || a == "-h")
+        || rest.first().is_some_and(|a| a == "help")
+    {
         print!("{HELP}");
         return Some(0);
     }

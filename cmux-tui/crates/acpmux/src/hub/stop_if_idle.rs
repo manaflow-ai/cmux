@@ -128,16 +128,29 @@ impl Hub {
     }
 
     /// Stop the session as `kill` does, or refuse when the condition does not hold.
+    #[cfg(test)]
     pub(crate) async fn stop(
         &self,
         session: &Arc<Session>,
         purge: bool,
         condition: StopCondition,
     ) -> Result<(), RpcError> {
+        let why = crate::close_why::CloseWhy::actor(crate::close_why::CloseActor::new("daemon"));
+        self.stop_why(session, purge, condition, why).await
+    }
+
+    /// `stop`, recording who closed it and why (`close_why.rs`).
+    pub(crate) async fn stop_why(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        condition: StopCondition,
+        why: crate::close_why::CloseWhy,
+    ) -> Result<(), RpcError> {
         if !condition.if_idle {
-            return self.kill(session, purge).await;
+            return self.kill_why(session, purge, why).await;
         }
-        self.kill_if_idle(session, purge, condition.expect_revision).await
+        self.kill_if_idle(session, purge, condition.expect_revision, why).await
     }
 
     /// `kill`, only when the session is idle (and, with `expect`, still at that revision), checked
@@ -147,6 +160,7 @@ impl Hub {
         session: &Arc<Session>,
         purge: bool,
         expect: Option<u64>,
+        why: crate::close_why::CloseWhy,
     ) -> Result<(), RpcError> {
         let busy = |what: &str| -> Result<(), RpcError> {
             Err(refusal(session, BUSY, Some(what), Self::revision(session)))
@@ -188,7 +202,7 @@ impl Hub {
         // closed. The other leases go back to what a plain stop holds: `harness_use` shared (no
         // writer gets in between), the spawn lock not at all.
         drop(spawning);
-        self.kill_held(session, purge, using.downgrade()).await
+        self.kill_held(session, purge, using.downgrade(), why).await
     }
 
     /// What keeps the session from being idle, if anything.

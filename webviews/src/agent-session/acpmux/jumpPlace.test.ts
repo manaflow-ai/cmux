@@ -17,11 +17,12 @@ test("the centered arm stays on the center line", () => {
   for (const handle of ["left", "middle", "right"] as const) expect(jumpSide("center", handle)).toBeUndefined();
 });
 
-test("the centered stack moves the middle handle aside, never one the person placed", () => {
+test("a middle arm keeps the middle handle under the disc; a side arm moves it aside, never one the person placed", () => {
   expect(hatSide("center", "middle", "end")).toBe("right");
   expect(hatSide("center", "middle", "quiet")).toBe("right");
   expect(hatSide("center", "middle", "start")).toBe("left");
-  expect(hatSide("center", "middle", "middle")).toBe("middle");
+  for (const pill of ["middle", "middle-quiet", "middle-yield", "middle-tight"] as const)
+    expect(hatSide("center", "middle", pill)).toBe("middle");
   expect(hatSide("center", "left", "end")).toBe("left");
   expect(hatSide("center", "right", "start")).toBe("right");
   for (const place of ["end", "start", "corner"] as const) expect(hatSide(place, "middle", "end")).toBe("middle");
