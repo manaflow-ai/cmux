@@ -96,6 +96,26 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
   return connected;
 }
 
+/// Each connected peer's `agentLogin` flag from `_acpmux/status` (it listed `agent_login` at its
+/// last handshake). acpmux forgets a peer's features when its link ends, so a peer that is not
+/// connected reads false whatever it runs: it is left out, like a peer with no flag (an older
+/// acpmux), and its chats keep the page's own answer until a read that finds it connected.
+export function peerAgentLoginFromStatus(status: unknown): Record<string, boolean> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const login: Record<string, boolean> = {};
+  for (const peer of peers) {
+    const { name, connected, agentLogin } = (peer ?? {}) as {
+      name?: unknown;
+      connected?: unknown;
+      agentLogin?: unknown;
+    };
+    if (typeof name === "string" && name && connected === true && typeof agentLogin === "boolean")
+      login[name] = agentLogin;
+  }
+  return login;
+}
+
 /// Each peer's link state from `_acpmux/status` (the relay keeps it as a string;
 /// AcpmuxPaneMethods.replyShapes). A peer with no state, or one that is not a string, is left out.
 /// Each peer's whole link state from `_acpmux/status` or `_acpmux/peers` rows (`link`, linkState.ts),

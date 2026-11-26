@@ -190,7 +190,8 @@ def main(argv: list[str] | None = None) -> int:
     for language in completed:
         print(f"{verb} {language}")
     # The page clients' copy of spec/page-router.json (page-router.md), and the
-    # Swift app's generated daemon request types (swift_app/__init__.py).
+    # Swift app's generated daemon request types (swift_app/__init__.py). Those are build output (the
+    # DaemonWireTypes plugin writes them), so both modes only check that they generate.
     if arguments.bindings_root == DEFAULT_BINDINGS_ROOT and not arguments.language:
         if __package__ in {None, ""}:
             from codegen import page_router
@@ -200,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             from .swift_app import generate as swift_app
         page_router_status = page_router.main([f"--{mode}"])
         schema_arguments = [] if arguments.schema == DEFAULT_SCHEMA else ["--schema", str(arguments.schema)]
-        swift_app_status = swift_app.main([f"--{mode}", *schema_arguments])
+        swift_app_status = swift_app.main(["--check", *schema_arguments])
         return page_router_status or swift_app_status
     return 0
 
