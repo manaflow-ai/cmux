@@ -148,10 +148,10 @@ pub(crate) fn tools() -> Value {
 /// instead of deferring them behind ToolSearch. A schema here costs its tokens on every request; a
 /// deferred one costs one ToolSearch round trip (about a whole context) in each session that
 /// calls it, so a tool belongs here only while sessions calling it × context < its tokens ×
-/// requests. Measured on gcp-agent-lane-4 in the 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k
+/// requests. Measured on one lane VM in the 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k
 /// requests, median context 73k), sessions calling each: bg_start 240 (563 tokens), bg_output 229
 /// (535), wrap_up 197 (962), who_else 129 (596), inbox_read 93 (417), inbox_reply 90 (424):
-/// ~360M tokens/day loaded against ~71M/day of ToolSearch deferred, so none stays (cut 1 of
+/// ~500M tokens/day loaded (each counted alone) against ~71M/day deferred, so none stays (cut 1 of
 /// cmuxterm-hq goals/agents-most-lane-tokens-land-prs.md). Every tool is still listed by name and
 /// the instructions still name wrap_up and bg_start. Add one back only on that data.
 pub(crate) const ALWAYS_LOADED: [&str; 0] = [];
