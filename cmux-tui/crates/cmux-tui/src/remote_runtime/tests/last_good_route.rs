@@ -552,3 +552,79 @@ async fn a_raced_reconnect_never_waits_out_a_black_holed_route() {
     eprintln!("reconnect, route 1 black-holed: serial {:?}, raced {:?}", took[0], took[1]);
     assert_eq!(took, [budget + ms(30), RouteRace::FLOOR + ms(30)]);
 }
+
+/// The A/B for RFD 0164's B1 adoption: every timing above, on the pass's own loop
+/// (`CMUX_ROUTE_RACE_BRAID=0`) and on Braid's racer, comes out the same.
+#[tokio::test(start_paused = true)]
+async fn braids_racer_and_the_own_loop_time_every_pass_the_same() {
+    let routes = vec![
+        test_route("wss://a.example/v1/link"),
+        test_route("wss://b.example/v1/link"),
+        test_route("wss://c.example/v1/link"),
+    ];
+    let ms = Duration::from_millis;
+    let budget = default_attempt_budget();
+    let cases: Vec<(Vec<Duration>, Vec<bool>, Option<usize>, Option<RouteRace>)> = vec![
+        (vec![budget, ms(30), ms(30)], vec![false, true, true], None, Some(RouteRace::after(None))),
+        (vec![ms(600), ms(100), ms(400)], vec![true; 3], None, Some(RouteRace::after(None))),
+        (vec![ms(5), ms(30), ms(30)], vec![false, true, true], None, Some(RouteRace::after(None))),
+        (
+            vec![ms(10), ms(700), ms(700)],
+            vec![true; 3],
+            Some(1),
+            Some(RouteRace::after(Some(ms(400)))),
+        ),
+        (vec![ms(900), ms(10), ms(10)], vec![false; 3], None, Some(RouteRace::after(None))),
+        (vec![ms(50), ms(20), ms(20)], vec![false, false, true], Some(2), None),
+    ];
+    for (delays, ok, first, race) in cases {
+        let mut runs = Vec::new();
+        for own in [true, false] {
+            route_race::own_loops_for_test(own);
+            let attempt = TimedAttempt::new(delays.clone(), ok.clone());
+            let started = tokio::time::Instant::now();
+            let result = select_initial_route_from(
+                &routes,
+                RouteOrder { first, race },
+                SessionId([26; 16]),
+                LanePolicy::Single,
+                AuthKind::Enrolled,
+                false,
+                &attempt,
+            )
+            .await
+            .map_err(|error| error.to_string());
+            runs.push((started.elapsed(), result, attempt.dialed()));
+        }
+        route_race::own_loops_for_test(false);
+        assert_eq!(runs[0], runs[1], "delays {delays:?} ok {ok:?} first {first:?} race {race:?}");
+    }
+
+    // Reconnect: route 1 black-holed, raced and serial.
+    for race in [None, Some(RouteRace::after(None))] {
+        let mut took = Vec::new();
+        for own in [true, false] {
+            route_race::own_loops_for_test(own);
+            let attempt = TimedReconnect {
+                delays: vec![ms(1), budget, ms(30)],
+                ok: vec![false, false, true],
+                answered: Default::default(),
+            };
+            let started = tokio::time::Instant::now();
+            let won = route_race::select_reconnect_routes(
+                &routes,
+                1,
+                race,
+                SessionId([27; 16]),
+                LanePolicy::Single,
+                AuthKind::Enrolled,
+                &attempt,
+            )
+            .await
+            .unwrap();
+            took.push((started.elapsed(), won));
+        }
+        route_race::own_loops_for_test(false);
+        assert_eq!(took[0], took[1], "reconnect race {race:?}");
+    }
+}

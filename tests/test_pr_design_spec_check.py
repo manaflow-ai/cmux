@@ -124,7 +124,7 @@ class Check(unittest.TestCase):
         self.assertIs(step.get("continue-on-error"), True)
         table = tomllib.loads((ROOT / "ci" / "steps.toml").read_text())["step"]["design-spec"]
         self.assertIs(table["blocks"], False)
-        self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
+        self.assertIn("ref: refs/heads/${{ github.event.pull_request.base.ref }}", wf)
         self.assertIn("|| echo \"::warning title=Design spec::the design spec check could not run", table["run"])
         self.assertIn("--map .github/design-surfaces.json --pr-map", table["run"])
         sparse = yaml.safe_load(wf)["jobs"]["body"]["steps"][0]["with"]["sparse-checkout"]
