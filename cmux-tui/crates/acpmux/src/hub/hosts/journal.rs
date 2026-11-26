@@ -8,7 +8,7 @@ use super::checkpoint::{Checkpoint, FoldInputs, Folds};
 use super::*;
 use crate::store::RecordHead;
 use crate::subagents::SubagentTree;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl Hub {
     pub(super) fn recovery_work(
@@ -46,38 +46,55 @@ impl Hub {
         work
     }
 
-    /// Saves `session`'s adoption checkpoint for its live host `child` at a turn's end, off the
-    /// executor, so the next daemon's adoption of that host resumes from it. Before, only an
-    /// adoption saved one: the first restart after a host started read the whole log four times
-    /// (1.48x the 1M chat's restart peak RSS at 1G, against 1.12x for the restart after it).
-    /// Each save resumes from the last, so it reads the records since: one whole read per host,
-    /// in the background. At most one runs per chat; a turn's end while one runs skips it.
+    /// Folds `session`'s log for host `incarnation` once, from its adoption checkpoint when it
+    /// has one, and saves the checkpoint it reaches: the adoption's later reads (`last_host_seq`,
+    /// `subagents_from_log`, `recovery_work`) resume from it. Without it, the first adoption after
+    /// a host started read the whole log once per read (three for a local chat: 1.48x the 1M
+    /// chat's restart peak RSS at 1G, against 1.12x for the next restart, which resumed).
+    pub(super) fn save_checkpoint_now(&self, session: &Session, incarnation: &str) {
+        if session.meta().fork_seq.is_some() {
+            return;
+        }
+        self.catch_up(session);
+        let settled = self.settled_seq(session);
+        let (_, checkpoint) =
+            self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) });
+        if let Some(checkpoint) = checkpoint {
+            self.save_adoption_checkpoint(session, checkpoint);
+        }
+    }
+
+    /// [`Self::save_checkpoint_now`] for a live host at a turn's end, off the executor, so the
+    /// next daemon's adoption of it reads only what follows. At most one runs per chat, and one
+    /// a minute: each reads the records since the last.
     pub(in crate::hub) fn checkpoint_at_turn_end(
         self: &Arc<Self>,
         session: &Arc<Session>,
         child: &crate::agent::ChildAgent,
     ) {
-        static SAVING: std::sync::LazyLock<std::sync::Mutex<HashSet<String>>> =
+        type Saving = HashMap<String, Option<std::time::Instant>>;
+        static SAVING: std::sync::LazyLock<std::sync::Mutex<Saving>> =
             std::sync::LazyLock::new(Default::default);
+        // timeout: not a wait; how often a chat's turn ends refresh its checkpoint.
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(60);
         let Some(record) = child.host_record() else { return };
-        if session.meta().fork_seq.is_some()
-            || !SAVING.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone())
         {
-            return;
+            let mut saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+            match saving.get(&session.id) {
+                // One runs.
+                Some(None) => return,
+                Some(Some(at)) if at.elapsed() < EVERY => return,
+                _ => {}
+            }
+            saving.insert(session.id.clone(), None);
         }
         let (hub, session) = (self.clone(), session.clone());
         let save = move || {
-            hub.catch_up(&session);
-            let settled = hub.settled_seq(&session);
-            let (_, checkpoint) = hub.fold_open_work(
-                &session,
-                &record.incarnation,
-                Fold::Resume { settled: Some(settled) },
-            );
-            if let Some(checkpoint) = checkpoint {
-                hub.save_adoption_checkpoint(&session, checkpoint);
-            }
-            SAVING.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
+            hub.save_checkpoint_now(&session, &record.incarnation);
+            SAVING
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(session.id.clone(), Some(std::time::Instant::now()));
         };
         match tokio::runtime::Handle::try_current() {
             // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
