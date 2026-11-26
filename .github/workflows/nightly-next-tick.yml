@@ -77,7 +77,18 @@ jobs:
       contents: read
     steps:
       # p99.9 121 s; a hung fetch held the job for up to 3,880 s (runs 43922274429, 43973045206).
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A reset fetch is tried once more: tick 45696501186's successor (2026-11-25 21:37Z) died in
+      # checkout on "curl 56 connection reset", and no tick promoted for another 30 minutes.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
+          fetch-depth: 150
+      - if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 4
         with:
           persist-credentials: false
