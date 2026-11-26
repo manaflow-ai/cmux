@@ -93,6 +93,7 @@ jobs:
       agent_pane: ${{ steps.scope.outputs.agent_pane }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
       react_class: ${{ steps.react-shards.outputs.class }}
+      react_fleet: ${{ steps.react-shards.outputs.fleet }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
@@ -207,6 +208,13 @@ jobs:
           CMUX_WEB_TEST_JOBS: "8"
           CMUX_WEB_TEST_DEV_JOBS: "4"
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
+          # Where react-apps-check runs (scripts/ci/react_apps_fleet.py): a feat-cmux-next pull request whose pick
+          # runs only touched tests runs it on the fleet (ci/steps.toml's react-apps-check, pr-pipeline.yml).
+          CI_PR_BASE_REF: ${{ github.base_ref }}
+          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
+          CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
         run: |
           picked=""
           class_file="$RUNNER_TEMP/webviews-durations/pr-shard-class"
@@ -234,6 +242,9 @@ jobs:
           echo "react-apps-check shards: $picked"
           echo "matrix=$picked" >> "$GITHUB_OUTPUT"
           echo "class=$(cat "$class_file" 2>/dev/null)" >> "$GITHUB_OUTPUT"
+          fleet="$(python3 scripts/ci/react_apps_fleet.py decide --class "$(cat "$class_file" 2>/dev/null)" --matrix "$picked" \
+            --direct "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --routed)" || fleet=actions
+          echo "fleet=$([ "$fleet" = fleet ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           # The files those shards run, for react-apps-base-early (RFD 0023 item 3): only when the pick ran fewer
           # than every shard; any failure leaves no list, and the early job keeps its whole affected list.
           rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files"
@@ -387,7 +398,7 @@ jobs:
     needs: web-subarea-scope
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'cmux-linux' }}
     # The merge's type check, and on a red the base's (a worktree of the merge parent).
     timeout-minutes: 15
@@ -829,10 +840,12 @@ jobs:
 
   react-apps-check-shard:
     needs: web-subarea-scope
+    # A feat-cmux-next pull request whose pick runs only touched tests (react_fleet, scripts/ci/react_apps_fleet.py)
+    # runs this check as the ci/steps.toml step `react-apps-check` (pr-pipeline.yml's web-browser job) instead.
     # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
     # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     # react-apps-base-check and webviews-test-durations skip with it; react-apps-check and Web status still report.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -2261,7 +2274,7 @@ jobs:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (the shards' land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
@@ -2298,8 +2311,12 @@ jobs:
               required_jobs.append("react-apps-base-check")
           else:
               required_jobs.append("react-doctor")
+          # On the fleet (react_fleet): pr-pipeline.yml's web-browser step react-apps-check judges this head.
+          fleet = needs["web-subarea-scope"]["outputs"].get("react_fleet") == "true"
+          if fleet:
+              print("react-apps-check runs on the fleet: ci/steps.toml's react-apps-check (pr-pipeline.yml web-browser)")
           exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
-                            () if required else required_jobs)
+                            required_jobs if fleet or not required else ())
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
@@ -2688,7 +2705,7 @@ jobs:
           WEB_BASE_REF: ${{ github.base_ref }}
           WEB_WORKFLOW: ${{ github.workflow }}
           # 'true' unless this is a feat-cmux-next pull request head not handed to land (webviews-typecheck's land tier).
-          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
