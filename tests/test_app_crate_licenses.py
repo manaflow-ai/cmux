@@ -134,6 +134,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-sdk-ffi",
                     # Predictive local echo for remote terminals (cmux-terminal-prediction).
                     "cmux-terminal-prediction",
+                    # The omnibox URL rule the app links (cmux-url-input).
+                    "cmux-url-input",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
                 ]
