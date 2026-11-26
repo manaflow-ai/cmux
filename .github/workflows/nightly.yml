@@ -2323,7 +2323,7 @@ jobs:
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
           fetch_header="$RUNNER_TEMP/warm-checkout-auth-header"
-          trap 'rm -f "$fetch_header"' EXIT
+          trap 'rm -f "$fetch_header"; report' EXIT
           (umask 077; printf 'Authorization: Bearer %s\n' "$FETCH_TOKEN" > "$fetch_header")
           # The helper comes from local objects first (the mirror's, borrowed); raw.githubusercontent.com last.
           git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
@@ -2383,6 +2383,40 @@ jobs:
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
+          # Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. Each
+          # submodule (nested too) whose commit a verified fleet mirror holds (NAME.git or OWNER/NAME.git beside
+          # cmux.git) is read from it, through this step's environment only; the rest from github.com.
+          mirror_root=${mirror%/*}
+          verified() { [ -d "$1/objects" ] && [ ! -L "$1/objects" ] && [ ! -L "$1" ] && [ -f "$1/HEAD" ] \
+            && [ -f "$1/glaeda-verified" ] && [ ! -e "$1/glaeda-repair-pending" ] && [ ! -e "$1/shallow" ]; }
+          map_submodules() {  # GIT_DIR COMMIT
+            local key sub url owner name gitlink m
+            { git --git-dir="$1" config --blob "$2:.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null || true; } \
+              | while read -r key sub; do
+                url=$(git --git-dir="$1" config --blob "$2:.gitmodules" --get "${key%.path}.url" 2>/dev/null) || continue
+                [[ "$url" =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\.git$ ]] || continue
+                owner=${BASH_REMATCH[1]} name=${BASH_REMATCH[2]}
+                gitlink=$(git --git-dir="$1" rev-parse -q --verify "$2:$sub" 2>/dev/null) || continue
+                for m in "$mirror_root/$name.git" "$mirror_root/$owner/$name.git"; do
+                  if verified "$m" && git --git-dir="$m" cat-file -e "$gitlink^{commit}" 2>/dev/null; then
+                    printf '%s\t%s\n' "$m" "$url"
+                    map_submodules "$m" "$gitlink" || true
+                    break
+                  fi
+                done
+              done
+          }
+          n=$GIT_CONFIG_COUNT
+          while IFS=$'\t' read -r m url; do
+            [ -n "$m" ] || continue
+            echo "submodule $url: from the fleet mirror $m"
+            export "GIT_CONFIG_KEY_$n=url.file://$m.insteadOf" "GIT_CONFIG_VALUE_$n=$url"
+            n=$((n + 1))
+          done < <(map_submodules "$GITHUB_WORKSPACE/.git" "$BUILD_SHA" | sort -u)
+          if [ "$n" -gt "$GIT_CONFIG_COUNT" ]; then
+            export "GIT_CONFIG_KEY_$n=protocol.file.allow" "GIT_CONFIG_VALUE_$n=always"
+            export GIT_CONFIG_COUNT=$((n + 1))
+          fi
           started=$SECONDS
           retry git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
           echo "updated submodules in $((SECONDS - started)) s"

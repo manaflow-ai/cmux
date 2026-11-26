@@ -151,6 +151,8 @@ Go writes its module cache read-only; a clone whose acpmux build ran before tail
 
 A hosted runner starts with clean submodules; drop what earlier runs left.
 
+Submodules come from the fleet's mirrors too (run 45782377330: `git submodule update` timed out at 600 s on all three tries, reading ghostty, ghostty-next and homebrew-cmux from github.com). For each submodule, nested ones included, a verified mirror beside cmux.git (NAME.git or OWNER/NAME.git, the same checks) that holds the gitlink commit replaces its github.com URL through `url.file://MIRROR.insteadOf` in the step's environment, with `protocol.file.allow=always`; file:// keeps `--depth=1`. Any other submodule is read from github.com with the job's token. Test: tests/test_nightly_warm_checkout_submodules_from_mirror.py.
+
 Each fetch adds a pack and gc.auto is off: fold them past 40.
 
 ## note-21
