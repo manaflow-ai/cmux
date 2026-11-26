@@ -132,7 +132,14 @@ final class PlaceholderBoundUITests: XCTestCase {
         let text = probe.waitForExistence(timeout: 2) ? probe.label : "{}"
         let counts = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
         let shifts = counts["shiftFrames"] as? Int ?? -1
-        print("LAYOUT_SHIFTS flow=\(flow) shift_frames=\(shifts) shifted_rows=\(counts["shiftedRows"] ?? -1) frames=\(counts["frames"] ?? 0) rows=\(counts["rows"] ?? 0) last=\(counts["lastMoved"] ?? "")")
+        let line = "LAYOUT_SHIFTS flow=\(flow) shift_frames=\(shifts) shifted_rows=\(counts["shiftedRows"] ?? -1) frames=\(counts["frames"] ?? 0) rows=\(counts["rows"] ?? 0) last=\(counts["lastMoved"] ?? "")"
+        print(line)
+        // Also an attachment: the simulator step exports attachments (ui-attachments/) but keeps no
+        // test console, and the counts are what a ceiling is lowered from.
+        let record = XCTAttachment(string: line + "\n" + text)
+        record.name = "\(flow)-layout-shifts"
+        record.lifetime = .keepAlways
+        add(record)
         let ceiling = PlaceholderKnownOverBound.layoutShiftFlows[flow]
         if shifts < 0 {
             XCTFail("\(flow): no layout-shift count (debug.layout-shift missing or no marked row drawn)")
