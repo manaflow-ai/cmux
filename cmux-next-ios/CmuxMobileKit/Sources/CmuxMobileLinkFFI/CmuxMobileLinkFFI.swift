@@ -11933,16 +11933,24 @@ public struct MailboxRouteInput: Equatable, Hashable {
      * [`mailbox_available`] for this item.
      */
     public var mailboxAvailable: Bool
+    /**
+     * The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+     */
+    public var cloudHolder: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(linkUp: Bool, presence: MailboxPresence, 
         /**
          * [`mailbox_available`] for this item.
-         */mailboxAvailable: Bool) {
+         */mailboxAvailable: Bool, 
+        /**
+         * The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+         */cloudHolder: Bool) {
         self.linkUp = linkUp
         self.presence = presence
         self.mailboxAvailable = mailboxAvailable
+        self.cloudHolder = cloudHolder
     }
 
     
@@ -11963,7 +11971,8 @@ public struct FfiConverterTypeMailboxRouteInput: FfiConverterRustBuffer {
             try MailboxRouteInput(
                 linkUp: FfiConverterBool.read(from: &buf), 
                 presence: FfiConverterTypeMailboxPresence.read(from: &buf), 
-                mailboxAvailable: FfiConverterBool.read(from: &buf)
+                mailboxAvailable: FfiConverterBool.read(from: &buf), 
+                cloudHolder: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -11971,6 +11980,7 @@ public struct FfiConverterTypeMailboxRouteInput: FfiConverterRustBuffer {
         FfiConverterBool.write(value.linkUp, into: &buf)
         FfiConverterTypeMailboxPresence.write(value.presence, into: &buf)
         FfiConverterBool.write(value.mailboxAvailable, into: &buf)
+        FfiConverterBool.write(value.cloudHolder, into: &buf)
     }
 }
 
@@ -17375,6 +17385,10 @@ public enum MailboxRoute: Equatable, Hashable {
      */
     case mailbox
     /**
+     * Post it to the chat's Cloud inbox ([`mailbox_inbox_post`]): a Cloud machine holds the chat.
+     */
+    case cloudInbox
+    /**
      * Neither: fail as before.
      */
     case fail
@@ -17403,7 +17417,9 @@ public struct FfiConverterTypeMailboxRoute: FfiConverterRustBuffer {
         
         case 2: return .mailbox
         
-        case 3: return .fail
+        case 3: return .cloudInbox
+        
+        case 4: return .fail
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -17421,8 +17437,12 @@ public struct FfiConverterTypeMailboxRoute: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .fail:
+        case .cloudInbox:
             writeInt(&buf, Int32(3))
+        
+        
+        case .fail:
+            writeInt(&buf, Int32(4))
         
         }
     }
@@ -21600,6 +21620,19 @@ public func mailboxBuild(spec: MailboxItemSpec, boxKey: String, signer: MailboxS
 })
 }
 /**
+ * The Cloud inbox request for one send: `[path, json body]`, or none when the chat id, the id or
+ * the text can't go there. Posting the same id again is safe.
+ */
+public func mailboxInboxPost(chatId: String, id: String, text: String) -> [String]?  {
+    return try!  FfiConverterOptionSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mailbox_inbox_post(
+        FfiConverterString.lower(chatId),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * The longest an item of `kind` lives, in seconds (540, or 86400 for `send` and `compose`).
  */
 public func mailboxLifetimeCap(kind: String) -> UInt64  {
@@ -21624,6 +21657,18 @@ public func mailboxNewNonce()throws  -> String  {
 public func mailboxRoute(input: MailboxRouteInput) -> MailboxRoute  {
     return try!  FfiConverterTypeMailboxRoute_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_mailbox_route(
+        FfiConverterTypeMailboxRouteInput_lower(input),$0
+    )
+})
+}
+/**
+ * Link, mailbox, Cloud inbox or fail for one send with client message id `id`. The id is the same
+ * on every path, and a Cloud inbox send fails if the inbox would mint a new id.
+ */
+public func mailboxRouteFor(id: String, input: MailboxRouteInput) -> MailboxRoute  {
+    return try!  FfiConverterTypeMailboxRoute_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mailbox_route_for(
+        FfiConverterString.lower(id),
         FfiConverterTypeMailboxRouteInput_lower(input),$0
     )
 })
@@ -22284,6 +22329,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_build() != 59703) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_inbox_post() != 15764) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_lifetime_cap() != 25453) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22291,6 +22339,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_route() != 455) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_route_for() != 6729) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_trusted_box_key() != 23702) {
