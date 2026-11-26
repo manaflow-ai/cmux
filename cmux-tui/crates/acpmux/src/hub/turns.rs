@@ -162,6 +162,131 @@ fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
     })
 }
 
+/// How many recent first-run acceptances a session keeps for resends (`Session::accepted_prompts`).
+pub(super) const KEPT_ACCEPTS: usize = 512;
+
+fn outcome_token(outcome: &PromptOutcome) -> usize {
+    Arc::as_ptr(outcome) as usize
+}
+
+/// Return the existing outcome, or create a new attempt and retire any receipt for an
+/// older attempt with the same client id. The ledger is bounded and can forget a completed
+/// outcome while the larger acceptance cache still remembers it; leaving that receipt live
+/// would make a new attempt look like a duplicate of the old one.
+fn begin_outcome(
+    session: &Session,
+    prompt_id: &str,
+) -> Result<PromptOutcome, (usize, tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>)> {
+    let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+    match ledger.iter().find(|(id, _)| id == prompt_id) {
+        Some((_, outcome)) => Err((outcome_token(outcome), outcome.subscribe())),
+        None => {
+            // A pending outcome cannot be pruned, so this only retires a receipt whose
+            // original outcome is already complete.
+            session
+                .accepted_prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(id, _, _)| id != prompt_id);
+            session.pending_acceptances.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+            let outcome = Arc::new(tokio::sync::watch::channel(None).0);
+            ledger.push_back((prompt_id.to_owned(), outcome.clone()));
+            Ok(outcome)
+        }
+    }
+}
+
+/// Keeps the acceptance `v` of client prompt id `prompt_id`'s first run, for a resend of it.
+fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
+    let Some((token, pending)) = session
+        .prompts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(id, _)| id == prompt_id)
+        .map(|(_, outcome)| (outcome_token(outcome), outcome.borrow().is_none()))
+    else {
+        return;
+    };
+    if pending {
+        session
+            .pending_acceptances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(prompt_id.to_owned(), (token, v.clone()));
+    } else {
+        session.pending_acceptances.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+    }
+    {
+        let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
+        kept.retain(|(id, _, _)| id != prompt_id);
+        kept.push_back((prompt_id.to_owned(), token, v.clone()));
+        while kept.len() > KEPT_ACCEPTS {
+            kept.pop_front();
+        }
+    }
+    session.accepted_seq.send_modify(|n| *n = n.wrapping_add(1));
+}
+
+/// Release the overflow receipt once its prompt outcome settles. The token check keeps a late
+/// completion from deleting a newer attempt with the same client prompt id.
+pub(super) fn release_acceptance(session: &Session, prompt_id: &str, outcome: &PromptOutcome) {
+    let token = outcome_token(outcome);
+    let mut pending = session.pending_acceptances.lock().unwrap_or_else(|e| e.into_inner());
+    if pending.get(prompt_id).is_some_and(|(kept, _)| *kept == token) {
+        pending.remove(prompt_id);
+    }
+}
+
+/// The acceptance a resend of `prompt_id` answers with: the first run's own (kept as it was
+/// accepted), or its place in the queue or its turn (a prompt restored after a restart, accepted
+/// by an earlier daemon). Waits while the first run is neither accepted nor ended; None once it
+/// ended unaccepted (refused before it was taken: its answer says why).
+async fn first_acceptance(
+    session: &Session,
+    prompt_id: &str,
+    token: usize,
+    first: &mut tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>,
+) -> Option<Value> {
+    let mut seq = session.accepted_seq.subscribe();
+    loop {
+        seq.borrow_and_update();
+        let kept = {
+            let _ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+            let kept = session
+                .accepted_prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .rev()
+                .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
+                .map(|(_, _, v)| v.clone());
+            kept.or_else(|| {
+                session
+                    .pending_acceptances
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(prompt_id)
+                    .filter(|(pending_token, _)| *pending_token == token)
+                    .map(|(_, v)| v.clone())
+            })
+        };
+        if kept.is_some() {
+            return kept;
+        }
+        if let Some((turn, queued)) = pending_turn(session, prompt_id) {
+            return Some(json!({"turnId": turn, "queued": queued}));
+        }
+        if first.borrow().is_some() {
+            return None;
+        }
+        tokio::select! {
+            changed = first.changed() => if changed.is_err() { return None },
+            _ = seq.changed() => {}
+        }
+    }
+}
+
 /// A `file://` URI for the saved file, percent-encoded so a project folder with
 /// spaces or non-ASCII letters still names a valid link (and a Windows path
 /// gets its drive form).
@@ -309,19 +434,9 @@ impl Hub {
             name_kept_message(&mut answer, session, &prompt_id);
             answer
         };
-        let seen = {
-            let mut ledger = session.prompts.lock().unwrap();
-            match ledger.iter().find(|(id, _)| *id == prompt_id) {
-                Some((_, outcome)) => Err(outcome.subscribe()),
-                None => {
-                    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
-                    ledger.push_back((prompt_id.clone(), outcome.clone()));
-                    Ok(outcome)
-                }
-            }
-        };
+        let seen = begin_outcome(session, &prompt_id);
         let outcome = match seen {
-            Err(mut first) => {
+            Err((token, mut first)) => {
                 // A copy never reaches the queue: it lets the chat's prompt admission go
                 // (#52381) before it waits for the first run. Held, it kept every later prompt
                 // of the chat from its queue for the whole first run, and that run's own queue
@@ -330,9 +445,40 @@ impl Hub {
                     admission.release();
                 }
                 if let Some(f) = opts.on_accepted.take() {
-                    // The first run's turn, once it has one (queued or running): the sender of
-                    // this copy then knows the prompt was taken. With none yet, the first run
-                    // may still be held or refused, and only its answer says.
+                    // The first run's acceptance, once it was accepted: its queue place, its
+                    // turn or its inbox receipt. Not yet: this copy waits for it (or for the
+                    // first run's end), so it never answers "taken, no turn" for a run that may
+                    // yet be refused, nor waits out a whole inbox message's answer (an outbox
+                    // retry did, every 120 s, forever: 2026-11-25).
+                    if let Some(kept) =
+                        Box::pin(first_acceptance(session, &prompt_id, token, &mut first)).await
+                    {
+                        let mut notice = duplicate(json!({"_meta": {"acpmux": {
+                            "turnId": kept.get("turnId"),
+                            "surgeHeld": kept.get("surgeHeld"),
+                            "threadId": kept.get("threadId"),
+                        }}}));
+                        for key in ["queued", "inbox", "sessionHeld", "held"] {
+                            if let Some(v) = kept.get(key) {
+                                notice.set(key, v.clone());
+                            }
+                        }
+                        f(notice);
+                        let dropped =
+                            || RpcError::internal("the first run of this prompt was dropped");
+                        let result = first
+                            .wait_for(Option::is_some)
+                            .await
+                            .map_err(|_| dropped())?
+                            .clone()
+                            .unwrap_or_else(|| Err(dropped()));
+                        return result.map(|mut v| {
+                            merge_mux_meta(&mut v, json!({"duplicate": true}));
+                            v
+                        });
+                    }
+                    // The first run ended unaccepted (refused) or is gone: as before, its
+                    // answer says.
                     let (turn, queued) = pending_turn(session, &prompt_id).unzip();
                     let previous = first
                         .borrow()
@@ -384,6 +530,7 @@ impl Hub {
             }
             let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(answer.clone()));
+            release_acceptance(session, &prompt_id, &outcome);
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
@@ -402,6 +549,7 @@ impl Hub {
             }
             let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(logged.clone()));
+            release_acceptance(session, &prompt_id, &outcome);
             prompt_ledger::prune(&mut ledger);
             return logged;
         }
@@ -427,6 +575,7 @@ impl Hub {
                     keep_message(&kept_in, &kept_id, message);
                     name_message(&mut v, message);
                 }
+                keep_acceptance(&kept_in, &kept_id, &v);
                 f(v);
             }));
         } else {
@@ -440,6 +589,7 @@ impl Hub {
                     record_message_context(&hub, &target_id, message, &v);
                     keep_message(&kept_in, &kept_id, message);
                 }
+                keep_acceptance(&kept_in, &kept_id, &v);
             }));
         }
         let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
@@ -448,6 +598,7 @@ impl Hub {
             ledger.retain(|(id, _)| *id != prompt_id);
         }
         outcome.send_replace(Some(result.clone()));
+        release_acceptance(session, &prompt_id, &outcome);
         prompt_ledger::prune(&mut ledger);
         result
     }
@@ -537,7 +688,9 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        admission.listen();
+        if matches!(unanswered, Unanswered::Defer(_) | Unanswered::Guarded(_)) {
+            admission.listen();
+        }
         tokio::select! {
             biased;
             answer = &mut setup => return answer,
@@ -2040,9 +2193,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
-        // Its todo calls still held go with it, however the turn ends or is handed off
-        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
-        crate::acp_todo_plan::forget(&session.id);
+        // Its to-do call ids still held go with it, however the turn ends or is handed off
+        // (`todo_tools.rs`): a late result passes through as any other tool's.
+        crate::todo_tools::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
@@ -3368,6 +3521,10 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
 #[cfg(test)]
 #[path = "close_why_tests.rs"]
 mod close_why_tests;
+
+#[cfg(test)]
+#[path = "first_acceptance_tests.rs"]
+mod first_acceptance_tests;
 
 #[cfg(test)]
 #[path = "set_mode_unchanged_tests.rs"]
