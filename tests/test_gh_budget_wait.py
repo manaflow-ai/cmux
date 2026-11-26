@@ -628,7 +628,7 @@ class WorkflowTests(unittest.TestCase):
                 if "timeout-minutes" in step and "GH_TOKEN" in step.get("env", {}):
                     self.assertGreaterEqual(int(mode_off_timeout(step["timeout-minutes"])), 65, (name, step.get("name")))
 
-    def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
+    def test_the_attestation_signs_offline_and_never_waits_for_the_budget(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
         # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
         # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
@@ -652,14 +652,23 @@ class WorkflowTests(unittest.TestCase):
             if isinstance(needs, str):
                 needs = [needs]
             self.assertNotIn("attest-nightly-remote-daemon", needs, name)
+        # The provenance is signed with no GitHub REST call and the API write gets one try: waiting for the
+        # shared installation budget (--reserve 200) held this job 17.6 minutes in run 45562645699.
         steps = job["steps"]
         names = [s.get("name") for s in steps]
-        attest = names.index("Attest immutable SSH daemon assets")
-        self.assertIn("gh_budget_wait.sh --reserve 200", steps[attest - 1]["run"])
-        # The retry waits through the same script (one ledger, an hour in all), only while the budget is short.
-        wait = steps[names.index("Wait for the API budget before retrying the daemon attestation")]["run"]
-        self.assertIn("gh_budget_wait.sh --reserve 200", wait)
-        self.assertNotIn("sleep", wait)
+        for step in steps:
+            self.assertNotIn("gh_budget_wait", str(step.get("run", "")), step.get("name"))
+            self.assertNotIn("attest-build-provenance", str(step.get("uses", "")), step.get("name"))
+        sign = steps[names.index("Sign the SSH daemon provenance offline")]
+        self.assertIn("scripts/ci/attest-offline/sign.mjs", sign["run"])
+        self.assertIn("remote-daemon-assets/cmuxd-remote-*", sign["run"])
+        self.assertNotIn("GH_TOKEN", sign.get("env", {}))
+        keep = steps[names.index("Keep the SSH daemon provenance bundle")]
+        self.assertIn("actions/upload-artifact@", keep["uses"])
+        store = steps[names.index("Store the daemon attestation (one try, no budget wait)")]
+        self.assertTrue(store.get("continue-on-error"))
+        self.assertIn("attest-store.sh", store["run"])
+        self.assertLess(names.index("Keep the SSH daemon provenance bundle"), names.index("Store the daemon attestation (one try, no budget wait)"))
 
     def test_the_app_engine_fetch_keeps_its_budget_wrapper(self) -> None:
         steps = self.jobs["build-nightly-app"]["steps"]
