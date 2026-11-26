@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-team-space",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -231,8 +232,10 @@ dependencies = [
 name = "acpmux-team-space"
 version = "1.0.0"
 dependencies = [
+ "cmux-forum-hosted",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

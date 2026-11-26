@@ -867,7 +867,11 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     let tools = mcp.ask(2, "tools/list", json!({})).await;
     let names: Vec<&str> =
         tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["announce", "rules", "ack", "post", "reply", "search"], "{tools}");
+    assert_eq!(
+        names,
+        ["announce", "rules", "ack", "post", "reply", "search", "forum_digest", "forum_digest_act"],
+        "{tools}"
+    );
 
     // An `account` argument does not make the agent a person.
     let posted = mcp
