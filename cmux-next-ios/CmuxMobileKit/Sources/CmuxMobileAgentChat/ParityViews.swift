@@ -153,7 +153,7 @@ struct SubagentGroupCard: View {
         }
         // A content card in the page (the design system's card level): the theme's ink over the
         // Mac's picture, never an opaque slab.
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: CmuxMobileTheme.standard.metrics.cardRadius, style: .continuous))
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
