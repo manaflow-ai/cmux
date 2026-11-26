@@ -233,6 +233,20 @@ class ReleaseBuildTests(unittest.TestCase):
         cache_ops = [c[1] for c in self.calls() if c[0] == "cache"]
         self.assertEqual(cache_ops[:4], ["key", "restore", "probe", "store"])
 
+    def test_verified_xcodegen_zip_is_cached_and_reused_without_download(self):
+        # 2026-11-26: a per-step GitHub download answered 403 and failed a whole sim run.
+        first = self.run_script("release-build")
+        self.assert_evidence(first, 0, ["ffi.log", "xcodegen.log", "build.log"])
+        self.assertEqual(sum(c[0] == "curl" for c in self.calls()), 1)
+        cached = list((self.root / "cache/tools").glob("xcodegen-*.zip"))
+        self.assertEqual(len(cached), 1, cached)
+        self.assertEqual(cached[0].read_text(), "fixture download")
+        (self.root / "calls.jsonl").unlink()
+        second = self.run_script("release-build")
+        self.assert_evidence(second, 0, ["ffi.log", "xcodegen.log", "build.log"])
+        self.assertNotIn("curl", [c[0] for c in self.calls()])
+        self.assertEqual(list((self.root / "cache/tools").glob("xcodegen-*.zip.*")), [])
+
     def test_release_rejects_extra_arguments_before_any_work(self):
         result = self.run_script("release-build", "ui=SomeSuite")
         self.assertEqual(result.returncode, 2)

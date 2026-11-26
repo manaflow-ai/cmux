@@ -792,13 +792,28 @@ sim_boot_reduce_motion() {
 # provisioned by hand). Bump the version and the zip's sha256 together.
 xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+# The verified zip is kept in the CI cache's tools dir, keyed by its sha256,
+# so a step downloads it only on a host's first run: a per-step GitHub fetch
+# failed whole sim runs when GitHub answered 403 (2026-11-26, cmux9s-Mac-mini).
 xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
-curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
-  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
-  { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
-got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
-[[ "$got" == "$xcodegen_sha256" ]] ||
-  { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
+xcodegen_cache="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/xcodegen-$xcodegen_version-$xcodegen_sha256.zip"
+xcodegen_sum() { shasum -a 256 "$1" | awk '{ print $1 }'; }
+if [[ -f "$xcodegen_cache" && "$(xcodegen_sum "$xcodegen_cache")" == "$xcodegen_sha256" ]]; then
+  cp "$xcodegen_cache" "$xcodegen_dir/xcodegen.zip"
+else
+  curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
+    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
+    { echo "error: could not download xcodegen $xcodegen_version (and no verified copy at $xcodegen_cache)" >&2; exit 3; }
+  got="$(xcodegen_sum "$xcodegen_dir/xcodegen.zip")"
+  [[ "$got" == "$xcodegen_sha256" ]] ||
+    { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
+  # Best effort, atomic: a temp file in the cache dir renamed into place.
+  if mkdir -p "$(dirname "$xcodegen_cache")" 2>/dev/null; then
+    tmp_cache="$(mktemp "$xcodegen_cache.XXXXXX" 2>/dev/null)" &&
+      cp "$xcodegen_dir/xcodegen.zip" "$tmp_cache" && mv -f "$tmp_cache" "$xcodegen_cache" ||
+      rm -f "${tmp_cache:-}" 2>/dev/null || true
+  fi
+fi
 unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
 # The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
 xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
@@ -839,7 +854,7 @@ note ""
 note "- commit: $(git rev-parse HEAD)"
 note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
-note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
+note "- xcodegen: $xcodegen_version (pinned, sha256 verified; cache $xcodegen_cache)"
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
