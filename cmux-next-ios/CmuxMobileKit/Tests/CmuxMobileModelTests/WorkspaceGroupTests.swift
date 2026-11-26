@@ -104,8 +104,11 @@ import Testing
         #expect(try JSONDecoder().decode(Workspace.self, from: JSONSerialization.data(withJSONObject: object)).group == nil)
     }
 }
+#endif
 
 /// The creator's group actions: at once on the phone, undone when the Mac refuses.
+/// The Recorder is shared with WorkspaceRowActionsTests on every platform; the
+/// tests themselves run where the Rust library links (iOS).
 @MainActor
 @Suite struct WorkspaceGroupCreatorTests {
     final class Recorder: WorkspaceCreationBackend, WorkspaceArrangementBackend, WorkspaceGroupBackend {
@@ -170,6 +173,7 @@ import Testing
         func deleteGroup(_ group: MacWorkspaceGroup, on macID: String) async throws { try record("delete \(group.id)") }
     }
 
+    #if os(iOS)
     let red = MacWorkspaceGroup(id: "grp_r", name: "Red", color: "red")
 
     private func setup() -> (AppStore, WorkspaceCreator, Recorder, String) {
@@ -467,5 +471,5 @@ import Testing
         await creator.settle()
         #expect(ws(store, "b").group?.name == "Red" && ws(store, "c").group?.name == "Red")
     }
+    #endif
 }
-#endif
