@@ -30,6 +30,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// The messages a person sent with Return while their Cloud start was still on its way
+    /// (`chat.cloudStartQueue {text}`, Leo 2026-11-25: "playable vs fully installed... or just go"): the
+    /// started chat's first prompt carries them after the start's own, so nothing waits on the machine.
+    /// Empty text: none queued (a failed start put them back in the composer).
+    case cloudStartQueue(String)
     /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
     /// typed text and prompts held for a trust answer, kept for its window's next new chat.
     case newChatLeftover(String)
@@ -90,6 +95,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// handshake that waits for acpmux: a cold New Tab page draws its frame
     /// (layout, field, empty list) at first render (cx-0rpl.10).
     case newTabContext
+    /// The app's Cloud pick (`newTab.cloudPick`): a chat page has no New Tab context, and its storage is not a New Tab
+    /// page's, so its composer asks for Cloud's last pick here (cmux#53226).
+    case newTabCloudPick
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
     /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
@@ -108,7 +116,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
     /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
     case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
-                   repo: String? = nil, returnTo: String? = nil)
+                   repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil)
     /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
     case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
@@ -196,7 +205,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button (Continue with ChatGPT, Set
     /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
     /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
-    case cloudSetUp(key: String, action: String, family: String)
+    /// With no `key` (the model picker's set up button, cmux#51731) it only runs that way in and waits: no start keeps the click.
+    case cloudSetUp(key: String?, action: String, family: String)
+    /// `cloud.setupState`: which families a Cloud chat can run now (``CloudSetup/serving()``), for the composer's
+    /// model picker with Cloud picked. Reads only; no gesture.
+    case cloudSetupState
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)
@@ -216,6 +229,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.handoffTurn {sessionId}`: before a prompt that starts a turn of this pane's chat on a
     /// Cloud machine, the hand-off turn it names (``AgentPaneModel/onCloudHandoffTurn``, ``AgentPaneHandoffPrompt``).
     case cloudHandoffTurn(sessionId: String)
+    /// `cloud.forkFirst {sessionId, permissionId, optionId, machine, clientKey}`: "Fork first" on a risky
+    /// step's card in a Cloud chat (``AgentPaneForkFirst``, ``AgentPaneModel/onCloudForkFirst``).
+    case cloudForkFirst(AgentPaneForkFirst)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
@@ -285,6 +301,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `customizations.menu {point}`: the chat's Customize button under the composer
+    /// (experiments.composerCustomizer) pops the app's Customizations menu at `point`, CSS px.
+    case customizationsMenu(x: Double, y: Double)
     /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
     case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
@@ -434,6 +453,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportSend(connection: Int, frames: [String])
     /// `transport.close` with `{connection}`.
     case transportClose(connection: Int)
+    /// `transport.ack` with `{connection, seq, inputPending}`: the page applied push `seq`
+    /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``); the host sends the next one.
+    case transportAck(connection: Int, seq: Int, inputPending: Bool)
     /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
     /// contract (``AgentPaneGestureIntent``); then `method` is the intent's, if any, and `refusal`
@@ -509,7 +531,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
-        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
+        case .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease: true
         default: false
         }
     }

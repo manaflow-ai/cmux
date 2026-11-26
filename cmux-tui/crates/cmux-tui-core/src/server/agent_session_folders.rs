@@ -80,16 +80,14 @@ pub(crate) fn own_work_folder(make: bool) -> Option<PathBuf> {
     crate::platform::home_dir().and_then(|home| work_folder(&home, make))
 }
 
-/// The fresh folder for a Cloud chat with no selected repository. The tab's
-/// surface id is stable before the acp session exists, so retries reuse the
-/// same folder without making Swift choose a path. Surface ids come from the
-/// mux's persisted `next_id` snapshot and are never reset during restore.
-pub(crate) fn own_chat_folder(chat_id: u64, make: bool) -> Option<PathBuf> {
-    let home = crate::platform::home_dir()?;
-    if make && let Some(reserved) = reserved_chat_folder(&home, chat_id) {
-        return Some(reserved);
-    }
-    chat_folder(&home, chat_id, make)
+/// The fresh folder for a Cloud chat with no selected repository under `home`: the machine's
+/// reserved warm folder when one is waiting (its session already runs there, so the first
+/// message goes to a warm agent), else `~/chats/<chat_id>`, made. The tab's surface id is
+/// stable before the acp session exists, so retries reuse the same folder without making
+/// Swift choose a path. Surface ids come from the mux's persisted `next_id` snapshot and are
+/// never reset during restore.
+pub(crate) fn own_chat_folder(home: &Path, chat_id: u64) -> Option<PathBuf> {
+    reserved_chat_folder(home, chat_id).or_else(|| chat_folder(home, chat_id, true))
 }
 
 /// The ticket the machine's acpmux writes for its reserved first home-chat folder

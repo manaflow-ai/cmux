@@ -16,6 +16,9 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+# What a Cloud machine state frame means (machine_state_push.rs, apps-machine-state-watch).
+cmux-cloud-machine.workspace = true
+cmux-presence.workspace = true
 cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true
@@ -45,6 +48,7 @@ cmux-process.workspace = true
 # cmux Remote's stop intent: a person's Quit never respawns (remote_host/unix.rs, F17).
 cmux-supervise-core.workspace = true
 cmux-flow-trace.workspace = true
+cmux-interactivity.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
@@ -119,6 +123,8 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
+cmux-output-paint.workspace = true
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
@@ -145,6 +151,9 @@ cmux-cloud-api.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+# The Forum page's hosted forum (server/forum_routed.rs): the /v1/forum client and its times.
+cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }
+time.workspace = true
 # The link share bridge's room socket (agent_session_share_room.rs), the
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true

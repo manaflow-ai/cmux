@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.transcriptView.help" : {
+      "comment" : "Settings > Agent Chat > Transcript View help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مقدار ما تعرضه المحادثة من كل دور. تضبط قائمة ··· في المحادثة عرضها الخاص."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Koliko svakog koraka razgovor prikazuje. Meni ··· razgovora postavlja njegov vlastiti prikaz."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor meget af hver tur en chat viser. En chats ···-menu angiver dens egen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie viel ein Chat von jedem Schritt zeigt. Das ···-Menü eines Chats legt seine eigene Ansicht fest."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How much of each turn a chat shows. A chat's ··· menu sets its own."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuánto muestra un chat de cada turno. El menú ··· de un chat define su propia vista."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quantité de chaque tour affichée par une discussion. Le menu ··· d'une discussion règle la sienne."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quanto di ogni turno mostra una chat. Il menu ··· di una chat imposta la sua vista."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットが各ターンをどこまで表示するか。チャットの ··· メニューでそのチャットの表示を設定できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួននៃវេននីមួយៗដែលការជជែកបង្ហាញ។ ម៉ឺនុយ ··· នៃការជជែកកំណត់ទិដ្ឋភាពរបស់វាផ្ទាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅이 각 턴을 얼마나 보여 줄지 정합니다. 채팅의 ··· 메뉴에서 해당 채팅만 따로 설정할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor mye av hver tur en chat viser. En chats ···-meny angir dens egen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ile z każdej tury pokazuje czat. Menu ··· czatu ustawia jego własny widok."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quanto de cada turno um chat mostra. O menu ··· de um chat define o dele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сколько каждого хода показывает чат. Меню ··· чата задаёт его собственный вид."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปริมาณที่แชทแสดงในแต่ละรอบ เมนู ··· ของแชทกำหนดค่าของแชทนั้นเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sohbetin her turdan ne kadarını gösterdiği. Bir sohbetin ··· menüsü kendi görünümünü ayarlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скільки кожного ходу показує чат. Меню ··· чату задає його власний вигляд."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mức độ cuộc trò chuyện hiển thị mỗi lượt. Menu ··· của cuộc trò chuyện đặt chế độ xem riêng của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天显示每一轮的多少内容。聊天的 ··· 菜单可单独设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "聊天顯示每一輪的多少內容。聊天的 ··· 選單可設定它自己的檢視。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

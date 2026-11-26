@@ -23,7 +23,13 @@
 /// What a reader who scrolled up and came back down keeps under the last row (VirtualTranscript
 /// `heldRoom.reader`). `followed`: the last pass followed the latest row. `left`: the reader's own
 /// input let it go since then. `kept`: room kept for the newest prompt they came back to.
-export type ReaderRoom = { followed: boolean; left?: true; kept?: { room: number; prompt: string | undefined } };
+/// `kept.end`: where the kept room ends, measured from the top of the prompt it is kept under (`tail`):
+/// the rows that come under the prompt fill the room instead of pushing it down.
+export type ReaderRoom = {
+  followed: boolean;
+  left?: true;
+  kept?: { room: number; prompt: string | undefined; end: number };
+};
 
 /// The room a pass held, and the reader's part of it, as the last pass left it.
 export type HeldRoom = { room: number; reader: ReaderRoom };
@@ -81,6 +87,9 @@ export type RoomUnderInput = {
   held: HeldRoom;
   /// The newest prompt's row id while following (`kept` is for its turn).
   prompt: string | undefined;
+  /// The rows' height from the newest prompt's top to the rows' end (`roomUnderRows`' `tail`); read
+  /// only while room is held or kept. Absent: the kept room stays a fixed height.
+  promptTail?: () => number;
   /// The content end a collapse keeps (foldAnchor.ts `foldRoomFor`), 0 for none.
   foldRoom: number;
   /// The room under the rows for newer history let go of (conversation/newerReserve.ts), 0 for none.
@@ -129,21 +138,36 @@ export function rowsMoved(input: Pick<RoomUnderInput, "openedAtLatest" | "sessio
 /// The room under the last row this pass, and what of it is kept for the reader (`heldRoom.reader`):
 /// followed, the stack's room (`followedRoom`), or more where the reader came back down to room held
 /// while they were scrolled up; scrolled up, the room held.
+/// The kept room is space the rows already had, so the turn's rows fill it as they come: its end stays
+/// where it was drawn (`end`, from the prompt's top) and each row that arrives takes its height out of
+/// it, so nothing the reader sees moves, and once the rows reach the stack's room it is gone. Kept as a
+/// fixed height, it stayed under the live line for the rest of the turn while every row arrived above
+/// it (Leo, 2026-11-22: "for some reason there's also a ton of space at the bottom? idk if it was
+/// accounting maybe for tool calls in a long steered with attachment situation").
+/// `tail`: the rows' height from the newest prompt's top (the whole content without one) to the rows' end.
 export function roomUnderRows(
   { room: held, reader }: HeldRoom,
-  pass: { following: boolean; sessionSwitched: boolean; followedRoom: number; prompt: string | undefined },
+  pass: {
+    following: boolean;
+    sessionSwitched: boolean;
+    followedRoom: number;
+    prompt: string | undefined;
+    /// Read only while room is held or kept.
+    tail?: () => number;
+  },
 ): { room: number; kept: ReaderRoom["kept"] } {
   if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
   if (!pass.following) return { room: held, kept: undefined };
-  const kept = !reader.followed
-    ? reader.left && held > pass.followedRoom + 0.5
-      ? { room: held, prompt: pass.prompt }
-      : undefined
-    : reader.kept?.prompt === pass.prompt
-      ? reader.kept
-      : undefined;
+  const fresh = !reader.followed && reader.left === true && held > pass.followedRoom + 0.5;
+  const carried = reader.followed && reader.kept !== undefined && reader.kept.prompt === pass.prompt;
+  if (!fresh && !carried) return { room: pass.followedRoom, kept: undefined };
+  const tail = pass.tail ? pass.tail() : 0;
+  const end = fresh ? tail + held : reader.kept!.end;
+  const left = Number.isFinite(end - tail) ? end - tail : 0;
+  // Filled down to the stack's room: nothing is kept any longer.
   // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
-  return { room: kept ? Math.max(pass.followedRoom, kept.room) : pass.followedRoom, kept };
+  if (left <= pass.followedRoom + 0.5) return { room: pass.followedRoom, kept: undefined };
+  return { room: left, kept: { room: left, prompt: pass.prompt, end } };
 }
 
 /// The end a followed view keeps for a sent prompt whose queue card left (`floor`), 0 for none.
@@ -220,6 +244,7 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
     sessionSwitched,
     followedRoom,
     prompt: input.prompt,
+    tail: input.promptTail,
   });
   const rowsHeight = input.rowsHeight + input.over + room + (input.newerRoom ?? 0);
   const rowsEnd = Math.max(input.floor - lifted, rowsHeight);

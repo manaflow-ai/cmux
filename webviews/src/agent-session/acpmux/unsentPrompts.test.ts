@@ -376,3 +376,149 @@ test("only a prompt nobody refused counts as unanswered", () => {
   expect(unanswered(record({ hop: "acpmux", reason: "message.too_large" }))).toBe(false);
   expect(unanswered(record({ hop: "agent", code: "timeout" }))).toBe(false);
 });
+
+/// A prompt lost with its connection (no answer, the connection then goes), drawn again on the
+/// pane's next connection while the host's outbox sends it: the next pane, its row, its prompt id.
+async function lostThenReconnected(host: ReturnType<typeof hostStore>, text: string) {
+  const before = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 10, failMs: 30, localFailMs: 30 }); // motion-allow: delivery timeouts, not motion
+  const sentBefore: string[] = [];
+  const first = await pane(host.store, () => "hang", sentBefore);
+  try {
+    void first.client.send(text).catch(() => undefined);
+    await until(() => first.rows().find((row) => row.text === text)?.failed === true);
+    await settle();
+  } finally {
+    Object.assign(deliveryTiming, before); // motion-allow: delivery timeouts, not motion
+  }
+  first.drop();
+  first.client.close?.();
+  const sentAfter: string[] = [];
+  const next = await pane(host.store, () => undefined, sentAfter);
+  const mine = () => next.rows().filter((row) => row.kind === "user" && row.text === text);
+  await until(() => mine().length === 1 && mine()[0]!.failed !== true);
+  const notice = (state: string, extra: Record<string, unknown> = {}) =>
+    next.deliver({
+      jsonrpc: "2.0",
+      method: "_cmux/prompt_resend",
+      params: { sessionId: next.client.selectedSession!, promptId: sentBefore[0]!, state, attempt: 0, ...extra },
+    });
+  return { next, mine, notice, promptId: sentBefore[0]!, sentAfter };
+}
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)); // fixed-wait: real time passing past the quiet window is the behavior under test
+
+// Leo, 2026-11-25: "Not sent ... (native.timed_out) Failed: 11017 ms after sending", and
+// 2026-11-24: "10s timeout for messages being sendsble is a shame. if it's making good progress,
+// it shiukd be allowed to keep going?". A just-restarted acpmux says "not now" to the outbox's
+// resend for a while; each retry is progress, so the row stays on its way, never "Not sent".
+test("a resend acpmux keeps saying not now to stays on its way past many quiet windows, and lands", async () => {
+  for (let round = 0; round < 5; round += 1) {
+    const host = hostStore();
+    const lost = await lostThenReconnected(host, `restart mid-send ${round}`);
+    try {
+      await withResendShowMs(30, async () => {
+        // The restore's wait is armed now with the 30 ms window; the outbox works on it.
+        lost.notice("sent");
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          await wait(20); // fixed-wait: real time past the quiet window is the behavior
+          lost.notice("retrying", { attempt, retryInMs: 10, code: "acpmux.not_ready", reason: "starting" });
+        }
+        await wait(20); // fixed-wait: real time past the quiet window is the behavior
+        lost.notice("sent", { attempt: 6 });
+        // Long past any one window, with no answer yet: still on its way.
+        await wait(90); // fixed-wait: real time past the quiet window is the behavior
+        expect(lost.mine()).toHaveLength(1);
+        expect(lost.mine()[0]!.failed).not.toBe(true);
+        expect(lost.mine()[0]!.delivery?.state).toBe("sending");
+        lost.notice("accepted", { attempt: 6 });
+        await until(() => lost.mine()[0]!.delivery?.state === "delivered");
+      });
+      expect(lost.mine()[0]!.failed).not.toBe(true);
+      // The page never sent it itself: the outbox's one prompt id runs once.
+      expect(lost.sentAfter).toEqual([]);
+    } finally {
+      lost.next.client.close?.();
+    }
+  }
+});
+
+test("a resend acpmux refuses for good says Not sent with acpmux's own words, not a guessed timeout", async () => {
+  const host = hostStore();
+  const lost = await lostThenReconnected(host, "refused after restart");
+  try {
+    await withResendShowMs(30, async () => {
+      lost.notice("sent");
+      lost.notice("refused", { code: "session.not_found", reason: "session.not_found", message: "This chat is gone." });
+      await until(() => lost.mine()[0]?.failed === true);
+    });
+    expect(lost.mine()).toHaveLength(1);
+    expect(lost.mine()[0]!.error).not.toBe(translate("prompt.delivery.noAnswer"));
+    expect(lost.mine()[0]!.error).not.toBe(translate("prompt.failure.hostAway"));
+    // The record a relaunch draws keeps acpmux's refusal too.
+    await settle();
+    const kept = host.all().find((record) => record.promptId === lost.promptId);
+    expect(kept?.failure?.code).toBe("session.not_found");
+  } finally {
+    lost.next.client.close?.();
+  }
+});
+
+// The breaker: many rounds of a send lost to an acpmux restart, then a random run of "not now",
+// silences past the window, and sometimes a second restart mid-resend, all on a loaded machine
+// when CI runs it that way. Every message ends delivered, once, on one row, and nothing is kept.
+test("breaker: a send lost to restarts and long not-nows is never lost, never doubled, never stuck", async () => {
+  const rounds = Number(process.env.SEND_BREAKER_ROUNDS ?? 12);
+  let seed = 0x5eed;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  for (let round = 0; round < rounds; round += 1) {
+    const host = hostStore();
+    const text = `breaker ${round}`;
+    let lost = await lostThenReconnected(host, text);
+    try {
+      await withResendShowMs(30, async () => {
+        lost.notice("sent");
+        const steps = 2 + Math.floor(random() * 6);
+        for (let step = 0; step < steps; step += 1) {
+          await wait(5 + Math.floor(random() * 25)); // fixed-wait: random silences past the window are the breaker
+          lost.notice("retrying", { attempt: step, retryInMs: 10, code: "native.timed_out", reason: "timed_out" });
+          expect(lost.mine()).toHaveLength(1);
+          expect(lost.mine()[0]!.failed).not.toBe(true);
+        }
+        if (random() < 0.4) {
+          // acpmux restarts again mid-resend: this connection goes, the next pane draws it again.
+          lost.next.drop();
+          lost.next.client.close?.();
+          const sentAfter: string[] = [];
+          const third = await pane(host.store, () => undefined, sentAfter);
+          const mine = () => third.rows().filter((row) => row.kind === "user" && row.text === text);
+          await until(() => mine().length === 1 && mine()[0]!.failed !== true);
+          const notice = (state: string, extra: Record<string, unknown> = {}) =>
+            third.deliver({
+              jsonrpc: "2.0",
+              method: "_cmux/prompt_resend",
+              params: {
+                sessionId: third.client.selectedSession!,
+                promptId: lost.promptId,
+                state,
+                attempt: 0,
+                ...extra,
+              },
+            });
+          lost = { ...lost, next: third, mine, notice, sentAfter };
+          lost.notice("sent");
+        }
+        await wait(Math.floor(random() * 60)); // fixed-wait: random silences past the window are the breaker
+        expect(lost.mine()[0]!.delivery?.state).toBe("sending");
+        lost.notice("accepted");
+        await until(() => lost.mine()[0]!.delivery?.state === "delivered");
+      });
+      expect(lost.mine()).toHaveLength(1);
+      expect(lost.mine()[0]!.failed).not.toBe(true);
+      expect(lost.sentAfter).toEqual([]);
+      await settle();
+      expect(host.all().filter((record) => record.promptId === lost.promptId)).toHaveLength(0);
+    } finally {
+      lost.next.client.close?.();
+    }
+  }
+}, 300_000);

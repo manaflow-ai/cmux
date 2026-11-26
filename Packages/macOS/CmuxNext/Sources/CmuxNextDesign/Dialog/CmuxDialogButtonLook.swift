@@ -133,6 +133,19 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return [glass.composited(over: scrimmed), tokens.opaqueOverlayFill(lift: lift), scrimmed]
     }
 
+    /// The card a button on a prompt floating over every app sits on (``SurfaceRole/prompt``): its veil, the theme's
+    /// glass tint at the prompt's opacity, over the theme's own window, the opaque popup surface (Reduce
+    /// Transparency), and the veil over the brightest and the darkest page. No scrim dims what is under the
+    /// prompt as one dims a dialog's window, and any app shows through, so its inks are fit over any page.
+    public static func promptCardSurfaces(_ tokens: ThemeTokens, lift: Double = 0.14) -> [ThemeRGB] {
+        let alpha = FloatingGlassStyle.prompt.look(isDark: tokens.isDark).veil.alpha
+        let veil = tokens.glassTint.withAlpha(Double(alpha))
+        func glass(over page: ThemeRGB) -> ThemeRGB { veil.composited(over: page) }
+        let own = glass(over: tokens.windowBackground.withAlpha(1))
+        // glass-opaque-allow: a contrast reference only (the card under Reduce Transparency); nothing paints it here
+        return [own, tokens.opaqueOverlayFill(lift: lift), own, glass(over: white), glass(over: black)]
+    }
+
     /// The card a button on a floating menu or popover sits on (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``,
     /// the omnibar's bookmark bubble): the menu glass (the theme's glass tint at the menu level, then the theme veil,
     /// ``GlassMenuMaterial/veil(for:)``) over the theme's own window, the opaque popup surface (Reduce Transparency), and the

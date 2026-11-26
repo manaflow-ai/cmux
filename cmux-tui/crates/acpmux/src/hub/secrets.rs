@@ -54,6 +54,9 @@ use zeroize::Zeroizing;
 
 pub(super) const ASK_TTL: Duration = Duration::from_secs(15 * 60);
 pub(super) const HELD_TTL: Duration = Duration::from_secs(60 * 60);
+/// Held secret values past which the oldest is dropped (never a refusal).
+/// Measured: each value is up to MAX_VALUE_BYTES (64 KiB) of plaintext secret in daemon memory
+/// for up to HELD_TTL (an hour): 4 MiB of secrets at most.
 pub(super) const HELD_LIMIT: usize = 64;
 const MAX_VALUE_BYTES: usize = 64 * 1024;
 const MAX_REASON_CHARS: usize = 500;

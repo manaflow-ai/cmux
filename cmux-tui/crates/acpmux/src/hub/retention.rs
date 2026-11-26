@@ -94,7 +94,16 @@ impl Hub {
     pub fn retention_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let hub = Arc::downgrade(self);
         let wake = self.retention_wake.clone();
-        tokio::spawn(async move {
+        // Supervised: a pass that panics starts the worker again, so later wakes still run
+        // passes; one that keeps panicking stops the daemon for a restart (`crate::supervise`).
+        crate::supervise::restarting("retention", &self.fatal, move || {
+            let (hub, wake) = (hub.clone(), wake.clone());
+            Self::retention_loop(hub, wake)
+        })
+    }
+
+    async fn retention_loop(hub: std::sync::Weak<Self>, wake: Arc<tokio::sync::Notify>) {
+        {
             let mut last: Option<std::time::Instant> = None;
             loop {
                 {
@@ -102,6 +111,7 @@ impl Hub {
                     if hub.shutting_down() {
                         return;
                     }
+                    crate::supervise::panic_point("retention", "");
                     let on = hub.config.read().await.store.closed_log_retention().is_some();
                     if last.is_none_or(|at| at.elapsed() >= SPACING) {
                         last = Some(std::time::Instant::now());
@@ -140,7 +150,7 @@ impl Hub {
                 }
                 let _ = tokio::time::timeout(store_pressure::CHECK_EVERY, wake.notified()).await;
             }
-        })
+        }
     }
 
     /// Compacts every closed chat's log, whatever its age (`store_pressure.rs`). The caller holds

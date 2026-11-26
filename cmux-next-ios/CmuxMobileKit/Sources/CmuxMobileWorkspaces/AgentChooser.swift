@@ -12,6 +12,8 @@ private let theme = CmuxMobileTheme.standard
 struct AgentChooser: View {
     let load: @MainActor () async throws -> AgentCatalog
     let start: @MainActor (AgentChatStart) -> Void
+    let macID: String
+    let cache: AgentCatalogCache
     @Environment(\.dismiss) private var dismiss
 
     @State private var phase: Phase = .loading
@@ -22,6 +24,16 @@ struct AgentChooser: View {
         case loading
         case loaded(AgentCatalog)
         case failed(String)
+    }
+
+    init(load: @escaping @MainActor () async throws -> AgentCatalog,
+         start: @escaping @MainActor (AgentChatStart) -> Void,
+         macID: String = "", cache: AgentCatalogCache = .shared) {
+        self.load = load
+        self.start = start
+        self.macID = macID
+        self.cache = cache
+        _phase = State(initialValue: cache.load(macID: macID).map(Phase.loaded) ?? .loading)
     }
 
     var body: some View {
@@ -47,6 +59,7 @@ struct AgentChooser: View {
     private var content: some View {
         switch phase {
         case .loading:
+            // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             CmuxSpinner(label: Text("Loading agents…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .placeholderBound("agents.loading", .milliseconds(2000))
@@ -153,13 +166,23 @@ struct AgentChooser: View {
     }
 
     private func reload() async {
-        phase = .loading
+        let cached = cache.load(macID: macID)
+        if let cached {
+            phase = .loaded(cached)
+        } else {
+            phase = .loading
+        }
         do {
             let catalog = try await load()
             harnessID = catalog.defaultChoice?.id
             modelID = nil
             phase = .loaded(catalog)
+            cache.save(catalog, for: macID)
         } catch {
+            if let cached {
+                phase = .loaded(cached)
+                return
+            }
             phase = .failed(UserFacingError.message(error, fallback: "Couldn't load the agents. Try again."))
         }
     }

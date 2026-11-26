@@ -217,6 +217,10 @@ fn run(
             mux, client, operation, params,
         ))),
         "feed" => Ok(super::feed_client_ops::routed(mux, client, operation, Value::Object(params))),
+        #[cfg(unix)]
+        super::forum_routed::OWNER => {
+            Ok(super::forum_routed::routed(mux, client, operation, Value::Object(params)))
+        }
         owner => Err(ResourceError::operation_failed(
             operation,
             "this daemon has no owner for the routed namespace",

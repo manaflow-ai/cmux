@@ -147,6 +147,38 @@ const messageSurfaceChat = chat([
   summary(5.7, { status: "completed", durationMs: 78_000, toolCount: 2 }),
 ]);
 
+// The prompt bubble's ink (--cv-user-bubble-text, schemas/agent-pane/style-tokens.json): a filled pill
+// as Codex draws its prompt, white on blue, applied the way the host sends a look's agent-pane/theme.css.
+// The prompt carries a quote and inline code, so the bubble's quiet line and code wash are in the shot.
+const bubbleInkChat = chat([
+  user(
+    "> The prompt should read as Codex's\n\nMake the prompt a blue pill with `white` text and keep the quote quiet",
+    7,
+    {
+      id: "bubble-ink-user",
+    },
+  ),
+  activity([tool("Edit agent-pane/theme.css", "edit", "completed")], 6.8, { id: "bubble-ink-tools" }),
+  assistant("The prompt is a filled pill now, and its quote and code follow its ink.", 6.4, {
+    id: "bubble-ink-answer",
+  }),
+  user("Same in light", 6, { id: "bubble-ink-short" }),
+  summary(5.9, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+]);
+const BUBBLE_PILL_TINT =
+  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg)));";
+const BUBBLE_PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
+/// A play that sends `css` as the person's agent-pane/theme.css (AgentPaneCustomization.swift's path).
+const applyLookCss =
+  (css: string) => async (ctx: { document: Document; waitFor(condition: () => boolean): Promise<void> }) => {
+    const page = ctx.document.defaultView as unknown as {
+      cmuxAcpmuxBridge?: { applyCustomization?(customization: { themeCSS: string }): void };
+    };
+    await ctx.waitFor(() => typeof page.cmuxAcpmuxBridge?.applyCustomization === "function");
+    const stage = ctx.document.getElementById("acpmux-user-theme")?.textContent ?? "";
+    page.cmuxAcpmuxBridge!.applyCustomization!({ themeCSS: `${stage}\n${css}` });
+  };
+
 const keyboardRows = [
   user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
   activity(
@@ -1604,7 +1636,6 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
-    "agent-session/acpmux/rows/ActivityLineRow.tsx",
     "agent-session/acpmux/rows/AgentPairRow.tsx",
     "agent-session/acpmux/rows/BackgroundTaskRow.tsx",
     "agent-session/acpmux/rows/BackgroundTurnRow.tsx",
@@ -1622,7 +1653,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/rows/PermissionAsk.tsx",
     "agent-session/acpmux/rows/PermissionRecordRow.tsx",
     "agent-session/acpmux/rows/PermissionRow.tsx",
-    "agent-session/acpmux/rows/PlanRow.tsx",
     "agent-session/acpmux/rows/PolicyUnenforcedRow.tsx",
     "agent-session/acpmux/rows/QuestionRecordRow.tsx",
     "agent-session/acpmux/rows/QueuedMessageRow.tsx",
@@ -1633,7 +1663,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/rows/StartedSessionsRow.tsx",
     "agent-session/acpmux/rows/SubagentDoneRow.tsx",
     "agent-session/acpmux/rows/SubagentGroupRow.tsx",
-    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
     "agent-session/acpmux/rows/SubagentRow.tsx",
     "agent-session/acpmux/rows/SummaryRow.tsx",
     "agent-session/acpmux/rows/TaskLineRow.tsx",
@@ -1740,6 +1769,27 @@ export default agentPaneEntry({
       note: "Selected arm: stronger glass fill and no rim (Plain, Lens or Spectrum) for the user's prompt, borderless agent-message cards, no layout changes.",
       snapshot: messageSurfaceChat,
       play: messageSurfaceComputedStyle,
+    },
+    "user-bubble-ink-default": {
+      note: "Before: no look sets --cv-user-bubble-text, so the prompt keeps the grey glass and the transcript's text, as today.",
+      snapshot: bubbleInkChat,
+    },
+    "user-bubble-ink-tint-only": {
+      note: "Why the ink exists: a blue tint alone keeps the transcript's text on it (dark text on blue in light). The look-addons contrast check fails this.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} }`),
+    },
+    "user-bubble-ink-pill": {
+      note: "A filled pill: the accent tint with --cv-user-bubble-text from the theme's own colors (white on blue in light and dark). The quote takes the ink at 88%, inline code a wash of it. Capture in light and dark.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} }`),
+    },
+    "user-bubble-ink-codex": {
+      note: "The Codex pack's prompt: the pill with its 20 px corner and no edge, as chameleon-codex sets it. Paint only: no row moves from the default arm.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(
+        `:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; }`,
+      ),
     },
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",

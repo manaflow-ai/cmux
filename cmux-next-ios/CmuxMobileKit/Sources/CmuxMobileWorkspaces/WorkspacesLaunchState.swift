@@ -34,4 +34,20 @@ public enum WorkspacesLaunchState: Equatable, Sendable {
             return hasMacs ? .content(refreshFailed: false) : .noMacs
         }
     }
+
+    /// Whether the page draws its placeholder rows: only when this phone has nothing it ever
+    /// listed for the team to draw. The team's first load with no cached Macs and rows
+    /// (`firstLoad`), or Macs known while no Mac has a row or a Mac line yet. Rows the phone
+    /// showed before (a launch's or a team switch's cache) are drawn instead, and the Macs'
+    /// answers change them in place. Leo, 2026-11-24: "holy shit this is a huge problem in
+    /// ios... wer need to chase all these placeholders doen and prevent them".
+    /// `listLoading`: the list is waiting with no row to show (`WorkspaceInbox.isLoading`);
+    /// `hasMacLines`: it has a Mac line to show instead (`WorkspaceInbox.folds`).
+    public func showsPlaceholderRows(hasMacs: Bool, listLoading: Bool, hasMacLines: Bool) -> Bool {
+        switch self {
+        case .firstLoad: true
+        case .noMacs, .content: hasMacs && listLoading && !hasMacLines
+        case .failed: false
+        }
+    }
 }

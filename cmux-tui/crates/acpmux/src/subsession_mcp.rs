@@ -52,7 +52,7 @@ pub(crate) fn tools() -> Value {
     json!([
         {
             "name": "start_session",
-            "description": "Start a sub-session: a new agent session that works on a task in parallel with you, as your child. It is a normal session (it resumes, forks and lists like any other) and it may start its own sub-sessions. The user finds it listed under your chat in the chat list; to put its chat in front of them, open it with the cmux MCP server's app_agent_open and its sessionId. It starts with none of your context: the prompt must carry the whole task (files, goal, constraints, how to report). With fork: true it is a fork of your chat as it is now instead, as the user's Fork Conversation makes one: it has your whole history, runs your agent, model and folder, and its chat shows it was forked from yours; its prompt then only needs what the fork does differently (\"You are the fork: try the streaming approach instead\"). Returns at once with its sessionId while it works; use wait_for_sessions or get_session to read its result, send_message to steer it, stop_session to stop or close it. Limits: each session may have a limited number of live sub-sessions (running, waiting for input, or with a harness process alive; finished, dead and closed ones do not count), a limited number running at once (maxRunning; a start past it is queued and starts by itself when a running one finishes), and nesting is limited in depth (list_sessions shows yours under self); a refused start says which limit and how to ask for more.",
+            "description": "Start a sub-session: a new agent session, your child, working in parallel (it may start its own). The user finds it under your chat in the chat list; open its chat for them with the cmux MCP server's app_agent_open and its sessionId. It has none of your context, so the prompt carries the whole task (files, goal, constraints, how to report). fork: true instead forks your chat as it is now (your history, agent, model and folder); its prompt says only what the fork does differently. Returns at once with its sessionId; read results with wait_for_sessions or get_session, steer with send_message, end with stop_session. Live children, running children (maxRunning: past it a start is queued) and depth are limited; a refused start names the limit and how to ask for more.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -60,12 +60,24 @@ pub(crate) fn tools() -> Value {
                     "name": {"type": "string", "description": "A short name for it among your sub-sessions, e.g. \"tests\" (default: from the prompt)."},
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
-                    "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
-                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `cmux agent new --machine auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
-                    "fork": {"type": "boolean", "description": "Start it as a fork of this chat as it is now, with all of your history, instead of a new session that starts with none. Your turn that asks for it ends there in the fork's copy, and the prompt is the fork's next message. Takes no harness, model, cwd or worktree: a fork runs yours. Default false."},
-                    "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
+                    "cwd": {"type": "string", "description": "Absolute folder to work in (default: yours). An untrusted folder waits on a Trust / Not now card in your chat; Not now refuses (do not ask again)."},
+                    "host": {"type": "string", "description": "This machine only. \"auto\" first checks this machine has room (free RAM, busy cores, disk, lane limit; as `cmux agent new --machine auto`) and the result's line says why (\"placed on ...\"); past its room it starts anyway with a warning. \"auto-build\" also requires a build machine, else refused. Default: unchecked."},
+                    "fork": {"type": "boolean", "description": "Fork this chat as it is now, with all your history, instead of starting empty; the prompt is the fork's next message. Takes no harness, model, cwd or worktree."},
+                    "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (branch cmux/<name>), apart from your edits until the user applies them; checked out as committed, without hooks or filters (LFS files stay pointers)."}
                 },
                 "required": ["prompt"]
+            }
+        },
+        {
+            "name": "move_chat",
+            "description": "Move this chat between Local (this Mac), Cloud (runs in cmux Cloud and stays there) and AutoCloud (here while the Mac is up, in the Cloud while it sleeps). You may move your own chat off the Mac (to cloud or auto) only while the person's AutoCloud setting is on; bringing it back to local always needs the person. A move you may not make changes nothing and returns status needs_person with the command the person runs (cmux chat move ID --on PLACE): tell them, do not retry. Say why in reason.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "on": {"type": "string", "enum": ["local", "cloud", "auto"], "description": "Where the chat should run."},
+                    "reason": {"type": "string", "description": "One line on why, shown to the person and logged."}
+                },
+                "required": ["on"]
             }
         },
         {
@@ -299,6 +311,21 @@ fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
 }
 
+/// `move_chat`'s one line: moved, already there, or what the person runs.
+fn moved_text(r: &Value) -> String {
+    let to = r["to"].as_str().unwrap_or("?");
+    match r["status"].as_str() {
+        Some("moved") => format!("Moved this chat to {to}."),
+        Some("moving") => format!("This chat is on its way to {to}."),
+        Some("already") => format!("This chat already runs {to}."),
+        _ => format!(
+            "Not moved: {}. Ask the person to run: {}",
+            r["why"].as_str().unwrap_or("the person decides this move"),
+            r["command"].as_str().unwrap_or_default()
+        ),
+    }
+}
+
 /// `send_message`'s remembered `idempotency_key`s, for every session this process serves.
 static SEND_KEYS: std::sync::LazyLock<crate::idempotency::Cache> = std::sync::LazyLock::new(|| {
     crate::idempotency::Cache::new(crate::idempotency::TTL, crate::idempotency::MAX_ENTRIES)
@@ -351,6 +378,14 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
+        "move_chat" => {
+            let mut p = args;
+            p["sessionId"] = json!(session);
+            match request(method::MUX_CHAT_MOVE, p).await {
+                Ok(r) => ok(moved_text(&r), r),
+                Err(e) => refusal(e),
+            }
+        }
         "wait_for_sessions" => wait(daemon, &args).await,
         other => {
             error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))

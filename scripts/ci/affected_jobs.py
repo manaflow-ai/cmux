@@ -546,6 +546,95 @@ def tree_result_problems(job: Job, block: str) -> list[str]:
     return problems
 
 
+BATCH_SHORT = "its post-merge batch suite's paths (.github/post-merge-batch.json)"
+
+
+def add_workflow_paths(text: str, event: str, globs: list[str]) -> str:
+    """TEXT with GLOBS added after the last entry of EVENT's trigger `paths:` list, quoted as that entry is."""
+    lines = text.splitlines(keepends=True)
+    current, inside, last = None, False, None
+    for i, line in enumerate(lines):
+        if re.match(r"^\S", line):
+            if current is not None or line.startswith("jobs:"):
+                break
+            current = "" if line.startswith("on:") else None
+            continue
+        if current is None:
+            continue
+        if match := re.match(r"^  ([a-z_]+):", line):
+            current, inside = match.group(1), False
+        elif current == event and re.match(r"^    paths:\s*$", line):
+            inside = True
+        elif inside and re.match(r"^      - ", line):
+            last = i
+        elif inside and not re.match(r"^\s*(#.*)?$", line):
+            inside = False
+    if last is None:
+        return text
+    quote = '"' if lines[last].startswith('      - "') else ""
+    added = "".join(f"      - {quote}{glob}{quote}\n" for glob in globs)
+    return "".join(lines[:last + 1]) + added + "".join(lines[last + 1:])
+
+
+def add_batch_paths(text: str, paths: list[str], globs: list[str]) -> str:
+    """The post-merge batch file's TEXT with GLOBS added at the end of the suite `paths` array that holds PATHS."""
+    for match in re.finditer(r'(?s)"paths": \[(.*?)\]', text):
+        if json.loads("[" + match.group(1) + "]") != paths:
+            continue
+        body = match.group(1)
+        last = body.rstrip()
+        indent = re.search(r"\n([ \t]*)\S[^\n]*$", last).group(1)
+        added = "".join(f",\n{indent}{json.dumps(glob)}" for glob in globs)
+        start = match.start(1)
+        return text[:start] + last + added + body[len(last):] + text[match.end(1):]
+    return text
+
+
+def fix(root: Path, tree: git_tree.GitTree) -> list[str]:
+    """What `check` asks of the paths, written: each input a routed job's workflow trigger misses is added to that
+    trigger's `paths:`, then each pull_request path a workflow's post-merge batch suite does not start on is added to
+    the suite. A new file a crate embeds (a skill an `include_str!` names) is otherwise a hand edit in four workflows
+    and the batch file. Returns one line per path added."""
+    workspace_inputs, jobs = load_map((root / MAP).read_text(encoding="utf-8"))
+    graph = Graph(tree, workspace_inputs, jobs)
+    missing: dict[str, dict[str, list[str]]] = {}
+    for job in jobs:
+        text = (root / job.workflow).read_text(encoding="utf-8")
+        for event in ("pull_request", "push"):
+            globs = workflow_paths(text, event)
+            if globs is None:
+                continue
+            for entry in graph.inputs(job):
+                probe = entry.rstrip("/") + "/x" if is_directory(tree, entry) else entry
+                if not any(glob_matches(glob, probe) for glob in globs):
+                    glob = entry.rstrip("/") + ("/**" if probe != entry else "")
+                    wanted = missing.setdefault(job.workflow, {}).setdefault(event, [])
+                    if glob not in wanted:
+                        wanted.append(glob)
+    added = []
+    for workflow, events in sorted(missing.items()):
+        path = root / workflow
+        text = path.read_text(encoding="utf-8")
+        for event, globs in events.items():
+            text = add_workflow_paths(text, event, sorted(globs))
+            added += [f"{workflow} {event}: {glob}" for glob in sorted(globs)]
+        path.write_text(text, encoding="utf-8")
+    batch = root / ".github/post-merge-batch.json"
+    if batch.exists():
+        short = {problem.split(":", 1)[0] for problem in check(root, tree) if BATCH_SHORT in problem}
+        for workflow in sorted(short):
+            batch_paths = post_merge_batch_paths(root, workflow)
+            pulled = workflow_paths((root / workflow).read_text(encoding="utf-8"), "pull_request")
+            if not batch_paths or pulled is None:
+                continue
+            gaps = sorted(uncovered_by_push(pulled, batch_paths))
+            if gaps:
+                batch.write_text(add_batch_paths(batch.read_text(encoding="utf-8"), batch_paths, gaps),
+                                 encoding="utf-8")
+                added += [f".github/post-merge-batch.json ({Path(workflow).name}): {glob}" for glob in gaps]
+    return added
+
+
 def check(root: Path, tree: git_tree.GitTree) -> list[str]:
     """What keeps the routing whole, for every job the map lists:
 
@@ -563,7 +652,13 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
     problems = []
     for job in jobs:
         text = (root / job.workflow).read_text(encoding="utf-8")
-        inputs = graph.inputs(job)
+        try:
+            inputs = graph.inputs(job)
+        except (git_tree.Unreadable, ValueError, KeyError) as why:  # tomllib.TOMLDecodeError is a ValueError
+            # One job's unreadable crate graph is that job's problem: it used to end the whole check, so a base
+            # whose Cargo.toml did not parse hid every other job's missing path (#53846 landed one that way).
+            problems.append(f"{job.workflow}: the inputs of {job.name} could not be read: {why}")
+            continue
         for event in ("pull_request", "push"):
             globs = workflow_paths(text, event)
             if globs is None:
@@ -572,7 +667,8 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
                 probe = entry.rstrip("/") + "/x" if is_directory(tree, entry) else entry
                 if not any(glob_matches(glob, probe) for glob in globs):
                     problems.append(f'{job.workflow}: the {event} paths miss "{entry.rstrip("/")}'
-                                    f'{"/**" if probe != entry else ""}", an input of {job.name}')
+                                    f'{"/**" if probe != entry else ""}", an input of {job.name} '
+                                    f'(`python3 scripts/ci/affected_jobs.py fix` adds it)')
         block = job_block(text, job.id)
         if block is None:
             problems.append(f"{job.workflow} has no job {job.id} ({MAP} routes it)")
@@ -739,7 +835,7 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
                 pulled = router_affects(root, workflow)
             if batch_paths and (pulled is None or uncovered_by_push(pulled, batch_paths)) \
                     and (workflow, job_id) not in routed:
-                problems.append(f"{workflow}: its post-merge batch suite's paths (.github/post-merge-batch.json) start "
+                problems.append(f"{workflow}: {BATCH_SHORT} start "
                                 f"on fewer paths than its pull_request paths, so a change the batch skips would run "
                                 f"{job_id} nowhere ({MAP} pull_request_skip)")
         elif not pushes_feat(text):
@@ -802,11 +898,18 @@ def main(argv: list[str] | None = None) -> int:
     gated.add_argument("--workflow", required=True, help="the routed workflow; its job outputs read `false` when the "
                        "graph is not needed")
     sub.add_parser("check")
+    sub.add_parser("fix", help="add every input a routed job's workflow paths miss to them, and every pull_request "
+                   "path its post-merge batch suite misses to the suite, then print what it added")
     paths = sub.add_parser("paths", help="the paths: globs a workflow's trigger needs for its routed jobs")
     paths.add_argument("--workflow", required=True)
     args = parser.parse_args(argv)
     root = args.repo
 
+    if args.command == "fix":
+        with git_tree.GitTree(root) as tree:
+            for line in fix(root, tree):
+                print(line)
+        return 0
     if args.command == "check":
         with git_tree.GitTree(root) as tree:
             problems = check(root, tree)

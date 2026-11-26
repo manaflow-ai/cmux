@@ -355,6 +355,7 @@
     "theme.scheme.convert",
     "theme.scheme.export",
     "theme.scheme.from_image",
+    "theme.slots.resolve",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -441,6 +442,7 @@
       "feed-local-list",
       "feed-local-read",
       "float-pane",
+      "flush-launch-snapshot",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -513,6 +515,7 @@
       "read-scrollback",
       "reattach-view",
       "release-surface-size",
+      "release-workspace-names",
       "reload-config",
       "remote-terminal-snapshot",
       "remove-screens-from-screen-group",
@@ -1325,6 +1328,12 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "apps-cloud-machine",
       "streams": [
         "control"
       ]
