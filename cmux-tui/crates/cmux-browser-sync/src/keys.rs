@@ -89,8 +89,11 @@ impl RecoveryKey {
     }
     /// The text shown once: 64 hex digits in groups of 8, dash separated.
     pub fn display(&self) -> Zeroizing<String> {
-        let hex: String = self.0.iter().map(|byte| format!("{byte:02x}")).collect();
-        let groups: Vec<&str> = (0..8).map(|i| &hex[i * 8..i * 8 + 8]).collect();
+        let groups: Vec<String> = self
+            .0
+            .chunks(4)
+            .map(|group| group.iter().map(|byte| format!("{byte:02x}")).collect())
+            .collect();
         Zeroizing::new(groups.join("-"))
     }
     /// Reads what the person typed back: hex digits, any dashes or spaces, any case.
@@ -99,10 +102,18 @@ impl RecoveryKey {
             text.chars().filter(|c| !matches!(c, '-' | ' ')).collect::<String>().to_lowercase(),
         );
         ensure!(digits.len() == 64, "a recovery key is 64 hex digits");
+        let nibbles: Zeroizing<Vec<u8>> = Zeroizing::new(
+            digits
+                .chars()
+                .map(|c| c.to_digit(16).and_then(|d| u8::try_from(d).ok()))
+                .collect::<Option<Vec<u8>>>()
+                .ok_or_else(|| anyhow!("a recovery key is hex digits"))?,
+        );
         let mut bytes = Zeroizing::new([0u8; 32]);
-        for (i, byte) in bytes.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&digits[i * 2..i * 2 + 2], 16)
-                .map_err(|_| anyhow!("a recovery key is hex digits"))?;
+        for (byte, pair) in bytes.iter_mut().zip(nibbles.chunks_exact(2)) {
+            if let [high, low] = pair {
+                *byte = (high << 4) | low;
+            }
         }
         Ok(Self(bytes))
     }
