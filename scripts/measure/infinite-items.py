@@ -665,21 +665,6 @@ class Run:
               f"{json.dumps(out)}", flush=True)
         return out
 
-    def heap_profile(self):
-        """--heap-profile: a dhat-heap acpmux (ACPMUX_DHAT_OUT) writes its profile now, after the last sample, and
-        answers its live bytes then and at the peak (`_acpmux/heap_profile`): a daemon stopped by a signal can be
-        killed before it writes. Prints INFINITE-HEAPPROFILE."""
-        try:
-            c = Acp(self.acp_sock, timeout=600)
-            out = c.call("_acpmux/heap_profile", {})
-            c.close()
-        except (OSError, RuntimeError, ValueError) as exc:
-            self.error("heap profile", exc)
-            return
-        chats = len([x for x in getattr(self, "sessions", []) if x])
-        print(f"INFINITE-HEAPPROFILE {self.count} cap={self.args.resident_cap} chats={chats} {json.dumps(out)}",
-              flush=True)
-
     @staticmethod
     def drain(conn):
         try:
@@ -856,12 +841,6 @@ def run_count(args, count):
     result = {"count": count, "samples": []}
     try:
         run.start()
-        if args.heap_profile_at:
-            # A dhat-heap acpmux records slowly (job 0ce0131a: 1,000 chats not open after 28 min): past the
-            # deadline it writes what it holds so far rather than nothing when the job's cap kills it.
-            timer = threading.Timer(max(0.0, args.heap_profile_at - time.time()), run.heap_profile)
-            timer.daemon = True
-            timer.start()
         settle(args, run.top)
         empty = idle_window(run.top, args.window, run.disks)
         result["empty"] = empty
@@ -893,8 +872,6 @@ def run_count(args, count):
                 dhat_mark(number)
         if args.open_probe > 0:
             result["open_ms"] = run.open_probe(args.open_probe)
-        if args.heap_profile:
-            run.heap_profile()
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -1019,10 +996,6 @@ def main():
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
     p.add_argument("--dhat-mark-days", default="",
                    help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
-    p.add_argument("--heap-profile", action="store_true",
-                   help="after the last sample, ask a dhat-heap acpmux to write its profile (_acpmux/heap_profile)")
-    p.add_argument("--heap-profile-at", type=float, default=0.0,
-                   help="a Unix time at which to ask for the heap profile even if the run has not ended (dhat is slow)")
     p.add_argument("--out")
     args = p.parse_args()
     args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})

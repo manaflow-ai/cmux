@@ -220,6 +220,8 @@ fn runtime_with(daemon: bool, workers: Option<usize>) -> std::io::Result<tokio::
     if let Some(workers) = workers {
         builder.worker_threads(workers);
     }
+    // A worker returns the pages chats evicted on other threads freed onto its heap.
+    builder.on_thread_park(crate::heap_return::on_worker_park);
     builder.enable_all().build()
 }
 

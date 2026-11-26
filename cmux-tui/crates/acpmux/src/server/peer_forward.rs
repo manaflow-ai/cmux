@@ -37,7 +37,6 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_NEW,
     method::SESSION_LIST,
     method::MUX_STATUS,
-    method::MUX_HEAP_PROFILE,
     method::MUX_PERF,
     method::MUX_CALLERS,
     method::MUX_FELT_SNAPSHOT,
