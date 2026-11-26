@@ -179,8 +179,9 @@ pub fn harness_name(id: &str, strings: &Strings) -> String {
     let lead = official_title(&lower, strings)
         .or_else(|| lookup(BUILTINS, &lower))
         .unwrap_or_else(|| word(first));
-    let rest: Vec<String> = parts[1..]
+    let rest: Vec<String> = parts
         .iter()
+        .skip(1)
         .map(|part| lookup(ROUTES, &part.to_lowercase()).unwrap_or_else(|| word(part)))
         .collect();
     if rest.is_empty() { lead } else { format!("{lead} ({})", rest.join(" ")) }
@@ -194,7 +195,7 @@ fn is_date(parts: [&str; 3]) -> bool {
             numbers.push(part.parse::<u32>().unwrap_or(0));
         }
     }
-    numbers.len() == 3 && (1..=12).contains(&numbers[1]) && (1..=31).contains(&numbers[2])
+    matches!(numbers.as_slice(), [_, month, day] if (1..=12).contains(month) && (1..=31).contains(day))
 }
 
 /// A model id as a name: words capitalized, a version's numbers joined by a dot, a trailing release
@@ -206,14 +207,15 @@ pub fn model_name(id: &str) -> String {
     if base.ends_with(']')
         && let Some(open) = base.rfind('[')
     {
-        context = Some(base[open + 1..base.len() - 1].to_uppercase());
+        context = base.get(open + 1..base.len() - 1).map(str::to_uppercase);
         base.truncate(open);
     }
     let mut parts = tokens(&base);
     let last_is_date = parts.last().is_some_and(|last| {
         let chars: Vec<char> = last.chars().collect();
         chars.len() == 8 && chars.iter().all(|c| c.is_numeric()) && {
-            let cut = |a: usize, b: usize| chars[a..b].iter().collect::<String>();
+            let cut =
+                |a: usize, b: usize| chars.get(a..b).unwrap_or_default().iter().collect::<String>();
             let (year, month, day) = (cut(0, 4), cut(4, 6), cut(6, 8));
             is_date([&year, &month, &day])
         }
@@ -221,7 +223,8 @@ pub fn model_name(id: &str) -> String {
     if last_is_date {
         parts.pop();
     } else if parts.len() > 3
-        && is_date([parts[parts.len() - 3], parts[parts.len() - 2], parts[parts.len() - 1]])
+        && let [.., year, month, day] = parts.as_slice()
+        && is_date([*year, *month, *day])
     {
         parts.truncate(parts.len() - 3);
     }

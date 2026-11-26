@@ -153,9 +153,8 @@ pub fn registry_media_type(head: &[u8], length: u64) -> Option<&'static str> {
     if head.starts_with(&[0x47, 0x49, 0x46, 0x38]) {
         return Some("image/gif");
     }
-    if head.len() >= 12
-        && head.starts_with(&[0x52, 0x49, 0x46, 0x46])
-        && head[8..12] == [0x57, 0x45, 0x42, 0x50]
+    if head.starts_with(&[0x52, 0x49, 0x46, 0x46])
+        && head.get(8..12) == Some(&[0x57, 0x45, 0x42, 0x50][..])
     {
         return Some("image/webp");
     }
