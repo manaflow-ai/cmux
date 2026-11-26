@@ -744,8 +744,7 @@ pub fn agent_path() -> Option<OsString> {
 /// PATH: a preset or profile that saved a PATH listing `/usr/local/bin` or
 /// `/opt/homebrew/bin` first (where cmux classic links its `cmux`) made
 /// `cmux` in that chat classic's CLI, and its commands opened cmux classic
-/// next to NEXT (ask-3b6366d31e, "YOU GUYS KEEP FUCKING OPENING UP MY CMUX
-/// CLASSIC").
+/// next to NEXT (ask-3b6366d31e: agents kept opening cmux classic).
 pub fn with_agent_path(own: &str) -> String {
     with_bundled_first(own, agent_path(), bundled_bin_dir())
 }
