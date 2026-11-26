@@ -47,7 +47,7 @@ Totals: 5 matched, 18 partial, 3 missing, out of 26.
 | Settings window with left nav (General, Appearance, Configuration, Personalization, MCP servers, Git, Environments, Worktrees, Archived threads) | partial | Gap: a look cannot reorder or rename Settings sections. |
 | Appearance: theme import/copy, accent/background/foreground, UI and code font, contrast, UI font size | partial | cmux theme files cover colors and fonts and the look sets system-ui at 15 px; no contrast slider or Codex theme import. |
 | Skills and plugins | partial | Sidebar Skills row matches; cmux's App Store is the plugin surface rather than Codex's Plugins page. |
-| Threads grouped by project with ages, pinned chats | partial | The Chats section (customize/): New chat, Pinned, by project or one list, a sort; `sidebar.groupBy: folder`. |
+| Threads grouped by project with ages, pinned chats | partial | The Chats section (customize/): New chat, Pinned, Active work, Projects, Recents (or one list), a sort; `sidebar.groupBy: folder`. |
 | Mobile control of desktop chats | partial | cmux has an iOS app and cloud machines; not the reference mobile app's flow. |
 | Review command with prioritized findings | missing | No built-in review command that lists ranked findings; cmux relies on the harness or a skill. |
 | Work location chip (Local / Worktree / Cloud) and branch chip under the composer | missing | cmux has workspaces, worktrees and cloud machines, but no location/branch chip row under the composer. |
@@ -74,14 +74,18 @@ These are the places where the public API could not express the reference app:
 
 - **One customize app per look.** A look's `customize/` is the one `local/customize` app, and
   `implements` holds each interface once. So `../threads`' Activity section (`cmux.section/1`) can't
-  ship next to the Chats section. This look keeps Chats and turns on cmux's own priority view instead.
-- **Sidebar sections the look cannot name.** Nightly 4572038238101 (hq `goals/customize-app-profiles.parity.json`,
-  codex-app `sidebar`) still draws Priority, Chief, a Chats header with Organize and a No Folder section where the
-  reference app draws a workspace switcher header, Active work and Recents. `sidebar.sections.hidden` and
-  `sidebar.sections.order` (docs/cmux-next/sidebar-customization.md) take section ids, but no document lists the ids
-  of those four sections, so this look sets none rather than guess; the ids need reading from a live sidebar
-  document (`cmux-layout-reducer` `sidebar_section_customization.rs` takes `id` or `keys`). Renaming a section
-  (Priority to Active work) has no setting.
+  ship next to the Chats section. This look keeps Chats and draws Active work inside it instead.
+- **Sidebar sections.** Nightly 4572038238101 (hq `goals/customize-app-profiles.parity.json`, codex-app
+  `sidebar`) drew Priority, Chief, a Chats header with Organize and a No Folder section where the reference app
+  draws a workspace switcher header, New chat, Active work, Projects and Recents. The Chats section now draws
+  New chat, Active work (running, waiting on you, unread), Projects (by folder, Show more) and Recents (chats with
+  no project), each chat once; the priority view is off and `sidebar.sections.hidden: ["sec_top"]` hides Home
+  (Chief) and the App Store. Still different:
+  - no workspace switcher header ("Codex ▾"): no section or setting draws one;
+  - the app section's own "Chats" title row stays: a manifest cannot turn off a section's title, only the
+    section's context menu can;
+  - the native workspace list (`sec_workspaces`, shown as No Folder under `sidebar.groupBy: folder`) still
+    draws: hiding it is spared while it holds the selected workspace, which it always does.
 - **Settings nav and section rows.** `sidebar.nav` styles the sidebar only; no setting restyles the Settings window's
   nav or rows (the `settingsSections` look is not a key), so the Settings gap stays.
 - **No motion timings.** A look can switch animations on or off and pick a speed. It cannot set a

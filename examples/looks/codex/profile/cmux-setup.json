@@ -67,9 +67,11 @@
     "sidebar.hoverCards.layout": "compact",
     // Pending (Rust): "sidebar.sortBy": "updated" and "sidebar.rowHoverAction": "archive" for the native list.
 
-    // Threads (codex/threads): cmux's own priority view lists the chats waiting on you first.
-    "sidebar.priorityView.enabled": true,
-    "sidebar.priorityView.shown": true,
+    // Threads: the Chats section's own Active work list (customize/) stands in for the priority view,
+    // and the top section (Home, App Store) is hidden, as the reference app has neither.
+    "sidebar.priorityView.enabled": false,
+    "sidebar.priorityView.shown": false,
+    "sidebar.sections.hidden": ["sec_top"],
 
     // The New Tab page (codex/send-parity): the builder page from customize/.
     "tabs.newTabApp": "local/customize",
