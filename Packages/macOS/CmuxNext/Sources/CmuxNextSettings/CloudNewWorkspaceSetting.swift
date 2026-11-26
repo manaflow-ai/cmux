@@ -23,6 +23,17 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// Only an explicit opt-in shares this Mac's personal GitHub CLI login with a Cloud machine.
+    public func useMyGitHubLogin(personal: JSONValue, effective: JSONValue) -> Bool {
+        personal.value(at: Self.useMyGitHubLoginPath)?.boolValue == true
+            && effective.value(at: Self.useMyGitHubLoginPath)?.boolValue == true
+    }
+
+    @MainActor public static func useMyGitHubLogin(_ settings: SettingsController?) -> Bool {
+        guard let settings else { return false }
+        return Self().useMyGitHubLogin(personal: settings.fileRoot, effective: settings.snapshot.root)
+    }
+
     /// The Cloud environment a new Cloud chat starts from (`cloud.defaultImage`, Settings > Cloud >
     /// Default Image): `auto` or an environment id; a missing, empty or non-string value is `auto`.
     public func defaultImage(in root: JSONValue) -> String {

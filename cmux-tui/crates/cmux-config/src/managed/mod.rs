@@ -38,13 +38,51 @@ pub const FILE_OVERRIDE_KEY: &str = "CMUX_NEXT_MANAGED_PREFS_FILE";
 /// keys under `Recommended`.
 pub const LINUX_MANAGED_FILE: &str = "/etc/cmux/managed.json";
 
+pub(crate) const PERSONAL_GITHUB_LOGIN: &str = "cloud.useMyGitHubLogin";
+
+/// A credential-sharing opt-in can originate only in the user's file.
+pub(crate) fn allows_non_personal_value(key: &str, value: &Value) -> bool {
+    key != PERSONAL_GITHUB_LOGIN || value.as_bool() == Some(false)
+}
+
+/// Administrators may disable personal credential sharing. Only the person's file can opt in.
+/// Also recognize the object form accepted by the generic Rust merge.
+pub(crate) fn limit_github_login_policy(
+    mut layer: BTreeMap<String, Value>,
+) -> BTreeMap<String, Value> {
+    let nested = layer
+        .get_mut("cloud")
+        .and_then(Value::as_object_mut)
+        .and_then(|cloud| cloud.remove("useMyGitHubLogin"));
+    if nested.is_some()
+        && layer.get("cloud").and_then(Value::as_object).is_some_and(|o| o.is_empty())
+    {
+        layer.remove("cloud");
+    }
+    if nested.as_ref().and_then(Value::as_bool) == Some(false) {
+        layer.insert(PERSONAL_GITHUB_LOGIN.to_owned(), Value::Bool(false));
+    } else if layer
+        .get(PERSONAL_GITHUB_LOGIN)
+        .is_some_and(|v| !allows_non_personal_value(PERSONAL_GITHUB_LOGIN, v))
+    {
+        layer.remove(PERSONAL_GITHUB_LOGIN);
+    }
+    layer
+}
+
 /// The value an administrator set for one settings key, applied over
 /// `file` (the value in the person's settings file) as the settings owner
 /// applies it: a forced value wins, a recommended one replaces only a
 /// missing value. For launch paths that read the file directly.
 pub fn applied_to(key: &str, file: Option<Value>) -> Option<Value> {
     let mut values = read_keys(&[key], |name| std::env::var(name).ok());
-    values.forced.remove(key).or(file).or_else(|| values.recommended.remove(key))
+    let allowed = |value: &Value| allows_non_personal_value(key, value);
+    values
+        .forced
+        .remove(key)
+        .filter(allowed)
+        .or(file)
+        .or_else(|| values.recommended.remove(key).filter(allowed))
 }
 
 /// Who manages a settings key: the device's MDM profile, or the policy of

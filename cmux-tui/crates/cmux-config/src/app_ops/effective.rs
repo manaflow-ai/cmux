@@ -82,8 +82,8 @@ struct MergeKeys {
     chat_keys: BTreeSet<String>,
 }
 
-/// `values` with each older key's value under its new name when the new name is absent.
-fn aliasing_map(values: &BTreeMap<String, Value>, keys: &MergeKeys) -> BTreeMap<String, Value> {
+/// A policy layer with its legacy keys resolved and its credential-sharing permissions limited.
+fn policy_layer(values: &BTreeMap<String, Value>, keys: &MergeKeys) -> BTreeMap<String, Value> {
     let mut values = values.clone();
     for (old, new) in &keys.legacy {
         if !values.contains_key(new)
@@ -92,7 +92,7 @@ fn aliasing_map(values: &BTreeMap<String, Value>, keys: &MergeKeys) -> BTreeMap<
             values.insert(new.clone(), value);
         }
     }
-    values
+    crate::managed::limit_github_login_policy(values)
 }
 
 /// `root` with each older key's value at its new path when the new path is unset.
@@ -163,10 +163,10 @@ fn merge(request: &Value) -> Result<Value, OpError> {
     let keys = MergeKeys { legacy, roots_key, booleans, chat_keys };
 
     let team_name = team_in.get("teamName").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let team_defaults = aliasing_map(&members(team_in, "defaults")?, &keys);
-    let team_enforced = aliasing_map(&members(team_in, "enforced")?, &keys);
-    let forced = aliasing_map(&members(managed_in, "forced")?, &keys);
-    let recommended = aliasing_map(&members(managed_in, "recommended")?, &keys);
+    let team_defaults = policy_layer(&members(team_in, "defaults")?, &keys);
+    let team_enforced = policy_layer(&members(team_in, "enforced")?, &keys);
+    let forced = policy_layer(&members(managed_in, "forced")?, &keys);
+    let recommended = policy_layer(&members(managed_in, "recommended")?, &keys);
 
     let mut root =
         aliasing_root(if file.is_object() { file.clone() } else { empty.clone() }, &keys);
@@ -603,6 +603,77 @@ mod tests {
             ])
         );
         assert_eq!(reply["managedChatRoots"], json!([]));
+    }
+
+    #[test]
+    fn personal_github_login_requires_user_consent_in_both_mergers() {
+        use crate::managed::{ManagedPreferences, PERSONAL_GITHUB_LOGIN as KEY, TeamPolicyLayer};
+
+        // Exercise the app operation and the native settings owner with the same policy input.
+        let check =
+            |file: Value, managed: Value, team: Value, expected: Option<bool>, lock: Value| {
+                let app = merged(file.clone(), managed.clone(), team.clone());
+                let native = crate::EffectiveSettings::merge(
+                    &file,
+                    &ManagedPreferences {
+                        forced: members(&managed, "forced").unwrap(),
+                        recommended: members(&managed, "recommended").unwrap(),
+                    },
+                    &TeamPolicyLayer {
+                        team_name: "T".into(),
+                        defaults: members(&team, "defaults").unwrap(),
+                        enforced: members(&team, "enforced").unwrap(),
+                        ..Default::default()
+                    },
+                    Schema::embedded(),
+                );
+                for root in [&app["root"], &native.root] {
+                    assert_eq!(
+                        root.pointer("/cloud/useMyGitHubLogin").and_then(Value::as_bool),
+                        expected
+                    );
+                }
+                assert_eq!(app["managedKeys"][KEY], lock);
+                assert_eq!(
+                    native.managed_keys.get(KEY).map(|source| source.wire_name()),
+                    if lock == "device" {
+                        Some("mdm")
+                    } else if lock.is_object() {
+                        Some("team")
+                    } else {
+                        None
+                    }
+                );
+            };
+        let file = json!({"cloud": {"useMyGitHubLogin": true}});
+        for grant in [json!(true), json!("true"), Value::Null] {
+            let on = json!({(KEY): grant});
+            let device = json!({"forced": on, "recommended": on});
+            let team = json!({"teamName": "T", "defaults": on, "enforced": on});
+            check(json!({}), device.clone(), team.clone(), None, Value::Null);
+            check(file.clone(), device, team, Some(true), Value::Null);
+        }
+        check(
+            file.clone(),
+            json!({"forced": {(KEY): true}}),
+            json!({"teamName": "T", "enforced": {(KEY): false}}),
+            Some(false),
+            json!({"team": "T"}),
+        );
+        check(
+            file,
+            json!({"forced": {(KEY): false}}),
+            json!({"enforced": {(KEY): true}}),
+            Some(false),
+            json!("device"),
+        );
+        check(
+            json!({}),
+            json!({"forced": {"cloud": {"useMyGitHubLogin": true}}}),
+            json!({}),
+            None,
+            Value::Null,
+        );
     }
 
     #[test]
