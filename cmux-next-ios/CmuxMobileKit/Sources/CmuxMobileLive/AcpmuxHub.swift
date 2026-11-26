@@ -974,6 +974,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         stopEarlier()
     }
 
+    public func isDeliveringPrompt(_ promptID: String) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        sendTasks[promptID] != nil || promptPayloads[promptID] != nil
+        #else
+        false
+        #endif
+    }
+
     public func send(_ intent: AgentClientIntent) {
         guard let hub else { return }
         if case .prompt(let text, let attachments, let steer, let promptID, let resend) = intent {
@@ -1445,10 +1453,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
         let cwd = baseDirectory
         let macName = summary.macName
+        let stall = heldPromptWindow
         var upload: AttachmentPrestager.Upload?
         if let link: any MacLink = hub?.macLink {
             upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
-                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
+                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName, stall: stall)
             }
         }
         prestager.sync(attachments, upload: upload)
@@ -1470,14 +1479,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
         return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: progress, prestaged: prestaged)
+                                           macName: summary.macName, progress: progress, prestaged: prestaged, stall: heldPromptWindow)
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
                              macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
-                             prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
+                             prestaged: [String: AttachmentPrestager.Entry] = [:],
+                             stall: Duration = AgentChatStore.sendDeadline) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -1505,7 +1515,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
             progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                           phase: .opening, attempt: 1))
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName, stall: stall)
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {
@@ -1551,11 +1561,26 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
-    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String,
+                       stall: Duration) async throws -> String {
+        @Sendable func send(to folder: String?) async throws -> String {
+            #if canImport(CmuxMobileLinkFFI)
+            let activity = LinkProgress()
+            return try await LinkDeadline.run(
+                timeout: stall,
+                timeoutError: LinkError(code: "upload_stalled", message: AgentChatStore.unreachableNotice),
+                extend: activity.stallExtension(after: stall)
+            ) {
+                try await LinkUpload.upload(payload, name: name, cwd: folder, over: link, onWrite: activity.progressed)
+            }
+            #else
+            return try await LinkUpload.upload(payload, name: name, cwd: folder, over: link)
+            #endif
+        }
         do {
-            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
+            return try await send(to: LinkUpload.folder(cwd))
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
+            return try await send(to: nil)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
@@ -1975,6 +2000,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Display copy for a refused call.
     static func message(_ error: any Error) -> String {
+        if (error as? LinkError)?.code == "upload_stalled" { return AgentChatStore.unreachableNotice }
         if error is AcpmuxHub.PeerAllowOnceOnly {
             return "From an iPhone you can allow this other machine's request once, or deny it. Choose Allow once."
         }
