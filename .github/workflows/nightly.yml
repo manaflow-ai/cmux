@@ -6060,7 +6060,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           APP_INPUT_DIGEST: ${{ needs.decide.outputs.app_input_digest }}
-          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          HEAD_SHA: ${{ steps.source.outputs.build_sha }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           DMG: nightly-out/${{ env.CHANNEL_DMG_PREFIX }}-arm64-${{ env.NIGHTLY_BUILD }}.dmg
           RUN_ID: ${{ github.run_id }}
@@ -7138,12 +7138,13 @@ jobs:
     steps:
       - *hold-the-whole-mac
       - *clear-stale-git-locks-self-hos-2
+      # Install the budget wrapper before the warm checkout sends its fetch token.
+      - *x12
       - *x8
       - *x9
       - *checkout-publication-tooling-a
       - *claim-publication-mac
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
-      - *x12
       # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
       # never a rate-limit wait. Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the push slot to a newer nightly-next push
