@@ -53,7 +53,6 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
         var hidden = false
         var rootRequested = true
         var moving: ((Bool) -> Void)?
-        private var following = false
         private var watched: [ObjectIdentifier] = []
 
         override func loadView() {
@@ -109,75 +108,49 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
             if gesture.state == .began || gesture.state == .changed { follow() }
         }
 
+        /// The hold's sequencing (`RootHoldDriver`), read from this tab's stack. The driver keeps
+        /// the shell's `moving` itself, and a transition's completion keeps the driver alive, so
+        /// losing this controller mid-pop still ends the hold (its stack then reads as gone).
+        private lazy var hold: RootHoldDriver = {
+            let driver = RootHoldDriver(
+                read: { [weak self] in
+                    guard let self else { return RootHoldReading(transition: nil, rootRequested: true, depth: nil) }
+                    let navigation = self.stack
+                    return RootHoldReading(transition: navigation?.transitionCoordinator.map { ObjectIdentifier($0) },
+                                           rootRequested: self.rootRequested, depth: navigation?.viewControllers.count)
+                },
+                register: { [weak self] done in
+                    guard let coordinator = self?.stack?.transitionCoordinator else { return false }
+                    return coordinator.animate(alongsideTransition: nil) { _ in MainActor.assumeIsolated { done() } }
+                },
+                after: { delay, work in
+                    if delay > 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { work() } }
+                    } else {
+                        DispatchQueue.main.async { MainActor.assumeIsolated { work() } }
+                    }
+                },
+                enabled: { !SwipeBackWholePage.legacy }
+            )
+            driver.onBound = { depth in
+                tabBarLog.error("root hold released at its bound: UIKit did not pop (depth \(depth ?? -1, privacy: .public))")
+            }
+            return driver
+        }()
+
         /// Reports the stack moving until its transition ends (finished or cancelled).
         /// `later`: called from a SwiftUI update, which must not change the shell's state.
         private func follow(later: Bool = false) {
-            guard !SwipeBackWholePage.legacy, !following, let coordinator = stack?.transitionCoordinator else { return }
-            following = true
-            if later {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.following else { return }
-                    self.moving?(true)
-                }
-            } else {
-                moving?(true)
-            }
-            // Keep the reporting controller alive until the transition settles. Losing it
-            // mid-pop must not leave the shell's root chrome permanently held.
-            let accepted = coordinator.animate(alongsideTransition: nil) { [self] _ in
-                following = false
-                // Not a release by itself: this transition may be a push that a Back emptied
-                // the path during, whose pop UIKit has not started yet (#56696 F2). The next
-                // turn reads the stack as it settled and releases only at its root.
-                DispatchQueue.main.async { [weak self] in self?.settle() }
-            }
-            if !accepted {
-                // UIKit declined the callback (for example a nonanimated change): read the
-                // stack once it settles, bounded by `RootHold.bound` (no unbounded retries).
-                following = false
-                DispatchQueue.main.async { [weak self] in self?.settle() }
-            }
+            hold.moving = moving
+            hold.follow(deferReport: later)
         }
 
-        /// When the hold first waited on a pop UIKit had not started (nil: not waiting).
-        private var waitingSince: Date?
-        private var recheckScheduled = false
-
-        /// Decide the tab's root hold from the stack as it is now (`RootHold.step`): follow a
-        /// transition, wait a bounded time for a pop UIKit has not started, or release. Runs
-        /// whether or not the tab is selected: a hidden tab's emptied path must not stay held
-        /// until it is shown again (#56696 F1).
+        /// Decide the tab's root hold from the stack as it is now. Runs whether or not the tab
+        /// is selected: a hidden tab's emptied path must not stay held until it is shown again
+        /// (#56696 F1).
         private func settle() {
-            guard !SwipeBackWholePage.legacy, !following else { return }
-            let navigation = stack
-            let waited = waitingSince.map { Date().timeIntervalSince($0) } ?? 0
-            switch RootHold.step(transitioning: navigation?.transitionCoordinator != nil, rootRequested: rootRequested,
-                                 depth: navigation?.viewControllers.count, waited: waited) {
-            case .follow:
-                waitingSince = nil
-                follow(later: true)
-            case .wait:
-                if waitingSince == nil { waitingSince = Date() }
-                guard !recheckScheduled else { return }
-                // UIKit starts the pop within a frame or two of SwiftUI emptying the path, and
-                // no layout or update is promised to reach this controller when it does (a
-                // nonanimated pop): look again on a short timer until the bound.
-                recheckScheduled = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + RootHold.recheck) { [weak self] in
-                    guard let self else { return }
-                    self.recheckScheduled = false
-                    self.settle()
-                }
-            case .release:
-                if waited >= RootHold.bound {
-                    tabBarLog.error("root hold released at its bound: UIKit did not pop (depth \(navigation?.viewControllers.count ?? -1, privacy: .public))")
-                }
-                waitingSince = nil
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, !self.following else { return }
-                    self.moving?(false)
-                }
-            }
+            hold.moving = moving
+            hold.settle()
         }
 
         /// Only the selected tab decides: a hidden tab's stack says nothing
@@ -224,30 +197,186 @@ import Foundation
 /// New Task out while a page leaves the tab's stack. A pure rule, so each way UIKit can (not) pop
 /// is a unit test (`RootHoldTests`).
 enum RootHoldStep: Equatable {
-    /// A transition runs: hold until it completes, then decide again.
+    /// A transition runs that reports its end: hold until it completes, then decide again.
     case follow
-    /// The path is empty but UIKit has not popped and no transition runs yet: hold, look again.
+    /// The path is empty but UIKit has not popped, or its transition will not report its end:
+    /// hold, look again.
     case wait
     /// The stack is settled (or there is nothing to wait on): show the root chrome.
     case release
 }
 
 enum RootHold {
-    /// The longest the hold waits for a pop UIKit never starts. Failing open (root chrome
-    /// shown) beats a tab bar that never returns (#56696 F1).
+    /// The longest the hold waits for a pop UIKit never starts, or on a transition that will not
+    /// report its end. Failing open (root chrome shown) beats a tab bar that never returns
+    /// (#56696 F1).
     static let bound: TimeInterval = 1.0
     /// How often a waiting hold looks at the stack again.
     static let recheck: TimeInterval = 0.05
 
     /// `transitioning`: the stack has a transition coordinator. `rootRequested`: the tab's path
     /// is empty. `depth`: the stack's view controllers (nil: no stack found). `waited`: how long
-    /// this hold has waited on a pop that has not started.
-    static func step(transitioning: Bool, rootRequested: Bool, depth: Int?, waited: TimeInterval) -> RootHoldStep {
-        if transitioning { return .follow }
+    /// this hold has waited on a pop that has not started. `declined`: how long ago UIKit declined
+    /// to report the end of the running transition (nil: it did not).
+    ///
+    /// A transition that reports its end (every animated one: a slow push or pop, an interactive
+    /// swipe) is followed for as long as it runs, never released at the bound. Only one UIKit
+    /// declined to report (a nonanimated or already ending change) waits on the bound.
+    static func step(transitioning: Bool, rootRequested: Bool, depth: Int?, waited: TimeInterval,
+                     declined: TimeInterval? = nil) -> RootHoldStep {
+        if transitioning {
+            guard let declined else { return .follow }
+            return declined < bound ? .wait : .release
+        }
         // A page is (again) pushed: a hold means nothing under it.
         guard rootRequested else { return .release }
         // No stack to wait on: nothing would ever release the hold.
         guard let depth, depth > 1 else { return .release }
         return waited < bound ? .wait : .release
+    }
+
+    static func step(_ reading: RootHoldReading, waited: TimeInterval, declined: TimeInterval?) -> RootHoldStep {
+        step(transitioning: reading.transition != nil, rootRequested: reading.rootRequested, depth: reading.depth,
+             waited: waited, declined: declined)
+    }
+}
+
+/// The tab's stack as the hold reads it.
+struct RootHoldReading: Equatable {
+    /// The running transition's coordinator (nil: none).
+    var transition: ObjectIdentifier?
+    /// The tab's path is empty.
+    var rootRequested: Bool
+    /// The stack's view controllers (nil: no stack found).
+    var depth: Int?
+}
+
+/// Runs `RootHold.step` against the stack over time: when it reads, follows, rechecks and
+/// releases. No UIKit here (the enforcer passes closures), so tests drive its sequencing with
+/// a fake clock and scheduler (`RootHoldDriverTests`).
+@MainActor
+final class RootHoldDriver {
+    /// Tells the shell the tab's stack is moving (true) or settled (false).
+    var moving: ((Bool) -> Void)?
+    /// Called when a hold is released at `RootHold.bound` (the depth it gave up on).
+    var onBound: ((Int?) -> Void)?
+
+    private let read: @MainActor () -> RootHoldReading
+    /// Asks the running transition to call back when it ends; false: UIKit declined.
+    private let register: @MainActor (@escaping @MainActor () -> Void) -> Bool
+    /// Runs work on the main queue after a delay (0: the next turn).
+    private let after: @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void
+    private let enabled: @MainActor () -> Bool
+    private let now: @MainActor () -> Date
+
+    private(set) var following = false
+    /// When the hold first waited on a pop UIKit had not started (nil: not waiting).
+    private var waitingSince: Date?
+    /// The transition UIKit declined to report the end of, and since when.
+    private var declined: (transition: ObjectIdentifier, since: Date, logged: Bool)?
+    private var recheckScheduled = false
+    private var releaseScheduled = false
+
+    init(read: @escaping @MainActor () -> RootHoldReading,
+         register: @escaping @MainActor (@escaping @MainActor () -> Void) -> Bool,
+         after: @escaping @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void,
+         enabled: @escaping @MainActor () -> Bool = { true },
+         now: @escaping @MainActor () -> Date = { Date() }) {
+        self.read = read
+        self.register = register
+        self.after = after
+        self.enabled = enabled
+        self.now = now
+    }
+
+    /// Hold while the running transition runs. `deferReport`: called from a SwiftUI update,
+    /// which must not change the shell's state.
+    func follow(deferReport: Bool = false) {
+        guard enabled(), !following, let transition = read().transition else { return }
+        // UIKit already declined this transition: wait on it (bounded), do not ask again.
+        if declined?.transition == transition { scheduleRecheck(); return }
+        following = true
+        if deferReport {
+            after(0) { [weak self] in
+                // Still holding: following, or waiting on a transition UIKit declined to report.
+                guard let self, self.following || self.declined?.transition == transition else { return }
+                self.moving?(true)
+            }
+        } else {
+            moving?(true)
+        }
+        // The completion keeps the driver alive until the transition settles. It is not a
+        // release by itself: this transition may be a push that a Back emptied the path during,
+        // whose pop UIKit has not started yet (#56696 F2). The next turn reads the stack as it
+        // settled and releases only at its root.
+        let accepted = register { [self] in
+            following = false
+            after(0) { [self] in settle() }
+        }
+        if !accepted {
+            // A nonanimated or ending change: UIKit will not report its end. Hold on, and look
+            // again on the recheck timer (not at once: that would ask again every turn), bounded
+            // from the first decline by `RootHold.bound`.
+            following = false
+            declined = (transition, now(), false)
+            scheduleRecheck()
+        }
+    }
+
+    /// Decide the hold from the stack as it is now: follow, wait (bounded), or release.
+    func settle() {
+        guard enabled(), !following else { return }
+        let reading = read()
+        if declined.map({ $0.transition != reading.transition }) ?? false { declined = nil }
+        let at = now()
+        let waited = waitingSince.map { at.timeIntervalSince($0) } ?? 0
+        switch RootHold.step(reading, waited: waited, declined: declined.map { at.timeIntervalSince($0.since) }) {
+        case .follow:
+            waitingSince = nil
+            follow(deferReport: true)
+        case .wait:
+            if reading.transition == nil, waitingSince == nil { waitingSince = at }
+            scheduleRecheck()
+        case .release:
+            release(decided: reading)
+        }
+    }
+
+    /// Release on the next turn (a SwiftUI update must not change the shell's state), and only
+    /// if the stack still reads as it did when release was decided: a push, a pop or a new
+    /// transition in between decides again instead.
+    private func release(decided: RootHoldReading) {
+        guard !releaseScheduled else { return }
+        releaseScheduled = true
+        after(0) { [self] in
+            releaseScheduled = false
+            guard enabled(), !following else { return }
+            let current = read()
+            guard current == decided else { settle(); return }
+            let at = now()
+            let waited = waitingSince.map { at.timeIntervalSince($0) } ?? 0
+            let declinedFor = declined.map { at.timeIntervalSince($0.since) }
+            if waited >= RootHold.bound || ((declinedFor ?? 0) >= RootHold.bound && declined?.logged == false) {
+                onBound?(current.depth)
+            }
+            declined?.logged = true
+            waitingSince = nil
+            // A declined transition still running stays declined: asking it again would hold
+            // the chrome for another bound, and again, instead of once.
+            if current.transition == nil { declined = nil }
+            moving?(false)
+        }
+    }
+
+    private func scheduleRecheck() {
+        guard !recheckScheduled else { return }
+        // UIKit starts the pop within a frame or two of SwiftUI emptying the path, and no layout
+        // or update is promised to reach the enforcer when it does (a nonanimated pop): look
+        // again on a short timer until the bound.
+        recheckScheduled = true
+        after(RootHold.recheck) { [self] in
+            recheckScheduled = false
+            settle()
+        }
     }
 }

@@ -53,6 +53,15 @@ struct RootHoldTests {
         }
     }
 
+    @Test func aDeclinedTransitionWaitsOnTheBoundFromItsFirstDecline() {
+        // UIKit declined to report the end (a nonanimated or ending change): bounded, unlike a
+        // transition that reports its end, which is followed however long it runs.
+        #expect(RootHold.step(transitioning: true, rootRequested: true, depth: 2, waited: 0, declined: 0) == .wait)
+        #expect(RootHold.step(transitioning: true, rootRequested: true, depth: 2, waited: 0, declined: RootHold.bound / 2) == .wait)
+        #expect(RootHold.step(transitioning: true, rootRequested: true, depth: 2, waited: 0, declined: RootHold.bound) == .release)
+        #expect(RootHold.step(transitioning: true, rootRequested: true, depth: 2, waited: 60, declined: nil) == .follow)
+    }
+
     @Test func theBoundIsShortAndTheRecheckFiner() {
         #expect(RootHold.bound <= 1.0)
         #expect(RootHold.recheck > 0 && RootHold.recheck < RootHold.bound / 10)
