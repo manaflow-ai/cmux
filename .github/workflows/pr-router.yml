@@ -149,6 +149,20 @@ jobs:
           echo "::warning::cmux/land-tier ($STATE) was not posted at $SHA: its land waits on the last state posted there"
           exit 1
 
+  machine-channel-pr-head:
+    # PR_HEAD_FAST_LANE: the merge points the Cloud machine channel at this head's thin build.
+    name: machine channel PR head build
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-machine-channel.yml') }}
+    uses: ./.github/workflows/cmux-machine-channel.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      # The reusable package workflow's permission ceiling (cmux-machine-channel.yml's build jobs).
+      id-token: write
+      attestations: write
+
   size-budget:
     name: cmux-next size budget
     needs: route
