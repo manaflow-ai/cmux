@@ -624,8 +624,9 @@ class PullRequestTiers(unittest.TestCase):
             "generated-files": "needs.path_route.outputs.generated_host == 'generated-files'",
             # The PR's Release compile fallback: the clause's mac_release.
             "release-compile": "needs.path_route.outputs.mac_release == 'true'",
-            # Full-ci (or dev-build) only on a feat-cmux-next PR: the label branches of the clause.
-            "swift-test": "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+            # Never on a feat-cmux-next PR (not even full-ci): other bases only.
+            "swift-test": "github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
+            # Dev-build only on a feat-cmux-next PR: the label branch of the clause.
             "cmux-scheme-compile": "contains(github.event.pull_request.labels.*.name, 'dev-build')",
             # Push only.
             "release-compile-fast": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
