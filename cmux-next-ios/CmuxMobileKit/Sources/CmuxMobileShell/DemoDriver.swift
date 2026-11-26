@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -398,6 +398,7 @@ struct DemoDriver {
             shell.workspacesPath = [ws]
             await pause(1.2)
             shell.terminalTabs.model(forTabID: "t-zsh")?.toggleKeyboard()
+        case _ where Self.feedClosedTabsNames.contains(name): await feedClosedTabs(name)
         default: break
         }
     }
@@ -448,7 +449,7 @@ struct DemoDriver {
         KeyboardPinTrace.note("done")
     }
 
-    private func pause(_ seconds: Double) async {
+    func pause(_ seconds: Double) async {
         try? await Task.sleep(for: .seconds(seconds))
     }
 

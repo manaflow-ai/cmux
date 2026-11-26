@@ -355,6 +355,7 @@
     "theme.scheme.convert",
     "theme.scheme.export",
     "theme.scheme.from_image",
+    "theme.slots.resolve",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -1327,6 +1328,12 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "apps-cloud-machine",
       "streams": [
         "control"
       ]

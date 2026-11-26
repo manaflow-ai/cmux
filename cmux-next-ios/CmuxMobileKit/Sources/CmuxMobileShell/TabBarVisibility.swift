@@ -23,7 +23,8 @@ struct TabBarVisibility: ViewModifier {
         let shows = shell.showsTabBar(on: tab)
         content
             .toolbar(shows ? .visible : .hidden, for: .tabBar)
-            .background(TabBarVisibilityEnforcer(hidden: !shows, moving: { [shell, tab] moving in
+            .background(TabBarVisibilityEnforcer(hidden: !shows, rootRequested: shell.depth(of: tab) == 0, moving: { [shell, tab] moving in
+                guard shell.stackMoving.contains(tab) != moving else { return }
                 if moving { shell.stackMoving.insert(tab) } else { shell.stackMoving.remove(tab) }
             }))
     }
@@ -35,6 +36,7 @@ struct TabBarVisibility: ViewModifier {
 /// again).
 private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
     let hidden: Bool
+    let rootRequested: Bool
     /// Told when the tab's navigation stack starts and stops a transition.
     let moving: (Bool) -> Void
 
@@ -42,15 +44,16 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: Controller, context: Context) {
         controller.hidden = hidden
+        controller.rootRequested = rootRequested
         controller.moving = moving
         controller.apply(animated: !context.transaction.disablesAnimations)
     }
 
     final class Controller: UIViewController {
         var hidden = false
+        var rootRequested = true
         var moving: ((Bool) -> Void)?
         private var following = false
-        private var lookedAgain = false
         private var watched: [ObjectIdentifier] = []
 
         override func loadView() {
@@ -119,10 +122,16 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
             } else {
                 moving?(true)
             }
-            coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-                guard let self else { return }
-                self.following = false
-                self.moving?(false)
+            // Keep the reporting controller alive until the transition settles. Losing it
+            // mid-pop must not leave the shell's root chrome permanently held.
+            let accepted = coordinator.animate(alongsideTransition: nil) { [self] _ in
+                following = false
+                moving?(false)
+            }
+            if !accepted {
+                // UIKit declined the callback (for example a nonanimated change). The next
+                // layout reads the settled stack; do not spin main-queue retries meanwhile.
+                following = false
             }
         }
 
@@ -137,20 +146,23 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
         func apply(animated: Bool) {
             guard let tabs = tabBarController, let selected = tabs.selectedViewController,
                   isDescendant(of: selected) else { return }
-            // Shown again only once the page that hid it has left (Back, or a swipe let go).
-            if !hidden, !SwipeBackWholePage.legacy, tabs.isTabBarHidden {
+            if !SwipeBackWholePage.legacy {
                 if stack?.transitionCoordinator != nil {
                     follow(later: true)
-                    return
-                }
-                // A path emptied by Back pops a beat later, in the same turn: look again then.
-                if !lookedAgain {
-                    lookedAgain = true
-                    DispatchQueue.main.async { [weak self] in self?.apply(animated: animated) }
-                    return
+                    // Keep root chrome out until completion, including programmatic Back.
+                    if rootRequested { return }
+                } else if rootRequested, let navigation = stack {
+                    // SwiftUI's path can empty before UIKit starts its pop. A main-queue
+                    // turn is not proof that the page has gone; wait for the actual stack.
+                    guard navigation.viewControllers.count == 1 else { return }
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.rootRequested, !self.following,
+                              let navigation = self.stack, navigation.transitionCoordinator == nil,
+                              navigation.viewControllers.count == 1 else { return }
+                        self.moving?(false)
+                    }
                 }
             }
-            lookedAgain = false
             let bar = tabs.tabBar
             guard tabs.isTabBarHidden != hidden || bar.accessibilityElementsHidden != hidden
                 || bar.isUserInteractionEnabled == hidden else { return }

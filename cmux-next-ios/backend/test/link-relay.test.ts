@@ -829,6 +829,8 @@ describe("relay prewarm (RFD 0142 C4, PROTOCOL.md \"Relay placement\")", () => {
     expect(await until(async () => (await prewarmedAt("alice", sessionId, spaceName)) !== undefined)).toBe(true)
     // The stable space's object of the same session was never made.
     expect(await prewarmedAt("alice", sessionId)).toBeUndefined()
+    // The Mac answers, so both devices are the session's parties with their own relay tickets.
+    await exchange(p, phone, m, mac, sessionId)
     const a = await joined(tok, sessionId, phone, space)
     // The join reached the very object the hub prewarmed: it holds the joiner's socket now.
     expect(await runInDurableObject(relayOf("alice", sessionId, spaceName), (_r: LinkRelay, state) => state.getWebSockets(phone).length)).toBe(1)

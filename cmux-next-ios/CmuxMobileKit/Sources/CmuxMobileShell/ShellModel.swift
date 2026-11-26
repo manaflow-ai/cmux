@@ -54,12 +54,18 @@ final class ShellModel {
             updateShownMacs()
         }
     }
-    var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
+    var homePath = NavigationPath() {
+        didSet {
+            holdRootTransition(.home, wasEmpty: oldValue.isEmpty, isEmpty: homePath.isEmpty)
+            updateInteractiveOpen()
+        }
+    }
     /// Typed: a workspace page must not nest a SwiftUI NavigationStack (the
     /// terminal tab hosts its own page), or SwiftUI traps with
     /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] {
         didSet {
+            holdRootTransition(.workspaces, wasEmpty: oldValue.isEmpty, isEmpty: workspacesPath.isEmpty)
             if let workspace = workspacesPath.last {
                 let id = store.resolvedWorkspaceID(workspace.id)
                 lastWorkspace.save(id)
@@ -71,8 +77,18 @@ final class ShellModel {
     }
     /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
     var workspacesMacPanelShown = false
-    var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
-    var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
+    var feedPath: [AgentChatDestination] = [] {
+        didSet {
+            holdRootTransition(.feed, wasEmpty: oldValue.isEmpty, isEmpty: feedPath.isEmpty)
+            updateInteractiveOpen()
+        }
+    }
+    var settingsPath: [SettingsRoute] = [] {
+        didSet {
+            holdRootTransition(.settings, wasEmpty: oldValue.isEmpty, isEmpty: settingsPath.isEmpty)
+            updateInteractiveOpen()
+        }
+    }
     /// Tabs whose navigation stack is mid-transition (a swipe back, held or let go, or Back).
     /// SwiftUI empties a path as a swipe back starts, so a tab's root chrome drawn outside its
     /// stack (the tab bar, New Task) waits for the page to finish leaving instead of showing
@@ -725,8 +741,14 @@ final class ShellModel {
         LastPlaceMemory.shared.noteLocation(workspaceID: location.workspaceID, tabID: location.tabID, isChat: tab?.kind == .agent)
     }
 
+    /// Hold the root before SwiftUI renders an emptied path. UIKit may begin the pop later;
+    /// the tab-bar enforcer releases this only when its transition or nonanimated pop settles.
+    private func holdRootTransition(_ tab: RootTab, wasEmpty: Bool, isEmpty: Bool) {
+        if !SwipeBackWholePage.legacy, !wasEmpty, isEmpty { stackMoving.insert(tab) }
+    }
+
     /// How many screens are pushed on `tab`'s stack.
-    private func depth(of tab: RootTab) -> Int {
+    func depth(of tab: RootTab) -> Int {
         switch tab {
         case .home: homePath.count
         case .workspaces: workspacesPath.count

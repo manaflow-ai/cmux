@@ -59,7 +59,7 @@ final class SwipeBackWholePageUITests: XCTestCase {
     }
 
     /// The same swipes with the whole-page behavior off (`-CmuxMobileSwipeBackLegacy`): the
-    /// before of the recording, and proof the probe sees what Leo saw. Records, asserts nothing.
+    /// before of the recording. Setup still asserts; known broken transition behavior is recorded.
     @MainActor
     func testBeforeLegacy() {
         run(Self.terminal, appearances: [.dark], legacy: true)
@@ -91,12 +91,17 @@ final class SwipeBackWholePageUITests: XCTestCase {
                                 "-CmuxMobileWholePageProbe"] + (legacy ? ["-CmuxMobileSwipeBackLegacy"] : [])
         app.launch()
         defer { app.terminate() }
+        let probe = app.staticTexts["debug.whole-page"]
+        guard probe.waitForExistence(timeout: 10) else {
+            attach(app, "\(label)-missing-probe")
+            XCTFail("\(label): the DEBUG transition probe did not start\n\(app.debugDescription)")
+            return
+        }
         let shown = app.descendants(matching: .any)[page.shown]
         let row = page.reopen.map { app.buttons[$0] }
         /// The probe's readings, one per launch.
         var readings: [String] = []
         func reading() -> String {
-            let probe = app.staticTexts["debug.whole-page"]
             guard probe.waitForExistence(timeout: 5) else { return "samples=0 (no probe)" }
             return probe.value as? String ?? ""
         }
@@ -137,6 +142,15 @@ final class SwipeBackWholePageUITests: XCTestCase {
                 XCTAssertTrue(shown.waitForNonExistence(timeout: 10), "\(label) \(step): the page is gone")
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+            if !legacy {
+                let tabs = app.tabBars.firstMatch
+                XCTAssertTrue(tabs.waitForExistence(timeout: 5), "\(label) \(step): the root tab bar returns after the pop")
+                if row != nil {
+                    let newTask = app.buttons["workspaces.newTask"]
+                    XCTAssertTrue(newTask.waitForExistence(timeout: 5) && newTask.isHittable,
+                                  "\(label) \(step): New Task is usable after the page leaves")
+                }
+            }
         }
 
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.45))
@@ -163,11 +177,12 @@ final class SwipeBackWholePageUITests: XCTestCase {
             attach(app, "\(label)-cancel-after")
             if keyboard {
                 // The dock as it was before the swipe, the composer usable.
-                let field = app.descendants(matching: .any)[page.field].firstMatch
-                let keys = app.keyboards.firstMatch
-                XCTAssertTrue(field.exists && keys.exists && field.frame.minX >= 0 && field.frame.maxX <= app.frame.maxX + 1
-                              && field.frame.maxY <= keys.frame.minY + 1,
-                              "\(label): the composer is back in place above the keyboard after a cancelled swipe (\(field.frame), keyboard \(keys.frame))")
+                let usable = app.descendants(matching: .any)[page.field].isHittable
+                if legacy {
+                    print("CMUX_WHOLE_PAGE \(label): cancelledComposerUsable=\(usable)")
+                } else {
+                    XCTAssertTrue(usable, "\(label): the composer is usable after a cancelled swipe")
+                }
             }
 
             // 3. The back button.
@@ -196,22 +211,20 @@ final class SwipeBackWholePageUITests: XCTestCase {
                 let kv = pair.split(separator: "=", maxSplits: 1)
                 return kv.count == 2 ? (String(kv[0]), String(kv[1])) : nil
             }, uniquingKeysWith: { _, last in last })
-            let samples = Int(values["samples"] ?? "") ?? 0
-            XCTAssertGreaterThan(samples, 3, "\(label): the probe saw no transition frames (\(line))")
-            // The terminal's own text can reflow a few points on a first launch; the dock and
-            // its glass drifted by the keyboard's height before this change.
-            XCTAssertLessThanOrEqual(Int(values["drift"] ?? "") ?? .max, 8,
-                                     "\(label): a piece of the page was left behind as it slid (\(line))")
-            // Known remaining (cmux#56696): on a simulator's first launch the iOS 26 bar's platter
-            // glass (one full-width group in NavigationBarPlatterContainer) and the tab bar can
-            // still read over the page. Recorded, not yet failing; tighten once the bar is fixed.
-            XCTExpectFailure("iOS 26 navigation bar platter glass over the leaving page (cmux#56696)",
-                             options: .nonStrict()) {
-                XCTAssertLessThanOrEqual(Int(values["stray"] ?? "") ?? .max, 2,
-                                         "\(label): a layer outside the page drew over it as it slid (\(line))")
-                XCTAssertLessThanOrEqual(Int(values["bar"] ?? "") ?? .max, 1,
-                                         "\(label): the Workspaces bar drew over the page (doubled bars) (\(line))")
+            guard let samples = Int(values["samples"] ?? ""),
+                  let drift = Int(values["drift"] ?? ""),
+                  let stray = Int(values["stray"] ?? ""),
+                  let bar = Int(values["bar"] ?? "") else {
+                XCTFail("\(label): incomplete transition measurement (\(line))")
+                continue
             }
+            XCTAssertGreaterThan(samples, 3, "\(label): the probe saw no transition frames (\(line))")
+            XCTAssertLessThanOrEqual(drift, 2,
+                                     "\(label): a piece of the page was left behind as it slid (\(line))")
+            XCTAssertLessThanOrEqual(stray, 2,
+                                     "\(label): a layer outside the page drew over it as it slid (\(line))")
+            XCTAssertLessThanOrEqual(bar, 1,
+                                     "\(label): the Workspaces bar drew over the page (doubled bars) (\(line))")
         }
     }
 

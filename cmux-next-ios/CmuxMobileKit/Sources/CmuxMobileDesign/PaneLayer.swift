@@ -45,6 +45,7 @@ final class PaneLayerController: UIViewController {
     private var graceUntil: CFTimeInterval = 0
     private var lastTransition: CFTimeInterval = 0
     private weak var maskedBar: UINavigationBar?
+    private weak var shiftedBar: UINavigationBar?
     private var watchedGestures: [ObjectIdentifier] = []
     /// Told when a transition starts or stops moving this pane.
     var reportTransition: ((Bool) -> Void)?
@@ -136,6 +137,7 @@ final class PaneLayerController: UIViewController {
         link?.invalidate()
         link = nil
         report(false)
+        unshift()
         unmask()
     }
 
@@ -167,25 +169,29 @@ final class PaneLayerController: UIViewController {
             // the swipe is cancelled).
             let isPop = !navigation.viewControllers.contains(from)
             let top = isPop ? from : to
+            let under = isPop ? to : from
             guard let topMinX = PaneLayerGeometry.presentedMinX(of: top.view, in: navigation.view) else { return }
             let edge = min(max(topMinX, 0), width)
             // The span of the screen the bar may draw over: its own pane's.
             let visible: ClosedRange<CGFloat> = pane === top ? 0...edge : edge...width
             let paneSpan: ClosedRange<CGFloat> = pane === top ? edge...width : 0...edge
-            // The bar stays where UIKit draws it (its own transition animations own its
-            // position): it is clipped to the page under this one, by where it is drawn.
-            let barMinX = PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? 0
-            mask(bar, to: visible, in: navigation.view, barMinX: barMinX)
+            // The bar belongs to the page under this one: it slides with that page (its parallax),
+            // as a page's own header does, instead of standing still at full width over both.
+            if pane === top, PaneLayerProbe.follows,
+               let underMinX = PaneLayerGeometry.presentedMinX(of: under.view, in: navigation.view) {
+                shift(bar, by: min(0, underMinX))
+            }
+            mask(bar, to: visible, in: navigation.view)
             PaneLayerProbe.shared?.sample(bar: bar, root: navigation.view, paneSpan: paneSpan)
             graceUntil = pane === top ? now + 0.6 : 0
             return
         }
         // Settled: the bar back in place, and the keyboard followed again.
+        unshift()
         report(false)
         // This pane on top: the bar stays off it until SwiftUI hides it.
         if navigation.topViewController === pane, now < graceUntil, !bar.isHidden {
-            mask(bar, to: 0...0, in: navigation.view,
-                 barMinX: PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? 0)
+            mask(bar, to: 0...0, in: navigation.view)
             PaneLayerProbe.shared?.sample(bar: bar, root: navigation.view, paneSpan: 0...width)
             return
         }
@@ -194,13 +200,10 @@ final class PaneLayerController: UIViewController {
         if now - lastTransition > 0.5 { stopTracking() }
     }
 
-    /// `barMinX`: the bar's leading edge as it is drawn this frame, in `root`.
-    private func mask(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView, barMinX: CGFloat) {
+    private func mask(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView) {
         guard PaneLayerProbe.masks else { return }
-        if PaneLayerProbe.follows {
-            fadeGlass(in: bar, to: visible, barMinX: barMinX)
-            fadeBar(bar, to: visible, in: root)
-        }
+        // The bar's edge as set this frame (with its shift), in the mask's own space.
+        let barMinX = bar.superview.map { $0.convert(bar.frame, to: root).minX } ?? 0
         let layer: CALayer
         if let existing = bar.layer.mask, maskedBar === bar {
             layer = existing
@@ -219,92 +222,32 @@ final class PaneLayerController: UIViewController {
         CATransaction.commit()
     }
 
+    /// Moves the bar with the page it belongs to (its leading edge at `x`).
+    private func shift(_ bar: UINavigationBar, by x: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bar.transform = CGAffineTransform(translationX: x, y: 0)
+        CATransaction.commit()
+        shiftedBar = bar
+    }
+
+    private func unshift() {
+        guard let bar = shiftedBar else { return }
+        if bar.transform != .identity { bar.transform = .identity }
+        shiftedBar = nil
+    }
+
     private func unmask() {
-        unfadeGlass()
         guard let bar = maskedBar else { return }
         if bar.layer.mask != nil { bar.layer.mask = nil }
         maskedBar = nil
-    }
-
-    /// The bar's Liquid Glass item groups (the trailing filter and compose capsule, the menu
-    /// button) draw through a backdrop that the bar's mask does not clip: each is shown only
-    /// while it lies wholly inside `visible`, fading in over its last points there, so it is
-    /// never drawn over the page that hides the bar (no doubled bars).
-    /// The glass layers this transition fades, with the opacity each had before it.
-    private var fadedGlass: [ObjectIdentifier: (layer: CALayer, opacity: Float)] = [:]
-
-    private func fadeGlass(in bar: UINavigationBar, to visible: ClosedRange<CGFloat>, barMinX: CGFloat) {
-        // Every frame: UIKit builds the bar's transition container (and its glass) anew for
-        // each transition. Its glass hangs in the layer tree, not always as subviews.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for layer in PaneLayerGeometry.glassLayers(in: bar.layer) {
-            let id = ObjectIdentifier(layer)
-            if fadedGlass[id] == nil { fadedGlass[id] = (layer, layer.opacity) }
-            let span = layer.convert(layer.bounds, to: bar.layer)
-            let minX = barMinX + span.minX
-            let maxX = barMinX + span.maxX
-            let room = min(minX - visible.lowerBound, visible.upperBound - maxX)
-            let opacity = (fadedGlass[id]?.opacity ?? 1) * Float(max(0, min(1, room / 24)))
-            // UIKit's own bar animation in the transition (paused under a swipe) would draw its
-            // opacity over ours: this transition's opacity is ours.
-            if layer.animation(forKey: "opacity") != nil { layer.removeAnimation(forKey: "opacity") }
-            if abs(layer.opacity - opacity) >= 0.002 { layer.opacity = opacity }
-        }
-        CATransaction.commit()
-    }
-
-    /// The bar as a whole, while it belongs to the page under this one: UIKit draws parts of
-    /// it (the iOS 26 platter glass and its buttons) outside the reach of its mask, so it
-    /// shows only once the page leaving has cleared all but the last of the screen, fading in
-    /// over that last stretch (a cancelled swipe keeps it out). Never drawn over the page.
-    private weak var fadedBar: UINavigationBar?
-    private var fadedBarOpacity: Float = 1
-
-    private func fadeBar(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView) {
-        let width = max(root.bounds.width, 1)
-        // `visible` starts at 0 when the bar's page is the one under: its upper end is the
-        // leaving page's edge. Under the page on the other side, the bar is that page's.
-        guard visible.lowerBound <= 0.5 else { return unfadeBar() }
-        if fadedBar !== bar {
-            unfadeBar()
-            fadedBar = bar
-            fadedBarOpacity = bar.layer.opacity
-        }
-        let start = width * 0.86
-        let opacity = fadedBarOpacity * Float(max(0, min(1, (visible.upperBound - start) / (width - start))))
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if bar.layer.animation(forKey: "opacity") != nil { bar.layer.removeAnimation(forKey: "opacity") }
-        if abs(bar.layer.opacity - opacity) >= 0.002 { bar.layer.opacity = opacity }
-        CATransaction.commit()
-    }
-
-    private func unfadeBar() {
-        guard let bar = fadedBar else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        bar.layer.opacity = fadedBarOpacity
-        CATransaction.commit()
-        fadedBar = nil
-    }
-
-    private func unfadeGlass() {
-        unfadeBar()
-        guard !fadedGlass.isEmpty else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for entry in fadedGlass.values { entry.layer.opacity = entry.opacity }
-        CATransaction.commit()
-        fadedGlass = [:]
     }
 
     deinit {
         MainActor.assumeIsolated {
             link?.invalidate()
             maskedBar?.layer.mask = nil
-            for entry in fadedGlass.values { entry.layer.opacity = entry.opacity }
-            fadedBar?.layer.opacity = fadedBarOpacity
+            shiftedBar?.transform = .identity
         }
     }
 }
@@ -343,30 +286,6 @@ enum PaneLayerGeometry {
         return layer == nil ? nil : x
     }
 
-    /// The bar's Liquid Glass backdrops (one group behind all its buttons, in iOS 26 a
-    /// full-width `NavigationBarPlatterContainer`): the layers that draw through a backdrop,
-    /// which the bar's mask does not clip. Their icons and the title are ordinary layers the
-    /// mask clips.
-    static func glassLayers(in root: CALayer) -> [CALayer] {
-        var found: [CALayer] = []
-        func isBackdrop(_ layer: CALayer) -> Bool {
-            if NSStringFromClass(type(of: layer)).contains("Backdrop") { return true }
-            if let delegate = layer.delegate, NSStringFromClass(type(of: delegate)).contains("Backdrop") { return true }
-            return false
-        }
-        func walk(_ layer: CALayer, depth: Int) {
-            for sub in layer.sublayers ?? [] where !sub.isHidden {
-                if isBackdrop(sub) {
-                    found.append(sub)
-                } else if depth < 16 {
-                    walk(sub, depth: depth + 1)
-                }
-            }
-        }
-        walk(root, depth: 0)
-        return found
-    }
-
     /// The bar's span as drawn (empty when hidden or transparent), clipped by
     /// its mask, in `root`'s coordinates.
     @MainActor
@@ -385,16 +304,16 @@ enum PaneLayerGeometry {
     }
 }
 
+/// Notes the app posts for its panes.
+public enum PaneLayerNotes {
+    /// A navigation path changed (a push or pop that no gesture started).
+    public static let navigationWillChange = Notification.Name("CmuxMobilePaneLayer.navigationWillChange")
+}
+
 /// A page moves as one through a swipe back, a cancelled one and Back (Leo, 2026-11-25: "The
 /// swiping back animation has tons of bullshit overlap and weird looking zones esp near composer
 /// bar when there's a background it all doesn't move properly"). DEBUG `-CmuxMobileSwipeBackLegacy`
 /// turns the whole-page behavior off, for before-and-after recordings (SwipeBackWholePageUITests).
-/// Notes the app posts for its panes.
-public enum PaneLayerNotes {
-    /// A navigation path is about to change (a push or pop that no gesture started).
-    public static let navigationWillChange = Notification.Name("CmuxMobilePaneLayer.navigationWillChange")
-}
-
 public enum SwipeBackWholePage {
     #if DEBUG
     public static let legacy = CommandLine.arguments.contains("-CmuxMobileSwipeBackLegacy")
@@ -413,7 +332,7 @@ final class PaneLayerProbe {
     #if DEBUG
     static let shared: PaneLayerProbe? = CommandLine.arguments.contains("-CmuxMobilePaneLayerProbe") ? PaneLayerProbe() : nil
     static let masks = !CommandLine.arguments.contains("-CmuxMobilePaneLayerNoMask")
-    /// The bar's glass is not faded through a swipe back under `-CmuxMobileSwipeBackLegacy`.
+    /// The bar stands still through a swipe back (masked only) under `-CmuxMobileSwipeBackLegacy`.
     static var follows: Bool { !SwipeBackWholePage.legacy }
     #else
     static let shared: PaneLayerProbe? = nil

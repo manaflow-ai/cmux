@@ -121,8 +121,6 @@ public struct RootView: View {
         #if DEBUG
         // `-cmux-mobile-mac-appearance NAME`: a Mac's appearance frame as a fixture (the chat's look).
         CmuxMobileMacTheme.shared.applyLaunchFixture()
-        // `-CmuxMobileWholePageProbe`: whether a swiped-back page moves as one (SwipeBackWholePageUITests).
-        WholePageProbe.startIfRequested()
         #endif
     }
 
