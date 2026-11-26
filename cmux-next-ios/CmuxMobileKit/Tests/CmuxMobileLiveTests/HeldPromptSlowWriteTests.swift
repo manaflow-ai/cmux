@@ -39,6 +39,9 @@ import Testing
         private var gate: CheckedContinuation<Void, Never>?
         private var gateOpen = false
         private var _promptWrites = 0
+        private var outboundBytes: UInt64 = 0
+        var sentBytes: UInt64? { lock.withLock { outboundBytes } }
+        func acceptChunk() { lock.withLock { outboundBytes += 16_384 } }
         private var closeInfo: LinkError?
         var closedBy: LinkError? { lock.withLock { closeInfo } }
         private let inbox: AsyncStream<Data>
@@ -315,6 +318,34 @@ import Testing
     }
 
     #if canImport(CmuxMobileLinkFFI)
+    @Test(arguments: [true, false]) func queuedPromptFollowsItsWriterAcrossItsOwnShorterHold(moving: Bool) async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let channel = SlowMac(mac, clock: clock, writes: [.gate])
+        let (hub, source, store) = await openChat(channel, clock: clock)
+        hub.writeBase = .seconds(30)
+        source.heldPromptWindow = .seconds(2)
+        store.send(prompt: "first")
+        await eventually { channel.isSendingPrompt }
+        store.send(prompt: "second")
+        await eventually { source.heldPrompts.contains { $0.text == "second" } }
+        for _ in 0..<4 {
+            if moving { channel.acceptChunk() }
+            clock.advance(by: .seconds(2))
+            source.flushHeldPrompts()
+            #expect(source.heldPrompts.contains { $0.text == "second" } == moving)
+        }
+        channel.openGate()
+        let expected = moving ? ["first", "second"] : ["first"]
+        await eventually { mac.prompts.count == expected.count }
+        #expect(mac.prompts.map(\.text) == expected)
+        if moving { #expect(store.returnedDraft == nil) }
+        else {
+            await eventually { store.returnedDraft != nil }
+            #expect(store.returnedDraft?.text == "second")
+        }
+    }
+
     @Test func preparationCompletingNinetySecondsAfterTapStillDeliversInOrder() async throws {
         let mac = ChatPromptBlipTests.Mac()
         let clock = FakeClock()
