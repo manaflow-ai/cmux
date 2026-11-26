@@ -1,0 +1,53 @@
+name: pinned files mirror
+
+# RFD 0056 part 3: copies every pinned release file in images/cmux-vm/inputs.lock.json
+# to the NEXT cache bucket under v1/any/pinned/<sha256>
+# (scripts/ci/pinned_files_mirror.py). A VM image bake fetches that copy first and
+# the origin URL after (web/scripts/cmux-vm-image/lock.ts pinnedFetchCommand), and
+# checks sha256 either way. GitHub release downloads ran at about 100 KB/s into the
+# builder on 2026-11-23 and hit the guest's 5-minute exec cap (rolls 45109809346,
+# 45113664312, 45126299464). A run with nothing new stops after one HEAD per file.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - images/cmux-vm/inputs.lock.json
+      - scripts/ci/pinned_files_mirror.py
+      - .github/workflows/pinned-files-mirror.yml
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  CI_CACHE_R2_NAMESPACE: any
+
+concurrency:
+  group: pinned-files-mirror-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Mirror pinned files to the edge
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            images/cmux-vm/inputs.lock.json
+            scripts/ci/pinned_files_mirror.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Mirror missing pinned files
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: python3 scripts/ci/pinned_files_mirror.py

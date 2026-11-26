@@ -1,13 +1,15 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../experiments/experiment";
 
-/// The page-drawn menus' look, v2 (Leo's taste build list, lane taste-menus-v2): a rounded pill
-/// highlight inset from the panel's edge, a right-aligned shortcut column in the secondary text
-/// colour, a submenu flush with its parent row, icons all-or-none per divider group, destructive rows
-/// last and red, and in dark a hairline edge instead of a shadow. Compact: 28 px rows, a 10 px panel.
-/// The arm is a data attribute on the menu's root (`data-menu-style`), styled in popupSurface.css;
-/// `off` draws no attribute, so today's menus are unchanged. Dogfood: set `cmux.experiments` to
-/// `{"menu-style-v2":"v2"}` in the pane's web inspector and reload.
+/** The page-drawn menus' look, v2 (Leo's taste build list, lane taste-menus-v2): a rounded pill
+ * highlight inset from the panel's edge, a right-aligned shortcut column in the secondary text
+ * colour, a submenu flush with its parent row, icons all-or-none per divider group, destructive rows
+ * last and red, and in dark a hairline edge instead of a shadow. Compact: 28 px rows, a 10 px panel.
+ * The arm is a data attribute on the menu's root (`data-menu-style`), styled in popupSurface.css;
+ * `off` draws no attribute, so today's menus are unchanged. Dogfood: set `cmux.experiments` to
+ * `{"menu-style-v2":"v2"}` in the pane's web inspector and reload.
+ * @status experimental
+ */
 export const menuStyleV2 = defineExperiment({
   id: "menu-style-v2",
   title: "Menu style v2",
