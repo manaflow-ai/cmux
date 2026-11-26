@@ -89,6 +89,7 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"

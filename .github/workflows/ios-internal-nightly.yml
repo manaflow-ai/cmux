@@ -173,13 +173,14 @@ jobs:
             pick="$best"
           fi
           if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(find /Applications -maxdepth 1 -name "Xcode*.app" 2>/dev/null | sort | tr '\n' ' ')" >&2
             exit 1
           fi
           sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
           case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
           echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
           echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
+          CMUX_CI_XCODE_APP="$pick" ./scripts/select-ci-xcode.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -404,13 +405,14 @@ jobs:
             pick="$best"
           fi
           if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(find /Applications -maxdepth 1 -name "Xcode*.app" 2>/dev/null | sort | tr '\n' ' ')" >&2
             exit 1
           fi
           sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
           case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
           echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
           echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
+          CMUX_CI_XCODE_APP="$pick" ./scripts/select-ci-xcode.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh

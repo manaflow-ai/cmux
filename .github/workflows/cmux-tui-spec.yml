@@ -381,6 +381,12 @@ jobs:
         working-directory: cmux-tui
         run: cargo run --locked -p cmux-api-compat --bin api-compat-check
 
+      # acpmux's wire is an ABI too (hq RFD 0178): breaks need a rule in
+      # crates/acpmux/spec/acpmux-abi.compat.json. Reads the committed IR, no acpmux build.
+      - name: acpmux protocol changes need compat rules
+        working-directory: cmux-tui
+        run: cargo run --locked -p cmux-api-compat --bin api-compat-check -- --acpmux
+
   # spec/acpmux-protocol.json is generated from acpmux's protocol registry, and
   # webviews' build generates its TS types from that committed IR. Only
   # cmux-tui.yml (dispatch) ran `protocol_ir_is_current`, so #27050 added
@@ -446,7 +452,7 @@ jobs:
           if ! cargo test --locked -p acpmux --lib -- protocol:: 2>&1 | tee "$log"; then
             # A stale Cargo.lock is named as such, not as a failed test (cargo-locks.py explain).
             if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
-            echo "::error title=acpmux protocol tests::a protocol test failed. A stale IR (protocol_ir_is_current) is regenerated with ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib protocol_ir_is_current in cmux-tui, then bun run acpmux-protocol:codegen in webviews"
+            echo "::error title=acpmux protocol tests::a protocol test failed. A stale IR or ABI snapshot is regenerated with ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib protocol:: in cmux-tui (a break needs a rule in crates/acpmux/spec/acpmux-abi.compat.json first), then bun run acpmux-protocol:codegen in webviews"
             exit 1
           fi
           if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log"; then
@@ -545,6 +551,8 @@ jobs:
       - name: Restore the base's last test log
         if: ${{ steps.tree.outputs.hit != 'true' && github.event_name == 'pull_request' }}
         uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           path: ${{ runner.temp }}/acpmux-base-run
           key: acpmux-tests-base-log-${{ steps.scope.outputs.base || 'none' }}

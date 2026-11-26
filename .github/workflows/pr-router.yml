@@ -17,7 +17,9 @@ name: pr router
 on:
   pull_request:
     branches: [feat-cmux-next]
-    # labeled: only `ready-to-land` routes (the land tier, scripts/ci/head_tier.py); the route job skips any other.
+    # labeled: only `ready-to-land` and an added `full-ci` route (the land tier, scripts/ci/head_tier.py); the route
+    # job skips any other. full-ci is the land tier's handoff from a lane VM: the lane-gh broker never sets ready-to-land
+    # (autoland's queue), but a lane may add full-ci, so land-judge asks for the full tier with it there.
     types: [opened, synchronize, reopened, edited, ready_for_review, labeled]
 
 permissions: {}
@@ -25,8 +27,8 @@ permissions: {}
 # A push supersedes the older head's run and the workflows it called. An edit runs in a group of its own,
 # so it never cancels a push's run.
 concurrency:
-  # Another label gets a group of its own too, so it never cancels the head's run.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land' && format('-label-{0}', github.run_id) || '' }}
+  # Another label (or full-ci taken off) gets a group of its own too, so it never cancels the head's run.
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land' && !(github.event.action == 'labeled' && github.event.label.name == 'full-ci') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -40,7 +42,7 @@ jobs:
     # `size:` line, the classic API guard's `Classic API change:` line or the base (its diff moved).
     # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
     # does not read, so an edit routed for one callee starts no runner in another.
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land') }}
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land' && !(github.event.action == 'labeled' && github.event.label.name == 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -111,7 +113,7 @@ jobs:
           if [ "$STATE" = success ]; then
             desc="The full tier runs on this head"
           else
-            desc="Cheap tier: the full tier runs when ready-to-land is added"
+            desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
           gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
             -f description="$desc" -f target_url="$RUN_URL" >/dev/null

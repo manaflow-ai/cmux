@@ -1322,8 +1322,9 @@ jobs:
         # but not when setup failed before `cargo test` ran.
         if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
-        # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, so its tests run with it.
-        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic
+        # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, so its tests run with it;
+        # socket-tcp-bbr builds the BBR controller cmux-wg defaults to, and its tests.
+        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic,socket-tcp-bbr
 
       - name: TUI smoke test (scripted pty)
         # Runs after a red `cargo test` step too, so one run shows every red,

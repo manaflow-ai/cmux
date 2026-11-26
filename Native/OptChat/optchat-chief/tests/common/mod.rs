@@ -21,6 +21,8 @@ use serde_json::{Value, json};
 
 pub const CONV: &str = "conv_chief";
 pub const WAIT: Duration = Duration::from_secs(30);
+/// How long `poll_step` waits for an input before its loop checks again.
+pub const POLL: Duration = Duration::from_millis(20);
 /// The turn session names' prefix of the test home (`optchat-<home id>`).
 pub const TURN_PREFIX: &str = "optchat-h0me";
 /// The turn sessions' acpmux preset of the test home.
@@ -1526,6 +1528,36 @@ impl Harness {
         while let Some(at) = self.brain.next_timer() {
             std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
             self.brain.on_timer();
+        }
+    }
+
+    /// One wait of a `while <condition> { h.poll_step(); }` loop: steps an input
+    /// if one comes within POLL, else returns so the loop checks again. The
+    /// condition is often set on another thread that sends the brain nothing
+    /// after it (the fake agent records a prompt on the turn thread after the
+    /// turn's last input), where a blocking `step` would wait out WAIT and
+    /// fail the test. Panics, as `step` does, once WAIT passes with no input.
+    pub fn poll_step(&mut self) {
+        // (first empty poll, last poll) of this thread's current wait; a poll
+        // long after the last one belongs to a new loop and starts afresh.
+        thread_local! {
+            static IDLE: std::cell::Cell<Option<(std::time::Instant, std::time::Instant)>> =
+                const { std::cell::Cell::new(None) };
+        }
+        match self.rx.recv_timeout(POLL) {
+            Ok(input) => {
+                IDLE.with(|c| c.set(None));
+                self.brain.step(input);
+            }
+            Err(_) => {
+                let now = std::time::Instant::now();
+                let since = match IDLE.with(|c| c.get()) {
+                    Some((since, last)) if now - last < POLL * 10 => since,
+                    _ => now,
+                };
+                IDLE.with(|c| c.set(Some((since, now))));
+                assert!(now - since < WAIT, "the brain got no input");
+            }
         }
     }
 

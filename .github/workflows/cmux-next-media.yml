@@ -339,6 +339,12 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
+      # The job's clock: the clips stop 12 min before the 120 min cap, so the media the capture already
+      # recorded still uploads. Run 45572451860 captured every tour, then its clips ran the job into the
+      # cap at 10:10Z and "Keep the media" never ran: 2 Mac hours, no media.
+      - name: Start the tour's clock
+        run: echo "TOUR_DEADLINE=$(( $(date +%s) + 108 * 60 ))" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -434,6 +440,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
@@ -777,13 +784,24 @@ jobs:
           cp "$RUNNER_TEMP/clips-plan.json" "$out/plan.json"
           # First, so the publish job runs on what was recorded even when an extra before app times out.
           echo "count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$out/plan.json")" >> "$GITHUB_OUTPUT"
+          # A command, stopped with SIGTERM (tour.py unwinds and stops its app) at the job's clock.
+          bounded() {
+            local left=$(( ${TOUR_DEADLINE:-0} - $(date +%s) ))
+            if [ "${TOUR_DEADLINE:-0}" = 0 ]; then "$@"; return; fi
+            if [ "$left" -le 60 ]; then echo "::warning title=What's New clip::out of job time; skipped: $*"; return 124; fi
+            "$@" & local pid=$!
+            ( sleep "$left" && echo "::warning title=What's New clip::stopped at the job's clock" && kill -TERM "$pid" 2>/dev/null ) & local dog=$!
+            wait "$pid"; local rc=$?
+            pkill -P "$dog" 2>/dev/null; kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null
+            return "$rc"
+          }
           record() {  # ROLE APP [--before SHA]
             local role="$1" app="$2"; shift 2
             # Highlight ids are lowercase words and dashes: one path per word.
             # shellcheck disable=SC2046 # split on purpose, one tour path per word
             set -- $(python3 "$clips" tours --plan "$out/plan.json" --role "$role" --dir "$RUNNER_TEMP/clip-tours" "$@")
             [ "$#" -gt 0 ] || return 0
-            python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
+            bounded python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
               || echo "::warning title=What's New clip::a $role tour failed (exit $?); its clip is left out"
           }
           record after "$HEAD_APP"
@@ -797,7 +815,7 @@ jobs:
               && git -C "$tree" submodule update --init --recursive \
               && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh) \
               && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
-                "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
+                bounded "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
               || { echo "::warning title=What's New clip::no app at $sha; its befores wait"; continue; }
             app="$(sed -n 's/^clip_before_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
             record before "$app" --before "$sha"
