@@ -371,7 +371,7 @@ import { agentNames, agentViews } from "./conversation/agentNames";
 import { loadEditDiffHunks } from "./conversation/editDiffModel";
 import { loadHighlightedCode } from "./conversation/codeBlockModel";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
-import { SessionCwdContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
+import { SessionCwdContext, sessionEdits, type SessionEdits, setSessionBranch } from "./turnChanges/sessionRows";
 import { startedNames, SubsessionNamesProvider, type StartedNames } from "./conversation/startedNames";
 import {
   headerChangesInPlace,
@@ -674,6 +674,7 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { useExperimentSwitch } from "../../experiments/switches";
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
@@ -2507,6 +2508,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     lastEditRows.current = edits;
     return edits.edits;
   }, [snapshot.rows]);
+  // The changes card names the branch under the Transcript Work Log (turnChanges/sessionRows.ts).
+  useEffect(() => setSessionBranch(snapshot.summary?.branch), [snapshot.summary?.branch]);
+  // Transcript Work Log (Settings > Advanced > Experiments): its recolors key off the root attribute
+  // (conversation/transcriptWorkLog.css).
+  const workLog = useExperimentSwitch("transcriptWorkLog");
+  useEffect(() => void document.documentElement.toggleAttribute("data-transcript-work-log", workLog), [workLog]);
   // The names this chat's start calls gave its sub-sessions, for a "Sent to" row whose chat left
   // the session list (conversation/startedNames.ts); the same map while no start was added.
   const lastStartedNames = useRef<StartedNames | undefined>(undefined);
@@ -8963,10 +8970,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
   );
+  // A new client (a reconnect) gets the watch again: the old one's listeners went with it.
   const watchSessionCommands = useCallback(
     (sessionId: string, listener: () => void) =>
       directClient.current?.watchSessionCommands(sessionId, listener) ?? (() => undefined),
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clientEpoch],
   );
   const pendingCommands = useSessionCommands(
     commandSession,
@@ -11016,6 +11025,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     commandSession,
     newTabSnapshot,
     pendingCommands,
+    readSessionCommands,
     extensionCommands,
     newTabFixError,
     newTabStartFailure,
