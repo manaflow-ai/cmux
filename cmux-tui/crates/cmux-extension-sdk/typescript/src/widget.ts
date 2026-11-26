@@ -57,7 +57,7 @@ export function bySize(context: Pick<WidgetContext, "size">, views: { small: () 
   return views.small()
 }
 
-export { SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
+export { DURATION, RADIUS, SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
 import { SPACE, TYPE_ROLES, WIDGET_TYPE, type Space, type TypeRole } from "./tokens.ts"
 
 /** Text in a type role: its size and weight, one line unless `lines` says more. */
