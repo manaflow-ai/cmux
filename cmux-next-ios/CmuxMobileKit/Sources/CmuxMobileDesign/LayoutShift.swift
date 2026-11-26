@@ -126,19 +126,25 @@ public struct LayoutShiftProbeLabel: View {
     }
 }
 
+/// The coordinate space `.layoutShiftHost()` names: the root of a UIKit-hosted SwiftUI view that
+/// sits outside any scroll view (the chat's composer dock).
+let layoutShiftHostSpace = "cmux.layoutShift.host"
+
 private struct LayoutShiftTracked: ViewModifier {
     let id: String
     let space: LayoutShiftCounter.Space
+    /// Measured in its `.layoutShiftHost()` instead of a scroll view.
+    var inHost = false
     @State private var token = UUID()
 
     func body(content: Content) -> some View {
         if let probe = LayoutShiftProbe.shared {
-            let space = space, token = token
+            let space = space, token = token, inHost = inHost
             content
                 .onGeometryChange(for: CGRect?.self) { proxy in
-                    Self.measure(proxy, space)
+                    inHost ? Self.measureInHost(proxy) : Self.measure(proxy, space)
                 } action: { rect in
-                    probe.set(id, rect.map { .init($0, space) }, by: token)
+                    probe.set(id, rect.map { .init($0, inHost ? .scrollContent : space) }, by: token)
                 }
                 .onDisappear { probe.set(id, nil, by: token) }
         } else {
@@ -156,6 +162,18 @@ private struct LayoutShiftTracked: ViewModifier {
         // `.window`: the frame in the scroll view's visible bounds (a scroll moves every row alike).
         return space == .window ? CGRect(origin: CGPoint(x: -visible.minX, y: -visible.minY), size: frame.size) : frame
     }
+
+    /// The view's frame in its host's root (`.layoutShiftHost()`), its y taken from the host's
+    /// bottom edge (a dock grows upward: a notice shown over the composer moves nothing under it);
+    /// nil without a host above it (never the screen) or while it has no size. The host itself
+    /// moving (a push, the keyboard raising the dock) moves nothing in it, so only the view moving
+    /// or resizing in its host counts.
+    private nonisolated static func measureInHost(_ proxy: GeometryProxy) -> CGRect? {
+        guard let host = proxy.bounds(of: .named(layoutShiftHostSpace)) else { return nil }
+        let frame = proxy.frame(in: .named(layoutShiftHostSpace))
+        guard frame.width > 0, frame.height > 0 else { return nil }
+        return CGRect(x: frame.minX, y: frame.minY - host.height, width: frame.width, height: frame.height)
+    }
 }
 
 public extension View {
@@ -163,6 +181,18 @@ public extension View {
     /// nothing without `-cmux-placeholder-markers`. `id` is unique on screen.
     func layoutShiftTracked(_ id: String, in space: LayoutShiftCounter.Space = .scrollContent) -> some View {
         modifier(LayoutShiftTracked(id: id, space: space))
+    }
+
+    /// Marks a view outside any scroll view (the chat's composer) whose frame in its
+    /// `.layoutShiftHost()` the layout-shift count watches: any move or resize there counts.
+    func layoutShiftTracked(inHost id: String) -> some View {
+        modifier(LayoutShiftTracked(id: id, space: .scrollContent, inHost: true))
+    }
+
+    /// The root of a UIKit-hosted SwiftUI view whose `.layoutShiftTracked(inHost:)` views are
+    /// measured in it (the chat's dock, pinned to the keyboard).
+    func layoutShiftHost() -> some View {
+        coordinateSpace(.named(layoutShiftHostSpace))
     }
 }
 #endif
