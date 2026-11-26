@@ -90,7 +90,25 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
+      # A scheduled job's calls on the job token share the repository's per-hour installation pool with
+      # every other workflow; spent, the call ends "HTTP 403: API rate limit exceeded for installation" and
+      # the nightly silently does not run (ios-reliability-matrix 11-23/11-25, cmux#57719). The cmux bot
+      # App's token has its own hour; the job token stays the fallback when it cannot be minted.
+      # Detector: scripts/ci/cron_dispatch_token_lint.py.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-contents: read
+          permission-actions: write
       - name: Dispatch the step on nightly-next
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: gh workflow run nightly-next-rollback-drill.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f step="$STEP"
 
   publish:
