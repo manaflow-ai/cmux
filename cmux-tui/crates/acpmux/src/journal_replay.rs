@@ -97,10 +97,9 @@ pub struct Screen {
 
 fn visible(text: &str) -> String {
     const COLUMNS: usize = 640;
-    match text.char_indices().rev().nth(COLUMNS - 1) {
-        Some((start, _)) if start > 0 => format!("…{}", &text[start..]),
-        _ => text.to_owned(),
-    }
+    let tail_reversed: String = text.chars().rev().take(COLUMNS).collect();
+    let tail: String = tail_reversed.chars().rev().collect();
+    if text.chars().nth(COLUMNS).is_some() { format!("…{tail}") } else { tail }
 }
 
 impl Screen {
