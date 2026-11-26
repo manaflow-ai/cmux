@@ -292,6 +292,36 @@ echo fail > "$TMP/precheck/$changed"
 RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "the explicit precheck opt-out must preserve promotion:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "precheck is off" <<<"$out" || fail "the opt-out reason must be visible:" "$out"
+
+# A superseded record (the controller checked a newer push tip instead, and that check covers this
+# push's commits) is covered by the first checked tip after it on feat-cmux-next when that tip passed.
+# Most feat-cmux-next commits are superseded and the tree publisher keeps one push per window, so
+# requiring both on one commit left the dedicated Macs idle for hours (11-25). Here the covering tip's
+# own tree is not published, so only the superseded commit can be promoted.
+echo superseded-app > "$src/App.swift"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "app change superseded by a later push tip"
+covered=$(git -C "$src" rev-parse HEAD)
+publish "$covered"
+echo superseded > "$TMP/precheck/$covered"
+echo three > "$src/cmux-tui/a"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "the push tip the controller checked"
+checked=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/feat-cmux-next "$checked"
+git_q -C "$src" checkout -q --detach "$covered"
+RUN_ID=9 request --sha "$covered" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$covered" || fail "a superseded commit whose covering tip passed must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "superseded by ${checked:0:12}" <<<"$out" || fail "the covering tip must be named in the precheck reason:" "$out"
+run_id=10
+for word in fail running; do
+  echo "$word" > "$TMP/precheck/$checked"
+  RUN_ID=$run_id request --sha "$covered" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$covered" || fail "a superseded commit whose covering tip is $word must wait:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "${covered:0:12}: not prechecked yet" <<<"$out" || fail "the $word covering tip must leave it pending:" "$out"
+  run_id=$((run_id + 1))
+done
+git_q -C "$src" update-ref -d refs/heads/feat-cmux-next
 git_q -C "$src" checkout -q --detach "$head"
 
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
