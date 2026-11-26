@@ -1717,6 +1717,7 @@ name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2249,6 +2250,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -2483,7 +2499,10 @@ name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
+ "rand_core 0.6.4",
  "serde_json",
 ]
 
@@ -2495,6 +2514,14 @@ dependencies = [
  "cmux-rd-screen",
  "serde_json",
  "uniffi",
+]
+
+[[package]]
+name = "cmux-mobile-host-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2531,11 +2558,11 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64",
+ "cmux-egress",
  "cmux-no-checkout",
  "cmux-process",
  "cmux-scope",
  "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "tempfile",
@@ -2749,6 +2776,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-screen-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-screen",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-redact"
 version = "0.1.0"
 dependencies = [
@@ -2795,6 +2830,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-braid-session",
  "cmux-build-identity",
@@ -2803,6 +2839,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-process",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2991,6 +3028,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-shotdiff"
+version = "1.0.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3354,6 +3401,7 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
+ "cmux-tag-cache",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
@@ -3773,6 +3821,28 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "cmux-vmd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64",
+ "chrono",
+ "cmux-process",
+ "cmux-scope",
+ "cmux-tui-machine-protocol",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
