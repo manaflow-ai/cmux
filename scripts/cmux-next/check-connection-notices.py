@@ -33,7 +33,8 @@ when it
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
 renamed or deleted, by any file) fails as stale until a change removes it. Every unlisted offender is judged on
-every run, with or without --base. The unit is the granularity: a component with
+every run, with or without --base. Passive inline JSX words move to each component mounting them, including
+named imports and aliases; unsupported uses retain a finding in the presenter. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
 
     python3 scripts/cmux-next/check-connection-notices.py                     # the working tree
@@ -405,14 +406,16 @@ def scan(tree: Tree) -> list[Unit]:
                     continue
                 target = resolve_spec(path, match[2])
                 for binding in match[1].split(","):
-                    names = binding.strip().split(" as ")
-                    if not names[0] or names[0].startswith("type "):
-                        continue
-                    imports[path].append((names[-1], target))
-                    presenter_imports.setdefault(target, []).append((path, names[0], names[-1]))
+                    binding = binding.strip()
+                    if binding and binding != "type":
+                        exported, _, local = binding.partition(" as ")
+                        local = local.strip() or exported
+                        imports[path].append((local, target))
+                        if not exported.startswith("type "):
+                            presenter_imports.setdefault(target, []).append((path, exported.strip(), local))
             # A default, namespace, re-export or dynamic module edge cannot identify every drawing.
             other_imports = TS_IMPORT.sub("", source)
-            for match in re.finditer(r"""(?:\bfrom\s*|\bimport\s*\(\s*)["'](\.[^"']+)["']""", other_imports):
+            for match in re.finditer(r"""(?:\bfrom\s*|\b(?:import|require)\s*\(\s*)["'](\.[^"']+)["']""", other_imports):
                 opaque_modules.add(resolve_spec(path, match[1]))
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
@@ -442,10 +445,10 @@ def scan(tree: Tree) -> list[Unit]:
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     drawn_actions(units, imports)
     propagate(units, imports)
+    attribute_presenters(units, presenter_imports, opaque_modules)
     for unit in units.values():
         if unit.hits and not unit.acted and unit.path.endswith(".tsx"):
             unit.acted = has_local_button_action(unit, units)
-    attribute_presenters(units, presenter_imports, opaque_modules)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
@@ -570,13 +573,12 @@ def inline_presenter(unit: Unit) -> bool:
     if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
         return False
     body = "\n".join(unit.lines)
-    root = RETURN_TAG.search(body)
-    if not root or re.search(r"""\baria-live\s*=|\brole\s*=|\buse(?!\w*Strings\b|T\b)\w+\(""", body):
+    if not RETURN_TAG.search(body) or re.search(r"""\baria-live\s*=|\brole\s*=|\buse(?!\w*Strings\b|T\b)\w+\(""", body):
         return False
     tags = set(OPEN_TAG.findall(body))
     # A pure forwarding wrapper may render the very child from which it just received the hit.
     children = {hit.text.split(": ", 1)[0] for hit in unit.hits if hit.hops}
-    return tags <= INLINE_TAGS | children and root[1] in tags
+    return tags <= INLINE_TAGS | children
 
 
 def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
@@ -599,7 +601,7 @@ def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[s
             bindings = {(unit.path, unit.name)}
             bindings.update((path, local) for target in targets for path, exported, local in imports.get(target, ())
                             if exported == unit.name)
-            consumers = []
+            consumers: dict[tuple[str, str], tuple[Unit, int, str]] = {}
             unresolved = False
             for path, local in sorted(bindings):
                 name = re.escape(local)
@@ -613,12 +615,15 @@ def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[s
                             # The declaration introduces this name; retain recursive uses on the very same line.
                             line = re.sub(rf"\b(function|const|let)\s+{name}\b", "", line, count=1)
                         for ref in reference.finditer(line):
-                            if ref["tag"] == "<" and other is not unit and other.name != "<file>":
-                                consumers.append((other, index, local))
+                            quoted = any(s.start() <= ref.start() < s.end() for s in STRING_LITERAL.finditer(line))
+                            mounted = (not quoted and ref["tag"] == "<"
+                                       and re.match(r"(?:\s|/?>|$)", line[ref.end():]))
+                            if mounted and other is not unit and other.name != "<file>":
+                                consumers.setdefault((other.id, local), (other, index, local))
                             elif ref["tag"] != "</":
                                 unresolved = True
             if consumers and not unresolved:
-                for other, index, local in consumers:
+                for other, index, local in consumers.values():
                     for hit in unit.hits:
                         other.hits.append(Hit(other.numbers[index], f"{local}: {hit.text}", index,
                                               hit.hops + 1, hit.origin))

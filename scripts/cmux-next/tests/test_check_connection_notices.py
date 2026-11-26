@@ -372,7 +372,10 @@ class WebShapes(unittest.TestCase):
     def test_unresolved_or_unmounted_inline_copy_stays_a_finding(self):
         for extra in ["", "export const registry = [StateWord];",
                       'export { StateWord } from "./StateWord";',
-                      'export const load = () => import("./StateWord");']:
+                      'export const load = () => import("./StateWord");',
+                      'export const load = () => require("./StateWord");',
+                      'export function Nested() { return <StateWord.Other />; }',
+                      'export const example = "<StateWord />";']:
             with self.subTest(extra=extra):
                 tree = Tree(self)
                 tree.write(f"{WEB}/StateWord.tsx", """
