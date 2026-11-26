@@ -975,7 +975,7 @@ jobs:
           fi
 
       # Same-input receipt (scripts/ci/react_shard_receipt.py): this shard already went green on exactly these inputs
-      # (the merge commit's tree, the merge parent's tree, this run's shard handoff, the shard and the run's
+      # (the merge commit's and its parent's input files (the ones whose change runs this check), this run's shard handoff, the shard and the run's
       # configuration), so it restores that run's head results and skips every step that would compute them again.
       # Same-repository pull requests only; any error fails open and the shard runs in full. A push always runs.
       - name: Key this shard's same-input receipt
@@ -985,7 +985,13 @@ jobs:
         env:
           RECEIPT_SHARD: ${{ matrix.shard }}
           RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), contains(github.event.pull_request.labels.*.name, 'full-ci'), github.base_ref, runner.os, runner.arch) }}
-        run: python3 scripts/ci/react_shard_receipt.py key --shard "$RECEIPT_SHARD" --handoff "$RUNNER_TEMP/webviews-durations" --config "$RECEIPT_CONFIG" >> "$GITHUB_OUTPUT"
+          # The key hashes the files whose change runs this check (web_subareas.is_react_input), not every file, so a
+          # push that touches none of them hits the receipt of the same inputs; 0 keys the whole trees as before.
+          RECEIPT_INPUT_SCOPE: ${{ vars.CI_REACT_RECEIPT_INPUT_SCOPE || '1' }}
+        run: |
+          whole=()
+          [ "$RECEIPT_INPUT_SCOPE" = 0 ] && whole=(--whole-tree)
+          python3 scripts/ci/react_shard_receipt.py key --shard "$RECEIPT_SHARD" --handoff "$RUNNER_TEMP/webviews-durations" --config "$RECEIPT_CONFIG" "${whole[@]}" >> "$GITHUB_OUTPUT"
 
       - name: Look up this shard's same-input receipt
         id: receipt-restore
@@ -1121,12 +1127,39 @@ jobs:
           fi
           exec ./scripts/cmux-next/build-web-bundles.sh --force
 
+      # The two git-hook suites below test scripts/install-git-hooks.sh, scripts/git-hooks/ and the post-edit
+      # formatter, not the webviews tree, yet they ran on every web pull request head: 1.8 min of shard 1's
+      # 11 (2026-11-24, ci-min-per-pr-30 cut G). On a pull request each runs when scripts/ci/focused_tests.py, the
+      # source-path-to-test map the car guards use, selects it for the change (every file the installer copies
+      # names it), or the change moves webviews' vp (package.json, bun.lock: the real-vp cases). A push, a batch
+      # and a dispatch run both, so a miss here still reds feat-cmux-next's next push. Any error runs both.
+      - name: Pick shard 1's git-hook suites
+        id: hook-suites
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            printf 'merge_driver=true\npost_edit=true\n' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          printf 'merge_driver=true\npost_edit=true\n' > "$RUNNER_TEMP/hook-suites"
+          if plan="$(timeout 120 python3 -I scripts/ci/focused_tests.py --base HEAD^1 --head HEAD)" &&
+            picked="$(printf '%s' "$plan" | python3 -I -c 'import json,sys; p={t["path"] for t in json.load(sys.stdin)["python"]}; print(" ".join(n for n,t in (("merge_driver","tests/test_install_git_hooks.py"),("post_edit","tests/test_format_post_edit.py")) if t in p))')" &&
+            changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"; then
+            if printf '%s\n' "$changed" | grep -qxE 'webviews/(package\.json|bun\.lock)'; then picked="merge_driver post_edit"; fi
+            for suite in merge_driver post_edit; do
+              case " $picked " in *" $suite "*) echo "$suite=true" ;; *) echo "$suite=false" ;; esac
+            done > "$RUNNER_TEMP/hook-suites"
+          fi
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
+
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
       # they run once, on shard 1: one red check, not one per shard.
       - name: Generated bundle merge driver
         id: merge-driver
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
         continue-on-error: true
         run: |
           # These two test the repo's hooks, merge drivers and formatter, not a webview: a pull request that changes
@@ -1142,7 +1175,7 @@ jobs:
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
         id: post-edit-format
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.post_edit != 'false' }}
         continue-on-error: true
         run: |
           # These two test the repo's hooks, merge drivers and formatter, not a webview: a pull request that changes
@@ -1549,6 +1582,8 @@ jobs:
           # Warn-only: what the pull request's next head reuses, never this run's verdict.
           PASSED_BEFORE: ${{ steps.passed-before.outcome }}
           PASSED_UPLOAD: ${{ steps.passed-upload.outcome }}
+          # Warn-only: the pick fails open (an error runs both git-hook suites), never this run's verdict.
+          HOOK_SUITES: ${{ steps.hook-suites.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -1566,6 +1601,9 @@ jobs:
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
             echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
+          fi
+          if [ "$HOOK_SUITES" = failure ]; then
+            echo "::warning::Picking shard 1's git-hook suites failed; both suites ran."
           fi
           for gate in \
             "SOURCE_BUILD|Verify webviews source checks" \
