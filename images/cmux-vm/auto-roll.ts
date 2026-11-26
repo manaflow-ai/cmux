@@ -392,8 +392,10 @@ export type SettleOutcome = "green" | "superseded" | "rollback" | "verified" | "
 export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: number };
 
 /**
- * A roll: green only when the deploy and the product create are green and the create booted this image. Anything
- * else (failed, cancelled, timed out, skipped, another image booted) rolls back while the image is in either list
+ * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
+ * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out, skipped
+ * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
  * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
  * proves nothing: the production deploy queue never cancels a running deploy, so a cancel is a person or a
@@ -410,6 +412,11 @@ export function settle(s: SettleInput): Settle {
   if (s.kind === "roll") {
     if (smokeGreen && s.bootImage === s.image && s.deployedFirst === s.image) return done("green", `${s.image} booted in production (${seen})`);
     if (!s.tipHas) return done("superseded", `${seen}; ${s.image} is already in neither list at the tip (production's first is ${s.tipFirst || "none"})`);
+    // The production deploy never ran (its check failed or hung first) and no create booted anything: production
+    // still serves the last deploy, so nothing is known about the image. Deploy the roll again, as a rollback's
+    // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
+    if (s.deploy === "skipped" && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)

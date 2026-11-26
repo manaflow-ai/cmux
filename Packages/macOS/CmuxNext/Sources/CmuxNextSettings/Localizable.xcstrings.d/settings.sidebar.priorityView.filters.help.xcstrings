@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.priorityView.filters.help" : {
+      "comment" : "Settings row help for sidebar.priorityView.filters.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All, Waiting, Unread and Running chips with counts, and Mark All as Read."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شرائح الكل وبانتظارك وغير مقروءة وقيد التشغيل مع أعدادها، وتعليم الكل كمقروء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oznake Sve, Čeka, Nepročitano i Radi s brojevima, i Označi sve kao pročitano."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Knapperne Alle, Venter, Ulæste og Kører med antal, og Markér alle som læst."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chips „Alle“, „Wartend“, „Ungelesen“ und „Läuft“ mit Anzahl sowie „Alle als gelesen markieren“."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chips Todas, En espera, No leídas y En curso con sus totales, y Marcar todo como leído."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puces Toutes, En attente, Non lues et En cours avec leur nombre, et Tout marquer comme lu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chip Tutte, In attesa, Non lette e In corso con i conteggi, e Segna tutto come letto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "件数付きの「すべて」「待機中」「未読」「実行中」チップと「すべて既読にする」。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បន្ទះ ទាំងអស់ កំពុងរង់ចាំ មិនទាន់អាន និង កំពុងដំណើរការ ជាមួយចំនួន និង សម្គាល់ទាំងអស់ថាបានអាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "개수가 표시된 전체, 대기 중, 읽지 않음, 실행 중 칩과 모두 읽음으로 표시."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Knappene Alle, Venter, Uleste og Kjører med antall, og Merk alle som lest."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przyciski Wszystkie, Oczekujące, Nieprzeczytane i Działające z liczbą oraz Oznacz wszystkie jako przeczytane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chips Todas, Aguardando, Não lidas e Em execução com contagens, e Marcar tudo como lido."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кнопки «Все», «Ждут», «Непрочитанные» и «Выполняются» с количеством и «Отметить все как прочитанные»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ชิป ทั้งหมด รออยู่ ยังไม่อ่าน และ กำลังทำงาน พร้อมจำนวน และ ทำเครื่องหมายทั้งหมดว่าอ่านแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sayılarıyla Tümü, Bekleyen, Okunmamış ve Çalışan düğmeleri ve Tümünü okundu olarak işaretle."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кнопки «Усі», «Чекають», «Непрочитані» й «Виконуються» з кількістю та «Позначити все як прочитане»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các nút Tất cả, Đang chờ, Chưa đọc và Đang chạy kèm số lượng, và Đánh dấu tất cả là đã đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "带数量的“全部”“等待中”“未读”“运行中”筛选，以及“全部标为已读”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "附數量的「全部」「等待中」「未讀」「執行中」篩選，以及「全部標示為已讀」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

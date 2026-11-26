@@ -82,6 +82,12 @@ fn handle_frame(
     if let Some(keep_open) = carrier_role::try_handle(mux, client, &line, writer) {
         return keep_open;
     }
+    // The phone the Cloud link's owner check admitted, stamped before the stream declares the
+    // phone's capability (owner_phone.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = owner_phone::try_handle(mux, client, &line, writer) {
+        return keep_open;
+    }
     // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
     #[cfg(unix)]
     if let Some(keep_open) = phone_carrier::refuse_line(mux, client, message, writer) {

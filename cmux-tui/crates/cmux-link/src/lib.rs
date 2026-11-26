@@ -40,6 +40,7 @@ mod jws;
 pub mod key_holder;
 pub mod keyset;
 pub mod overlay_addr;
+pub mod owner_phone;
 pub mod owner_session;
 pub mod pairing;
 pub mod registration;

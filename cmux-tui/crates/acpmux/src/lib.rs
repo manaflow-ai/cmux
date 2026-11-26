@@ -28,6 +28,7 @@ pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
+pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
 pub mod agent_text;
@@ -38,6 +39,7 @@ pub mod attach;
 pub mod author;
 /// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
 pub mod auto_session;
+pub mod autocloud_enroll;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -122,6 +124,7 @@ pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_budget;
 #[cfg(unix)]
 pub mod github_lane_mint;
 #[cfg(unix)]

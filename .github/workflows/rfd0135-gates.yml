@@ -37,6 +37,7 @@ on:
       - scripts/cmux-next/rfd0135_gates.py
       - tests/test_rfd0135_gates.py
       - cmux-tui/crates/cmux-tui/tests/lid_close_gate.rs
+      - cmux-tui/crates/cmux-tui/tests/move_times.rs
       - cmux-tui/crates/cmux-tui/tests/phone_direct_gate.rs
       - cmux-tui/crates/cmux-cloud-phone-acp/**
       - cmux-tui/crates/cmux-tui/src/link/phone_chat.rs
@@ -86,8 +87,13 @@ jobs:
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version

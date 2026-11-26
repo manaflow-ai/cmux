@@ -1275,9 +1275,14 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
     let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
         .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
-    let (socket, _) = tokio_tungstenite::connect_async_with_config(request, Some(limits), false)
-        .await
-        .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
+    let (socket, _) = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(limits),
+        false,
+        "cmux_mobile_host::services::acpmux",
+    )
+    .await
+    .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
     Ok(socket)
 }
 

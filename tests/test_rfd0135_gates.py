@@ -29,6 +29,27 @@ noise
 
 
 class Rfd0135GatesTest(unittest.TestCase):
+    def test_move_times_runs_the_move_times_test_and_reads_its_file(self) -> None:
+        def fake_run(cmd, **kw):
+            Path(kw["env"]["MOVE_TIMES_OUT"]).write_text('{"to_cloud_ms":[900,1200],"back_ms":[800,700]}')
+            self.assertEqual((cmd[-1], kw["env"]["MOVE_TIMES_RUNS"]), ("move_times::", "3"))
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.dict(os.environ, {"MOVE_TIMES": ""}), mock.patch.object(gates.subprocess, "run", side_effect=fake_run):
+            got = gates.move_times(argparse.Namespace(matrix_log=None, move_runs=3))
+        self.assertEqual((gates.p95(got["to_cloud_ms"]), gates.p95(got["back_ms"])), (1200, 800))
+
+    def test_gates_run_tests_in_the_one_it_binary(self) -> None:
+        # cmux-tui's tests are modules of `--test it` (cmux#56677); a `--test lid_close_gate` target is gone.
+        with mock.patch.object(gates.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as run:
+            gates.cargo_test("lid_close_gate::", {})
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("--test") + 1], "it")
+        self.assertEqual(cmd[-1], "lid_close_gate::")
+        tests = ROOT / "cmux-tui/crates/cmux-tui/tests"
+        if tests.is_dir():  # the unit job's sparse checkout has no cmux-tui
+            for name in ("lid_close_gate", "move_kill_drill"):
+                self.assertTrue((tests / f"{name}.rs").is_file(), name)
+
     def test_matrix_cells_reads_only_the_summary_table(self) -> None:
         cells = gates.matrix_cells(LOG)
         self.assertEqual([c["step"] for c in cells], ["before-begin", "after-begin", "mid-copy"])
@@ -51,6 +72,19 @@ class Rfd0135GatesTest(unittest.TestCase):
         self.assertEqual(gates.p95(list(range(1, 21))), 19)
         self.assertEqual(gates.p95([5.0]), 5.0)
 
+    def test_move_code_landed_reads_the_tree_not_a_pr(self) -> None:
+        # cmux#51824 closed unmerged (its commits landed via cmux#52230); the gate must see the code.
+        # (The unit job's sparse checkout has no Packages/, so the tree here is made up.)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertFalse(gates.move_code_landed(root))
+            for path in gates.MOVE_CODE:
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text("")
+            self.assertTrue(gates.move_code_landed(root))
+            (root / gates.MOVE_CODE[0]).unlink()
+            self.assertFalse(gates.move_code_landed(root))
+
     def test_phone_is_no_when_its_check_fails(self) -> None:
         os.environ["PHONE_GATE_CMD"] = "false"
         try:
@@ -63,6 +97,17 @@ class Rfd0135GatesTest(unittest.TestCase):
             self.assertEqual(result["measured"]["first_reply_ms"], 12)
         finally:
             os.environ.pop("PHONE_GATE_CMD")
+
+    def test_every_gate_calls_cargo_test_with_its_signature(self) -> None:
+        # A base merge once left gate_phone calling an older cargo_test(binary, name, env); nothing
+        # else runs that branch in unit tests, so call each gate's cargo path through the real signature.
+        def fake(name: str, env: dict[str, str]):
+            return mock.Mock(returncode=1, stdout="", stderr="")
+        os.environ.pop("PHONE_GATE_CMD", None)
+        with mock.patch.object(gates, "cargo_test", side_effect=fake) as run:
+            self.assertFalse(gates.gate_phone(None)["ok"])
+            gates.gate_lid_close(argparse.Namespace(runs=1, secs=1))
+        self.assertEqual(run.call_args_list[0].args[0], "phone_direct_gate::")
 
     def test_summary_adds_parallel_lid_close_jobs(self) -> None:
         one = {"gate": "lid-close", "ran": True, "runs": 1, "passed": 1, "lid_s": 1800, "each": [{"pass": True}]}
