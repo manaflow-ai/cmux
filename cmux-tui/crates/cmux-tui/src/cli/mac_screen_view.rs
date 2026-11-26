@@ -86,7 +86,9 @@ pub(super) fn with_tab_state(global: &GlobalArgs, mut tab: Value) -> Value {
     let id = tab.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let state = read_state(global, Some(&id));
     let field = field_for(&tab, state);
-    tab["mac_screen"] = field;
+    if let Some(object) = tab.as_object_mut() {
+        object.insert("mac_screen".into(), field);
+    }
     tab
 }
 
