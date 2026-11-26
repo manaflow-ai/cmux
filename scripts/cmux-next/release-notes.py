@@ -1290,7 +1290,9 @@ def pr_index(args):
     """notes/pr-index.json: {"version": 1, "prs": {"<number>": {"build", "shortVersion",
     "publishedAt"}}}, each PR mapped to the first published build that carried it. Merged into the
     previous published (verified) copy: a PR already listed keeps its build, so a rebuilt or
-    re-signed span never moves it later."""
+    re-signed span never moves it later. With no previous copy (the first one) and --seed-index,
+    the published notes of each build that index lists (oldest first, each verified from the
+    first --base that serves it) fill it in before this build's."""
     with open(args.notes, encoding="utf-8") as f:
         notes = json.load(f)
     prs = {}
@@ -1299,15 +1301,36 @@ def pr_index(args):
             previous = json.load(f)
         if isinstance(previous, dict) and isinstance(previous.get("prs"), dict):
             prs = {k: v for k, v in previous["prs"].items() if k.isdigit() and isinstance(v, dict)}
-    entry = {"build": notes["build"], "shortVersion": notes["shortVersion"],
-             "publishedAt": notes.get("publishedAt") or notes.get("builtAt") or ""}
-    for item in notes.get("items") or []:
-        number = item.get("pr") if isinstance(item, dict) else None
-        if isinstance(number, int) and str(number) not in prs:
-            prs[str(number)] = dict(entry)
+    elif args.seed_index and os.path.exists(args.seed_index) and args.base and args.public_key:
+        with open(args.seed_index, encoding="utf-8") as f:
+            builds = [b.get("build", "") for b in json.load(f).get("builds", []) if isinstance(b, dict)]
+        for build in reversed(builds):
+            if not re.fullmatch(r"[0-9.]+", str(build)) or build == notes["build"]:
+                continue
+            try:
+                older = fetch_verified_notes(build, args.base, args.public_key)
+            except Exception as error:  # one unreadable build never stops the index
+                print(f"pr-index: skipped {build}: {error}", file=sys.stderr)
+                continue
+            if isinstance(older, dict) and older.get("build") == build:
+                add_prs(prs, older)
+    add_prs(prs, notes)
     with open(args.out, "w", encoding="utf-8") as out:
         json.dump({"version": 1, "prs": prs}, out, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     print(args.out)
+
+
+def add_prs(prs, notes):
+    """Adds each PR of `notes` (its items, else its "(#N)" subjects) that `prs` does not list yet."""
+    entry = {"build": str(notes.get("build", "")), "shortVersion": str(notes.get("shortVersion", "")),
+             "publishedAt": str(notes.get("publishedAt") or notes.get("builtAt") or notes.get("date") or "")}
+    numbers = [item.get("pr") for item in notes.get("items") or [] if isinstance(item, dict)]
+    if not notes.get("items"):
+        numbers = [int(m["pr"]) for m in (PR_SUFFIX.match(c) for c in notes.get("changes") or []
+                                           if isinstance(c, str)) if m]
+    for number in numbers:
+        if isinstance(number, int) and not isinstance(number, bool) and str(number) not in prs:
+            prs[str(number)] = dict(entry)
 
 
 def appcast_pr_text(items, limit=PR_LIMIT):
@@ -1521,6 +1544,9 @@ def main():
     r.add_argument("--notes", required=True)
     r.add_argument("--previous")
     r.add_argument("--out", required=True)
+    r.add_argument("--seed-index", help="with no --previous: a verified index.json whose builds' notes seed it")
+    r.add_argument("--base", action="append", help="feed bases to fetch the seed notes from")
+    r.add_argument("--public-key", help="verifies the seed notes")
     f = sub.add_parser("backfill")
     f.add_argument("--index", required=True)
     f.add_argument("--base", action="append", required=True)
