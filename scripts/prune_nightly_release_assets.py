@@ -252,6 +252,27 @@ def collect_immutable_assets(
     return immutable_assets, ignored_assets
 
 
+# Nightly builds arm64 only; Intel (x86_64) and universal ship from the stable
+# release. The x86_64, universal and legacy nightly feeds and download aliases
+# stay at the last build that had those variants, so that build is never pruned:
+# deleting it would make the frozen feeds and the universal download link 404.
+FROZEN_VARIANTS = ("x86_64", "universal")
+_VARIANT_DMG = re.compile(r"-(?P<variant>arm64|x86_64|universal)-(?P<build>\d+)\.dmg$")
+
+
+def frozen_feed_builds(assets: list[ReleaseAsset]) -> set[int]:
+    """The newest build of every frozen variant (x86_64, universal)."""
+    newest: dict[str, int] = {}
+    for asset in assets:
+        match = _VARIANT_DMG.search(asset.name)
+        if not match or match.group("variant") not in FROZEN_VARIANTS:
+            continue
+        build = int(match.group("build"))
+        if build == asset.build and build > newest.get(match.group("variant"), -1):
+            newest[match.group("variant")] = build
+    return set(newest.values())
+
+
 def partition_assets(
     assets: list[ReleaseAsset], keep_builds: int, total_assets: int, max_assets: int
 ) -> tuple[list[ReleaseAsset], list[int]]:
@@ -260,14 +281,19 @@ def partition_assets(
         assets_by_build[asset.build].append(asset)
 
     ordered_builds = sorted(assets_by_build, reverse=True)
+    pinned = frozen_feed_builds(assets)
     to_delete: list[ReleaseAsset] = []
     for build in ordered_builds[keep_builds:]:
+        if build in pinned:
+            continue
         to_delete.extend(sorted(assets_by_build[build], key=lambda asset: asset.name))
 
     assets_after_prune = total_assets - len(to_delete)
     for build in reversed(ordered_builds[:keep_builds]):
         if assets_after_prune <= max_assets:
             break
+        if build in pinned:
+            continue
         build_assets = sorted(assets_by_build[build], key=lambda asset: asset.name)
         to_delete.extend(build_assets)
         assets_after_prune -= len(build_assets)
