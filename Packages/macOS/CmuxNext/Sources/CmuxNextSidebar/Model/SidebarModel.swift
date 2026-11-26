@@ -417,6 +417,9 @@ public final class SidebarModel {
     /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
     /// the App's bridge from its own favicon store.
     @ObservationIgnored public var itemFavicon: ((String) -> SidebarFavicon?)?
+    /// `appearance.agentSignature`: the app's one store of agent dot glyphs, which this window's agent rows read
+    /// (``WorkspaceRowView`` takes it on dequeue); nil draws none.
+    @ObservationIgnored public var agentSignatures: SidebarAgentSignatures?
     /// Posted when favicons arrived: every list draws its link rows again.
     public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
