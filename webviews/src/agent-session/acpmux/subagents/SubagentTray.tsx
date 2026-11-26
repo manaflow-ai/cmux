@@ -647,7 +647,8 @@ export const SubagentTray = memo(function SubagentTray({
   // The `summary` arm (the default) counts as the tally does, in words while they fit (HeadSummary.tsx).
   const summaryHead = (foldHead === "summary" || groupsHead) && headParts.length > 0;
   const tallyHead = (foldHead === "tally" || summaryHead) && headParts.length > 0;
-  const loneEnd = lone && !tallyHead && !lineHead ? loneHeadOf(t, language, lone, waiting, showLatest, connectionQuiet) : undefined;
+  const loneEnd =
+    lone && !tallyHead && !lineHead ? loneHeadOf(t, language, lone, waiting, showLatest, connectionQuiet) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   // The `kinds` arm draws each kind's mark and count, folded and open; a lone item keeps its own head.
   const kindsHead = tallyHead || (foldHead === "kinds" && !loneEnd && headParts.length > 0);
