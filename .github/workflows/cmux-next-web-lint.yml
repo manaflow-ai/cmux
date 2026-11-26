@@ -81,6 +81,7 @@ jobs:
         if: ${{ startsWith(runner.name, 'fsr-') }}
         run: bash scripts/ci/fsr-bun-cache.sh check bun-web-lint webviews/bun.lock web/bun.lock cmux-tui/frontends/web/bun.lock
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
