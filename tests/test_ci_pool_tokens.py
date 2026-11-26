@@ -47,6 +47,20 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
+    # GET /rate_limit for a given token: ghs_dead answers 401, ghs_spent has 0 left, any other has 4000.
+    def do_GET(self) -> None:  # noqa: N802
+        token = self.headers.get("Authorization", "").removeprefix("Bearer ")
+        if self.path != "/rate_limit" or token == "ghs_dead":
+            self.send_response(401)
+            self.end_headers()
+            return
+        out = json.dumps({"resources": {"core": {"remaining": 0 if token == "ghs_spent" else 4000}}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
     def log_message(self, *_args) -> None:
         pass
 
@@ -111,6 +125,24 @@ class Mint(unittest.TestCase):
         left = [p for p in Path(self.tmp).iterdir() if p.is_file() and "PRIVATE KEY" in p.read_text()]
         self.assertEqual(left, [])
 
+    def test_given_pool_tokens_serve_without_any_app_and_skip_dead_or_spent(self) -> None:
+        # The quota-goblin tokens the key home sets as secrets: live ones go first, a dead or spent one is left out.
+        done, written = self.run_script(CI_POOL_TOKENS="ghs_goblin1 ghs_dead ghs_spent ghs_goblin2", GITHUB_RUN_ID="1")
+        self.assertEqual(done.returncode, 0, done)
+        self.assertIn("CI_POOL_GH_TOKEN=ghs_goblin2\n", written)
+        self.assertIn("CI_POOL_GH_TOKEN_SPARES=ghs_goblin1\n", written)
+        self.assertIn("::add-mask::ghs_goblin1", done.stdout)
+        self.assertIn("pool token 2: HTTP 401", done.stdout)
+        self.assertIn("pool token 3: hour spent", done.stdout)
+        self.assertNotIn("ghs_dead", written + done.stdout)
+
+    def test_given_pool_tokens_join_the_minted_pools(self) -> None:
+        done, written = self.run_script(CI_POOL_APPS=self.apps(2), CI_POOL_KEYS="\n".join(self.keys),
+                                        CI_POOL_TOKENS="ghs_goblin1", GITHUB_RUN_ID="0")
+        self.assertEqual(done.returncode, 0, done)
+        self.assertIn("CI_POOL_GH_TOKEN=ghs_pool1token\n", written)
+        self.assertIn("CI_POOL_GH_TOKEN_SPARES=ghs_pool2token ghs_goblin1\n", written)
+
     def test_a_refused_pool_leaves_the_others(self) -> None:
         FakeGitHub.refuse = {1}
         done, written = self.run_script(CI_POOL_APPS=self.apps(2), CI_POOL_KEYS="\n".join(self.keys),
@@ -150,6 +182,8 @@ class Wiring(unittest.TestCase):
                 self.assertTrue(mint.get("continue-on-error"))
                 self.assertEqual(mint["env"]["CI_POOL_APPS"], "${{ vars.CMUX_CI_POOL_APPS }}")
                 self.assertEqual(mint["env"]["CI_POOL_KEYS"], "${{ secrets.CMUX_CI_POOL_KEYS }}")
+                self.assertEqual(mint["env"]["CI_POOL_TOKENS"],
+                                 "${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}")
                 json.loads(mint["env"]["CI_POOL_PERMISSIONS"])
                 token = step(workflow, job, name)["env"]["GH_TOKEN"]
                 self.assertTrue(token.startswith("${{ env.CI_POOL_GH_TOKEN ||"), token)

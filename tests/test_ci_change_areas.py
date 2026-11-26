@@ -271,9 +271,11 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
     ) == ("CmuxUpdater",)
     # A dependency pulls in its dependents, and nothing else.
     auth_core = module.swift_package_test_selection(["Packages/Shared/CMUXAuthCore/Package.swift"])
-    assert "CMUXAuthCore" in auth_core
-    # CmuxAuthRuntime depends on CMUXAuthCore, so it is a dependent; CmuxUpdater is not.
-    assert "CmuxAuthRuntime" in auth_core
+    # CmuxHomeRender depends on CMUXAuthCore, so it is a dependent; CmuxUpdater is not. CMUXAuthCore and
+    # CmuxAuthRuntime run on Linux (scripts/ci/swift-linux-packages.txt), not in this lane.
+    assert "CmuxHomeRender" in auth_core
+    assert "CMUXAuthCore" not in auth_core
+    assert "CmuxAuthRuntime" not in auth_core
     assert "CmuxUpdater" not in auth_core
     assert module.swift_package_test_selection(["Sources/AppDelegate.swift"]) == ()
 
@@ -327,13 +329,16 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
     body = lane.split("PACKAGES=(", 1)[1].split("\n  )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
-    assert "CMUXAuthCore" in packages
+    assert "CmuxUpdater" in packages
     path = "Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift"
     assert module.classify_files([path]).swift_packages is True
     assert "CmuxUpdater" in module.swift_package_test_selection([path])
-    # These macOS packages had test targets but were missing from the list once.
-    for name in ("CmuxPhonePush",):
-        assert name in packages, name
+    # These run on Linux (scripts/ci/swift-linux-packages.txt), their Apple-only suites in
+    # auth-refresh-tests.yml: never in the macOS lane as well.
+    linux = (ROOT / "scripts/ci/swift-linux-packages.txt").read_text(encoding="utf-8")
+    for name in ("CmuxAuthRuntime", "CmuxPhonePush"):
+        assert name not in packages, name
+        assert f"/{name}  " in linux, name
     for name in packages:
         assert any((ROOT / "Packages").glob(f"*/{name}/Package.swift")), name
 
