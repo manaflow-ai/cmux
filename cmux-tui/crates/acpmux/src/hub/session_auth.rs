@@ -61,7 +61,7 @@ pub(crate) fn provider_of(model: Option<&str>, family: &str) -> Option<String> {
     let implied = match family {
         "claude" => "anthropic",
         "codex" => "openai",
-        "gemini" => "google",
+        "gemini" | "antigravity" => "google",
         "grok" => "xai",
         "deepseek" => "deepseek",
         _ => return None,
@@ -164,8 +164,13 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
 /// as for Claude and Codex.
 fn signs_in_by_store(family: &str) -> Option<crate::agent_login::Agent> {
     use crate::agent_login::Agent;
-    Agent::parse(family)
+    Agent::parse(login_family(family))
         .filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode))
+}
+
+/// Antigravity's API key is saved in Gemini's store and loaded at spawn.
+fn login_family(family: &str) -> &str {
+    if family == "antigravity" { "gemini" } else { family }
 }
 
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
@@ -364,7 +369,8 @@ impl Hub {
         let mut profile = cfg.harnesses.get(&meta.harness).cloned().ok_or_else(|| {
             RpcError::invalid_params("the chat's harness is no longer configured")
         })?;
-        if crate::config::derive_family(&meta.harness, &profile) != family {
+        let harness_family = crate::config::derive_family(&meta.harness, &profile);
+        if login_family(&harness_family) != family {
             return Err(RpcError::invalid_params(
                 "the login agent does not match the chat's harness",
             ));
@@ -373,7 +379,7 @@ impl Hub {
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
         let bindings = routes::bindings(&state);
-        let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
+        let route = route_of(&bindings, dir.as_deref(), &meta, &harness_family, &profile.env)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
         {

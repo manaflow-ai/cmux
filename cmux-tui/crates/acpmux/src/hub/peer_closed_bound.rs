@@ -124,12 +124,11 @@ impl Hub {
     /// whole lists too.
     pub(super) fn trim_closed_peer_rows(&self, peer: &str, generation: u64) {
         let gone = {
-            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned()
-            else {
+            // The rows writer lock, then the registry with no lock (`peer_table.rs`).
+            let mut map = self.remote_sessions.write();
+            let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
                 return;
             };
-            let mut map = self.remote_sessions.write();
             let past = past_bound(map.of_peer(peer).map(|(key, row)| Closed {
                 key: key.clone(),
                 closed: row.summary.closed(),

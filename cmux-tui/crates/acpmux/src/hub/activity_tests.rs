@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn a_tool_call_names_the_activity() {
     let u = json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Run  cargo test\n-p acpmux", "status": "pending"});
-    assert_eq!(activity_of(&u), Some(Activity::Tool("Run cargo test -p acpmux".into())));
+    assert_eq!(activity_of(&u), Some("Run cargo test -p acpmux".into()));
 }
 
 #[test]
@@ -11,19 +11,6 @@ fn an_untitled_update_says_nothing() {
     let u = json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"});
     assert_eq!(activity_of(&u), None);
     assert_eq!(activity_of(&json!({"sessionUpdate": "agent_message_chunk"})), None);
-}
-
-#[test]
-fn a_plan_names_its_step_in_progress() {
-    let u = json!({"sessionUpdate": "plan", "entries": [
-        {"content": "Read the brief", "status": "completed", "priority": "high"},
-        {"content": "Fix send_message", "status": "in_progress", "priority": "high"},
-        {"content": "Open the PR", "status": "pending", "priority": "high"},
-    ]});
-    assert_eq!(activity_of(&u), Some(Activity::PlanStep(Some("Fix send_message".into()))));
-    let done =
-        json!({"sessionUpdate": "plan", "entries": [{"content": "x", "status": "completed"}]});
-    assert_eq!(activity_of(&done), Some(Activity::PlanStep(None)));
 }
 
 #[test]
@@ -118,17 +105,14 @@ fn a_turn_stalls_when_its_model_is_quiet_with_no_tool_in_flight() {
 }
 
 #[test]
-fn a_secret_in_a_tool_title_or_plan_step_is_masked() {
+fn a_secret_in_a_tool_title_is_masked() {
     // A fake key, assembled so no file holds one.
     let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
     let mut doing = TurnActivity::default();
     doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
                        "title": format!("curl -H 'x-key: {key}' https://example.com")}));
-    doing.note(&json!({"sessionUpdate": "plan", "entries": [
-        {"content": format!("log in with {key}"), "status": "in_progress"}]}));
-    let (activity, step) = (doing.activity.unwrap(), doing.plan_step.unwrap());
+    let activity = doing.activity.unwrap();
     assert!(activity.starts_with("curl -H") && !activity.contains(&key), "{activity}");
-    assert!(step.starts_with("log in with") && !step.contains(&key), "{step}");
     // Masked before the cut: a key straddling it leaves no head.
     let pad = "x ".repeat((ACTIVITY_CHARS - 10) / 2);
     let u = json!({"sessionUpdate": "tool_call", "title": format!("{pad}{key}")});
@@ -139,18 +123,6 @@ fn a_secret_in_a_tool_title_or_plan_step_is_masked() {
 #[test]
 fn a_long_title_is_cut() {
     let u = json!({"sessionUpdate": "tool_call", "title": "x".repeat(500)});
-    let Some(Activity::Tool(t)) = activity_of(&u) else { panic!() };
+    let Some(t) = activity_of(&u) else { panic!() };
     assert_eq!(t.chars().count(), ACTIVITY_CHARS + 1);
-}
-
-#[test]
-fn the_doing_line_joins_step_and_tool() {
-    assert_eq!(
-        doing_line(Some("Fix it"), Some("Edit a.rs")).as_deref(),
-        Some("Fix it · Edit a.rs")
-    );
-    assert_eq!(doing_line(Some("Fix it"), None).as_deref(), Some("Fix it"));
-    assert_eq!(doing_line(None, Some("Edit a.rs")).as_deref(), Some("Edit a.rs"));
-    assert_eq!(doing_line(Some("same"), Some("same")).as_deref(), Some("same"));
-    assert_eq!(doing_line(None, None), None);
 }

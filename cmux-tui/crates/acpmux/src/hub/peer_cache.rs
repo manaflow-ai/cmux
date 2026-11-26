@@ -69,7 +69,9 @@ impl Hub {
     pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
         if !now {
             let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
-            if self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(peer) {
+            // Fixed before registry publication, including the window before lease_peer
+            // records the generation. Never wait on a lease writer on the notice path.
+            if p.leased {
                 return;
             }
             // Publish the notice sequence before deciding whether this notice is throttled. The
@@ -124,6 +126,10 @@ impl Hub {
     /// per-peer writer makes queued snapshots land in order, and a final `now` save waits behind
     /// them before taking its own current snapshot.
     pub(super) fn save_peer_cache_now(&self, peer: &str, generation: u64, now: bool) {
+        let Some(p) = self.peer(peer).filter(|p| p.generation == generation) else { return };
+        if p.leased {
+            return;
+        }
         let writer = self.peer_cache_writer(peer);
         let mut on_disk = writer.lock().unwrap_or_else(|e| e.into_inner());
         // A leased peer leaves nothing on disk (`peer_lease.rs`). This check is intentionally

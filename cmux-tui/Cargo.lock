@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
@@ -53,6 +54,7 @@ dependencies = [
  "cmux-host-budget",
  "cmux-hub-host",
  "cmux-image-linear",
+ "cmux-intent",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -62,6 +64,8 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-pool-pod",
+ "cmux-presence",
  "cmux-process",
  "cmux-relay",
  "cmux-remote",
@@ -90,6 +94,7 @@ dependencies = [
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
+ "cmux-wallpaper",
  "cmux-wg",
  "cmux-worktree-care",
  "dhat",
@@ -1398,6 +1403,8 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
  "cmux-embed",
  "cmux-wallpaper",
  "hex",
@@ -1514,6 +1521,10 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -1561,6 +1572,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1596,9 +1615,12 @@ dependencies = [
  "base64",
  "blake3",
  "cmux-signed-envelope",
+ "flate2",
  "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]
@@ -1626,6 +1648,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
@@ -1881,6 +1904,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -2161,11 +2185,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "flate2",
  "futures-util",
  "hex",
+ "libc",
  "reqwest",
  "rustls",
  "serde_json",
@@ -2212,6 +2238,14 @@ version = "0.1.0"
 dependencies = [
  "cmux-holder",
  "libc",
+]
+
+[[package]]
+name = "cmux-home-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2298,6 +2332,22 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-intent"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-interactivity"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -2435,6 +2485,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-mobile-core",
+ "cmux-rd-screen",
  "serde_json",
  "uniffi",
 ]
@@ -2464,6 +2515,25 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tokio",
+]
+
+[[package]]
+name = "cmux-no-checkout"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "cmux-no-checkout",
+ "cmux-process",
+ "cmux-scope",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -2542,6 +2612,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-presence"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
@@ -2581,6 +2659,7 @@ name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -2647,6 +2726,16 @@ name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
  "serde",
  "serde_json",
 ]
@@ -2762,6 +2851,7 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
@@ -2784,6 +2874,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -3058,6 +3156,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-team-messaging"
+version = "0.1.0"
+dependencies = [
+ "cmux-forum-hosted",
+ "cmux-sync",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
@@ -3180,6 +3289,7 @@ dependencies = [
  "cmux-apps",
  "cmux-autocloud",
  "cmux-automations",
+ "cmux-braid-path",
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
@@ -3210,11 +3320,14 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-install-check",
+ "cmux-intent",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-no-checkout",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -3243,6 +3356,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-tui-platform",
+ "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -3262,6 +3376,7 @@ dependencies = [
  "ghostty-vt",
  "ghostty-vt-sys",
  "glob",
+ "ignore",
  "libc",
  "notify",
  "parking_lot",
@@ -3318,6 +3433,7 @@ dependencies = [
  "base64",
  "cmux-cloud-environment",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-json",
  "serde",
  "serde_json",
@@ -3347,6 +3463,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-classic-import",
  "cmux-cloud-api",
+ "cmux-cloud-machine",
  "cmux-computer-use",
  "cmux-conductor-import",
  "cmux-config",
@@ -3362,6 +3479,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-interactivity",
  "cmux-json",
  "cmux-kitty-media",
  "cmux-layout-reducer",
@@ -3371,6 +3489,7 @@ dependencies = [
  "cmux-output-paint",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-presence",
  "cmux-process",
  "cmux-projection",
  "cmux-pty",
@@ -3521,6 +3640,10 @@ name = "cmux-tui-source-watch"
 version = "0.0.0"
 
 [[package]]
+name = "cmux-tui-test-modules"
+version = "0.0.0"
+
+[[package]]
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
@@ -3659,6 +3782,8 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "schemars 1.2.2",
+ "serde",
  "serde_json",
 ]
 
@@ -3705,6 +3830,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
@@ -5130,6 +5256,7 @@ dependencies = [
  "ghostty-vt-sys",
  "memchr",
  "png",
+ "simdutf8",
 ]
 
 [[package]]

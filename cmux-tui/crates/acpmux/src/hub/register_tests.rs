@@ -1,7 +1,7 @@
 use super::*;
 use crate::claude_peers::Peer;
 
-pub(super) fn peer(pid: u32, socket: &str) -> Peer {
+fn peer(pid: u32, socket: &str) -> Peer {
     Peer {
         pid,
         session_id: format!("sid-{pid}"),
@@ -47,6 +47,130 @@ async fn renew_hook_retries_an_unavailable_inbox_but_rejects_the_wrong_owner() {
     let owner = peer(std::process::id(), link.to_str().unwrap());
     assert!(!crate::claude_peers::inbox_proof(&link, owner.pid).await.unwrap());
     assert!(prove_claude(&owner, dir.path(), &link, true).await.is_err());
+}
+
+/// A hub with one chat named `name`, registered, its token kept in `home` for this test's
+/// own process, started at `started`.
+async fn holder(home: &std::path::Path, name: &str, started: u64) -> (Arc<Hub>, Arc<Session>) {
+    use crate::config::{Config, StoreMode};
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let hub = Hub::new(config, store);
+    let id = uuid::Uuid::now_v7().to_string();
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": name,
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+    }))
+    .unwrap();
+    hub.store.save(&meta).unwrap();
+    let session = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    mark_registered_for_test(&session.id);
+    let kept = crate::claude_peers::ChildToken {
+        pid: std::process::id(),
+        socket: home.join("inbox.sock"),
+        token: "t".into(),
+        started: Some(started),
+    };
+    crate::claude_peers::save_token(home, &session.id, &kept).unwrap();
+    (hub, session)
+}
+
+/// Leo, 2026-11-25: `acpmux register NAME` takes a name held by a registered chat whose
+/// Claude process is gone, renaming the dead holder `NAME-gone-<short>`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gone_registered_holder_yields_its_name() {
+    let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (hub, held) = holder(home.path(), "mango-reg", 1_000).await;
+    // No live registry entry has that process start: it is gone.
+    hub.yield_name_of_gone(&held, "mango-reg", home.path(), claude_home.path()).await.unwrap();
+    let renamed = held.meta().name;
+    assert!(renamed.starts_with("mango-reg-gone-"), "{renamed}");
+    assert_eq!(renamed.len(), "mango-reg-gone-".len() + 8, "{renamed}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_registered_holder_still_refuses_with_name_taken() {
+    let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    // Its process (this test's own) runs, with the start its token names.
+    let me = std::process::id();
+    let started = crate::adopt_live::pid_start_ms(me).expect("this process's start");
+    let (hub, held) = holder(home.path(), "mango-live", started).await;
+    let registry = crate::claude_peers::registry(claude_home.path());
+    std::fs::create_dir_all(&registry).unwrap();
+    let entry = json!({"pid": me, "sessionId": "sid-live", "startedAt": started});
+    std::fs::write(registry.join(format!("{me}.json")), entry.to_string()).unwrap();
+    assert_eq!(crate::claude_peers::started_at(claude_home.path(), me), Some(started));
+    let e = hub
+        .yield_name_of_gone(&held, "mango-live", home.path(), claude_home.path())
+        .await
+        .unwrap_err();
+    assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
+    assert_eq!(held.meta().name, "mango-live");
+    // Its process runs with no registry entry at all: still taken.
+    std::fs::remove_file(registry.join(format!("{me}.json"))).unwrap();
+    let e = hub
+        .yield_name_of_gone(&held, "mango-live", home.path(), claude_home.path())
+        .await
+        .unwrap_err();
+    assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
+    // Nor does a chat that was never registered yield, gone or not.
+    assert!(!registered_chat_gone(false, None, None));
+    let kept = crate::claude_peers::ChildToken {
+        pid: me,
+        socket: home.path().join("inbox.sock"),
+        token: "t".into(),
+        started: Some(2_000),
+    };
+    assert!(!registered_chat_gone(false, Some(&kept), None));
+    assert!(registered_chat_gone(true, Some(&kept), None));
+    assert!(!registered_chat_gone(true, Some(&kept), Some(2_000)));
+    // A token with no recorded start proves nothing either way: the name stays.
+    let unknown = crate::claude_peers::ChildToken { started: None, ..kept };
+    assert!(!registered_chat_gone(true, Some(&unknown), None));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_takeover_leaves_a_gone_incumbents_address_unchanged() {
+    let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (hub, incumbent) = holder(home.path(), "mango-retry", 1_000).await;
+    let id = uuid::Uuid::now_v7().to_string();
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": "claimant",
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+    }))
+    .unwrap();
+    hub.store.save(&meta).unwrap();
+    let shown = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(shown.id.clone(), shown.clone());
+    mark_registered_for_test(&shown.id);
+    crate::claude_peers::save_token(
+        home.path(),
+        &shown.id,
+        &crate::claude_peers::ChildToken {
+            pid: std::process::id(),
+            socket: home.path().join("claimant.sock"),
+            token: "t".into(),
+            started: Some(1_000),
+        },
+    )
+    .unwrap();
+
+    let claimed = peer(99, "/s/99.sock");
+    let error = hub
+        .validate_registered_claim(
+            Some(&shown),
+            &claimed,
+            2_000,
+            None,
+            &claimed.session_id,
+            home.path(),
+            claude_home.path(),
+        )
+        .unwrap_err();
+    assert_eq!(error.data.as_ref().unwrap()["reason"], "register.unproven");
+    assert_eq!(incumbent.meta().name, "mango-retry");
 }
 
 #[test]

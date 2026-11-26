@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentHooks.removeBody" : {
+      "comment" : "Settings > Agents > Claude Code & Codex > Hooks card: body of the remove confirmation dialog.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove this hook from its file? Turn Off keeps it so you can turn it back on."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "هل تريد إزالة هذا الخطّاف من ملفه؟ يُبقيه «إيقاف» لتتمكن من تفعيله مجددًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukloniti ovaj hook iz njegove datoteke? Isključivanje ga zadržava, pa ga možete ponovo uključiti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vil du fjerne denne hook fra sin fil? Slå fra beholder den, så du kan slå den til igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diesen Hook aus seiner Datei entfernen? Mit „Ausschalten“ bleibt er erhalten und kann wieder eingeschaltet werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "¿Quitar este hook de su archivo? Desactivar lo conserva para que puedas volver a activarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Supprimer ce hook de son fichier ? Désactiver le conserve pour que vous puissiez le réactiver."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimuovere questo hook dal suo file? Disattiva lo conserva così puoi riattivarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このフックをファイルから削除しますか？「オフにする」なら残るので、あとでオンに戻せます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លុប hook នេះចេញពីឯកសាររបស់វាឬ? ការបិទរក្សាវាទុក ដូច្នេះអ្នកអាចបើកវាវិញបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 훅을 파일에서 제거할까요? 끄기를 선택하면 훅이 남아 있어 다시 켤 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjerne denne hooken fra filen? Slå av beholder den, så du kan slå den på igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunąć ten hook z jego pliku? Wyłączenie zachowuje go, więc można go później włączyć ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remover este hook do arquivo dele? Desativar o mantém para que você possa ativá-lo de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалить этот хук из его файла? Если выключить, он останется, и его можно будет включить снова."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบ hook นี้ออกจากไฟล์ใช่ไหม การปิดจะเก็บไว้ เพื่อให้เปิดกลับมาได้ภายหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu hook dosyasından kaldırılsın mı? Kapatmak onu saklar, böylece tekrar açabilirsiniz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалити цей хук із його файлу? Якщо вимкнути, він залишиться, і його можна буде ввімкнути знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa hook này khỏi tệp của nó? Tắt sẽ giữ lại hook để bạn bật lại sau."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "要从文件中移除此钩子吗？选择“关闭”会保留它，之后可以重新开启。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "要從檔案中移除此鉤子嗎？選擇「關閉」會保留它，之後可以重新開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

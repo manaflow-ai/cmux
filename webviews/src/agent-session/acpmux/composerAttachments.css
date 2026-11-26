@@ -305,7 +305,7 @@
   min-width: 48px;
   max-width: 128px;
 }
-/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, SHAPE_WAIT_MS at most, inside the drop's frame): held
    zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
 :is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
   visibility: hidden;
@@ -1307,9 +1307,9 @@ button.acpmux-attachment-pasted-open:hover {
    do we have a solid color thing anyway? Shouldn't it also be glass?"). No drop shadow: it sits in
    the composer's glass, not over the page. */
 :is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading {
+  /* The element carries ui-glass (PASTE_LOADING_CLASS), which paints the frost; the chip's own
+     background and rim keep winning over the chip's class here. */
   background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow);
   color: var(--agent-muted);
   opacity: 0.85;
