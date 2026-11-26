@@ -59,6 +59,20 @@ function movie(tracks: Uint8Array[], media = 4096, wide = false): Blob {
 }
 
 describe("video header size", () => {
+  test("a recording with trailing metadata uses two small reads across its media", async () => {
+    const file = movie([box("trak", tkhd(1920, 1080))], 8192);
+    const reads: number[] = [];
+    const slice = file.slice.bind(file);
+    file.slice = (start, end, type) => {
+      const part = slice(start, end, type);
+      reads.push(part.size);
+      return part;
+    };
+    expect(await videoHeaderSize(file)).toEqual({ width: 1920, height: 1080 });
+    expect(reads).toHaveLength(2);
+    expect(Math.max(...reads)).toBeLessThanOrEqual(256);
+  });
+
   test("a screen recording's size comes from its track header after its media", async () => {
     expect(await videoHeaderSize(movie([box("trak", tkhd(2880, 1800), box("mdia"))]))).toEqual({
       width: 2880,

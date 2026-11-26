@@ -119,7 +119,7 @@ fn report_line(h: &mut Harness) -> u64 {
     h.connect();
     h.say("user_local", "fix the sidebar flicker");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let sp = spawner(h);
     run(h, move || {
@@ -180,9 +180,14 @@ fn a_send_to_a_report_line_goes_into_the_thread_of_the_message_that_started_it()
         attachments: Vec::new(),
         reply_to: Some(line),
         long: false,
+        delay_seconds: None,
     };
     let answer = run(&mut h, move || sp.send(call)).expect("a send to a report line is no error");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let (_, reply_to, root) = wait_send(&mut h, "a1 landed the sidebar fix.");
     assert_eq!(reply_to.map(|r| r.message_id), Some("msg_1".to_owned()));
     assert_eq!(root.as_deref(), Some("msg_1"));
@@ -218,6 +223,7 @@ fn a_send_to_a_line_with_no_message_behind_it_goes_to_the_top_level() {
         attachments: Vec::new(),
         reply_to: Some(line),
         long: false,
+        delay_seconds: None,
     };
     let answer = run(&mut h, move || sp.send(call)).expect("a send is no error");
     assert!(answer.contains("top level"), "{answer}");

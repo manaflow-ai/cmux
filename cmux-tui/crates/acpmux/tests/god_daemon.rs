@@ -18,7 +18,10 @@
 //!   (`attachNoticesAheadMax`), and their bytes per list (`noticeBytesPerPeerList`). The peers'
 //!   proxies carry no link until the client watches, and a change of one peer row after the
 //!   attaches ends the window ([`flood_end`]). `attachUs` waits on these notices: with none ahead
-//!   an attach takes about 1 ms;
+//!   an attach takes about 1 ms. With `ACPMUX_GOD_PEER_ROW_BATCHES=1` the client asks for peer
+//!   row batches (`peerRowBatches`): each peer's list is one `_acpmux/peer_rows_changed`
+//!   (`batchNotices`, counted in `attachNoticesAhead`), and once the window ends the client reads
+//!   the rows with one paged follow of the list (`catchUp`, [`catch_up`]);
 //! - `scrollPageUs`: the pane's scroll up through the god chat, [`ROUNDS`] older pages
 //!   (`_acpmux/events` before the oldest seq held, 400 records, 128 KiB); `deepScrollUs`: a jump
 //!   to the middle of its history, [`DEEP_ROUNDS`] times;
@@ -50,16 +53,25 @@
 #![recursion_limit = "256"]
 #![cfg(unix)]
 
+#[path = "support/chat_size_seed.rs"]
+mod chat_size_seed;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // The prompt goes to tests/fake_agent.py; the sizes and the profile switch hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SHAPES",
     "ACPMUX_GOD_SCALE",
+    // The chat size sweep's sizes (`chat_size_sweep`).
+    "ACPMUX_CHAT_SIZES",
+    "ACPMUX_CHAT_SIM_BIN",
+    // The fleet's output directory, not a credential: keep the bounded daemon-log artifacts.
+    "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
+    // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
+    "ACPMUX_GOD_PEER_ROW_BATCHES",
     // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
     "ACPMUX_CHURN_ROWS",
     "ACPMUX_CHURN_SECS",
@@ -82,6 +94,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GROWTH_STACKS",
 ]);
 
+use acpmux::chat_size_fixture;
 /// The growth lab: a daemon with many sessions under a mesh of peers that come and go.
 #[cfg(target_os = "linux")]
 #[path = "god_daemon/growth.rs"]
@@ -94,12 +107,13 @@ use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_ws_with};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use wait_timeout::ChildExt;
 
 /// How long any one step may take before the run says so and moves on.
 const STEP: Duration = Duration::from_secs(600);
@@ -229,7 +243,13 @@ fn all_logs_end(gauges: &Value) -> Option<u64> {
 /// Asks `_acpmux/status` until every chat log is read: when it ended, or why it is not known.
 /// No call waits past [`ALL_LOGS`], so the wait ends at most a poll after it.
 fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
-    let deadline = Instant::now() + ALL_LOGS;
+    wait_all_logs_within(rpc, ALL_LOGS)
+}
+
+/// [`wait_all_logs`] for at most `limit` (a 4 GB chat's first load may take longer than
+/// [`ALL_LOGS`]).
+fn wait_all_logs_within(rpc: &mut Rpc, limit: Duration) -> Result<u64, Value> {
+    let deadline = Instant::now() + limit;
     let mut last = Value::Null;
     while Instant::now() < deadline {
         match rpc.call_until("_acpmux/status", json!({}), Some(deadline)) {
@@ -243,7 +263,7 @@ fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
         rpc.notes.clear();
         std::thread::sleep(ALL_LOGS_POLL);
     }
-    Err(json!({"timeoutMs": ALL_LOGS.as_millis() as u64, "lastError": last}))
+    Err(json!({"timeoutMs": limit.as_millis() as u64, "lastError": last}))
 }
 
 /// One older page of the god chat, as the pane asks when it scrolls up: its time and reply.
@@ -274,17 +294,27 @@ struct Rpc {
     /// ([`MARKER_KINDS`]): how many, their bytes, and how many of each peer; and the events
     /// dropped.
     flood: Flood,
+    /// The `_acpmux/peer_rows_changed` notices read, as they came: what a client that asked for
+    /// batches follows the list for ([`catch_up`]).
+    batch_notes: Vec<Value>,
 }
 
 /// `_acpmux/session_changed` notices of peer rows (`peer` set) a client read, and the hub events
 /// its connection's fan-out dropped instead (`_acpmux/lagged`'s `dropped`): the hub's broadcast
-/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it.
+/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it. A client that asked
+/// for peer row batches (`peerRowBatches`) reads one `_acpmux/peer_rows_changed` per list instead
+/// (`batches`). Its fan-out still takes every row's hub event, and when it falls behind it hears
+/// one `_acpmux/lagged` with `watch: true` (`watch_lags`) and follows the list for what it missed:
+/// those dropped events were never its notices, so they are not `dropped` (2 of 24 god runs).
 #[derive(Clone, Default)]
 struct Flood {
     notices: u64,
     bytes: u64,
     by_peer: BTreeMap<String, u64>,
     dropped: u64,
+    batches: u64,
+    batch_bytes: u64,
+    watch_lags: u64,
 }
 
 impl Flood {
@@ -301,18 +331,22 @@ impl Flood {
             bytes: self.bytes - before.bytes,
             by_peer,
             dropped: self.dropped - before.dropped,
+            batches: self.batches - before.batches,
+            batch_bytes: self.batch_bytes - before.batch_bytes,
+            watch_lags: self.watch_lags - before.watch_lags,
         }
     }
 
-    /// Every flood notice queued for the client: those it read and those its fan-out dropped.
+    /// Every flood notice queued for the client: those it read and those its fan-out dropped,
+    /// a batch's one notice included.
     fn queued(&self) -> u64 {
-        self.notices + self.dropped
+        self.notices + self.dropped + self.batches + self.watch_lags
     }
 
-    /// Their bytes: those read, and the dropped ones at the mean of the ones read.
+    /// Their bytes: those read, and the dropped ones at the mean of the row notices read.
     fn queued_bytes(&self) -> u64 {
         let mean = self.bytes as f64 / self.notices.max(1) as f64;
-        (self.bytes as f64 + mean * self.dropped as f64).round() as u64
+        (self.bytes as f64 + mean * self.dropped as f64).round() as u64 + self.batch_bytes
     }
 }
 
@@ -350,6 +384,7 @@ impl Rpc {
             read_bytes: 0,
             longest_line: 0,
             flood: Flood::default(),
+            batch_notes: vec![],
         }
     }
 
@@ -408,7 +443,18 @@ impl Rpc {
             *self.flood.by_peer.entry(peer.to_owned()).or_default() += 1;
         }
         if v["method"] == "_acpmux/lagged" {
-            self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+            if v["params"]["watch"] == true {
+                self.flood.watch_lags += 1;
+            } else {
+                self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+            }
+        }
+        if v["method"] == "_acpmux/peer_rows_changed" {
+            self.flood.batches += 1;
+            self.flood.batch_bytes += line.len() as u64;
+            let peer = v["params"]["peer"].as_str().unwrap_or_default().to_owned();
+            *self.flood.by_peer.entry(peer).or_default() += 1;
+            self.batch_notes.push(v["params"].clone());
         }
         Ok(v)
     }
@@ -555,6 +601,7 @@ async fn peers(shape: &Shape, scratch: &Path, gate: Gate) -> (Value, Vec<Proxy>,
 struct Daemon {
     child: Child,
     socket: PathBuf,
+    log: PathBuf,
     spawned: Instant,
     socket_connect_us: u64,
 }
@@ -562,6 +609,8 @@ struct Daemon {
 impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
+        let log = scratch.join("daemon.log");
+        let stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log).unwrap();
         let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
             .map(PathBuf::from)
             .unwrap_or_else(|| daemon_env::bin().to_path_buf());
@@ -573,7 +622,7 @@ impl Daemon {
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::from(stderr));
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
         }
@@ -593,12 +642,13 @@ impl Daemon {
             if spawned.elapsed() >= STEP || child.try_wait().unwrap().is_some() {
                 let _ = child.kill();
                 let _ = child.wait();
+                print_daemon_log(&log);
                 panic!("the daemon did not bind its socket");
             }
             std::thread::sleep(Duration::from_millis(1));
         }
         let socket_connect_us = micros(spawned);
-        Self { child, socket, spawned, socket_connect_us }
+        Self { child, socket, log, spawned, socket_connect_us }
     }
 
     /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
@@ -632,11 +682,61 @@ impl Daemon {
         (field("VmRSS:"), field("VmHWM:"))
     }
 
+    /// `RssAnon` and `RssFile` of the daemon, in bytes: heap against mapped file pages.
+    fn rss_split(&self) -> (u64, u64) {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
+            .unwrap_or_default();
+        let field = |name: &str| {
+            status
+                .lines()
+                .find(|l| l.starts_with(name))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|kib| kib.parse::<u64>().ok())
+                .map_or(0, |kib| kib * 1024)
+        };
+        (field("RssAnon:"), field("RssFile:"))
+    }
+
+    /// The daemon's largest resident mappings (`/proc/PID/smaps`): `[name or path, rss bytes,
+    /// size bytes]`, anonymous ones named `[anon]`, so a size's extra memory has a place.
+    fn rss_maps(&self) -> Value {
+        let smaps =
+            std::fs::read_to_string(format!("/proc/{}/smaps", self.child.id())).unwrap_or_default();
+        let mut maps: Vec<(String, u64, u64)> = Vec::new();
+        for line in smaps.lines() {
+            let mut words = line.split_whitespace();
+            let first = words.next().unwrap_or_default();
+            if first.contains('-') && first.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+                let (lo, hi) = first.split_once('-').unwrap_or_default();
+                let size = u64::from_str_radix(hi, 16)
+                    .unwrap_or(0)
+                    .saturating_sub(u64::from_str_radix(lo, 16).unwrap_or(0));
+                let name = words.nth(4).map_or("[anon]".to_owned(), str::to_owned);
+                maps.push((name, 0, size));
+            } else if first == "Rss:" {
+                if let Some(last) = maps.last_mut() {
+                    last.1 = words.next().and_then(|k| k.parse::<u64>().ok()).unwrap_or(0) * 1024;
+                }
+            }
+        }
+        maps.sort_by_key(|m| std::cmp::Reverse(m.1));
+        maps.truncate(12);
+        json!(maps)
+    }
+
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
     fn stop(&mut self) {
+        if self.child.try_wait().unwrap().is_some() {
+            return;
+        }
         // SAFETY: the pid is this test's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        let _ = self.child.wait();
+        if self.child.wait_timeout(Duration::from_secs(30)).unwrap().is_none() {
+            print_daemon_log(&self.log);
+            let _ = self.child.kill();
+            let _ = self.child.wait_timeout(Duration::from_secs(5));
+            panic!("daemon {} did not stop within 30 seconds", self.child.id());
+        }
     }
 
     /// The daemon's one-stop handoff through a cache-first attach (not an app render). The new
@@ -677,8 +777,26 @@ impl Daemon {
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.child.wait_timeout(Duration::from_secs(5));
+        if std::thread::panicking() {
+            print_daemon_log(&self.log);
+        }
     }
+}
+
+/// Keep failure evidence bounded even if a daemon repeatedly logs the same error.
+fn print_daemon_log(path: &Path) {
+    let Ok(mut file) = std::fs::File::open(path) else { return };
+    let len = file.metadata().map_or(0, |m| m.len());
+    let _ = file.seek(SeekFrom::Start(len.saturating_sub(16 * 1024)));
+    let mut tail = Vec::new();
+    let _ = file.take(16 * 1024).read_to_end(&mut tail);
+    eprintln!(
+        "daemon log {} (last {} bytes):\n{}",
+        path.display(),
+        tail.len(),
+        String::from_utf8_lossy(&tail)
+    );
 }
 
 /// How long the client waits for the marker's notice after the attaches.
@@ -719,7 +837,8 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
     let Ok(w) = window else {
         return json!({"attachNoticesAhead": null, "attachNoticesAheadMax": null,
                       "noticeBytes": null, "noticeBytesPerPeerList": null, "peerLists": lists,
-                      "noticesRead": null, "noticesDropped": null,
+                      "noticesRead": null, "noticesDropped": null, "rowNotices": null,
+                      "batchNotices": null, "watchLags": null,
                       "floodError": window.as_ref().err()});
     };
     let bytes = w.queued_bytes();
@@ -731,7 +850,67 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
         "peerLists": lists,
         "noticesRead": w.notices,
         "noticesDropped": w.dropped,
+        // Peer rows told one notice each (read or dropped), and peer lists told as one batch.
+        "rowNotices": w.notices + w.dropped,
+        "batchNotices": w.batches,
+        // Falls behind told to a batch watcher, which follows the list for them.
+        "watchLags": w.watch_lags,
         "floodError": null,
+    })
+}
+
+/// What a client that asked for peer row batches does with the `_acpmux/peer_rows_changed` it
+/// read: one follow of the list (`_acpmux/watch {afterSeq, listEpoch}`, `hub/row_log.rs`) from
+/// below every batch (`cursor`, the watch reply's position, or a batch's `afterSeq` if lower), read
+/// page by page while acpmux says `more`. Its numbers: the peer rows it read (by peer and id), the
+/// fewest and most of one peer, the follow pages, their bytes and the time they took.
+fn catch_up(rpc: &mut Rpc, cursor: Option<(u64, String)>) -> Value {
+    let Some((seq, epoch)) = cursor else {
+        return json!({"error": "the watch's reply named no list position"});
+    };
+    let after = rpc.batch_notes.iter().filter_map(|b| b["afterSeq"].as_u64()).fold(seq, u64::min);
+    let started = Instant::now();
+    let bytes_before = rpc.read_bytes;
+    let mut rows: std::collections::BTreeSet<(String, String)> = Default::default();
+    let (mut at, mut pages) = (after, 0u64);
+    loop {
+        pages += 1;
+        let reply = match rpc
+            .call("_acpmux/watch", json!({"enabled": true, "afterSeq": at, "listEpoch": epoch}))
+        {
+            Ok(reply) => reply,
+            Err(e) => return json!({"error": e, "pages": pages}),
+        };
+        if reply["follow"] != true {
+            return json!({"error": "acpmux could not follow the cursor", "reply": reply["reset"]});
+        }
+        for row in reply["sessions"].as_array().into_iter().flatten() {
+            if let (Some(peer), Some(id)) = (row["peer"].as_str(), row["sessionId"].as_str()) {
+                rows.insert((peer.to_owned(), id.to_owned()));
+            }
+        }
+        let Some(next) = reply["listSeq"].as_u64() else {
+            return json!({"error": "a follow named no list position", "pages": pages});
+        };
+        at = next;
+        if reply["more"] != true {
+            break;
+        }
+    }
+    rpc.notes.clear();
+    let mut by_peer: BTreeMap<&str, u64> = BTreeMap::new();
+    for (peer, _) in &rows {
+        *by_peer.entry(peer.as_str()).or_default() += 1;
+    }
+    json!({
+        "rows": rows.len(),
+        "peers": by_peer.len(),
+        "fewestRowsOfAPeer": by_peer.values().min(),
+        "mostRowsOfAPeer": by_peer.values().max(),
+        "pages": pages,
+        "bytes": rpc.read_bytes - bytes_before,
+        "ms": ms(started),
+        "error": null,
     })
 }
 
@@ -811,11 +990,20 @@ fn attach_rounds(rpc: &mut Rpc, god: &str) -> Attaches {
     a
 }
 
-/// One home's run: its numbers, and its heap profile's path when one was asked for. Its scratch
-/// (2 GB for the god shape, a 1 GB daemon log of it) is removed when it returns or panics, so runs
-/// do not pile up one per pid (they filled pool VMs, 2026-11-17); `"scratch"` names it, and
-/// `ACPMUX_KEEP_SCRATCH=1` keeps it.
+/// One home's run: its numbers, and its heap profile's path when one was asked for. The client
+/// asks for peer row batches when `ACPMUX_GOD_PEER_ROW_BATCHES=1` ([`run_with`]).
 async fn run(shape: Shape, dhat: bool) -> Value {
+    let batches = std::env::var("ACPMUX_GOD_PEER_ROW_BATCHES").is_ok_and(|v| v == "1");
+    run_with(shape, dhat, batches).await
+}
+
+/// [`run`], its client asking for peer row batches (`initialize` `_meta.acpmux.peerRowBatches`)
+/// when `batches`: each peer's list then reaches it as one `_acpmux/peer_rows_changed`, and once
+/// the attach-flood window ends it reads the rows with a follow of the list ([`catch_up`]). Its
+/// scratch (2 GB for the god shape, a 1 GB daemon log of it) is removed when it returns or panics,
+/// so runs do not pile up one per pid (they filled pool VMs, 2026-11-17); `"scratch"` names it, and
+/// `ACPMUX_KEEP_SCRATCH=1` keeps it.
+async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
     // Declared first, so dropped last: after the daemon, the peers' hubs and their proxies.
     let scratch_dir = daemon_env::Scratch::new(&format!("god-{}", shape.name));
     let scratch = scratch_dir.to_path_buf();
@@ -844,9 +1032,18 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let ready_ms = ms(daemon.spawned);
         let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
-        rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}}))
-            .unwrap();
+        let meta = if batches { json!({"acpmux": {"peerRowBatches": true}}) } else { json!({}) };
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}, "_meta": meta}),
+        )
+        .unwrap();
         let list = rpc.call("_acpmux/watch", json!({"enabled": true}));
+        // The list position the watch's reply is current to: a batch client follows from it.
+        let list_cursor = list
+            .as_ref()
+            .ok()
+            .and_then(|l| l["listSeq"].as_u64().zip(l["listEpoch"].as_str().map(str::to_owned)));
         let first_list_ms = ms(daemon.spawned);
         let listed =
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
@@ -863,7 +1060,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             None => Err(json!("no peer to mark the window's end")),
         };
         let lists = cutter.iter().map(Proxy::carried).sum::<u64>();
-        let flood = flood_json(&window, lists);
+        let mut flood = flood_json(&window, lists);
+        flood["peerRowBatches"] = json!(batches);
+        flood["catchUp"] = if batches { catch_up(&mut rpc, list_cursor) } else { Value::Null };
 
         // The pane's scroll up: each page the one before the oldest record held. At the chat's
         // start it begins again from the attach's page, so a short chat gives as many pages.
@@ -1116,10 +1315,12 @@ async fn run(shape: Shape, dhat: bool) -> Value {
 /// with the function and its file and line.
 /// With line tables, a generic frame (`poll<acpmux::...>`, `call_mut<...>`) names acpmux in its
 /// type and a std file as its place: only a frame whose file is under `acpmux/src/` is acpmux's.
-/// The site is the first three such frames, innermost first.
+/// The site is the first three such frames, innermost first (`ACPMUX_GOD_DHAT_FRAMES` more).
 fn acpmux_frame(frames: &[&str]) -> String {
+    let depth =
+        std::env::var("ACPMUX_GOD_DHAT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let own: Vec<String> =
-        frames.iter().filter(|f| own_file(f)).take(3).map(|f| place(f)).collect();
+        frames.iter().filter(|f| own_file(f)).take(depth).map(|f| place(f)).collect();
     if own.is_empty() {
         return frames.get(1).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
     }
@@ -1246,6 +1447,12 @@ async fn god_and_small_homes_in_one_harness() {
         let shape = match name.trim() {
             "small" => Shape::small(),
             "god" => Shape::god_from_env(),
+            // The god chat in a home of 50, 500 or 5,000 chats: the app's attach and list at
+            // each size, one harness (Leo, 2026-11-19: the GUI too coupled to load, size and
+            // history).
+            "sessions50" => Shape { name: "sessions50", chats: 50, ..Shape::god_from_env() },
+            "sessions500" => Shape { name: "sessions500", chats: 500, ..Shape::god_from_env() },
+            "sessions5000" => Shape { name: "sessions5000", chats: 5000, ..Shape::god_from_env() },
             other => panic!("ACPMUX_GOD_SHAPES: no shape {other}"),
         };
         let result = run(shape, dhat).await;
@@ -1343,14 +1550,29 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
     let god = Shape::god();
     let shape =
         Shape { name: "flood", peers: god.peers, peer_rows: god.peer_rows, ..Shape::small() };
-    let result = run(shape.clone(), false).await;
+    // A client that does not ask for peer row batches, as every one before them: unchanged.
+    let result = run_with(shape.clone(), false, false).await;
     let line = flood_line(&result);
     println!("GOD-FLOOD {line}");
     let (peers, rows) = (shape.peers as u64, shape.peer_rows as u64);
+    assert_eq!(line["batchNotices"], json!(0), "no batch for a client that did not ask: {line}");
     assert_eq!(line["floodError"], Value::Null, "{line}");
     assert_eq!(line["peerLists"], json!(peers), "one list per peer: {line}");
-    assert_eq!(line["attachNoticesAhead"], json!(peers * rows), "one notice per row: {line}");
-    assert_eq!(line["attachNoticesAheadMax"], json!(rows), "one list's rows: {line}");
+    // A lag's `dropped` counts every hub event the fan-out missed, a few not peer rows among them
+    // (10,402 and 10,404 with 1,514 dropped, 3 of 18 god runs): exact only when none was dropped.
+    let ahead = line["attachNoticesAhead"].as_u64().expect("attachNoticesAhead");
+    if line["noticesDropped"] == json!(0) {
+        assert_eq!(ahead, peers * rows, "one notice per row: {line}");
+    } else {
+        assert!((peers * rows..=peers * rows + 32).contains(&ahead), "one notice per row: {line}");
+    }
+    // The most of one peer counts the notices read: a dropped one is of no peer.
+    let most = line["attachNoticesAheadMax"].as_u64().expect("attachNoticesAheadMax");
+    if line["noticesDropped"] == json!(0) {
+        assert_eq!(most, rows, "one list's rows: {line}");
+    } else {
+        assert!(most <= rows, "one list's rows: {line}");
+    }
     // Each notice carries its row's summary, 3,327 bytes of the fixture's 75 keys: 1,330,733 a
     // list on the Linux pool, every run. Within 1%: dropped notices are weighed at the mean.
     let per_list = line["noticeBytesPerPeerList"].as_u64().unwrap_or(0);
@@ -1358,6 +1580,61 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
         (1_317_426..=1_344_040).contains(&per_list),
         "a list's notices are {per_list} bytes, not 1,330,733 (1%): {line}"
     );
+}
+
+/// The god home's peers (26 x 400 rows) over a small home, the client asking for peer row
+/// batches: run once, read by the two tests below.
+static BATCH_RUN: tokio::sync::OnceCell<Value> = tokio::sync::OnceCell::const_new();
+
+async fn batch_run() -> Value {
+    let god = Shape::god();
+    // Its own name: the scratch folder is the shape's, and the tests run side by side.
+    let shape = Shape {
+        name: "flood-batches",
+        peers: god.peers,
+        peer_rows: god.peer_rows,
+        ..Shape::small()
+    };
+    let result = BATCH_RUN.get_or_init(|| run_with(shape, false, true)).await;
+    flood_line(result)
+}
+
+/// The attach flood of a client that asked for peer row batches, pinned: each peer's list
+/// reaches it as one `_acpmux/peer_rows_changed` ahead of the attaches, and no peer row as its own
+/// `session_changed` (read or dropped). 26 notices where the client before them had 10,400, and
+/// one more for each time its fan-out fell behind and it followed the list instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_attach_flood_is_one_batch_notice_per_peer_list() {
+    let line = batch_run().await;
+    println!("GOD-FLOOD {line}");
+    let god = Shape::god();
+    assert_eq!(line["floodError"], Value::Null, "{line}");
+    assert_eq!(line["peerLists"], json!(god.peers), "one list per peer: {line}");
+    assert_eq!(line["rowNotices"], json!(0), "no row's own notice: {line}");
+    // When its fan-out falls behind (`watchLags`), a list's batch can be among the events it
+    // missed: the lag's one note tells it to follow the list instead.
+    let lags = line["watchLags"].as_u64().expect("watchLags");
+    let batches = line["batchNotices"].as_u64().expect("batchNotices");
+    assert!(
+        batches <= god.peers as u64 && batches + lags >= god.peers as u64,
+        "a batch per list: {line}"
+    );
+    let ahead = line["attachNoticesAhead"].as_u64().expect("attachNoticesAhead");
+    assert!(ahead <= god.peers as u64 + lags, "one notice per list: {line}");
+    assert_eq!(line["attachNoticesAheadMax"], json!(1), "one notice per list: {line}");
+}
+
+/// A client that asked for peer row batches still holds every peer row: one follow of the list
+/// from below the batches, paged, reads all 10,400 rows (400 of each of 26 peers).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_batch_client_reads_every_peer_row_with_one_follow() {
+    let line = batch_run().await;
+    let god = Shape::god();
+    let caught = &line["catchUp"];
+    assert_eq!(caught["error"], Value::Null, "{line}");
+    assert_eq!(caught["rows"], json!(god.peers * god.peer_rows), "every peer row: {line}");
+    assert_eq!(caught["peers"], json!(god.peers), "{line}");
+    assert_eq!(caught["fewestRowsOfAPeer"], json!(god.peer_rows), "each peer's rows: {line}");
 }
 
 /// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
@@ -1375,6 +1652,110 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
         std::env::var(daemon_env::KEEP_SCRATCH).is_ok() || !scratch.exists(),
         "run() left its scratch {}",
         scratch.display()
+    );
+}
+
+/// The chats [`a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log`] keeps open: more
+/// than the 875 of cmux#42185.
+const OPEN_CHATS: usize = 900;
+/// The attaches of the replay in flight at once: 64 pages of at most [`PAGE_BYTES`], 8 MiB.
+const IN_FLIGHT: usize = 64;
+
+/// F6 of cmuxterm-hq `docs/design/remote-cloud-durability.md` (cmux#42185: "Agent chats show empty
+/// history after the daemon restarts", fixed in the pane host by #42197, #42206 and #42326): a
+/// regression guard at the issue's scale, which passes before and after. [`OPEN_CHATS`] chats are
+/// open; each pane's attach (`settled: true`, as the page sends it since #41760) is answered once.
+/// Then every pane attaches again at once (the replay of every open chat), the daemon is killed
+/// with SIGKILL once half of them are answered, and a new daemon starts on the same home. Every
+/// pane's attach to it answers with no error, within the bound, and with the history it had
+/// before: as many events, ending at the same seq.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log() {
+    let _ = HERMETIC;
+    let scratch = std::env::temp_dir().join(format!("god-replay-kill-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let home = scratch.join("acpmux");
+    let claude = daemon_env::home(&scratch).join(".claude");
+    let shape =
+        Shape { name: "replay-kill", chats: OPEN_CHATS, god_messages: 40, ..Shape::small() };
+    let made = god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
+    write_config(&home, json!({}));
+    let chats: Vec<String> = std::iter::once(made.god).chain(made.others).collect();
+    assert_eq!(chats.len(), OPEN_CHATS);
+
+    let attach = |id: &str| {
+        json!({"sessionId": id, "settled": true, "waitLogs": false, "limit": PAGE_LIMIT,
+               "maxBytes": PAGE_BYTES})
+    };
+    // What a page shows: its events, and the seq of its newest.
+    let shown = |page: &Value| {
+        let events = page["events"].as_array().cloned().unwrap_or_default();
+        let last = events.iter().filter_map(|e| e["seq"].as_u64()).max();
+        (events.len(), last)
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let mut daemon = Daemon::start(&scratch, &home, None);
+        let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "replay-kill"}});
+        let mut rpc = Rpc::connect(&daemon.socket);
+        rpc.call("initialize", hello.clone()).unwrap();
+        let before: Vec<(usize, Option<u64>)> = chats
+            .iter()
+            .map(|id| {
+                let page = rpc.call("_acpmux/attach", attach(id)).expect("an attach before");
+                rpc.notes.clear();
+                shown(&page)
+            })
+            .collect();
+        assert!(before.iter().all(|(n, last)| *n > 0 && last.is_some()), "every chat has history");
+
+        // Every open pane attaches again, [`IN_FLIGHT`] at a time (all 900 pages at once are past
+        // a connection's outbound bound, which ends a reader that falls behind); the daemon dies
+        // with half of them answered and the next ones in flight.
+        let mut replay = Rpc::connect(&daemon.socket);
+        replay.call("initialize", hello.clone()).unwrap();
+        let mut asked = std::collections::VecDeque::new();
+        let (mut sent, mut answered) = (0, 0);
+        while answered < OPEN_CHATS / 2 {
+            while sent < OPEN_CHATS && asked.len() < IN_FLIGHT {
+                asked.push_back(replay.request("_acpmux/attach", attach(&chats[sent])));
+                sent += 1;
+            }
+            let _ = replay.response(asked.pop_front().expect("an attach in flight"));
+            answered += 1;
+        }
+        // SAFETY: the pid is this test's own child, not yet reaped.
+        unsafe { libc::kill(daemon.child.id() as i32, libc::SIGKILL) };
+        let _ = daemon.child.wait();
+
+        let restarted = Instant::now();
+        daemon = Daemon::start(&scratch, &home, None);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        rpc.call("initialize", hello).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut wrong = Vec::new();
+        for (id, was) in chats.iter().zip(&before) {
+            match rpc.call_until("_acpmux/attach", attach(id), Some(deadline)) {
+                Ok(page) if shown(&page) == *was => {}
+                Ok(page) => wrong.push(format!("{id}: {:?}, was {was:?}", shown(&page))),
+                Err(e) => wrong.push(format!("{id}: {e}")),
+            }
+            rpc.notes.clear();
+        }
+        let all_ms = ms(restarted);
+        daemon.stop();
+        let _ = std::fs::remove_dir_all(&scratch);
+        (wrong, all_ms)
+    })
+    .await
+    .unwrap();
+    let (wrong, all_ms) = result;
+    println!("replay-kill: {OPEN_CHATS} chats repainted {} ms after the kill", all_ms);
+    assert!(
+        wrong.is_empty(),
+        "{} of {OPEN_CHATS} chats did not repaint their history after a kill mid-replay: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(10)]
     );
 }
 
@@ -1606,4 +1987,803 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
             );
         }
     }
+}
+
+// The chat size sweep (infinite chats, 2026-11-19). Leo: "we need to be able to have infinite
+// chats, infinitely long chats ... on current day hardware". The goal (cmuxterm-hq#14331): a
+// chat's open, scroll, typing and memory at 100 MB, 1 GB and 4 GB stay within 1.2x of a 1 MB
+// chat's. One home per size, one chat in it ([`acpmux::chat_size_fixture`], millions of small
+// records at 1 GB as a real coordinator chat), written here and removed after its size runs, so
+// nothing of it is stored and the runner holds one size at a time.
+
+/// The sizes, as `ACPMUX_CHAT_SIZES` names them (`1M,100M,1G,4G`, binary units).
+const CHAT_SIZES: &str = "1M,100M,1G,4G";
+
+/// How long the first load of a chat's log may take (it parses a log with no kind copies whole).
+const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
+
+/// An older page as the pane asks for one on scroll-up (direct.ts `olderPage`: 2,000 records,
+/// 1 MiB, transcript records and the local preset approvals).
+const OLDER_PAGE_LIMIT: u64 = 2000;
+const OLDER_PAGE_BYTES: u64 = 1 << 20;
+
+/// The bytes a measured page asks for. A 1 MB chat's whole transcript is 452 KB of JSON, so at
+/// the app's 1 MiB budget its pages held 565 records and 452 KB against 1,200 records and 945 KB
+/// at 100 MB and 1 GB: the 2x of every page row was the page's size (the daemon reads 16 to 20 ms
+/// per 452 KB at 1 MB and 22 to 34 ms per 945 KB at 1 GB). 256 KiB is full at every size.
+const SWEEP_PAGE_BYTES: u64 = 256 << 10;
+
+/// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
+/// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
+/// several MiB of log: at 2 MiB the 1 GB and 4 GB newest pages were 26% and 37% settlement
+/// records. 16 MiB keeps every newest page ordinary history.
+const TAIL_BYTES: u64 = 16 * OLDER_PAGE_BYTES;
+
+/// The kinds the pane's attach asks a local acpmux for (attachParams.ts `plainAttach`).
+fn app_attach(id: &str) -> Value {
+    json!({"sessionId": id, "waitLogs": false, "settled": true, "limit": PAGE_LIMIT,
+           "maxBytes": PAGE_BYTES, "eventStream": true, "visible": true,
+           "kinds": ["transcript", "available_commands_update", "usage_update",
+                     "config_option_update", "bookmarks", "secret_request", "secret_decision",
+                     "subsession", "queue_order", "queue_updated", "prompt_refused",
+                     "elevation_request", "elevation_decision", "preset_approval_request",
+                     "preset_approval_decision"]})
+}
+
+fn older_params(id: &str, before: u64) -> Value {
+    json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
+           "maxBytes": SWEEP_PAGE_BYTES,
+           "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
+}
+
+/// The first `beforeSeq` whose older page is full: the seq after the chat's oldest page of
+/// [`older_params`]' kinds and bytes, read forward from the start. A chat that holds less than one
+/// such page has none: `last + 1`, its newest page, which is all of it.
+fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
+    let oldest = rpc.call(
+        "_acpmux/events",
+        json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
+               "maxBytes": SWEEP_PAGE_BYTES,
+               "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
+    );
+    rpc.notes.clear();
+    oldest
+        .ok()
+        .filter(|page| page["hasMore"].as_bool() == Some(true))
+        .and_then(|page| page["events"].as_array()?.iter().filter_map(|e| e["seq"].as_u64()).max())
+        .map_or(last + 1, |newest| newest + 1)
+}
+
+/// `4G`, `100M`, `1M`, `512K` or bytes.
+fn parse_size(text: &str) -> u64 {
+    let text = text.trim();
+    let (digits, unit) = match text.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
+        Some((at, _)) => text.split_at(at),
+        None => (text, ""),
+    };
+    let n: u64 = digits.parse().unwrap_or_else(|_| panic!("ACPMUX_CHAT_SIZES: {text}"));
+    n << match unit.to_ascii_uppercase().as_str() {
+        "" | "B" => 0,
+        "K" => 10,
+        "M" => 20,
+        "G" => 30,
+        other => panic!("ACPMUX_CHAT_SIZES: no unit {other}"),
+    }
+}
+
+/// Bytes free for an unprivileged writer on the file system holding `path`.
+fn free_bytes(path: &Path) -> u64 {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: statvfs fills the struct it is given from a NUL-terminated path.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return u64::MAX;
+    }
+    st.f_bavail as u64 * st.f_frsize as u64
+}
+
+/// The records fixture preparation wrote (the settlement's completions and the repeated turns'),
+/// as inclusive seq ranges from `fixturePreparation.preparationSeqs`.
+fn preparation_seqs(preparation: &Value) -> Vec<(u64, u64)> {
+    preparation["preparationSeqs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| Some((r[0].as_u64()?, r[1].as_u64()?)))
+        .collect()
+}
+
+/// Completion records must not become the measured workload of a page: the records of `reply`
+/// that are history, not preparation.
+fn original_page_records(reply: &Value, prepared: &[(u64, u64)]) -> usize {
+    reply["events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| {
+            e["seq"].as_u64().is_some_and(|seq| {
+                seq > 0 && !prepared.iter().any(|&(from, to)| (from..=to).contains(&seq))
+            })
+        })
+        .count()
+}
+
+/// `rounds` calls of `method`, the params of each from its round: their times, how many records
+/// the last returned, and the first error.
+fn timed_rounds(
+    rpc: &mut Rpc,
+    method: &str,
+    rounds: u64,
+    prepared: &[(u64, u64)],
+    params: impl Fn(u64) -> Value,
+) -> (Value, Value, Value) {
+    let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
+    let mut returned_records = vec![];
+    let mut original_records = vec![];
+    let mut page_bytes = vec![];
+    for round in 0..rounds {
+        let asked = Instant::now();
+        let reply = rpc.call_until(method, params(round), Some(asked + STEP));
+        let us = micros(asked);
+        rpc.notes.clear();
+        match reply {
+            Ok(reply) => {
+                let count = reply["events"].as_array().map_or(0, Vec::len);
+                let original = original_page_records(&reply, prepared);
+                if count == 0 || original * 2 < count {
+                    error = json!({"method": method, "round": round,
+                        "reason": "page is empty or dominated by fixture completions",
+                        "records": count, "originalRecords": original});
+                    break;
+                }
+                times.push(us);
+                records = json!(count);
+                returned_records.push(count);
+                original_records.push(original);
+                page_bytes.push(reply.to_string().len());
+            }
+            Err(e) => {
+                error = e;
+                break;
+            }
+        }
+    }
+    let mut timing = spread(&times);
+    if let Some(timing) = timing.as_object_mut() {
+        timing.insert("returnedRecords".into(), json!(returned_records));
+        timing.insert("originalRecords".into(), json!(original_records));
+        timing.insert("pageBytes".into(), json!(page_bytes));
+    }
+    (timing, records, error)
+}
+
+/// How long a prompt may take to its first token, and to its turn's end, before the sweep counts
+/// it failed (and reads on) instead of waiting [`STEP`].
+const SEND_WAIT: Duration = Duration::from_secs(120);
+
+/// An `agent_message_chunk` notice in either envelope the daemon sends it (server/mod.rs
+/// `deliver`): its chat and text. A connection whose attach asked for `eventStream` (the
+/// pane's, [`app_attach`]) hears the logged record as `_acpmux/event`, with the record's `kind`
+/// and the agent's raw message in `msg`; any other hears ACP's `session/update`.
+fn streamed_chunk(v: &Value) -> Option<(&str, &str)> {
+    let params = &v["params"];
+    let update = match v["method"].as_str()? {
+        "session/update" => &params["update"],
+        "_acpmux/event" if params["kind"] == "agent_message_chunk" => {
+            &params["msg"]["params"]["update"]
+        }
+        _ => return None,
+    };
+    if update["sessionUpdate"] != "agent_message_chunk" {
+        return None;
+    }
+    Some((params["sessionId"].as_str()?, update["content"]["text"].as_str()?))
+}
+
+/// A prompt to `id` until its first streamed chunk (the stand-in agent echoes it), then its
+/// turn's end: the time to the chunk. Past [`SEND_WAIT`] an error that names the notices read
+/// meanwhile (a prompt queued behind a turn the log left open shows as `queued`).
+fn send_first_token(rpc: &mut Rpc, id: &str, text: &str) -> Result<u64, Value> {
+    let sent = Instant::now();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    let req = rpc.request("session/prompt", prompt);
+    let seen = rpc.notes.len();
+    let first = rpc.wait_note_until(
+        |v| {
+            (is_response(v, req) && v.get("error").is_some())
+                || streamed_chunk(v).is_some_and(|(chat, t)| chat == id && t.contains(text))
+        },
+        Some(sent + SEND_WAIT),
+    );
+    rpc.writer.set_read_timeout(Some(STEP)).unwrap();
+    let read_meanwhile = |rpc: &Rpc| {
+        let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+        for v in rpc.notes.iter().skip(seen) {
+            let kind = v["params"]["update"]["sessionUpdate"]
+                .as_str()
+                .or_else(|| v["params"]["kind"].as_str())
+                .or_else(|| v["method"].as_str())
+                .unwrap_or("response");
+            *kinds.entry(kind.to_owned()).or_default() += 1;
+        }
+        // The chunks that did not match: whose they were and the start of their text.
+        let chunks: Vec<Value> = rpc
+            .notes
+            .iter()
+            .skip(seen)
+            .filter_map(streamed_chunk)
+            .take(4)
+            .map(|(chat, text)| {
+                json!({"sessionId": chat, "text": text.chars().take(160).collect::<String>()})
+            })
+            .collect();
+        json!({"kinds": kinds, "chunks": chunks})
+    };
+    let first = match first {
+        Ok(first) => first,
+        Err(e) => {
+            let error = json!({"waitedMs": ms(sent), "io": e.to_string(), "stage": "first token",
+                               "readMeanwhile": read_meanwhile(rpc)});
+            rpc.notes.clear();
+            return Err(error);
+        }
+    };
+    if is_response(&first, req) {
+        return Err(first["error"].clone());
+    }
+    let us = micros(sent);
+    let end = rpc.wait_note_until(|v| is_response(v, req), Some(sent + SEND_WAIT));
+    rpc.writer.set_read_timeout(Some(STEP)).unwrap();
+    let error = match end {
+        Ok(v) => v.get("error").cloned(),
+        Err(e) => Some(json!({"waitedMs": ms(sent), "io": e.to_string(), "stage": "turn end",
+                              "readMeanwhile": read_meanwhile(rpc)})),
+    };
+    rpc.notes.clear();
+    match error {
+        Some(e) => Err(e),
+        None => Ok(us),
+    }
+}
+
+/// The chat of `bytes` in a home under `scratch`: coord-sim's (`ACPMUX_CHAT_SIM_BIN`, the
+/// coordinator stress sim's generator, `cmux-tui/crates/coord-sim`, one Claude coordinator drawn
+/// from real sessions' histograms), else [`chat_size_fixture`]'s. Its home, what was written, and
+/// which source wrote it.
+fn write_size_chat(
+    scratch: &Path,
+    bytes: u64,
+) -> (PathBuf, chat_size_fixture::Written, &'static str, Value) {
+    let Some(sim) = std::env::var_os("ACPMUX_CHAT_SIM_BIN").filter(|s| !s.is_empty()) else {
+        let home = scratch.join("acpmux");
+        let w = chat_size_fixture::write_chat(&home, &scratch.join("work"), bytes).unwrap();
+        return (home, w, "chat_size_fixture", Value::Null);
+    };
+    let out = scratch.join("gen");
+    let made = std::process::Command::new(&sim)
+        .args(["gen", "--format", "acpmux", "--coordinators", "1", "--harness", "claude"])
+        // The generator otherwise increases its record cap with the target size. Keep
+        // the distribution fixed across this sweep; large single outputs are a separate workload.
+        .args(["--max-line", "20K"])
+        .args(["--seed", "1", "--target-bytes", &bytes.to_string()])
+        .arg("--out")
+        .arg(&out)
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .expect("run coord-sim");
+    assert!(made.status.success(), "coord-sim gen: {}", String::from_utf8_lossy(&made.stdout));
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(out.join("manifest.json")).unwrap()).unwrap();
+    let chat = &manifest["coordinators"][0];
+    let id = chat["id"].as_str().expect("the manifest names its chat").to_owned();
+    let home = out.join("acpmux-home");
+    let settled = chat_size_seed::settle(&home, &id).expect("settle generated offline seed");
+    let history_end = settled.last_seq - settled.appended;
+    // The settlement's completions end the log; the history's own latest turns, repeated after
+    // them, make the newest pages ordinary history again.
+    let tail = chat_size_seed::append_settled_turns(&home, &id, history_end, TAIL_BYTES)
+        .expect("repeat settled turns after the settlement");
+    let mut prepared = vec![];
+    if settled.appended > 0 {
+        prepared.push(json!([history_end + 1, settled.last_seq]));
+    }
+    prepared.extend(tail.completion_seqs.iter().map(|seq| json!([seq, seq])));
+    let preparation = json!({
+        "appended": settled.appended, "historyEndSeq": history_end,
+        "removedPrompts": settled.removed_prompts,
+        "removedInbox": settled.removed_inbox, "settledTurns": settled.settled_turns,
+        "transcriptSeq": settled.transcript_seq,
+        "tail": {"from": tail.from, "through": tail.through, "records": tail.records,
+                 "bytes": tail.bytes, "turns": tail.turns,
+                 "completions": tail.completion_seqs.len()},
+        "preparationSeqs": prepared,
+    });
+    let w = chat_size_fixture::Written {
+        id,
+        bytes: tail.log_bytes,
+        records: tail.log_records,
+        turns: tail.log_turns,
+        last_seq: tail.last_seq,
+        tool_outputs: 0,
+        largest_output: 0,
+    };
+    (home, w, "coord-sim", preparation)
+}
+
+/// One size's run: write the chat, open it on a daemon that never read it (cold), measure every
+/// read once its log is loaded, then restart the daemon with the chat's agent host running and
+/// open it again (the adoption pass).
+fn size_run(label: &str, bytes: u64) -> Value {
+    let scratch_dir = daemon_env::Scratch::new(&format!("size-{label}"));
+    let scratch = scratch_dir.to_path_buf();
+    let free = free_bytes(scratch.parent().unwrap_or(&scratch));
+    // The log, its kind copies and the daemon's own files, with room to spare.
+    if free < bytes + bytes / 4 + (1 << 30) {
+        return json!({"size": label, "bytes": bytes, "skipped": "disk",
+                      "freeBytes": free});
+    }
+    let written_at = Instant::now();
+    let (home, w, source, preparation) = write_size_chat(&scratch, bytes);
+    let write_ms = ms(written_at);
+    let prepared = preparation_seqs(&preparation);
+    write_config(&home, json!({}));
+    let id = w.id.clone();
+    let segments =
+        std::fs::read_dir(home.join("sessions").join(&id).join("events")).map_or(0, |d| d.count());
+
+    // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
+    // view exists. The open is the pane's attach, as soon as the socket answers. With
+    // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let asked = Instant::now();
+    let cold = rpc.call("_acpmux/attach", app_attach(&id));
+    let cold_attach_us = micros(asked);
+    let cold_attach_ms = ms(daemon.spawned);
+    let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
+    rpc.notes.clear();
+    let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let (rss_after_load, _) = daemon.rss();
+
+    // Metadata saying idle is not enough: startup can restore queued work from the log.
+    // Reject that workload instead of attributing its work to opening a settled history.
+    let initial = rpc.call("_acpmux/attach", app_attach(&id));
+    let initial_state_error = match &initial {
+        Ok(reply)
+            if reply["session"]["status"] == "idle"
+                && reply["session"]["queued"].as_u64() == Some(0)
+                && reply["session"]["turn"].is_null() =>
+        {
+            Value::Null
+        }
+        Ok(reply) => json!({"reason": "fixture restored pending work", "session": {
+            "status": reply["session"]["status"], "queued": reply["session"]["queued"],
+            "turn": reply["session"]["turn"]}}),
+        Err(error) => error.clone(),
+    };
+    let last = initial.as_ref().ok().and_then(|r| r["lastSeq"].as_u64()).unwrap_or(w.last_seq);
+    rpc.notes.clear();
+
+    // Settled: the log is read; what a long chat costs on its own.
+    let rounds = ROUNDS as u64;
+    let (attach_us, attach_records, attach_error) =
+        timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
+    let (rss_idle, _) = daemon.rss();
+    let (rss_idle_anon, rss_idle_file) = daemon.rss_split();
+    let rss_idle_maps = daemon.rss_maps();
+    let (newest_us, newest_records, newest_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            older_params(&id, last + 1)
+        });
+    // Warm pages at fixed proportional depths, as the repeated newest/attach reads above.
+    // Moving 2,000 raw sequences every round exhausted the 1 MB baseline (empty pages and
+    // future forward cursors) while large chats still returned content. Keep each workload
+    // nonempty and report its returned record counts alongside its latency distribution.
+    // Every depth reads a full page where the chat holds one: a 1 MB chat's page before
+    // `last / 20` held 30 records (595 us) against 1,180 in a 100 MB or 1 GB chat (19 to 22 ms),
+    // a 36x that was the page's size, not the chat's. A cursor nearer the start than a full
+    // page reaches reads the oldest full page instead (`full_page_before`).
+    let full_from = full_page_before(&mut rpc, &id, last);
+    let depth = |seq: u64| seq.max(full_from).min(last + 1);
+    let (recent_before, mid_before, deep_before) =
+        (depth(last * 9 / 10), depth(last / 2), depth(last / 20));
+    let (recent_us, _, recent_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            older_params(&id, recent_before)
+        });
+    let (mid_us, _, mid_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            older_params(&id, mid_before)
+        });
+    let (deep_us, _, deep_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            older_params(&id, deep_before)
+        });
+    // The rail's prompt index (direct.ts `readPromptIndex`): its first bounded page, reported.
+    let (prompt_index_us, prompt_index_rows, prompt_index_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
+                   "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
+        });
+    // The same index read for a fixed number of prompts, the one compared across sizes. The page
+    // above holds every prompt up to 256 KB: 5 rows in the 1 MB chat (220 us) against 492 in
+    // 100 MB and 538 in 1 GB (2.0 to 2.2 ms, about 4 us a row at every size), a 10x that was the
+    // reply's row count, not the chat's size (the scroll depths' full page, `full_page_before`).
+    let (prompt_page_us, prompt_page_rows, prompt_page_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
+                   "kinds": ["user_message"], "limit": PROMPT_PAGE_ROWS, "maxBytes": 256 << 10})
+        });
+    // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
+    let (forward_us, _, forward_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            json!({"sessionId": id, "afterSeq": last / 2,
+               "limit": OLDER_PAGE_LIMIT, "maxBytes": SWEEP_PAGE_BYTES})
+        });
+    let (rss_after_reads, _) = daemon.rss();
+
+    // Typing: a prompt to its first token; the first starts the agent host.
+    let (mut sends, mut send_error) = (vec![], Value::Null);
+    for round in 0..ROUNDS {
+        match send_first_token(&mut rpc, &id, &format!("size {label} {round}")) {
+            Ok(us) => sends.push(us),
+            Err(e) => {
+                send_error = e;
+                break;
+            }
+        }
+    }
+    let first_send_ms = sends.first().map(|us| us / 1000);
+    let later_sends = sends.get(1..).unwrap_or_default();
+    let (rss, peak_rss) = daemon.rss();
+    let last_before_restart =
+        rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
+    drop(rpc);
+
+    // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
+    // pane opens the chat again.
+    let stopped = Instant::now();
+    daemon.stop();
+    let shutdown_ms = ms(stopped);
+    let heap = profile.as_deref().map(attribute);
+    let restart_profile = profile.as_ref().map(|_| scratch.join("dhat-restart-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let restart_attach = rpc.call("_acpmux/attach", app_attach(&id));
+    let restart_attach_ms = ms(daemon.spawned);
+    rpc.notes.clear();
+    let restart_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let adopted = rpc
+        .call(
+            "_acpmux/events",
+            json!({"sessionId": id, "beforeSeq": u64::MAX / 2, "limit": 1, "kinds": ["host_adopted"]}),
+        )
+        .ok()
+        .and_then(|p| oldest_seq(&p))
+        .zip(last_before_restart)
+        .is_some_and(|(seq, before)| seq > before);
+    let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
+    let (restart_rss, restart_peak_rss) = daemon.rss();
+    let restart_maps = daemon.rss_maps();
+    drop(rpc);
+    daemon.stop();
+    let restart_heap = restart_profile.as_deref().map(attribute);
+
+    // A second restart: the first adoption left whatever it saves for the next one, so this
+    // reads what a chat costs on every restart after its first.
+    let mut daemon = Daemon::start(&scratch, &home, None);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let second_attach = rpc.call("_acpmux/attach", app_attach(&id));
+    let second_attach_ms = ms(daemon.spawned);
+    rpc.notes.clear();
+    let second_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let second_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted twice"));
+    let (_, second_peak_rss) = daemon.rss();
+    drop(rpc);
+    daemon.stop();
+    let home_bytes: u64 = home_files(&home).values().sum();
+    let result = json!({
+        "size": label, "source": source, "bytes": bytes, "logBytes": w.bytes, "records": w.records,
+        "turns": w.turns, "lastSeq": w.last_seq, "segments": segments,
+        "loadedLastSeq": last, "generatorMaxLineBytes": (source == "coord-sim").then_some(20 << 10),
+        "initialStateError": initial_state_error, "fixturePreparation": preparation,
+        "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
+        "largestToolOutput": w.largest_output, "writeMs": write_ms,
+        "coldAttachMs": cold_attach_ms, "coldAttachUs": cold_attach_us,
+        "coldAttachRecords": cold_records, "coldAttachError": cold.as_ref().err(),
+        "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
+        "rssAfterLoad": rss_after_load,
+        "attachUs": attach_us, "attachRecords": attach_records, "attachError": attach_error,
+        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": newest_error,
+        "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
+        "scrollMidUs": mid_us, "scrollMidError": mid_error,
+        "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "fullPageFromSeq": full_from,
+        "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
+        "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
+        "promptIndexError": prompt_index_error,
+        "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
+        "promptPageError": prompt_page_error,
+        "forwardPageUs": forward_us, "forwardPageError": forward_error,
+        "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
+        "rssIdleMaps": rss_idle_maps,
+        "rssAfterReads": rss_after_reads, "heap": heap,
+        "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
+        "sendError": send_error,
+        "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
+        "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
+        "restartAllLogsMs": restart_all_logs.as_ref().ok(),
+        "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
+        "restartSendFirstTokenUs": restart_send.as_ref().ok(),
+        "restartSendError": restart_send.as_ref().err(),
+        "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartMaps": restart_maps, "restartHeap": restart_heap,
+        "secondRestartAttachMs": second_attach_ms,
+        "secondRestartAttachError": second_attach.as_ref().err(),
+        "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
+        "secondRestartSendFirstTokenUs": second_send.as_ref().ok(),
+        "secondRestartSendError": second_send.as_ref().err(),
+        "secondRestartPeakRss": second_peak_rss,
+        "homeBytes": home_bytes, "freeBytes": free,
+    });
+    if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
+        let destination = PathBuf::from(out).join(format!("chat-size-{}-daemon.log", bytes));
+        // The sweep owns this artifact; preserve only the tail, never the generated chat.
+        if let Ok(mut file) = std::fs::File::open(&daemon.log) {
+            let len = file.metadata().map_or(0, |m| m.len());
+            let _ = file.seek(SeekFrom::Start(len.saturating_sub(64 * 1024)));
+            let mut tail = Vec::new();
+            file.take(64 * 1024).read_to_end(&mut tail).unwrap();
+            std::fs::write(&destination, tail).unwrap();
+            eprintln!("chat size {label}: daemon log {}", destination.display());
+        }
+    }
+    if size_failure(&result).is_some() {
+        print_daemon_log(&daemon.log);
+    }
+    result
+}
+
+/// One compact line of what a page is at this size (records and JSON bytes of the last round, the
+/// p50 time), so a time that differs between sizes can be told from a page that does.
+fn page_cost_line(label: &str, result: &Value) -> String {
+    let rows: Vec<String> = [
+        ("newest", "newestPageUs"),
+        ("recent", "scrollRecentUs"),
+        ("mid", "scrollMidUs"),
+        ("deep", "scrollDeepUs"),
+    ]
+    .iter()
+    .map(|(name, key)| {
+        let at = |field: &str| result[*key][field].as_array().and_then(|a| a.last()).cloned();
+        format!(
+            "{name}={}rec/{}B/{}orig/{}us",
+            at("returnedRecords").unwrap_or(Value::Null),
+            at("pageBytes").unwrap_or(Value::Null),
+            at("originalRecords").unwrap_or(Value::Null),
+            result[*key]["p50"]
+        )
+    })
+    .collect();
+    format!("CHAT-SIZE-PAGE {label} bytesPerRecord={} {}", result["bytesPerRecord"], rows.join(" "))
+}
+
+fn size_failure(result: &Value) -> Option<String> {
+    if !result["skipped"].is_null() {
+        return Some(format!("skipped: {}", result["skipped"]));
+    }
+    if let Some(object) = result.as_object() {
+        for (key, value) in object {
+            if key.ends_with("Error") && !value.is_null() {
+                return Some(format!("{key}: {value}"));
+            }
+        }
+    }
+    for key in SIZE_RATIO_KEYS {
+        if result.pointer(key).and_then(Value::as_f64).is_none() {
+            return Some(format!("missing metric {key}"));
+        }
+    }
+    None
+}
+
+/// Prompts in the size sweep's fixed prompt-index page: as many as the 1 MB fixture holds.
+const PROMPT_PAGE_ROWS: u64 = 5;
+
+/// What each size costs against the first (1 MB): the numbers of the goal (open, scroll,
+/// typing, memory), and the startup loads beside them, which are not in the max.
+const SIZE_RATIO_KEYS: [&str; 16] = [
+    "/coldAttachMs",
+    "/attachUs/p50",
+    "/attachUs/p95",
+    "/newestPageUs/p50",
+    "/scrollRecentUs/p50",
+    "/scrollMidUs/p50",
+    "/scrollDeepUs/p50",
+    "/promptPageUs/p50",
+    "/forwardPageUs/p50",
+    "/sendFirstTokenUs/p50",
+    "/sendFirstTokenUs/p95",
+    "/restartAttachMs",
+    "/restartSendFirstTokenUs",
+    "/rssIdle",
+    "/peakRss",
+    "/restartPeakRss",
+];
+const SIZE_LOAD_KEYS: [&str; 5] = [
+    "/coldAllLogsMs",
+    "/restartAllLogsMs",
+    "/secondRestartAttachMs",
+    "/secondRestartSendFirstTokenUs",
+    "/secondRestartPeakRss",
+];
+
+/// Each size's numbers against the first size's, and the largest ratio of [`SIZE_RATIO_KEYS`].
+fn size_ratios(base: &Value, size: &Value) -> (Value, Option<(String, f64)>) {
+    let mut ratios = serde_json::Map::new();
+    let mut max: Option<(String, f64)> = None;
+    for (key, counted) in
+        SIZE_RATIO_KEYS.iter().map(|k| (k, true)).chain(SIZE_LOAD_KEYS.iter().map(|k| (k, false)))
+    {
+        let (Some(b), Some(s)) =
+            (base.pointer(key).and_then(Value::as_f64), size.pointer(key).and_then(Value::as_f64))
+        else {
+            continue;
+        };
+        if b <= 0.0 {
+            continue;
+        }
+        let r = s / b;
+        ratios.insert((*key).to_owned(), json!((r * 100.0).round() / 100.0));
+        if counted && max.as_ref().is_none_or(|(_, m)| r > *m) {
+            max = Some(((*key).to_owned(), r));
+        }
+    }
+    (Value::Object(ratios), max)
+}
+
+/// The sweep: `CHAT-SIZE {...}` per size, `CHAT-SIZE-RATIO {...}` per size against the first,
+/// and `infinite_chat_size_ratio_max <ratio> <key> <size>` (the daemon's part of the goal).
+/// Manual, on Linux CI (release): `ACPMUX_CHAT_SIZES=1M,100M,1G,4G cargo test -p acpmux --release
+/// --test god_daemon chat_size_sweep -- --ignored --nocapture`.
+#[test]
+#[ignore = "manual: writes chats up to 4 GB; run on Linux CI"]
+fn chat_size_sweep() {
+    let sizes = std::env::var("ACPMUX_CHAT_SIZES").unwrap_or_else(|_| CHAT_SIZES.to_owned());
+    assert_eq!(sizes.split(',').next().map(parse_size), Some(1 << 20), "the baseline must be 1 MB");
+    let mut results: Vec<Value> = vec![];
+    let mut worst: Option<(String, f64, String)> = None;
+    for label in sizes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let result = size_run(label, parse_size(label));
+        println!("CHAT-SIZE {result}");
+        println!("{}", page_cost_line(label, &result));
+        if let Some(base) = results
+            .first()
+            .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
+        {
+            let (ratios, max) = size_ratios(base, &result);
+            println!(
+                "CHAT-SIZE-RATIO {}",
+                json!({"size": label, "vs": base["size"], "ratios": ratios,
+                     "max": max.as_ref().map(|(k, r)| json!({"key": k, "ratio": r}))})
+            );
+            if let Some((key, r)) = max
+                && worst.as_ref().is_none_or(|(_, w, _)| r > *w)
+            {
+                worst = Some((key, r, label.to_owned()));
+            }
+        }
+        results.push(result);
+    }
+    let failures: Vec<_> = results
+        .iter()
+        .filter_map(|r| size_failure(r).map(|why| format!("{}: {why}", r["size"])))
+        .collect();
+    if !failures.is_empty() {
+        println!("infinite_chat_size_ratio_max null incomplete");
+        panic!("incomplete size sweep: {}", failures.join("; "));
+    }
+    match &worst {
+        Some((key, r, label)) => println!("infinite_chat_size_ratio_max {r:.2} {key} {label}"),
+        None => println!("infinite_chat_size_ratio_max null"),
+    }
+    println!("CHAT-SIZE-TABLE-BEGIN");
+    println!(
+        "| Metric (Us = microseconds, Ms = milliseconds, RSS = bytes) | {} |",
+        results.iter().map(|r| r["size"].as_str().unwrap()).collect::<Vec<_>>().join(" | ")
+    );
+    println!("|---|{}", "---|".repeat(results.len()));
+    for key in SIZE_RATIO_KEYS {
+        let base = results[0].pointer(key).and_then(Value::as_f64).unwrap();
+        let cells: Vec<_> = results
+            .iter()
+            .map(|r| {
+                let value = r.pointer(key).and_then(Value::as_f64).unwrap();
+                if base > 0.0 {
+                    format!("{value:.0} ({:.2}x)", value / base)
+                } else {
+                    format!("{value:.0} (ratio unavailable)")
+                }
+            })
+            .collect();
+        println!("| {key} | {} |", cells.join(" | "));
+    }
+    println!("CHAT-SIZE-TABLE-END");
+}
+
+#[test]
+fn incomplete_chat_sizes_cannot_be_reported_as_success() {
+    let complete = json!({"size": "4G", "coldAttachMs": 10,
+        "attachUs": {"p50": 20, "p95": 30}, "newestPageUs": {"p50": 20},
+        "scrollRecentUs": {"p50": 20}, "scrollMidUs": {"p50": 20},
+        "scrollDeepUs": {"p50": 20}, "promptPageUs": {"p50": 20},
+        "forwardPageUs": {"p50": 20}, "sendFirstTokenUs": {"p50": 20, "p95": 30},
+        "restartAttachMs": 10, "restartSendFirstTokenUs": 20,
+        "rssIdle": 100, "peakRss": 200, "restartPeakRss": 200});
+    assert!(size_failure(&complete).is_none());
+    for (key, value) in [
+        ("skipped", json!("disk")),
+        ("coldAllLogsError", json!({"timeoutMs": 1800000})),
+        ("restartAllLogsError", json!({"timeoutMs": 1800000})),
+        ("sendError", json!({"stage": "first token"})),
+        ("initialStateError", json!({"queued": 1})),
+        ("attachUs", json!({"p50": 20})),
+    ] {
+        let mut result = complete.clone();
+        result[key] = value;
+        assert!(size_failure(&result).is_some(), "incomplete result: {result}");
+    }
+}
+
+#[test]
+fn chat_size_ratios_use_the_same_metric_and_baseline() {
+    let base = json!({"attachUs": {"p50": 20, "p95": 40}, "rssIdle": 100});
+    let larger = json!({"attachUs": {"p50": 30, "p95": 42}, "rssIdle": 200});
+    let (ratios, max) = size_ratios(&base, &larger);
+    assert_eq!(ratios["/attachUs/p50"], 1.5);
+    assert_eq!(ratios["/attachUs/p95"], 1.05);
+    assert_eq!(max, Some(("/rssIdle".into(), 2.0)));
+}
+
+#[test]
+fn chat_size_page_coverage_excludes_preparation_and_missing_sequences() {
+    let reply = json!({"events": [{"seq": 99}, {"seq": 100}, {"seq": 101}, {}, {"seq": 0},
+                                  {"seq": 103}, {"seq": 104}]});
+    // Settlement 101..=102, one repeated-turn completion at 104: 99, 100 and 103 are history.
+    let prepared = preparation_seqs(&json!({"preparationSeqs": [[101, 102], [104, 104]]}));
+    assert_eq!(prepared, vec![(101, 102), (104, 104)]);
+    assert_eq!(original_page_records(&reply, &prepared), 3);
+    assert_eq!(original_page_records(&json!({"events": [{"seq": 101}]}), &prepared), 0);
+    assert_eq!(original_page_records(&json!({}), &prepared), 0);
+    assert_eq!(original_page_records(&json!({"events": [{"seq": 101}]}), &[]), 1);
+}
+
+#[test]
+fn a_streamed_chunk_is_read_from_either_envelope() {
+    // As server/mod.rs `deliver` sends one to a connection with and without `eventStream`.
+    let update = json!({"sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "turn: size 1M 0"}});
+    let event = json!({"jsonrpc": "2.0", "method": "_acpmux/event", "params": {
+        "sessionId": "chat", "seq": 9, "at": 1, "dir": "in", "kind": "agent_message_chunk",
+        "msg": {"jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "agent-session", "update": update}}}});
+    assert_eq!(streamed_chunk(&event), Some(("chat", "turn: size 1M 0")));
+    let acp = json!({"jsonrpc": "2.0", "method": "session/update",
+                     "params": {"sessionId": "chat", "update": update}});
+    assert_eq!(streamed_chunk(&acp), Some(("chat", "turn: size 1M 0")));
+    let thought = json!({"method": "_acpmux/event", "params": {"sessionId": "chat",
+        "kind": "agent_thought_chunk", "msg": {"params": {"update": {
+            "sessionUpdate": "agent_thought_chunk", "content": {"text": "size 1M 0"}}}}}});
+    assert_eq!(streamed_chunk(&thought), None);
 }

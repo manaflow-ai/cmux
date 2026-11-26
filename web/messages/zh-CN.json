@@ -3366,7 +3366,8 @@
       "darkArt": "暗黑艺术",
       "museumIcons": "博物馆名作",
       "calm": "宁静",
-      "dore": "多雷"
+      "dore": "多雷",
+      "eastAsian": "东亚绘画"
     }
   },
   "testimonials": {
@@ -5535,5 +5536,15 @@
     "unavailableTitle": "无法确认你的登录",
     "unavailableBody": "我们的登录服务繁忙。请等待几秒钟后再次打开邀请。你无需重新登录。",
     "retry": "重试"
+  },
+  "connected": {
+    "title": "你已登录 {app}",
+    "titleGeneric": "你已登录",
+    "errorTitle": "无法登录 {app}",
+    "errorTitleGeneric": "登录未完成",
+    "body": "返回 cmux 继续操作。",
+    "errorBody": "请返回 cmux 再试一次。",
+    "button": "返回 cmux",
+    "closeHint": "你可以关闭此标签页。"
   }
 }

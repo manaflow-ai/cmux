@@ -8,7 +8,20 @@ export type MachineResources = {
   cores: number;
   busy: boolean;
   lowMemory: boolean;
+  /// AutoCloud (RFD 0172): present when its owner enrolled it (`_acpmux/autocloud_enroll` there);
+  /// whether it takes work now and its capability words (`macos`, `xcode`, `ios-simulator`).
+  autoCloud?: MachineAutoCloud;
 };
+
+export type MachineAutoCloud = { accepting: boolean; caps: string[] };
+
+/** A peer's enrolled AutoCloud report from its `health.autoCloud`, or nothing. */
+export function machineAutoCloud(health: RecordValue | undefined): MachineAutoCloud | undefined {
+  const report = record(health?.autoCloud);
+  if (report?.enrolled !== true) return undefined;
+  const caps = Array.isArray(report.caps) ? report.caps.filter((cap): cap is string => typeof cap === "string") : [];
+  return { accepting: report.accepting === true, caps };
+}
 
 type RecordValue = Record<string, unknown>;
 
@@ -52,6 +65,8 @@ export function peerResourcesFromStatus(status: unknown): Record<string, Machine
       // The verdict already applies the machine’s configured RAM threshold (including zero).
       lowMemory: over.some((reason) => reason.startsWith("available RAM ")),
     };
+    const autoCloud = machineAutoCloud(health);
+    if (autoCloud) resources[name].autoCloud = autoCloud;
   }
   return resources;
 }

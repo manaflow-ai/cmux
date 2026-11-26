@@ -27,6 +27,7 @@
 //! text names the URL, which can hold a code).
 
 mod auth_error;
+mod browser_sign_in;
 mod calls;
 mod client;
 mod cmux_api;
@@ -38,6 +39,7 @@ mod refresh;
 mod wire;
 
 pub use auth_error::{AuthError, rejected_redirect_origin};
+pub use browser_sign_in::{BrowserEnrollment, BrowserSignIn, BrowserSignInError};
 pub use calls::{CurrentUser, OAuthCallback, OAuthStart, Team};
 pub use client::{StackClient, TokenResolution};
 pub use cmux_api::{

@@ -46,7 +46,7 @@ const PREVIEW_SCAN: usize = PREVIEW_CHARS * 64;
 #[derive(Debug, Default)]
 pub(super) struct WorkflowRun {
     /// The run's transcript dir, once its launch named it.
-    dir: Option<PathBuf>,
+    pub(super) dir: Option<PathBuf>,
     /// Each agent's item as last seen and its fields as last sent, by
     /// Claude's agent index.
     agents: HashMap<u64, (Value, Map<String, Value>)>,
@@ -225,6 +225,15 @@ impl Translator {
         };
         if let Some(action) = action {
             update.set("action", json!(action));
+        }
+        // The kind of call it is on, from its tool's name (ACP kinds, `tool_kind`): the composer
+        // hat says this bounded word ("Reading", "Running"), never the call itself, so its width
+        // and words hold still through a burst (Leo, 2026-11-22: "we dont show the exact calls,
+        // ever, at the top").
+        if workflow.is_none()
+            && let Some(name) = text("last_tool_name")
+        {
+            update.set("actionKind", json!(super::tool_kind(name)));
         }
         // A plain agent's task id is the agent id SendMessage names it by.
         if workflow.is_none()
@@ -469,6 +478,9 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
     }
     if let Some(action) = s("lastToolSummary").or(s("lastToolName")) {
         out.insert("action".into(), json!(preview(action)));
+    }
+    if let Some(name) = s("lastToolName") {
+        out.insert("actionKind".into(), json!(super::tool_kind(name)));
     }
     for (from, to) in [
         ("promptPreview", "prompt"),

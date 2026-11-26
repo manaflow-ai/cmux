@@ -366,6 +366,7 @@ async fn compaction_queue_interrupt_preserves_only_its_replacement_prompt() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_delayed_remote_floor_cancel_cannot_cancel_the_next_turn() {
     let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let mut events = hub.subscribe();
     let running = {
         let (hub, s) = (hub.clone(), s.clone());
         tokio::spawn(async move {
@@ -373,9 +374,15 @@ async fn a_delayed_remote_floor_cancel_cannot_cancel_the_next_turn() {
                 .await
         })
     };
+    // The agent's own "running", not the chat's Running status: this agent forgets a cancel
+    // that comes before it starts the prompt (FAKE_RESET_CANCEL_ON_PROMPT), and the chat is
+    // Running once the prompt is written, which on a loaded runner can be well before that.
     let started = async {
-        while s.meta().status != SessionStatus::Running {
-            tokio::time::sleep(Duration::from_millis(20)).await;
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "running" {
+                break;
+            }
         }
     };
     tokio::time::timeout(WAIT, started).await.expect("the first turn runs");

@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{
     Command, RustVerb, Swift, parse, recorded_swift_tree, recorded_tree, recorded_watch_tree,
-    tool_path,
+    routed, setting_word, tool_path,
 };
+use serde_json::json;
 
 fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -86,11 +87,18 @@ fn rust_takes_a_build_host_and_a_session_on_start() {
             worktree: None,
             build_host: Some("build-box".to_owned()),
             session: Some("cmux-app-nightly".to_owned()),
+            socket: None,
         }
     );
     assert_eq!(
         parse(&words(&["status", "--rust"])).unwrap(),
-        Command::Rust { verb: RustVerb::Status, worktree: None, build_host: None, session: None }
+        Command::Rust {
+            verb: RustVerb::Status,
+            worktree: None,
+            build_host: None,
+            session: None,
+            socket: None,
+        }
     );
     assert_eq!(
         parse(&words(&["stop", "--rust", "--worktree", "/src/wt"])).unwrap(),
@@ -99,8 +107,71 @@ fn rust_takes_a_build_host_and_a_session_on_start() {
             worktree: Some(PathBuf::from("/src/wt")),
             build_host: None,
             session: None,
+            socket: None,
         }
     );
+}
+
+#[test]
+fn rust_start_takes_the_socket_of_the_app_to_swap() {
+    let start = Command::Rust {
+        verb: RustVerb::Start,
+        worktree: None,
+        build_host: Some("build-box".to_owned()),
+        session: None,
+        socket: Some(PathBuf::from("/tmp/cmux-app.sock")),
+    };
+    assert_eq!(
+        parse(&words(&[
+            "start",
+            "--rust",
+            "--build-host",
+            "build-box",
+            "--socket",
+            "/tmp/cmux-app.sock"
+        ]))
+        .unwrap(),
+        start
+    );
+    assert_eq!(
+        parse(&words(&[
+            "start",
+            "--rust",
+            "--build-host=build-box",
+            "--socket=/tmp/cmux-app.sock"
+        ]))
+        .unwrap(),
+        start
+    );
+    // A socket or a session names the daemon, not both; and only the Rust loop's start takes it.
+    assert!(parse(&words(&["start", "--rust", "--socket", "/s", "--session", "x"])).is_err());
+    assert!(parse(&words(&["start", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--chromium", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["stop", "--rust", "--socket", "/s"])).is_err());
+    assert!(parse(&words(&["start", "--rust", "--socket"])).is_err());
+}
+
+#[test]
+fn a_global_socket_or_session_routes_a_rust_start_that_names_none() {
+    let bare = parse(&words(&["start", "--rust"])).unwrap();
+    let socket = Path::new("/tmp/app.sock");
+    let Command::Rust { socket: got, session, .. } =
+        routed(&bare, Some(socket), Some("ignored-when-a-socket-is-given"))
+    else {
+        panic!("still the Rust loop");
+    };
+    assert_eq!((got.as_deref(), session), (Some(socket), None));
+    let Command::Rust { socket: got, session, .. } = routed(&bare, None, Some("cmux-app-x")) else {
+        panic!("still the Rust loop");
+    };
+    assert_eq!((got, session.as_deref()), (None, Some("cmux-app-x")));
+    // The flag after the noun wins over the global one.
+    let own = parse(&words(&["start", "--rust", "--socket", "/own.sock"])).unwrap();
+    assert_eq!(routed(&own, Some(socket), None), own);
+    // Only `start` passes a daemon on; stop and status find the running loop.
+    let stop = parse(&words(&["stop", "--rust"])).unwrap();
+    assert_eq!(routed(&stop, Some(socket), None), stop);
 }
 
 #[test]
@@ -247,4 +318,79 @@ fn reads_the_tree_live_mode_ran_from() {
     std::fs::write(&file, "relative/path").unwrap();
     assert_eq!(recorded_swift_tree(&file), None);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_live_setting_word_is_the_apps_boolean_else_unknown() {
+    assert_eq!(setting_word(&json!({"value": true})), "true");
+    assert_eq!(setting_word(&json!({"value": false})), "false");
+    assert_eq!(setting_word(&json!({"value": "true"})), "true");
+    assert_eq!(setting_word(&json!({"value": null})), "unknown");
+    assert_eq!(setting_word(&json!({})), "unknown");
+}
+
+/// A fake app and checkout for the web ABI check, in a fresh temp folder.
+fn abi_fixture(
+    name: &str,
+    app_abi: Option<i64>,
+    tree_abi: Option<i64>,
+) -> (PathBuf, PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("cmux-live-abi-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let app = dir.join("cmux NIGHTLY.app");
+    let tree = dir.join("tree");
+    let app_file = app.join(super::web_abi::APP_ABI);
+    let tree_file = tree.join(super::web_abi::TREE_ABI);
+    std::fs::create_dir_all(app_file.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(tree_file.parent().unwrap()).unwrap();
+    if let Some(abi) = app_abi {
+        std::fs::write(&app_file, format!("{{\"abi\": {abi}}}\n")).unwrap();
+    }
+    if let Some(abi) = tree_abi {
+        std::fs::write(&tree_file, format!("{{\"$comment\": \"x\", \"abi\": {abi}}}\n")).unwrap();
+    }
+    (dir, app, tree)
+}
+
+#[test]
+fn live_start_refuses_a_checkout_at_another_web_abi() {
+    let (dir, app, tree) = abi_fixture("mismatch", Some(7), Some(4));
+    assert_eq!(
+        super::web_abi::mismatch(&tree, std::slice::from_ref(&app)),
+        Some(super::web_abi::Mismatch { tree_abi: 4, app: app.clone(), app_abi: 7 })
+    );
+    let message = crate::localization::catalog().app_control.live.abi_mismatch;
+    assert!(
+        message.contains("{tree_abi}")
+            && message.contains("{app_abi}")
+            && message.contains("cmux app try .")
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn live_start_runs_a_checkout_at_the_apps_web_abi_or_with_none() {
+    let (dir, app, tree) = abi_fixture("match", Some(7), Some(7));
+    assert_eq!(super::web_abi::mismatch(&tree, std::slice::from_ref(&app)), None);
+    std::fs::remove_dir_all(dir).unwrap();
+    // No web-abi.json on either side: the app checks nothing, so neither does this.
+    let (dir, app, tree) = abi_fixture("none-tree", Some(7), None);
+    assert_eq!(super::web_abi::mismatch(&tree, std::slice::from_ref(&app)), None);
+    std::fs::remove_dir_all(dir).unwrap();
+    let (dir, app, tree) = abi_fixture("none-app", None, Some(4));
+    assert_eq!(super::web_abi::mismatch(&tree, &[app, dir.join("missing.app")]), None);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn web_abi_targets_the_named_app_else_the_installed_next_builds() {
+    assert_eq!(
+        super::web_abi::target_apps(Some("/tmp/x.app".into())),
+        vec![PathBuf::from("/tmp/x.app")]
+    );
+    assert_eq!(super::web_abi::target_apps(Some("".into())).len(), 2);
+    assert_eq!(
+        super::web_abi::target_apps(None)[0],
+        PathBuf::from("/Applications/cmux NIGHTLY.app")
+    );
 }

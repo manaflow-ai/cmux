@@ -15,6 +15,18 @@ fn action_surfaces() -> serde_json::Value {
     serde_json::from_str(&text).expect("action-surfaces.json is JSON")
 }
 
+/// The CLI names of the catalog request rows (`cmux-action-catalog`'s `Action::request`): the
+/// palette sends the request the CLI verb of that name sends (`catalog_request_tests`), so the
+/// mux grammar taking the words is the row's CLI by design, not a shadow (`closed clear`,
+/// `room unpin`).
+pub(super) fn catalog_request_cli_names() -> std::collections::BTreeSet<&'static str> {
+    cmux_action_catalog::actions()
+        .filter(|action| action.request.is_some())
+        .map(|action| action.cli_name)
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
 /// The CLI names of the actions the app offers to `cmux`.
 fn offered_cli_names() -> Vec<String> {
     let surfaces = action_surfaces();
@@ -31,11 +43,14 @@ fn offered_cli_names() -> Vec<String> {
 #[test]
 fn no_offered_app_cli_name_is_shadowed_by_the_mux_grammar() {
     let mut shadowed = Vec::new();
+    let requests = catalog_request_cli_names();
     for name in offered_cli_names() {
+        if requests.contains(name.as_str()) {
+            continue;
+        }
         let words = name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        // App scopes (`app`, `settings`, ...) and coderouter route before
-        // the mux grammar.
-        if matches!(app::parse(&words), Ok(Some(_))) || coderouter::split(&words).is_some() {
+        // App scopes (`app`, `settings`, ...) route before the mux grammar.
+        if matches!(app::parse(&words), Ok(Some(_))) {
             continue;
         }
         if parse(&words, Surface::Cmux).is_ok() {

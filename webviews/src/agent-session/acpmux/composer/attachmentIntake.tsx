@@ -9,11 +9,15 @@ import { Dialog } from "../../../ui/Dialog";
 import { inlineCopyParent, thumbnail, type ComposerAttachment } from "../attachments";
 
 import { ImageViewerContext } from "../conversation/imageViewerContext";
+import { readLinkedImage } from "../chips/host";
+import { linkedImagePath } from "../conversation/userBubbleModel";
 import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
-import { keptThumb } from "./imagePool";
+import { keptThumb, localImagePreview } from "./imagePool";
+import { localDraftShape, useDraftRatio } from "./draftMediaShape";
+import type { Thumb } from "./imageWork";
 import { useStripReorder } from "./stripReorder";
 
 import { SourceBadge } from "./SourceBadge";
@@ -27,15 +31,20 @@ import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { revealControls } from "../../../ui/revealCover";
+import "../../../ui/motion/motion.css";
 import { AttachmentPreviewBoundary } from "./AttachmentPreviewBoundary";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
+import { intl } from "../../../ui/intl";
 
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
@@ -178,18 +187,24 @@ export function PendingChip({
 }) {
   const t = useT();
   const look = usePasteLoadingLook();
+  const ratio = useDraftRatio(chip[localDraftShape]);
+  if (ratio === 0) return null;
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
       type="button"
       className="acpmux-attachment-remove"
+      ref={revealControls}
       aria-label={t(chip.failed ? ATTACHMENT_LABELS.removeAttachment : ATTACHMENT_LABELS.cancelAttachment, { name })}
       onClick={() => onCancel(chip.id)}
     >
       <RemoveGlyph />
     </button>
   );
-  const indicator = (
+  const pendingClass = chip.resolvingPath
+    ? "acpmux-attachment-pending"
+    : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`;
+  const indicator = !chip.resolvingPath && (
     <PasteLoadingMark
       look={look}
       size={16}
@@ -202,10 +217,10 @@ export function PendingChip({
     const { failed } = chip;
     return (
       <div
-        className={`acpmux-attachment acpmux-attachment-file ${failed ? "acpmux-attachment-failed" : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}`}
+        className={`acpmux-attachment acpmux-attachment-file ${failed ? "acpmux-attachment-failed" : pendingClass}`}
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
-        data-paste-look={failed ? undefined : look}
+        data-paste-look={failed || chip.resolvingPath ? undefined : look}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
@@ -222,7 +237,9 @@ export function PendingChip({
     );
   }
   // A video, like an image, loads in the tile its poster will fill.
-  const shape = chip.image ? imageShape(chip.size) : videoShapeStyle(chip.videoShape);
+  const shape = chip.image
+    ? imageShape(ratio ? { width: ratio, height: 1 } : chip.size)
+    : videoShapeStyle(ratio ?? chip.videoShape);
   const style =
     shape || chip.preview
       ? { ...shape, ...(chip.preview ? { backgroundImage: `url("${chip.preview}")` } : {}) }
@@ -235,7 +252,7 @@ export function PendingChip({
       <div
         className="acpmux-attachment acpmux-attachment-image acpmux-attachment-failed"
         aria-label={name}
-        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(chip.videoShape) } : {})}
+        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(ratio ?? chip.videoShape) } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         {chip.image ? (
@@ -249,8 +266,8 @@ export function PendingChip({
     );
   return (
     <div
-      className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
-      data-paste-look={look}
+      className={`acpmux-attachment acpmux-attachment-image ${pendingClass}`}
+      data-paste-look={chip.resolvingPath ? undefined : look}
       aria-busy="true"
       aria-label={name}
       // The image's shape from its header (the slot its thumbnail ends in), and its own picture
@@ -261,7 +278,7 @@ export function PendingChip({
       {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
-      {indicator}
+      {chip.resolvingPath ? chip.image ? <ImageIcon size={16} /> : <PlayTriangle size={16} /> : indicator}
       {remove}
     </div>
   );
@@ -385,6 +402,7 @@ function AttachmentFileFallback({
           <button
             type="button"
             className="acpmux-attachment-remove"
+            ref={revealControls}
             aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name: attachment.name })}
             onClick={() => onRemove(attachment.id)}
           >
@@ -424,14 +442,38 @@ function AttachmentChipPreview({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
-  const isImage = attachment.kind === "image" && Boolean(attachment.data);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name, attachment.video);
+  // Disk images send as links. Only their mounted chip requests a preview.
+  const path =
+    attachment.kind === "link" && !attachment.saved && attachment.path?.startsWith("/")
+      ? linkedImagePath({ path: attachment.path, mimeType: attachment.mimeType })
+      : undefined;
+  const fresh = attachment[localImagePreview];
+  const [linkedPreview, setLinkedPreview] = useState<{ path: string; src?: string; thumb?: Thumb }>();
+  useEffect(() => {
+    if (!path) return;
+    let showing = true;
+    const preview = fresh
+      ? fresh().then((thumb) => ({ path, src: thumb?.url, thumb }))
+      : readLinkedImage(path).then((src) => ({ path, src }));
+    void preview.then((result) => {
+      if (showing) setLinkedPreview(result);
+    });
+    return () => {
+      showing = false;
+    };
+  }, [path, fresh]);
+  const drawn = path && linkedPreview?.path === path ? linkedPreview : undefined;
+  const pathPreview = drawn?.src;
+  const displayedThumb = drawn?.thumb ?? thumb;
+  const embeddedImage = attachment.kind === "image" && Boolean(attachment.data);
+  const isImage = embeddedImage || Boolean(pathPreview);
   const image = isImage && !broken;
-  const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
+  const source = image ? (pathPreview ?? `data:${attachment.mimeType};base64,${attachment.data}`) : undefined;
   // A pasted image's name is WebKit's "image.png": show what it is instead (imageLabel.ts).
   const pasted = attachment.kind === "pasted";
   const name = isImage
-    ? imageLabel(t, { name: attachment.name, ...(thumb ?? size) })
+    ? imageLabel(t, { name: attachment.name, ...(displayedThumb ?? size) })
     : pasted
       ? t(ATTACHMENT_LABELS.pastedText)
       : attachment.name;
@@ -452,6 +494,7 @@ function AttachmentChipPreview({
     <button
       type="button"
       className="acpmux-attachment-remove"
+      ref={revealControls}
       aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name })}
       onClick={() => onRemove(attachment.id)}
     >
@@ -487,6 +530,45 @@ function AttachmentChipPreview({
       {chip}
     </ContextMenu>
   );
+  const open =
+    openImage && (source || (fresh && path))
+      ? () => {
+          // A fresh thumbnail is cropped. The viewer asks for the full image only on an explicit open.
+          if (fresh && path) {
+            void readLinkedImage(path).then((full) => {
+              const expanded = full ?? source;
+              if (expanded) openImage(expanded, name, path);
+            });
+          } else if (source) openImage(source, name, path);
+        }
+      : undefined;
+  const ratio = useDraftRatio(attachment[localDraftShape]);
+  if (ratio === 0) return null;
+  const localShape = ratio ? { width: `clamp(48px, var(--acpmux-attach-height) * ${ratio}, 128px)` } : undefined;
+  if (path && !pathPreview && (!drawn || fresh)) {
+    return menu(
+      open,
+      <div
+        className="acpmux-attachment acpmux-attachment-image"
+        style={localShape}
+        /* tooltip-allow: the image tile shows its glyph while its preview loads */ title={withSourceLabel(name, from)}
+      >
+        {open ? (
+          <button
+            type="button"
+            className="acpmux-attachment-open"
+            aria-label={t(ATTACHMENT_LABELS.openAttachment, { name })}
+            onClick={open}
+          >
+            <ImageIcon size={16} />
+          </button>
+        ) : (
+          <ImageIcon size={16} />
+        )}
+        {remove}
+      </div>,
+    );
+  }
   if (image && source) {
     const img = (
       <img
@@ -494,29 +576,30 @@ function AttachmentChipPreview({
         // A drag moves the chip along the strip (stripReorder.ts), never the picture out as a file.
         draggable={false}
         // Its thumbnail's shape before it decodes, so the chip is its final width from its first frame.
-        style={imageShape(thumb)}
-        src={thumb?.url ?? source}
+        style={localShape ?? imageShape(displayedThumb)}
+        src={displayedThumb?.url ?? source}
         onError={() => setBroken(true)}
         onLoad={(event) => {
           const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
           // An image that decodes to no pixels draws nothing: it failed too.
           if (!width || !height) setBroken(true);
-          else if (!thumb) setSize({ width, height });
+          else if (!displayedThumb) setSize({ width, height });
         }}
       />
     );
     return menu(
-      openImage ? () => openImage(source, name) : undefined,
+      open,
       <div
         className="acpmux-attachment acpmux-attachment-image"
+        style={localShape}
         /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
-        {openImage ? (
+        {open ? (
           <button
             type="button"
             className="acpmux-attachment-open"
             aria-label={t(ATTACHMENT_LABELS.openAttachment, { name })}
-            onClick={() => openImage(source, name)}
+            onClick={open}
           >
             {img}
           </button>
@@ -537,7 +620,7 @@ function AttachmentChipPreview({
   }
   // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
   // file name; its × still removes it.
-  if (isImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
+  if (embeddedImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
   // A huge paste (pastedText.ts): a compact chip that opens its whole text, Edit in Prompt and Keep
   // as .txt in the opened view (PastedTextChip.tsx). Its menu keeps both too.
   if (pasted) {
@@ -560,6 +643,13 @@ function AttachmentChipPreview({
       keep,
     );
   }
+  // A browser pick (browserPickModel.ts): its number and comment over the element, one chip with its
+  // crop inside, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return menu(
+      undefined,
+      <BrowserPickChip host="strip" name={attachment.name} text={attachment.text} remove={remove} />,
+    );
   // An inspector pick (uiPickModel.ts): the element and a snippet of its text, opening its whole
   // report in place (UIPickChip.tsx).
   if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))
@@ -568,7 +658,7 @@ function AttachmentChipPreview({
   // lines, under its name and line count.
   if (attachment.kind === "text" && attachment.text !== undefined) {
     const lines = pasteLines(attachment.text);
-    const label = `${attachment.name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
+    const label = `${attachment.name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count: intl.NumberFormat(language).format(lines) })}`;
     return menu(
       undefined,
       <div
@@ -609,7 +699,7 @@ function AttachmentChipPreview({
             name={attachment.name}
             title={withSourceLabel(attachment.name, from)}
             video={attachment.video}
-            shape={chipVideoRatio(attachment)}
+            shape={ratio ?? chipVideoRatio(attachment)}
             remove={remove}
             onPlay={play}
             unplayable={videoPlayer.unplayable}
@@ -689,7 +779,11 @@ function PdfAttachmentChip({
   const deliveryLabel = codex ? `${pageLabel} · ${t(ATTACHMENT_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
-      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
+      <div
+        className={`acpmux-attachment acpmux-attachment-document${remove ? " ui-reveal-host" : ""}`}
+        data-reveal-overlap={remove ? "" : undefined}
+        data-page-count={attachment.pageCount ?? undefined}
+      >
         <button
           type="button"
           className="acpmux-attachment-document-open"
@@ -700,7 +794,7 @@ function PdfAttachmentChip({
         </button>
         <span className="acpmux-attachment-document-meta">
           <FileDoc size={16} />
-          <span className="acpmux-attachment-document-name">{attachment.name}</span>
+          <span className={`acpmux-attachment-document-name${remove ? " ui-reveal-text" : ""}`}>{attachment.name}</span>
           <span className="acpmux-attachment-document-pages">{deliveryLabel}</span>
         </span>
         {remove}

@@ -3366,7 +3366,8 @@
       "darkArt": "Arte Sombria",
       "museumIcons": "Ícones de Museu",
       "calm": "Calma",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Pintura do Leste Asiático"
     }
   },
   "testimonials": {
@@ -5535,5 +5536,15 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "connected": {
+    "title": "Você entrou no {app}",
+    "titleGeneric": "Você entrou",
+    "errorTitle": "Não foi possível entrar no {app}",
+    "errorTitleGeneric": "O login não foi concluído",
+    "body": "Volte ao cmux para continuar.",
+    "errorBody": "Volte ao cmux e tente novamente.",
+    "button": "Voltar ao cmux",
+    "closeHint": "Você pode fechar esta aba."
   }
 }

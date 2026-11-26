@@ -29,13 +29,31 @@
     {
       "id": "page-strings",
       "generator": "webviews/scripts/pages/gen-strings.mjs",
-      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json"],
+      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json", "webviews/src/pages/settings/generated/pane-strings.json"],
+      "status": "build"
+    },
+    {
+      "id": "chief-vm-source",
+      "generator": "backend/apps/api/scripts/gen-chief-vm-source.ts",
+      "outputs": [
+        "backend/apps/api/src/chief-brain-cc/chief-vm-source.ts"
+      ],
+      "inputs": [
+        "backend/chief-cc/image/chief-vm.mjs"
+      ],
       "status": "build"
     },
     {
       "id": "extension-sdk-customize-types",
       "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
       "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
+      "status": "build"
+    },
+    {
+      "id": "instrument-tokens",
+      "generator": "scripts/cmux-next/gen-instrument-tokens.py",
+      "outputs": ["webviews/src/ui/instrument.generated.css"],
+      "inputs": ["schemas/instrument/**"],
       "status": "build"
     },
     {
@@ -57,9 +75,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
       ],
-      "inputs": ["schemas/settings/**"],
-      "check": ["--check"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "motion-scale",
@@ -76,7 +92,13 @@
       "id": "type-scale",
       "generator": "scripts/cmux-next/gen-type-scale.py",
       "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"],
-      "inputs": ["schemas/type-scale/**"],
+      "inputs": [
+        "schemas/type-scale/**",
+        "schemas/design-scale/scene-scale.json",
+        "schemas/design-scale/design-scale.json",
+        "schemas/layout-grid/layout-grid.json",
+        "schemas/motion-scale/motion-scale.json"
+      ],
       "check": ["--check"],
       "status": "committed"
     },
@@ -150,14 +172,14 @@
       "generator": "webviews/scripts/pane-protocol-codegen.ts",
       "outputs": ["webviews/src/protocol/generated/*"],
       "inputs": ["webviews/src/protocol/ir/**", "webviews/src/protocol/codegen/**"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "acpmux-protocol",
       "generator": "webviews/scripts/acpmux-protocol-codegen.ts",
       "outputs": ["webviews/src/agent-session/acpmux/protocol/generated/*"],
       "inputs": ["cmux-tui/crates/acpmux/spec/**", "webviews/src/protocol/codegen/**"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "pane-protocol-go",
@@ -189,6 +211,12 @@
       ],
       "inputs": ["config/iroh/managed-relay-catalog.json"],
       "status": "committed"
+    },
+    {
+      "id": "app-store-packages",
+      "generator": "scripts/cmux-next/sync-app-runtime.sh",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/**"],
+      "status": "build"
     },
     {
       "id": "app-pack",

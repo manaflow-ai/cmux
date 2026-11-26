@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.defaultPermissionMode.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいチャットが確認なしで行えることです。チャットで選んだモードはそのチャットにだけ適用されます。"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was ein neuer Chat ohne Nachfrage tun darf. Ein Modus, den du in einem Chat wählst, gilt nur für diesen Chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce qu’une nouvelle discussion peut faire sans demander. Un mode choisi dans une discussion ne s’applique qu’à cette discussion."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ما يمكن للمحادثة الجديدة فعله دون أن تسأل. الوضع الذي تختاره في محادثة ينطبق على تلك المحادثة فقط."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que un chat nuevo puede hacer sin preguntar. Un modo que elijas en un chat se aplica solo a ese chat."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新聊天不經詢問即可執行的操作。在聊天中選擇的模式只套用於該聊天。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新聊天无需询问即可执行的操作。在聊天中选择的模式只应用于该聊天。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 채팅이 묻지 않고 할 수 있는 작업입니다. 채팅에서 고른 모드는 그 채팅에만 적용됩니다."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šta novi razgovor smije raditi bez pitanja. Način koji odaberete u razgovoru važi samo za taj razgovor."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvad en ny chat må gøre uden at spørge. En tilstand, du vælger i en chat, gælder kun for den chat."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa può fare una nuova chat senza chiedere. Una modalità scelta in una chat vale solo per quella chat."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ្វីដែលការជជែកថ្មីអាចធ្វើបានដោយមិនសួរ។ របៀបដែលអ្នកជ្រើសរើសក្នុងការជជែកមួយ អនុវត្តចំពោះតែការជជែកនោះប៉ុណ្ណោះ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hva en ny chat kan gjøre uten å spørre. En modus du velger i en chat, gjelder bare for den chatten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Co nowy czat może robić bez pytania. Tryb wybrany w czacie dotyczy tylko tego czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O que um novo chat pode fazer sem perguntar. Um modo escolhido em um chat vale só para aquele chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что новый чат может делать без вопросов. Режим, выбранный в чате, действует только в этом чате."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สิ่งที่แชตใหม่ทำได้โดยไม่ต้องถาม โหมดที่คุณเลือกในแชตจะใช้กับแชตนั้นเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni bir sohbetin sormadan yapabilecekleri. Bir sohbette seçtiğiniz mod yalnızca o sohbet için geçerlidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Що новий чат може робити без запитань. Режим, вибраний у чаті, діє лише в цьому чаті."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Những gì cuộc trò chuyện mới được làm mà không cần hỏi. Chế độ bạn chọn trong một cuộc trò chuyện chỉ áp dụng cho cuộc trò chuyện đó."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

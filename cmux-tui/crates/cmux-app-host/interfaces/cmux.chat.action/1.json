@@ -1,0 +1,61 @@
+{
+  "name": "cmux.chat.action/1",
+  "version": 1,
+  "docs": "Message actions in the agent chat: rows an extension adds to a message's actions menu (\"Make an issue from this\", \"Send this reply to a doc\"). The daemon lists the actions for a message of a role (apps.chat_actions.list {role}) from the manifest, so no script runs to draw the menu and a save of the manifest updates it. Picking a row sends apps-chat-action {app, action, message, gesture?}; the daemon runs the action's catalog op on the apps-run path with {action, message: {id, role, text, session?}}, holding it to the op's grants, install, enable and hidden checks.",
+  "props": {
+    "actions": "ChatAction[]"
+  },
+  "methods": {
+    "op": "({action, message: {id, role, text, session?}}) -> any"
+  },
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["actions"],
+    "properties": {
+      "actions": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "title", "op"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
+              "description": "The action's id within the app, sent back when it is picked."
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The menu row's name."
+            },
+            "symbol": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "An SF Symbol name for the row."
+            },
+            "op": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The app's catalog op that runs when the row is picked (its full or short name)."
+            },
+            "roles": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["user", "assistant"] },
+              "description": "The messages the row shows on; both when absent."
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

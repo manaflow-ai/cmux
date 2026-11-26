@@ -3363,7 +3363,8 @@
       "darkArt": "다크 아트",
       "museumIcons": "명화",
       "calm": "차분함",
-      "dore": "도레"
+      "dore": "도레",
+      "eastAsian": "동아시아 회화"
     }
   },
   "testimonials": {
@@ -5532,5 +5533,15 @@
     "unavailableTitle": "로그인을 확인할 수 없습니다",
     "unavailableBody": "로그인 서비스가 혼잡합니다. 몇 초 기다린 후 초대를 다시 여세요. 다시 로그인할 필요는 없습니다.",
     "retry": "다시 시도"
+  },
+  "connected": {
+    "title": "{app}에 로그인했습니다",
+    "titleGeneric": "로그인했습니다",
+    "errorTitle": "{app}에 로그인하지 못했습니다",
+    "errorTitleGeneric": "로그인이 완료되지 않았습니다",
+    "body": "cmux로 돌아가 계속하세요.",
+    "errorBody": "cmux로 돌아가 다시 시도하세요.",
+    "button": "cmux로 돌아가기",
+    "closeHint": "이 탭은 닫아도 됩니다."
   }
 }

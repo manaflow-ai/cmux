@@ -33,7 +33,7 @@ import {
   type RememberedAccount,
 } from "./sign-in-entry";
 import { signInFailureMessage } from "./sign-in-errors";
-import { SignInSpinner } from "./sign-in-spinner";
+import { Spinner as SharedSpinner } from "../components/spinner";
 
 export type CmuxSignInMessages = {
   signInTitle: string;
@@ -306,7 +306,7 @@ function FieldError({ id, text }: { id: string; text: string | null }) {
 }
 
 function Spinner() {
-  return <SignInSpinner />;
+  return <SharedSpinner className="h-3.5 w-3.5 text-muted" />;
 }
 
 /** A button's label while it works: the spinner shows, the name stays for screen readers. */

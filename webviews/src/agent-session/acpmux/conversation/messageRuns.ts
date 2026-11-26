@@ -27,7 +27,7 @@ import { inboxCounts } from "./inboxNotice";
 import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
 import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
-import { toolRunPhrases } from "./toolRunSummary";
+import { toolRunPhrases, toolRunCategories } from "./toolRunSummary";
 import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
 
@@ -50,6 +50,8 @@ type Member = {
   work: AcpmuxActivity[];
   failed: number;
   running: boolean;
+  /// The kinds of its line's phrases in the order they came ("sent", "received", a work category).
+  order: string[];
 };
 
 /// Each row's `member`, by the row: a function of the row alone, read for every row of the running
@@ -73,6 +75,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
       work: [],
       failed: 0,
       running: row.compaction?.state === "running",
+      order: [],
     };
   // A tool's fire stays in sight: it ends a run, never folds into its line.
   if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
@@ -87,6 +90,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
       work: [],
       failed: 0,
       running: false,
+      order: ["received"],
     };
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
@@ -105,6 +109,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
         group.type === "agentCall" ||
         group.type === "dispatch" ||
         group.type === "whoElse" ||
+        group.type === "forum" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )
@@ -129,6 +134,10 @@ function readMember(row: AcpmuxRow): Member | undefined {
     work,
     failed: items.filter((item) => item.tool && countsFailed(item.tool)).length,
     running: items.some((item) => item.tool && isRunning(item.tool)),
+    // Its calls' kinds in the order they ran: a message sent, or the work's category.
+    order: items.flatMap((item) =>
+      sentItems.has(item) ? ["sent"] : item.tool ? (toolRunCategories([item]) as string[]) : [],
+    ),
   };
 }
 
@@ -202,6 +211,8 @@ function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
       work: parts.flatMap((part) => part.work),
       failed: parts.reduce((sum, part) => sum + part.failed, 0),
       running: parts.some((part) => part.running),
+      // Each phrase's kind in the order it first came, for the line's order (`messageRunSummary`).
+      order: [...new Set(parts.flatMap((part) => part.order))],
       // A folded copy of an edit run is drawn under its source row's id and a suffix (turns.ts FOLDED).
       rows: members.flatMap((row) => [
         row.id,
@@ -217,10 +228,34 @@ function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
   };
 }
 
+/// When a running turn's message runs fold (gallery `agent-pane.message-run-fold-timing`,
+/// `<html data-message-run-fold>`): `run-end` (shipped), once prose or a card ends the run, the
+/// moment its calls fold into their run's line (turns.ts `codexRuns`); `turn-end`, only when the turn
+/// ends; `now`, as soon as the run carries a message and draws two lines, the run the agent is still
+/// in included, which it did before (Leo, 2026-11-21: "the messages and whatever collapsing and
+/// stuff, sometimes it does so too soon in the midst of a turn"). Read once per running turn's shape.
+export type MessageRunFoldLook = "run-end" | "turn-end" | "now";
+export function messageRunFoldLook(): MessageRunFoldLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.messageRunFold;
+  return set === "turn-end" || set === "now" ? set : "run-end";
+}
+
+/// Whether the agent is still in the run that ends at `rows[end - 1]`: no paragraph of its own
+/// comes after it yet. A message that comes in, the live line or the next call never ends a run;
+/// the agent's prose does, as it ends a run of calls (turns.ts `codexRuns`).
+function stillInRun(rows: readonly AcpmuxRow[], end: number): boolean {
+  for (let at = end; at < rows.length; at += 1) if (rows[at]!.kind === "assistant") return false;
+  return true;
+}
+
 /// `rows` with each run that carries a message and draws two or more lines folded under its line:
 /// the line alone while closed, the line and its rows while open (`expanded` holds the line's id).
-/// A run without a message, or of one line, is `rows` as they were.
-export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
+/// A run without a message, or of one line, is `rows` as they were. `live`: the rows are a running
+/// turn's, whose last run (after the agent's last paragraph) is still going and never folds: a
+/// message that comes in, or the next call, stays in sight until the run ends (`messageRunFoldLook`).
+export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false): AcpmuxRow[] {
+  const look = live ? messageRunFoldLook() : "now";
+  if (look === "turn-end") return rows;
   let out: AcpmuxRow[] | undefined;
   let index = 0;
   while (index < rows.length) {
@@ -229,6 +264,11 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     if (end === index) {
       out?.push(rows[index]!);
       index += 1;
+      continue;
+    }
+    if (look === "run-end" && stillInRun(rows, end)) {
+      out?.push(...rows.slice(index, end));
+      index = end;
       continue;
     }
     const first = rows[index]!;
@@ -311,13 +351,33 @@ export function messageRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string): s
 /// file, received a message". The work between is counted as a run of tool calls counts
 /// (toolRunSummary.ts).
 export function messageRunSummary(t: Translate, run: AcpmuxMessageRun): string {
-  const phrases = [
-    ...(run.sent ? [run.sent === 1 ? t("messageRun.sent.one") : t("messageRun.sent.other", { n: run.sent })] : []),
-    ...toolRunPhrases(t, run.work),
-    ...(run.received
-      ? [run.received === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: run.received })]
-      : []),
-  ];
+  const sent = run.sent
+    ? [run.sent === 1 ? t("messageRun.sent.one") : t("messageRun.sent.other", { n: run.sent })]
+    : [];
+  const received = run.received
+    ? [run.received === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: run.received })]
+    : [];
+  const work = toolRunPhrases(t, run.work);
+  // Each phrase in the order its kind first came in the run (`order`), so the line only grows at its
+  // end while the run runs, and reads the same once it ended: a message sent after a command never
+  // jumps in before it. A finished background task's lead stays first (toolRunSummary.ts).
+  const categories = toolRunCategories(run.work) as string[];
+  const lead = work.slice(0, work.length - categories.length);
+  const byKind = new Map<string, string>([
+    ...(sent.length ? [["sent", sent[0]!] as const] : []),
+    ...(received.length ? [["received", received[0]!] as const] : []),
+    ...categories.map((category, at) => [category, work[lead.length + at]!] as const),
+  ]);
+  const ordered = (run.order ?? []).flatMap((kind) => {
+    const phrase = byKind.get(kind);
+    byKind.delete(kind);
+    return phrase === undefined ? [] : [phrase];
+  });
+  // A run read before it kept its order draws as it did: messages sent, the work, then received.
+  const rest = [...sent, ...work.slice(lead.length), ...received].filter((phrase) =>
+    [...byKind.values()].includes(phrase),
+  );
+  const phrases = [...lead, ...ordered, ...rest];
   const text = phrases.join(t("toolRun.separator"));
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
