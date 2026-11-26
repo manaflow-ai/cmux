@@ -100,7 +100,7 @@ async fn live_retry_chat() -> (Arc<Hub>, Arc<Session>) {
         "defaultHarness": "fake",
     }))
     .unwrap();
-    config.store.mode = crate::store::StoreMode::Memory;
+    config.store.mode = crate::config::StoreMode::Memory;
     config.profile_sources = crate::config::ProfileSources::none();
     let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
     let hub = Hub::new(config, store);
