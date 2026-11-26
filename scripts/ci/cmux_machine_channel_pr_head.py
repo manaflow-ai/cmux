@@ -46,9 +46,20 @@ def github_api(repo: str, token: str) -> Api:
     return get
 
 
+def is_shallow() -> bool:
+    out = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--is-shallow-repository"],
+        check=False, capture_output=True, text=True, timeout=30,
+    )
+    return out.stdout.strip() == "true"
+
+
 def tree_key(rev: str) -> str:
+    # --depth only in a checkout that is already shallow: in a full clone it would truncate history
+    # (tests/test_ci_no_shallow_dev_fetch.py).
+    depth = ["--depth=1"] if is_shallow() else []
     subprocess.run(
-        ["git", "-C", str(ROOT), "fetch", "--no-tags", "--depth=1", "origin", rev],
+        ["git", "-C", str(ROOT), "fetch", "--no-tags", *depth, "origin", rev],
         check=False, capture_output=True, timeout=120,
     )
     out = subprocess.run(
