@@ -453,10 +453,22 @@ describe("auto-roll settle", () => {
   });
 
   test("a cancelled, timed out or failed deploy rolls back while the image is still first at the tip", () => {
-    for (const deploy of ["cancelled", "failure", "skipped", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    for (const deploy of ["cancelled", "failure", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "skipped", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
     expect(settle(roll({ product: "failure" })).outcome).toBe("rollback");
     // A green create that booted some other image proves nothing about this one.
     expect(settle(roll({ bootImage: previous })).outcome).toBe("rollback");
+  });
+
+  test("a roll whose production deploy never ran (check red first) is deployed again, at most ROLLBACK_DEPLOYS deploys", () => {
+    // 6fde033d-45743286480-3, 2026-11-26: the check job's checkout hung, deploy-production was skipped, and the image
+    // was rolled back with production never having booted it.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++) {
+      expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", deployedFirst: image, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    }
+    expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // Gone from both lists already: nothing to deploy again.
+    expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
   });
 
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
@@ -555,6 +567,8 @@ describe("auto-roll workflows", () => {
     expect(retry.if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'");
     expect(retry.run).toContain("-f action=deploy-production");
     expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
+    expect(retry.run).toContain('-f image_roll_redeploy="$redeploy"');
+    expect(read).toContain('if [ "$IN_REDEPLOY" = true ]; then kind=roll; fi');
     expect(settleJob.permissions).toMatchObject({ actions: "write" });
   });
 
@@ -587,17 +601,17 @@ describe("auto-roll workflows", () => {
   });
 
   // Roll 44282278310 (2026-11-18): with vars.LINUX_RUNNER on a 16-vCPU Blacksmith size, plan queued 41 min and
-  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner.
-  test("the roll's control jobs take the 4-vCPU pool, never LINUX_RUNNER; the bake keeps it", () => {
+  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner. Since #53974 froze
+  // CI_DEPLOY_SKIP_FLEET to its value, each control job takes the one-job deploy JIT label by literal (#47946).
+  test("the roll's control jobs take the one-job deploy JIT label, never LINUX_RUNNER or a size pool; the bake keeps its label", () => {
     const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     for (const job of ["platform-readiness", "plan", "promote", "report"]) {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
-      expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      // report holds a contents: write token, so it reads only the ephemeral linux_4 pool, never linux_8 (whose first
-      // member is a persistent owned label): #51925, tests/test_ci_ephemeral_pool_readers.py.
-      if (job === "report") expect(runsOn).not.toContain("linux_8");
-      else expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+      expect(runsOn).toBe("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}");
+      // report holds a contents: write token, so it runs only on a one-job VM, never a pool whose member is a
+      // persistent owned label (linux_8): #51925, tests/test_ci_ephemeral_pool_readers.py.
+      expect(runsOn).not.toContain("RUNNER_POOLS");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.

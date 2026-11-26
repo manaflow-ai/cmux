@@ -645,6 +645,7 @@ impl Peer {
     /// GitHub login. Read again for each action, so turning it off holds at once.
     pub fn set_github_broker(&self, on: bool) {
         self.github_broker.store(on, Ordering::SeqCst);
+        self.demand_changed();
         if !on {
             self.github_revoked.notify_waiters();
         }
@@ -800,10 +801,12 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "parked": link.parked(crate::store::now_ms()),
+            "agentLogin": self.lists(crate::agent_login::FEATURE),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            "received": self.received.split(),
         })
     }
 

@@ -105,7 +105,9 @@ test("the live line is the last row in every phase of a running turn, with the i
 
 test("a prompt sent after a turn ended reads Thinking under it from the send, timed from the send", () => {
   const shaped = view([...before, sent], false);
-  expect(shaped.map((entry) => entry.id).slice(-2)).toEqual(["u-1", "thinking-live"]);
+  // Its "Working for" stands over the line from the send (`sentHeader`), timed from the send.
+  expect(shaped.map((entry) => entry.id).slice(-3)).toEqual(["u-1", "worked-u-1", "thinking-live"]);
+  expect(shaped.at(-2)!.at).toBe(sent.at);
   expect(shaped.at(-1)!.at).toBe(sent.at);
   // Held behind its agent's start: the start look, with no time yet (cmux#30642).
   const queued = view([...before, { ...sent, queued: "starting" } as AcpmuxRow], false).at(-1)!;
