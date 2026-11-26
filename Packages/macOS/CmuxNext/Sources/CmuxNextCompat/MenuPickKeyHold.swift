@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 
 /// Holds the keys typed right after a menu item was picked, until the item's action ran.
@@ -64,3 +65,4 @@ public final class MenuPickKeyHold {
         }
     }
 }
+#endif
