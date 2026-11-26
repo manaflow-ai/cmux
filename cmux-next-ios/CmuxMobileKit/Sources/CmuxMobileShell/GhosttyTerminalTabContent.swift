@@ -241,6 +241,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Voice mode's source for a tab's terminal (its agent's Feed events in, typed prompts out).
     var voiceSourceProvider: (@MainActor (WorkspaceTab, Workspace, TerminalModel) -> (any AgentVoiceSource)?)?
     var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
+    var uploaderDirectoryProvider: (@MainActor (WorkspaceTab, _ macID: String) -> String?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
@@ -317,7 +318,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             (session?.underlyingSession as? DaemonTerminalSession)?.reconnect()
             self?.liveDataChanged()
         }
-        model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
+        model.setUploader(live == nil ? nil : uploaderProvider?(tab, workspace.macID),
+                          directory: live == nil ? nil : uploaderDirectoryProvider?(tab, workspace.macID))
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
@@ -430,6 +432,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             scrollPlaces[tab.id] = nil
         }
         let host = host(for: tab, in: workspace)
+        host.model.setUploader(uploaderProvider?(tab, workspace.macID),
+                               directory: uploaderDirectoryProvider?(tab, workspace.macID))
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
         // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
