@@ -1,4 +1,0 @@
-{ "manifestVersion": 1, "id": "cmux/tasks", "name": "Tasks", "version": "0.1.0", "description": "Team tasks.", "repository": "https://github.com/manaflow-ai/cmux", "engines": { "cmux": "^1.0" },
-  "server": { "kind": "native", "binary": "cmux-tasks", "args": ["serve"], "catalog": "catalog/tasks.json", "hosts": ["team-vm", "cmux-server", "local"], "data": "durable" },
-  "contributes": { "paneKinds": [{ "id": "board", "title": "Tasks", "renderer": "native", "nativeView": "tasks.board" }], "automationTriggers": [{ "id": "taskAssigned", "title": "Task assigned", "event": "task.assigned" }], "mcpServers": [{ "id": "tasks", "tools": "catalog", "group": "tasks" }] },
-  "files": ["catalog/"] }

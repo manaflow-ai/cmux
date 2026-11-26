@@ -1,9 +1,0 @@
-{
-  "cmuxProfile": 1,
-  "name": "pane-keys",
-  "description": "Move between panes with Control-Command-H, J, K and L, like Vim.",
-  "settings": {},
-  "files": {
-    "keybindings.json": "// Move between panes like Vim (the pane-keys recipe).\n[\n  { \"key\": \"ctrl+cmd+h\", \"command\": \"focusLeft\" },\n  { \"key\": \"ctrl+cmd+j\", \"command\": \"focusDown\" },\n  { \"key\": \"ctrl+cmd+k\", \"command\": \"focusUp\" },\n  { \"key\": \"ctrl+cmd+l\", \"command\": \"focusRight\" }\n]\n"
-  }
-}

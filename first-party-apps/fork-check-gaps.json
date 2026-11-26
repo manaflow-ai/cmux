@@ -1,4 +1,0 @@
-{
-  "$comment": "First-party apps that do not yet work as a fork with only the public SDK (fork-check.ts, docs/app-store-platonic-ideal.md 5). Each row names the private path; fix it by publishing what the app needs through cmux-extension-sdk (cmux-tui/crates/cmux-extension-sdk/typescript, `cmux-extension-sdk/testing` for tests), then delete the row. Empty since every first-party app forks (2026-11-14).",
-  "gaps": {}
-}

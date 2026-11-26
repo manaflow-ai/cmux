@@ -1,9 +1,0 @@
-/* The starter Markdown style. Only --cmux-md-* custom properties on :root; every color is mixed
-   from the page's own, so it reads over a light and a dark theme alike. */
-:root {
-  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
-  --cmux-md-code-radius: 10px;
-  --cmux-md-heading-weight: 600;
-  --cmux-md-heading-rule: none;
-  --cmux-md-quote-border: 3px solid var(--cmux-md-border-color);
-}

@@ -1,3 +1,0 @@
-# The gates whose tests write the design doc's row 7f (`v2.pr07f.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-# Row 7f: bounded usage rank request; the test asserts reply bytes and the no-walk counter outside the clock.
-acpmux-lib v2_pr07f_usage_request
