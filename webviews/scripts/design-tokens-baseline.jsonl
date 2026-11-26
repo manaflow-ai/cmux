@@ -503,12 +503,6 @@
 {"file":"pages/cloud/styles.css","kind":"spacing","property":"margin-top","values":{"5px":1,"6px":1,"18px":1}}
 {"file":"pages/cloud/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 10px":1,"8px 10px":1,"6px 10px":1,"0 18px 24px":1,"14px 0 6px":1,"10px 12px":1,"3px 10px":1,"2px 6px":1,"14px 0 4px":1,"3px 8px":1,"18px":1,"3px 0":1,"1px 6px":1,"6px 8px":1,"20px var(--page-edge) 28px":1,"24px 28px":1,"6px 14px":1,"14px 14px 12px":1,"3px 14px":1,"20px":1}}
 {"file":"pages/cloud/styles.css","kind":"spacing","property":"padding-top","values":{"14px":1,"6px":2}}
-{"file":"pages/coderouter/styles.css","kind":"font-weight","property":"font-weight","values":{"500":2}}
-{"file":"pages/coderouter/styles.css","kind":"height","property":"height","values":{"8px":1}}
-{"file":"pages/coderouter/styles.css","kind":"height","property":"min-height","values":{"calc(var(--cmux-control-height) + 13px)":1}}
-{"file":"pages/coderouter/styles.css","kind":"spacing","property":"gap","values":{"6px":3,"4px 10px":1}}
-{"file":"pages/coderouter/styles.css","kind":"spacing","property":"margin","values":{"14px 0 5px":1}}
-{"file":"pages/coderouter/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 12px":1,"6px 18px 18px":1,"6px 0":1,"0 6px":1,"18px":1}}
 {"file":"pages/debug-settings/styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":1}}
 {"file":"pages/debug-settings/styles.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"22px":1,"18px":1,"14px":1,"10px":1}}
 {"file":"pages/debug-settings/styles.css","kind":"height","property":"min-height","values":{"26px":1}}
