@@ -432,7 +432,16 @@ jobs:
     needs: plan
     if: ${{ (needs.plan.outputs.journeys == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 40
+    # A cold cargo build here ran past 40 minutes (job 139602427664, cancelled at the bound) or filled the
+    # runner's disk (run 45710386290, "No space left on device"), so the journeys and production never ran.
+    # It now builds as cloud-journey-pr.yml's journey does: the same profile env (so the R2 key below matches
+    # the one its `seed` job saves on feat-cmux-next) and its compiled dependencies restored from R2.
+    # tests/test_ci_relay_journey_build_cache.py keeps the two in step.
+    timeout-minutes: 50
+    env:
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
     permissions:
       contents: read
     steps:
@@ -466,6 +475,37 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
+      # cloud-journey-pr.yml's `seed` saves these; a miss or a slow restore builds cold as before.
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
       - name: Build Linux cmux-tui for the journeys
         working-directory: cmux-tui
         env:
@@ -480,6 +520,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/journey-cmux"
           cp "$target_dir/debug/cmux-tui" "$RUNNER_TEMP/journey-cmux/cmux-tui"
           file "$RUNNER_TEMP/journey-cmux/cmux-tui" | grep -q 'ELF 64-bit'
+      - name: Disk left after the build
+        if: ${{ always() }}
+        continue-on-error: true
+        run: df -h "$GITHUB_WORKSPACE" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: relay-journey-cmux
