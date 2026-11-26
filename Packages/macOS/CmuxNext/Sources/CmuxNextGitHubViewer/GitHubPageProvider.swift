@@ -330,6 +330,7 @@ public final class GitHubPageProvider: PageProvider {
     public static var title: String { t("github.tab.title", "GitHub") }
 
     static var diffUnavailable: String {
+        // retry-prompt-ok: needs the person's gh sign-in first
         t("github.diff.unavailable", "The diff could not be read. Check that the GitHub CLI (gh) is signed in, then try again.")
     }
 

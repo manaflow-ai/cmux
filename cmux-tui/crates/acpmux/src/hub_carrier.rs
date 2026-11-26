@@ -128,6 +128,10 @@ pub struct CarrierAnswer {
     /// `relay` (re-homing, `hub_carrier_rehome.rs`). Empty from a platform that knows one relay.
     #[serde(default)]
     pub relays: Vec<String>,
+    /// Relays we placed near the machines (RFD 0060 Weft move 4), each with its own ticket for
+    /// this same slot and permission (`hub_carrier_placed.rs`). Empty from a platform with none.
+    #[serde(default)]
+    pub placed: Vec<placed::PlacedTicket>,
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -136,6 +140,7 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("relay", &cmux_remote::provider::sanitized_route_text(&self.relay))
             .field("peers", &self.peers.len())
             .field("relays", &self.relays.len())
+            .field("placed", &self.placed.len())
             .finish_non_exhaustive()
     }
 }
@@ -667,6 +672,8 @@ pub struct HubCarrier {
     serving_on: RwLock<Option<String>>,
     /// The direct path to machines on this machine's private network (`hub_carrier_direct.rs`).
     direct: direct::Direct,
+    /// The placed relays' round trips, and which is nearest (`hub_carrier_placed.rs`).
+    nearest: Arc<placed::Nearest>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -707,6 +714,7 @@ impl HubCarrier {
             homes: rehome::Homes::default(),
             serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
+            nearest: Arc::default(),
         })
     }
 
@@ -745,6 +753,7 @@ impl HubCarrier {
             homes: rehome::Homes::default(),
             serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
+            nearest: Arc::default(),
         })
     }
 
@@ -1450,6 +1459,36 @@ impl HubCarrier {
         dead.len()
     }
 
+    /// [`Self::dial`] for a replacement of a link that heard nothing for `silent`: a plain
+    /// circuit of its own when a kept circuit to `daemon` heard nothing in that window either.
+    /// That circuit's transport is the stalled one the silent link rides; a new stream on it
+    /// would queue its OPEN, answer and replay behind the old stream's unread bytes (up to its
+    /// window) and the transport's retransmits. The kept circuit stays open: the old link still
+    /// reads on it until the replacement opens. Under [`mux::ANSWER_SUSPECT`] of silence this is
+    /// [`Self::dial`].
+    pub async fn dial_past_silent(
+        &self,
+        daemon: &str,
+        silent: Duration,
+    ) -> Result<HubStream, String> {
+        let stalled = silent >= mux::ANSWER_SUSPECT
+            && [&self.kept, &self.direct.kept]
+                .into_iter()
+                .any(|kept| !kept.silent_for(daemon, silent).is_empty());
+        if !stalled {
+            return self.dial(daemon).await;
+        }
+        tracing::info!(
+            "hub carrier: a replacement for a link silent {}ms; its kept circuit heard nothing either, so the replacement opens a circuit of its own",
+            silent.as_millis()
+        );
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
+        let (secure, stages) = self.open_circuit(daemon).await?;
+        stages.log(daemon, "plain past a silent kept circuit");
+        record_call(CircuitLane::of(CircuitService::Acpmux), false);
+        Ok(self.carry_plain(secure))
+    }
+
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
     /// platform's `peer_key`, and how long each step took.
     pub(crate) async fn open_circuit(
@@ -1480,7 +1519,12 @@ impl HubCarrier {
         // host left answers `slot-offline` at once, so following a moved host is one fast refusal
         // per relay passed (`hub_carrier_rehome.rs`). A failure past the circuit (the handshake)
         // is the far machine's answer and is the same on every relay.
-        let order = self.homes.order(daemon, rehome::candidates(&answer));
+        // The nearest placed relay goes before them, never waiting on its measurement
+        // (`hub_carrier_placed.rs`); an answer with none placed leaves the order as it was.
+        let order = placed::dial_order(
+            self.nearest.now(&answer.placed),
+            self.homes.order(daemon, rehome::candidates(&answer)),
+        );
         let mut last = String::from("the hub named no relay");
         let mut found = None;
         for relay in order {
@@ -1515,19 +1559,22 @@ impl HubCarrier {
         stages: &mut DialStages,
     ) -> Result<(Box<dyn FrameLink>, SessionId), String> {
         let endpoint = relay_url(relay)?;
-        // The ticket in hand first; a later relay authentication asks the platform again.
-        let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
+        // The ticket in hand first; a later relay authentication asks the platform again. A
+        // placed relay takes its own ticket, never the platform relays' (`hub_carrier_placed.rs`).
+        let first = Arc::new(Mutex::new(Some(Zeroizing::new(placed::ticket_on(answer, relay)))));
         let tickets = self.tickets.clone();
         let peer = daemon.to_owned();
+        let on = relay.to_owned();
         let credentials = RelayCredentialSource::callback(move || {
             let first = first.lock().unwrap_or_else(|e| e.into_inner()).take();
             let tickets = tickets.clone();
             let peer = peer.clone();
+            let on = on.clone();
             async move {
                 match first {
                     Some(ticket) => Ok(ticket.to_string()),
                     // The relay refused the ticket in hand (or wants another): a fresh one.
-                    None => tickets.connect_fresh(&peer).await.map(|a| a.ticket),
+                    None => tickets.connect_fresh(&peer).await.map(|a| placed::ticket_on(&a, &on)),
                 }
             }
         });
@@ -1689,6 +1736,12 @@ impl HubCarrier {
                 self.ticket_cache.clone().premint_until(Arc::downgrade(&self.alive)),
             );
         }
+        // Beside it, the nearest placed relay, held as long as this registration lives
+        // (`hub_carrier_placed.rs`); none placed, none measured reachable: nothing more.
+        let _placed = match self.nearest.nearest(&answer.placed).await {
+            Some(near) => self.clone().register_placed(websocket, &near, &answer),
+            None => None,
+        };
         let mut first = Some(Zeroizing::new(answer.ticket.clone()));
         loop {
             let served = self
@@ -1813,6 +1866,76 @@ impl HubCarrier {
             if !self.key_current() {
                 tracing::warn!("hub carrier: the node key was replaced; unregistering");
                 return Served::Stop;
+            }
+        }
+    }
+
+    /// This machine's slot registered on the placed relay `relay` too, with that relay's own
+    /// tickets; dropping it unregisters. The platform relay's registration ([`Self::serve_on`])
+    /// stays the one that re-homes and reports; this one only adds the nearer path.
+    fn register_placed(
+        self: Arc<Self>,
+        websocket: SocketAddr,
+        relay: &str,
+        answer: &CarrierAnswer,
+    ) -> Option<RelayDaemonRegistration> {
+        let endpoint = match relay_url(relay) {
+            Ok(endpoint) => endpoint,
+            Err(e) => {
+                tracing::warn!("hub carrier: not registering on the placed relay: {e}");
+                return None;
+            }
+        };
+        let allowed = self.allowed.clone();
+        let first = Arc::new(Mutex::new(Some(Zeroizing::new(placed::ticket_on(answer, relay)))));
+        let credentials = {
+            let tickets = self.tickets.clone();
+            let allowed = allowed.clone();
+            let on = relay.to_owned();
+            RelayCredentialSource::callback(move || {
+                let first = first.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let tickets = tickets.clone();
+                let allowed = allowed.clone();
+                let on = on.clone();
+                async move {
+                    if let Some(ticket) = first {
+                        return Ok(ticket.to_string());
+                    }
+                    let answer = tickets.register().await?;
+                    set_allowed(&allowed, &answer.peers);
+                    // A platform that stopped placing this relay gives no ticket for it.
+                    answer
+                        .placed
+                        .iter()
+                        .find(|p| p.relay == on)
+                        .map(|p| p.ticket.clone())
+                        .ok_or_else(|| "the platform no longer places this relay".to_owned())
+                }
+            })
+        };
+        let incoming = Arc::new(Incoming { carrier: self.clone(), websocket, allowed });
+        match spawn_relay_daemon_registration(
+            incoming,
+            RelayDaemonConfig {
+                endpoint,
+                slot: answer.slot.clone(),
+                ticket: String::new(),
+                maximum_frame_bytes: MAX_FRAME_BYTES,
+                control_timeout: self.timings.control,
+            },
+            credentials,
+            "acpmux hub carrier (placed relay)",
+        ) {
+            Ok(registration) => {
+                tracing::info!(
+                    "hub carrier: serving on the nearest placed relay too ({})",
+                    cmux_remote::provider::sanitized_route_text(relay)
+                );
+                Some(registration)
+            }
+            Err(e) => {
+                tracing::warn!("hub carrier: not registering on the placed relay: {e}");
+                None
             }
         }
     }
@@ -2723,6 +2846,9 @@ pub mod broker;
 
 #[path = "hub_carrier_rehome.rs"]
 mod rehome;
+
+#[path = "hub_carrier_placed.rs"]
+pub mod placed;
 
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
