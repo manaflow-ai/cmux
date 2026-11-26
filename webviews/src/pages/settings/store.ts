@@ -942,7 +942,27 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.tokens.run", run);
     const created = reply.ok ? (reply.value?.created ?? null) : null;
     const ok = reply.ok && reply.value?.ok !== false;
-    return { ok, state: await this.tokensState(), created };
+    const state = await this.tokensState();
+    if (reply.ok) return { ok, state, created };
+    // Validation and bridge refusals never reach the provider's lastError. Preserve them across
+    // the read so the card can explain the failed gesture, even if the host is no longer there.
+    return {
+      ok: false,
+      created: null,
+      state: {
+        ...(state ?? {
+          loading: false,
+          problem: "unavailable",
+          listError: null,
+          platform: null,
+          team: null,
+          tokens: [],
+          canManageTeamTokens: false,
+          githubRules: null,
+        }),
+        error: { action: run.action, code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) },
+      },
+    };
   }
 
   /** Settings > Automations (Cloud automations); null when the host has none. */

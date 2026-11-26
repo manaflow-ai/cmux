@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import "./testCatalog";
 import {
   branchOf,
@@ -36,8 +39,64 @@ test("a new token's paste lines", () => {
   expect(curlExample(["usage"], null)).toBeNull();
   const workflow = workflowSnippet("team_0f3a", "https://platform.example");
   expect(workflow).toContain("id-token: write");
-  expect(workflow).toContain("team: team_0f3a");
-  expect(workflowSnippet(null, null)).not.toContain("with:");
+  expect(workflow).toContain('CMUX_TEAM: "team_0f3a"');
+  expect(workflow).not.toContain("uses:");
+  expect(workflowSnippet(null, null)).toContain('CMUX_TEAM: ""');
+});
+
+test("the copied workflow exchanges OIDC, masks credentials, and refuses failed exchanges", () => {
+  const snippet = workflowSnippet("team_0f3a", "https://platform.example");
+  const script = snippet
+    .split("        run: |\n")[1]
+    .split("\n")
+    .map((line) => line.slice(10))
+    .join("\n");
+  const directory = mkdtempSync(join(tmpdir(), "cmux-token-workflow-"));
+  const token = `cmux_pat_${"a".repeat(50)}`;
+  // Run the copied shell, with only HTTP stubbed. jq still parses the actual request and response.
+  const http = `curl() {
+    case "$*" in
+      *'https://github.example/token?request=1&audience=cmux'*)
+        [ "$MODE" != oidc-failed ] || return 22
+        printf '%s' '{"value":"github-identity"}' ;;
+      *'https://platform.example/v1/tokens/github/exchange'*)
+        [ "$MODE" != exchange-failed ] || return 22
+        printf '%s' "\${!#}" | jq -e --arg team "$CMUX_TEAM" '.idToken == "github-identity" and (if $team == "" then (has("team") | not) else .team == $team end)' >/dev/null || return 1
+        if [ "$MODE" = missing-token ]; then printf '%s' '{}';
+        elif [ "$MODE" = malformed-token ]; then printf '%s' '{"token":"bad token"}';
+        else printf '%s' '{"token":"${token}"}'; fi ;;
+      *) return 1 ;;
+    esac
+  }`;
+  try {
+    for (const mode of ["success", "oidc-failed", "exchange-failed", "missing-token", "malformed-token"]) {
+      for (const team of ["team_0f3a", ""]) {
+        const output = join(directory, `${mode}-${team || "auto"}`);
+        const result = Bun.spawnSync(["bash", "-c", `${http}\n${script}`], {
+          env: {
+            ...process.env,
+            MODE: mode,
+            CMUX_TEAM: team,
+            CMUX_PLATFORM: "https://platform.example",
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
+            ACTIONS_ID_TOKEN_REQUEST_URL: "https://github.example/token?request=1",
+            GITHUB_ENV: output,
+          },
+        });
+        if (mode === "success") {
+          expect(result.exitCode).toBe(0);
+          expect(readFileSync(output, "utf8")).toBe(`CMUX_TOKEN=${token}\n`);
+          expect(result.stdout.toString()).toBe(`::add-mask::github-identity\n::add-mask::${token}\n`);
+        } else {
+          expect(result.exitCode).not.toBe(0);
+          expect(existsSync(output)).toBe(false);
+          expect(result.stdout.toString()).not.toContain(token);
+        }
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 // Allow Repository takes what a person pastes: owner/name, a GitHub URL, a branch name.

@@ -8,7 +8,7 @@ import CmuxNextCompat
 /// `cmux token list --json` (and `cmux token github list --json` for a person who may manage the
 /// team's). New Token, Revoke, Allow Repository and Remove run `cmux token ...`, only on the
 /// person's click. The CLI owns every request, the bearer, the team and every refusal (cmux-tui
-/// `cli/token.rs`): this type only relays.
+/// `cli/api_tokens.rs`): this type only relays.
 ///
 /// A new token is the one secret here: `create` answers it to the page that clicked, once, and
 /// this type keeps no copy (never in `state`, a log or the next answer), so only that page holds it
@@ -171,8 +171,15 @@ public final class SettingsDeveloperTokens: PageProvider {
                 throw PageError.invalidParams("repository is owner/name")
             }
             var words = ["github", "allow", "--repository=\(repository)"]
-            if let ref = text(params, "ref", limit: 255) { words.append("--ref=\(ref)") }
-            if let environment = text(params, "environment", limit: 255) { words.append("--environment=\(environment)") }
+            for key in ["ref", "environment"] {
+                guard let value = params[key], !value.isNull else { continue }
+                guard let raw = value.stringValue else { throw PageError.invalidParams("\(key) must be text") }
+                if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                guard let filter = text(params, key, limit: 255) else {
+                    throw PageError.invalidParams("\(key) must be one line, at most 255 characters")
+                }
+                words.append("--\(key)=\(filter)")
+            }
             words += try scopes(params).map { "--scope=\($0)" }
             return words
         case "removeRepository":

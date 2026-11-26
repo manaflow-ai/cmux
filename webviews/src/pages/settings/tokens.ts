@@ -15,9 +15,6 @@ export const DEFAULT_EXPIRATION = 90;
 /** Where a curl example points when the list named no platform (the CLI's production origin). */
 export const PRODUCTION_PLATFORM = "https://cmux-platform-production.debussy.workers.dev";
 
-/** The login action a workflow uses. Placeholder path until the action ships. */
-export const GITHUB_LOGIN_ACTION = "manaflow-ai/cmux/.github/actions/login@main";
-
 /** "Expires Mar 2, 2027", "Expired", or "Never expires". */
 export function expiresText(token: Pick<ApiToken, "expiresAt">, now: number, locale: string): string {
   if (!token.expiresAt) return t("settingsWindow.tokens.row.neverExpires");
@@ -49,7 +46,11 @@ export function lastUsedText(lastUsedAt: string | null, now: number, locale: str
 export function capText(usd: number, locale: string): string {
   const whole = Number.isInteger(usd);
   const amount = intl
-    .NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: whole ? 0 : 2 })
+    .NumberFormat(locale, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: whole ? 0 : 2,
+    })
     .format(usd);
   return t("settingsWindow.tokens.row.cap", amount);
 }
@@ -77,10 +78,20 @@ export function workflowSnippet(team: string | null, platform: string | null): s
     "      id-token: write",
     "      contents: read",
     "    steps:",
-    `      - uses: ${GITHUB_LOGIN_ACTION}`,
+    "      - name: Sign in to cmux",
+    "        shell: bash",
+    "        env:",
+    `          CMUX_PLATFORM: ${JSON.stringify(origin)}`,
+    `          CMUX_TEAM: ${JSON.stringify(team ?? "")}`,
+    "        run: |",
+    "          set -euo pipefail",
+    '          oidc=$(curl -fsS --max-time 30 -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=cmux" | jq -er \'.value | select(type == "string" and length > 0)\')',
+    '          echo "::add-mask::$oidc"',
+    '          body=$(jq -nc --arg idToken "$oidc" --arg team "$CMUX_TEAM" \'{idToken: $idToken} + (if $team == "" then {} else {team: $team} end)\')',
+    '          token=$(curl -fsS --max-time 60 -X POST -H "Content-Type: application/json" "$CMUX_PLATFORM/v1/tokens/github/exchange" --data-binary "$body" | jq -er \'.token | select(type == "string" and test("^cmux_pat_[A-Za-z0-9_-]+$"))\')',
+    '          echo "::add-mask::$token"',
+    '          echo "CMUX_TOKEN=$token" >> "$GITHUB_ENV"',
   ];
-  if (team) lines.push("        with:", `          team: ${team}`);
-  lines.push(`      - run: curl -fsS -H "Authorization: Bearer $CMUX_TOKEN" ${origin}/v1/machines`);
   return lines.join("\n");
 }
 
