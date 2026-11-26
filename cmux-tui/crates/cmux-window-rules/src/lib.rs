@@ -54,6 +54,8 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding`]: the onboarding tool window's footer (the primary
+//!   button, Skip, Back) and Import from Browser's selection rules.
 
 pub mod appearance;
 pub mod browser;
@@ -71,6 +73,7 @@ pub mod launch;
 pub mod notification_notices;
 pub mod notification_rings;
 pub mod notifications;
+pub mod onboarding;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
