@@ -1988,6 +1988,11 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                start_mode_ask: if remote_start || adopting {
+                    None
+                } else {
+                    hub.start_mode_ask(conn.is_person(), conn.caller(), &params).await
+                },
             };
             let s = match &admitted {
                 Some(admitted) => {

@@ -177,6 +177,10 @@ pub struct NewRequest {
     /// The creator's key (`_meta.acpmux.createKey`, local socket only, `create_key.rs`): a
     /// create sent again with it, after a restart cut its reply, gets the session it made.
     pub create_key: Option<String>,
+    /// The start mode the request names, with who asks it (`Hub::start_mode_ask`): a fresh
+    /// Claude Code chat spawns in it when the start's own checks allow it
+    /// (`start_mode.rs` `claude_spawn_asked_mode`); `Hub::start_in_mode` sets it either way.
+    pub start_mode_ask: Option<super::person::StartModeAsk>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

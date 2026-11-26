@@ -232,6 +232,71 @@ async fn a_full_access_claude_start_spawns_in_its_mode_and_sends_no_set_mode() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A Claude Code start that names its mode (`_meta.acpmux.mode`, as every Cloud chat's
+/// `session/new` does) spawns in it when the start's checks grant it, so session/new sends no
+/// `set_permission_mode`, which Claude Code answers only once booted (1.1-1.4 s here, 2-9 s on a
+/// Cloud VM; Leo: "Cloud: make startup times blazingly fast, GUI and non-GUI paths"). A mode the
+/// start refuses is refused as before, and a narrower policy still holds.
+#[tokio::test]
+async fn a_claude_start_that_names_its_mode_spawns_in_it_and_sends_no_set_mode() {
+    let dir = home("asked-spawn-mode", json!({"defaultPermissionMode": "fullAccess"}));
+    let controls = dir.join("controls.log");
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    // A boot that answers a mode switch late: a start that still sends one waits it out.
+    config["harnesses"]["claude"]["env"] = json!({
+        "FAKE_CLAUDE_CONTROL_LOG": controls.to_str().unwrap(),
+        "FAKE_CLAUDE_MODE_DELAY_MS": "3000",
+    });
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let start = |mode: &str, policy: Option<&str>| {
+        let mut acpmux = json!({"harness": "claude", "mode": mode});
+        if let Some(p) = policy {
+            acpmux["policy"] = json!(p);
+        }
+        json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": acpmux}})
+    };
+    let sent = || std::fs::read_to_string(&controls).unwrap_or_default();
+    let switches = || sent().lines().filter(|l| l.trim() == "set_permission_mode").count();
+
+    // The person (the app), a script on the unix socket, and an asking mode under `ask`.
+    let mut app = Client::app(&daemon).await;
+    let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    for (who, mode, policy) in [
+        ("app", "bypassPermissions", None),
+        ("app", "auto", None),
+        ("script", "bypassPermissions", None),
+        ("script", "auto", None),
+        ("script", "default", Some("ask")),
+    ] {
+        let client = if who == "app" { &mut app } else { &mut script };
+        let began = std::time::Instant::now();
+        let r = client.call("session/new", start(mode, policy)).await;
+        let took = began.elapsed();
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{who} {mode}: {r}"));
+        let id = id.to_owned();
+        assert_eq!(client.mode(&id).await, mode, "{who} {mode}");
+        assert_eq!(switches(), 0, "{who} {mode}: {}", sent());
+        assert!(took < Duration::from_millis(2500), "{who} {mode}: session/new took {took:?}");
+        let r = client
+            .call(
+                "session/prompt",
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+            )
+            .await;
+        assert!(r.get("error").is_none(), "{who} {mode}: {r}");
+    }
+    // Refused as before: a mode that does not ask, from a script, below the person's level.
+    let r = script.call("session/new", start("acceptEdits", None)).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    // A narrower policy keeps the mode that holds it: the start spawns asking, not in bypass.
+    let r = app.call("session/new", start("bypassPermissions", Some("ask"))).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_ne!(app.mode(&id).await, "bypassPermissions", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A mode picked in a chat holds for that chat only: new chats, on every
 /// harness and after a restart, start in the default (Leo 2026-10-21: "the
 /// default for new chats != whatever u just temp set in an existing running

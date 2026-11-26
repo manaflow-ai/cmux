@@ -120,6 +120,7 @@ impl Hub {
             require_asking,
             credential,
             create_key,
+            start_mode_ask,
         } = req;
         // A create sent again after a restart cut its reply: the session the first one made
         // answers it, on this daemon or the one before (`create_key.rs`).
@@ -537,14 +538,19 @@ impl Hub {
         // `set_mode`, which Claude Code would answer only once booted. The chat's modes are the
         // agent's own once it started (`cold_start`); a process that cannot take the mode (bypass
         // not allowed) runs Claude Code's own, and the `set_mode` below moves it as before.
-        let spawn_start_mode = if !warm
-            && mode_eligible
+        // A start that names its mode (`_meta.acpmux.mode`, every Cloud chat's) spawns in it too
+        // when it passes the checks `start_in_mode` runs after the start
+        // (`claude_spawn_asked_mode`): that `set_mode` then sends Claude Code nothing.
+        let claude_cold = !warm
             && limits_from.is_none()
-            && profile.kind == crate::config::HarnessKind::ClaudeStdio
-        {
-            self.claude_spawn_start_mode(&session).await
-        } else {
-            None
+            && profile.kind == crate::config::HarnessKind::ClaudeStdio;
+        let asked = start_mode_ask.as_ref().filter(|_| {
+            adopt.is_none() && !remote && !super::start_mode::profile_sets_mode(&profile)
+        });
+        let spawn_start_mode = match (claude_cold, mode_eligible, asked) {
+            (true, true, _) => self.claude_spawn_start_mode(&session).await,
+            (true, false, Some(ask)) => self.claude_spawn_asked_mode(&session, ask).await,
+            _ => None,
         };
         if let Some(mode) = &spawn_start_mode {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).modes =
