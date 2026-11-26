@@ -1,11 +1,11 @@
-#if canImport(Darwin)
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if canImport(Darwin) && (DEBUG || CMUX_BLOCKING_CHECKS)
 // The inlinable check below calls pthread_main_np(), so Darwin is a public import here.
 public import Darwin
 #endif
 
 /// Marks a call that blocks: in builds with the detector (Debug, bench and Nightly), a blocking call on the main thread
-/// outside ``allowBlocking(_:_:)`` is a violation; in Release this compiles to nothing.
+/// outside ``allowBlocking(_:_:)`` is a violation; in Release, and in the Linux typecheck shape, this compiles to
+/// nothing.
 ///
 /// This is cmux's `base::ScopedBlockingCall` (Chrome's `AssertBlockingAllowed`). It belongs in
 /// the seams that wrap blocking primitives (``Foundation/Data/init(blockingContentsOf:options:fileID:line:)``,
@@ -27,7 +27,7 @@ public import Darwin
 ///   - line: The calling code's `#line`.
 @inlinable @inline(__always)
 public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line) {
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if canImport(Darwin) && (DEBUG || CMUX_BLOCKING_CHECKS)
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
     }
@@ -53,7 +53,7 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
 public func allowBlocking<Result, Failure: Error>(
     _ reason: BlockingAllowance, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
-    #if DEBUG || CMUX_BLOCKING_CHECKS
+    #if canImport(Darwin) && (DEBUG || CMUX_BLOCKING_CHECKS)
     guard pthread_main_np() != 0 else { return try body() }
     let table = BlockingViolationTable.active
     let token = table.enterAllowance(reason)
@@ -63,4 +63,3 @@ public func allowBlocking<Result, Failure: Error>(
     return try body()
     #endif
 }
-#endif

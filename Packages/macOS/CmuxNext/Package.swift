@@ -3090,6 +3090,8 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextAgentPanePlacementTests",
     "CmuxNextChromiumRuntime",
     "CmuxNextChromiumRuntimeTests",
+    "CmuxNextCLIInstall",
+    "CmuxNextCLIInstallTests",
     "CmuxNextCompat",
     "CmuxNextCopyMode",
     "CmuxNextHostPressure",
