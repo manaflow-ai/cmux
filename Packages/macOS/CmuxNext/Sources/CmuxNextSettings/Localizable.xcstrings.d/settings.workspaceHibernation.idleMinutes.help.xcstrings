@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceHibernation.idleMinutes.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الدقائق التي تبقى فيها مساحة العمل دون فتح أو تغيير قبل إسباتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minute bez otvaranja i promjena prije nego što radni prostor hibernira."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutter et arbejdsområde skal være uåbnet og uændret, før det går i dvale."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minuten, die ein Arbeitsbereich ungeöffnet und unverändert bleibt, bevor er ruht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minutes a workspace goes unopened and unchanged before it hibernates."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutos sin abrirse ni cambiar antes de que un espacio de trabajo hiberne."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutes sans ouverture ni changement avant qu’un espace de travail se mette en veille."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minuti senza aperture né modifiche prima che uno spazio di lavoro vada in ibernazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースが開かれず、変化もないままハイバネートするまでの時間（分）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួននាទីដែលកន្លែងធ្វើការមិនត្រូវបានបើក និងមិនផ្លាស់ប្តូរ មុនពេលវាផ្អាក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "워크스페이스를 열지 않고 바뀌지 않은 채 최대 절전 상태가 되기까지의 시간(분)입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutter et arbeidsområde står uåpnet og uendret før det går i dvale."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minuty bez otwarcia i zmian, po których obszar roboczy przechodzi w hibernację."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minutos sem abrir nem mudar antes de um espaço de trabalho hibernar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сколько минут рабочее пространство не открывается и не меняется до гибернации."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำนวนนาทีที่พื้นที่ทำงานไม่ถูกเปิดและไม่มีการเปลี่ยนแปลงก่อนจะพัก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir çalışma alanının hazırda beklemeden önce açılmadan ve değişmeden geçen dakika."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скільки хвилин робочий простір не відкривається й не змінюється до гібернації."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Số phút không mở và không thay đổi trước khi không gian làm việc ngủ đông."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区未被打开且无变化多少分钟后休眠。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區未被開啟且沒有變化多少分鐘後休眠。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

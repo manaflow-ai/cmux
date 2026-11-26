@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.auth" : {
+      "comment" : "Agent pane: a failed turn's note (cx-w10a)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "رفض المزوّد بيانات اعتماد {harness} ({status})."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pružalac je odbio akreditive za {harness} ({status})."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Udbyderen afviste legitimationen for {harness} ({status})."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Anbieter hat die Zugangsdaten von {harness} abgelehnt ({status})."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The provider refused {harness}’s credentials ({status})."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El proveedor rechazó las credenciales de {harness} ({status})."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le fournisseur a refusé les identifiants de {harness} ({status})."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il provider ha rifiutato le credenziali di {harness} ({status})."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロバイダーが {harness} の認証情報を拒否しました（{status}）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្នកផ្ដល់សេវាបានបដិសេធព័ត៌មានផ្ទៀងផ្ទាត់របស់ {harness} ({status})។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제공자가 {harness}의 자격 증명을 거부했습니다({status})."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leverandøren avviste legitimasjonen til {harness} ({status})."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dostawca odrzucił dane logowania {harness} ({status})."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O provedor recusou as credenciais de {harness} ({status})."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Провайдер отклонил учётные данные {harness} ({status})."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ผู้ให้บริการปฏิเสธข้อมูลรับรองของ {harness} ({status})"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sağlayıcı {harness} kimlik bilgilerini reddetti ({status})."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Провайдер відхилив облікові дані {harness} ({status})."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhà cung cấp đã từ chối thông tin xác thực của {harness} ({status})."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提供方拒绝了 {harness} 的凭据（{status}）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "提供者拒絕了 {harness} 的憑證（{status}）。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
