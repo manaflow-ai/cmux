@@ -4,7 +4,8 @@ import Testing
 import AppKit
 
 /// The footer's Live button (RFD 0141 phase 1): right after the profile avatar, never over Search or the Spaces dots'
-/// start, hidden by `sidebar.showLiveToggle`, a click runs `onLiveToggle`, and the right-click menu lists people.
+/// start, hidden by `sidebar.showLiveToggle` (off by default: Leo 2026-11-25 didn't want it on by default), a click runs
+/// `onLiveToggle`, and the right-click menu lists people.
 @MainActor @Suite(.serialized) struct SidebarLiveToggleTests {
     private static func make(spaces: SpacesPosition, showToggle: Bool = true) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
@@ -42,6 +43,27 @@ import AppKit
         }
     }
 
+    /// Out of the box the footer has no Live button: a fresh sidebar's design hides it, and nothing else on the
+    /// footer line moves for it.
+    @Test func hiddenByDefault() {
+        #expect(SidebarSectionsPreferences.defaults.showLiveToggle == false)
+        let saved = DesignSettings.shared.sidebarSections
+        defer { DesignSettings.shared.sidebarSections = saved }
+        DesignSettings.shared.sidebarSections = .defaults
+        _ = NSApplication.shared
+        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings.shared)
+        sidebar.frame = NSRect(x: 0, y: 0, width: Metrics.sidebarWidth, height: 600)
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sidebar
+        defer { window.close() }
+        window.orderFrontRegardless()
+        sidebar.renderNow()
+        sidebar.needsLayout = true
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(sidebar.liveButton.isHidden)
+    }
+
     @Test func hiddenWhenTheSettingIsOff() {
         let saved = DesignSettings.shared.sidebarSections.showLiveToggle
         defer { DesignSettings.shared.sidebarSections.showLiveToggle = saved }
@@ -51,6 +73,8 @@ import AppKit
     }
 
     @Test func clickAndMenu() {
+        let saved = DesignSettings.shared.sidebarSections.showLiveToggle
+        defer { DesignSettings.shared.sidebarSections.showLiveToggle = saved }
         let (sidebar, window) = Self.make(spaces: .bottom)
         defer { window.close() }
         var toggles = 0
