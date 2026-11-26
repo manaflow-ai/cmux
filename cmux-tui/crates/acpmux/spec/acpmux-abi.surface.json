@@ -9828,6 +9828,47 @@
         "nullable": true
       }
     },
+    "request:_acpmux/follow": {
+      "/_meta": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/approval": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "owner"
+        ]
+      },
+      "/_meta/acpmux/author/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/login": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/_meta/acpmux/author/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/_meta/acpmux/author/node": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/target": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:_acpmux/forum/ack": {
       "/*untyped*": {
         "ty": "json",
@@ -33657,6 +33698,12 @@
     "response:_acpmux/fleet_hold": {
       "/data/*untyped*": {
         "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/follow": {
+      "/data/following": {
+        "ty": "string",
         "nullable": true
       }
     },
