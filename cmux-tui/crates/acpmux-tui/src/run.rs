@@ -365,6 +365,9 @@ pub(super) fn make_app(
         perm_rows: Vec::new(),
         dialog_rect: Rect::default(),
         answering: None,
+        find: None,
+        seen_items: HashMap::new(),
+        new_line: None,
     })
 }
 

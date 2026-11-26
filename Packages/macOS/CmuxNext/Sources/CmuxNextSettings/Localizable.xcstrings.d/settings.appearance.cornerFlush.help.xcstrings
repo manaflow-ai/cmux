@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.cornerFlush.help" : {
+      "comment" : "Help text of the Selected Tab Shape setting.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "كيف تلتقي علامة التبويب المحددة بالمحتوى أسفلها: حبة، أو متصلة به، أو منسابة فيه كقطرة ماء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kako se odabrana kartica spaja sa sadržajem ispod: kao pilula, poravnata s njim ili se uliva u njega poput kapi vode."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvordan den valgte fane møder indholdet under den: en pille, flugter med det eller flyder ind i det som en vanddråbe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie der ausgewählte Tab auf den Inhalt darunter trifft: als Pille, bündig damit oder wie ein Wassertropfen hineinfließend."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo se une la pestaña seleccionada al contenido de abajo: una píldora, al ras o fluyendo hacia él como una gota de agua."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comment l’onglet sélectionné rejoint le contenu en dessous : une pastille, aligné sur lui, ou s’y fondant comme une goutte d’eau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come la scheda selezionata incontra il contenuto sottostante: una pillola, a filo o fluendo in esso come una goccia d’acqua."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択中のタブと下のコンテンツのつながり方：ピル型、面一、または水滴のように溶け込む形。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របៀបដែលផ្ទាំងដែលបានជ្រើសជួបនឹងមាតិកាខាងក្រោម៖ រាងគ្រាប់ថ្នាំ ស្មើគ្នា ឬហូរចូលដូចតំណក់ទឹក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "선택한 탭이 아래 콘텐츠와 만나는 방식: 알약 모양, 나란히 붙음, 또는 물방울처럼 흘러들어감."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvordan den valgte fanen møter innholdet under: en pille, i flukt med det eller flytende inn i det som en vanndråpe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak wybrana karta łączy się z treścią pod nią: jako pigułka, równo z nią lub wpływając w nią jak kropla wody."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Como a aba selecionada encontra o conteúdo abaixo: uma pílula, alinhada a ele ou fluindo nele como uma gota d’água."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как выбранная вкладка соединяется с содержимым под ней: таблетка, вровень с ним или перетекая в него, как капля воды."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "วิธีที่แท็บที่เลือกเชื่อมกับเนื้อหาด้านล่าง: ทรงเม็ดยา ชิดเสมอกัน หรือไหลเข้าหากันเหมือนหยดน้ำ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seçili sekmenin altındaki içerikle buluşma biçimi: hap şeklinde, onunla hizalı ya da bir su damlası gibi içine akan."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Як вибрана вкладка з’єднується із вмістом під нею: пігулка, урівень із ним або перетікаючи в нього, як крапля води."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cách thẻ được chọn gặp nội dung bên dưới: dạng viên thuốc, liền mạch, hoặc chảy vào như một giọt nước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选标签页与下方内容的衔接方式：药丸形、齐平，或像水滴一样融入其中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所選標籤頁與下方內容的銜接方式：藥丸形、齊平，或像水滴一樣融入其中。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

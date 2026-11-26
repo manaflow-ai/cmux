@@ -472,7 +472,8 @@ fi
 # to it (--all would also format its path dependencies).
 if (( fmt )) && [[ -f "$repo/cmux-tui/Cargo.toml" ]]; then
   before="$(git -C "$repo" status --porcelain -- cmux-tui)"
-  (cd "$repo/cmux-tui" && cargo fmt --all)
+  # The it-binary crates' test files are formatted per crate, with that crate's edition.
+  (cd "$repo/cmux-tui" && bash "$script_dir/../ci/cmux-tui-fmt.sh")
   after="$(git -C "$repo" status --porcelain -- cmux-tui)"
   [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in cmux-tui"
 fi

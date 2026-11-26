@@ -68,10 +68,12 @@ export const CUA_SOCKET = `${DEVBOX_WORK_HOME}/.cache/cmux-cua/cmux-cua.sock`;
 export const WORK_USER_CMUX_JSON = `${DEVBOX_WORK_HOME}/.config/cmux/cmux.json`;
 export const AGENT_TOOLS_PROFILE = "/etc/profile.d/cmux-agent-tools.sh";
 /**
- * First on the computer-use driver's PATH: `sudo`, `apt` and `apt-get` that refuse. cmux-cua's
- * install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver; role cua-video
- * (ffmpeg, which pulls libx264) stays off on every machine until Lawrence decides (coordinator
- * legal rule, 2026-10-07). The unit also sets NoNewPrivileges, so no setuid program works there.
+ * First on the computer-use driver's PATH: `sudo`, `apt`, `apt-get`, `ffmpeg` and `ffprobe` that
+ * refuse. cmux-cua's install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver;
+ * role cua-video (screen recording by the driver) stays off on every machine until Lawrence decides
+ * (coordinator legal rule, 2026-10-07). The image itself carries ffmpeg for people's own media
+ * (images/cmux-vm/graduated.json, Leo 2026-11-25), so the driver finds refusing ffmpeg and ffprobe
+ * first instead. The unit also sets NoNewPrivileges, so no setuid program works there.
  */
 export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
 /**
@@ -82,7 +84,7 @@ export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
 export const DESKTOP_STARTER = "/etc/cmux/computer-use-desktop";
 /** The worker's switch that takes away its right to gain privileges (cmux-tui-core NO_NEW_PRIVS_ENV). */
 export const NO_NEW_PRIVS_ENV = "CMUX_CU_NO_NEW_PRIVS";
-const CUA_REFUSED = ["sudo", "apt", "apt-get"] as const;
+const CUA_REFUSED = ["sudo", "apt", "apt-get", "ffmpeg", "ffprobe"] as const;
 
 const BROWSER_ROLE = "browser";
 
@@ -491,7 +493,7 @@ export function desktopStarterScript(x11Dir = "/tmp/.X11-unix"): string {
     `echo XAUTHORITY=${AGENT_XAUTHORITY}`,
     // Nobody shares this display: the worker never waits for a person's input on it.
     "echo CMUX_CU_HEADLESS=1",
-    // Role cua-video (ffmpeg, libx264) stays off: sudo, apt and apt-get refuse first, and no setuid program works.
+    // Role cua-video stays off for the driver: sudo, apt, apt-get, ffmpeg and ffprobe refuse first, and no setuid program works.
     `echo "PATH=${CUA_REFUSE_DIR}:$PATH"`,
     `echo ${NO_NEW_PRIVS_ENV}=1`,
     `if sudo -n systemctl start ${A11Y_UNIT} >&2; then echo DBUS_SESSION_BUS_ADDRESS=unix:path=${bus}; else echo "cmux: the AT-SPI bus did not start (systemctl status ${A11Y_UNIT}); accessibility trees stay empty" >&2; fi`,
@@ -504,7 +506,7 @@ export function cuaRefuseScript(name: string): string {
   return [
     "#!/bin/sh",
     "# cmux VM agent tools (images/cmux-vm, managed, do not edit).",
-    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video (ffmpeg, libx264) is off on cmux machines, so install_ffmpeg and video recording are not available; screenshots still work." >&2`,
+    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video is off for computer use on cmux machines, so install_ffmpeg and video recording are not available to it; screenshots still work." >&2`,
     "exit 1",
     "",
   ].join("\n");

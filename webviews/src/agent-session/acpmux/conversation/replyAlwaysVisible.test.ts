@@ -268,7 +268,9 @@ test("opened, a steered turn's answer stays above the steer it came before", () 
   answerOnceAboveSteer(replay(events));
 });
 
-test("a turn of only an answer and the steer after it draws the answer, open or closed, in every fold", () => {
+// Leo, 2026-11-25: "worked for above my message and then yours and then boom that's it". A steer
+// the agent answered nothing after, ended, draws over the answer (`lateSteersLast`).
+test("a turn of only an answer and the steer after it draws the answer once, under the steer, open or closed, in every fold", () => {
   seq = 0;
   answerOnceAboveSteer(
     replay([
@@ -279,17 +281,18 @@ test("a turn of only an answer and the steer after it draws the answer, open or 
       steerRead("p1"),
       ended(),
     ]),
+    "below",
   );
 });
 
-function answerOnceAboveSteer(rows: AcpmuxRow[]) {
+function answerOnceAboveSteer(rows: AcpmuxRow[], side: "above" | "below" = "above") {
   eachArm((arm) => {
     for (const view of [drawn(rows), openedAll(rows)]) {
       const kinds = `${arm}\n${view.map((row) => `${row.kind}:${(row.text ?? "").slice(0, 20)}`).join("\n")}`;
       const answers = view.flatMap((row, at) => (row.kind === "assistant" && row.text === ANSWER ? [at] : []));
       const steered = view.findIndex((row) => row.kind === "user" && row.text === "Also check CI");
       expect(answers.length, kinds).toBe(1);
-      expect(answers[0]! < steered, kinds).toBe(true);
+      expect(answers[0]! < steered, kinds).toBe(side === "above");
     }
   });
 }

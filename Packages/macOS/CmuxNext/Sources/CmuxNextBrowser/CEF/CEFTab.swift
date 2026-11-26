@@ -150,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// When ``pendingFocus`` last became true.
     @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
+    /// Re-asks of a grant kept while the window was not on screen (`grantFocus`).
+    @ObservationIgnored var offscreenGrantRetries = 0
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
@@ -259,6 +261,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    @ObservationIgnored var firstCommittedURL: URL?
+    /// The first address the tab was asked to load, before any redirect: the page the app opened it for
+    /// (``BrowserExternalApps/noteFlowPage(_:)``), which a redirect may never commit.
+    @ObservationIgnored var firstRequestedURL: URL?
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -362,6 +368,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// had not run, or a document the next navigation of the same load replaced. Once per browser, and again each time
     /// a focus ask that waited for the page to show is granted (``grantPendingFocusIfShown()``).
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
+    /// Takes this tab's launch marks (``CEFLaunchMarks``); the App points it at its launch-mark log.
+    @ObservationIgnored public var onLaunchMark: (@MainActor (String) -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
@@ -369,7 +377,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The current document presented its first frame, with or without content (Chromium's `firstPaint` or
     /// `firstContentfulPaint`, `CEFFirstPaintBridge`, or the page's own answer). Chromium drops input to a new document
     /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
-    @ObservationIgnored var documentPainted = false
+    /// The first such frame of a page a person sees is the launch mark `browser_pane.first_paint` (``CEFLaunchMarks``).
+    @ObservationIgnored var documentPainted = false {
+        didSet { if documentPainted, !oldValue { reportLaunchMark(CEFLaunchMarks.firstPaint) } }
+    }
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
     /// The current document is Chromium's error page for a failed load.
@@ -512,6 +523,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         hasDocument = true
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
+        reportLaunchMark(CEFLaunchMarks.inputReady)
         onReadyForKeys?()
     }
 
@@ -655,6 +667,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        if firstRequestedURL == nil { firstRequestedURL = url }
         automaticDownloads.userGesture()
         refusesDownloadsUntilGesture = false
         guard browserID != nil || isCreationPending else {

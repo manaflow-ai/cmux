@@ -555,8 +555,6 @@
    "src/ui/hoverIntent.ts::react-hooks-js/refs": 1,
    "src/ui/motion/SlidingIndicator.tsx::react-hooks-js/immutability": 2,
    "src/ui/motion/motion.test.tsx::react-hooks-js/globals": 2,
-   "src/ui/motion/useTextSwap.test.tsx::react-hooks-js/globals": 3,
-   "src/ui/motion/useTextSwap.ts::react-doctor/effect-needs-cleanup": 1,
    "src/ui/nativePopup.ts::react-doctor/no-ref-current-in-render": 1,
    "src/ui/nativePopup.ts::react-hooks-js/refs": 1,
    "src/ui/popupHost.ts::react-doctor/no-ref-current-in-render": 2,
