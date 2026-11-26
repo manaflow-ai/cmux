@@ -3,22 +3,26 @@ import XCTest
 /// The agent chat's ground under a Mac's appearance frame (`-cmux-mobile-mac-appearance`,
 /// ChatLookFixture.swift), read from the screenshot in the left margin beside the transcript of the
 /// shipping app's offline DEBUG agent chat (`-cmux-mobile-demo disclosure-chat`). For now every
-/// background is black (2026-11-25; the options were PR #53342): whatever the Mac shows (its
-/// defaults, a dark theme, a picture behind its window, a light theme), the chat on a phone in dark
-/// mode sits on black.
+/// background is the stock one (2026-11-25; the options were PR #53342): whatever the Mac shows
+/// (its defaults, a dark theme, a picture behind its window, a light theme), the chat sits on the
+/// phone's own ground, black in dark and white in light, the same under every fixture. (A runner
+/// may keep the simulator in light mode whatever `XCUIDevice.appearance` asks.)
 final class ChatMacLookUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
     @MainActor
-    func testTheAgentChatStaysOnBlackWhateverTheMacShows() throws {
+    func testTheAgentChatStaysOnTheStockGroundWhateverTheMacShows() throws {
         XCUIDevice.shared.orientation = .portrait
         XCUIDevice.shared.appearance = .dark
 
-        for fixture in ["default", "mocha", "mocha-wallpaper", "solarized-bubbles"] {
+        let stock = try ground(fixture: "default")
+        XCTAssertTrue(Self.near(stock, (0, 0, 0)) || Self.near(stock, (255, 255, 255)),
+                      "the chat's ground is the stock black or white, got \(stock)")
+        for fixture in ["mocha", "mocha-wallpaper", "solarized-bubbles"] {
             let ground = try ground(fixture: fixture, sampleY: fixture == "mocha-wallpaper" ? 0.30 : 0.5)
-            XCTAssertTrue(Self.near(ground, (0, 0, 0)), "the chat's ground is black under \(fixture), got \(ground)")
+            XCTAssertTrue(Self.near(ground, stock), "the chat's ground under \(fixture) is the stock \(stock), got \(ground)")
         }
     }
 
