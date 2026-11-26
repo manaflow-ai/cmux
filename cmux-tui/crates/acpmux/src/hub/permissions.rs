@@ -1635,16 +1635,17 @@ const PRODUCERS_RECHECK: std::time::Duration = std::time::Duration::from_millis(
 
 /// The inbound loop's next item, or None once it should stop: the hub is closing, or the chat is
 /// closed (its current value counts, not only a change) with nothing queued and no producer
-/// left besides the chat's own sender `own` (#41081 F1 F2).
+/// left besides the chat's own sender (`own`, held weakly) (#41081 F1 F2).
 async fn next_inbound(
     rx: &mut mpsc::Receiver<Inbound>,
     stop: &tokio_util::sync::CancellationToken,
     closed: &mut tokio::sync::watch::Receiver<bool>,
-    own: &mpsc::Sender<Inbound>,
+    own: &mpsc::WeakSender<Inbound>,
 ) -> Option<Inbound> {
     loop {
         let is_closed = *closed.borrow_and_update();
-        if is_closed && rx.is_empty() && !producers_live(own) {
+        // The chat's own sender counts as one; with the chat gone it counts none.
+        if is_closed && rx.is_empty() && own.strong_count() <= 1 {
             return None;
         }
         let recheck = async {
