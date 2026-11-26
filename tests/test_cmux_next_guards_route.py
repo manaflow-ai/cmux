@@ -18,6 +18,19 @@ import unittest
 
 import yaml
 
+
+# #58306 wraps a router-gated job's whole `if` as `(old) && (pull_request needs the router's success)`
+# (tests/test_ci_path_route_skips_on_failure.py); the prefix this test reads is the old condition inside it.
+ROUTE_GATE = (") && (github.event_name != 'pull_request' || needs.fast-check-route.result == 'success' || "
+              "needs.fast-check-route.result == 'skipped') }}")
+
+
+def without_route_gate(condition: str) -> str:
+    if condition.startswith("${{ (") and condition.endswith(ROUTE_GATE):
+        return "${{ " + condition[len("${{ ("):-len(ROUTE_GATE)] + " }}"
+    return condition
+
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -113,7 +126,7 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
             jobs["nightly-guards"]["if"])
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertTrue(group["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+        self.assertTrue(without_route_gate(group["if"]).startswith(  # then the land tier (tests/test_head_tier.py)
                         "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),

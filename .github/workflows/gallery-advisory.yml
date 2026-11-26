@@ -59,6 +59,8 @@ on:
       - "webviews/src/pages/shared/pageDensity.css"
       - "scripts/gallery-matrix/**"
       - ".github/workflows/gallery-advisory.yml"
+      # Prose alone starts no run (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:

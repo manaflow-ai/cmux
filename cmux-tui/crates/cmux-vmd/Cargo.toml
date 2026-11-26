@@ -16,6 +16,7 @@ async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 chrono.workspace = true
+cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
 cmux-tui-machine-protocol.workspace = true

@@ -40,6 +40,7 @@ on:
       - "cmux-tui/crates/cmux-cas/**"
       - "scripts/cas/**"
       - ".github/workflows/cas-replay.yml"
+      - "scripts/cmux-next/web-bundle-archive.py"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
