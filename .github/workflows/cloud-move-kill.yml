@@ -101,7 +101,11 @@ jobs:
 
   drill:
     needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # The owned cmux-linux pool too. On linux_8's Freestyle guests, run 45777295662 lost kill-src, kill-dst, cut and
+    # off-src to the checkout alone (curl 28 "Operation too slow" from github.com, both tries, still at 09:28Z after
+    # hq#28062 merged), so four drills measured nothing. A workaround, not the fix: the guests' route to GitHub is the
+    # Freestyle pool's (freestyle-dictator lane).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
