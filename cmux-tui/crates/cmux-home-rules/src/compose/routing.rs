@@ -189,11 +189,17 @@ pub fn mention_runs(text: &str, participants: &[Named]) -> Vec<Run> {
     while index < utf16.len() {
         let at = index;
         index += 1;
-        if utf16[at] != u16::from(b'@') || (at > 0 && !is_boundary(utf16[at - 1])) {
+        if utf16.get(at) != Some(&u16::from(b'@'))
+            || at
+                .checked_sub(1)
+                .and_then(|before| utf16.get(before))
+                .is_some_and(|&unit| !is_boundary(unit))
+        {
             continue;
         }
         let upper = utf16.len().min(at + 1 + window);
-        let rest = String::from_utf16_lossy(&utf16[at + 1..upper]).to_lowercase();
+        let rest =
+            String::from_utf16_lossy(utf16.get(at + 1..upper).unwrap_or_default()).to_lowercase();
         let mut best: Option<(&Named, usize)> = None;
         for (participant, name) in &names {
             let units = name.encode_utf16().count();
@@ -205,7 +211,7 @@ pub fn mention_runs(text: &str, participants: &[Named]) -> Vec<Run> {
             continue;
         };
         let end = at + 1 + units;
-        if end > utf16.len() || (end < utf16.len() && !is_boundary(utf16[end])) {
+        if end > utf16.len() || utf16.get(end).is_some_and(|&unit| !is_boundary(unit)) {
             continue;
         }
         runs.push(Run { start: at, length: end - at, mention: participant.id.clone() });

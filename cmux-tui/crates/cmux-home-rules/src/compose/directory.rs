@@ -191,8 +191,10 @@ pub fn channel_plan(
         return json!({"error": {"code": "validation.invalid", "field": "title"}});
     }
     let mut params = json!({"title": title});
-    if let Some(name) = chief_name.map(trim_space).filter(|n| !n.is_empty()) {
-        params["display_name"] = json!(name);
+    if let (Some(name), Some(object)) =
+        (chief_name.map(trim_space).filter(|n| !n.is_empty()), params.as_object_mut())
+    {
+        object.insert("display_name".to_owned(), json!(name));
     }
     let ops: Vec<Value> = people
         .iter()
