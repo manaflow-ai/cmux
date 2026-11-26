@@ -11,6 +11,12 @@
 //! Off: `agents.harnessMagic.cacheAlarm.enabled` false, or `ACPMUX_HM_CACHEALARM=0`. Counters, per
 //! turn: `harnessMagic.cacheAlarm.` `observed` (turns read), `collapses` (undeclared), `declared`
 //! (collapses a boundary explains), `unreadTokens` (the context re-written by an undeclared one).
+//!
+//! A turn's share hides a break its later calls read back, so a Claude chat's translator also
+//! counts each main-loop call that missed, by cause (`claude_stdio/prompt_cache.rs`):
+//! `callMisses`, `callChurn` (cause `unknown`), `callDeclared`, `callUnreadTokens`, `cause.<c>`.
+//! `acpmux scorecard --assert-no-churn` fails when `crate::scorecard::CHURN_COUNTERS` sum above
+//! zero: the no-churn assertion RFD 0161's replay runs.
 
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -81,6 +87,13 @@ fn num(o: &Map<String, Value>, k: &str) -> u64 {
 /// the counters. A turn with no cache fields (a harness that does not report them) is skipped.
 pub(crate) fn observe(session: &str, msg: &mut Value, now_ms: u64, on: bool) {
     if !on {
+        // The harness's per-call counts (`claude_stdio/prompt_cache.rs`) go with the switch too.
+        if let Some(hm) = msg.get_mut("harnessMagic").and_then(Value::as_object_mut) {
+            hm.remove(FEATURE);
+            if hm.is_empty() {
+                msg.as_object_mut().map(|o| o.remove("harnessMagic"));
+            }
+        }
         return;
     }
     let Some(o) = msg.as_object() else { return };
