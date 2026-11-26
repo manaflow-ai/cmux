@@ -30,11 +30,15 @@
 //! - [`service::Messenger`]: preview a draft (destination, audience, wake mode, before send), then
 //!   send it once: the same idempotency key is the same message.
 //!
-//! Nothing here does I/O, reads a clock or draws UI, and nothing in the app calls it yet: phase 0 has
-//! no visible default change. Phase 1 wires it behind `team_messaging`.
+//! - [`directory`] (phase 1): the team navigator, the composer's recipient picker and Session Info's
+//!   participant and link sections, each a per-viewer projection of the records above.
+//!
+//! Nothing here does I/O, reads a clock or draws UI, and nothing in the app calls it yet: phase 1
+//! wires these views behind `team_messaging`.
 
 pub mod backend;
 pub mod delivery;
+pub mod directory;
 pub mod fake;
 pub mod feedback;
 pub mod forum;
@@ -47,6 +51,7 @@ pub mod service;
 
 pub use backend::{BackendError, ForumBackend, PresenceBackend, RoomBackend, StoredMessage};
 pub use delivery::{AnswerState, DeliveryMode, DeliveryState, Route, route};
+pub use directory::{Candidate, Directory, Navigator, SessionInfo};
 pub use feedback::{FeedbackKind, VoteBoard, VoteSummary};
 pub use identity::{Bridge, IdentityError, PrincipalKind, Resolved, resolve_handle};
 pub use model::{
