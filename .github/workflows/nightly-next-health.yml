@@ -33,7 +33,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule' && vars.NIGHTLY_NEXT_HEALTH_GATE != 'off'
     permissions:
       actions: write # dispatch nightly-next-health.yml
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-gcp-secret-jit-x64","cmux-gcp-nightly-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-gcp-nightly-jit-x64' }}
     # The cron fires every 15 minutes: wait at most 9 of them through a spent API budget, so a
     # wait ends in the wrapper's own failure before the next run starts.
     timeout-minutes: 14
