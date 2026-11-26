@@ -365,6 +365,7 @@ function TailnetJoinDialog({
           {t("settingsPage.tailnet.machine")}
           <input
             list="tailnet-machines"
+            aria-label={t("settingsPage.tailnet.machine")}
             data-tailnet-join-vm=""
             value={vm}
             onChange={(event) => setVM(event.target.value)}
@@ -383,6 +384,7 @@ function TailnetJoinDialog({
           <input
             type="password"
             data-tailnet-join-key=""
+            aria-label={t("settingsPage.tailnet.credential")}
             value={key}
             onChange={(event) => setKey(event.target.value)}
             autoComplete="off"
@@ -397,16 +399,31 @@ function TailnetJoinDialog({
         )}
         {plainHttp && (
           <label className="tailnet-join-check" data-tailnet-allow-http="">
-            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <input
+              type="checkbox"
+              aria-label={t("settingsPage.tailnet.allowHttp", loginServer)}
+              checked={allowHttp}
+              onChange={(event) => setAllowHttp(event.target.checked)}
+            />
             <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
           </label>
         )}
         <label className="tailnet-join-check">
-          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <input
+            type="checkbox"
+            aria-label={t("settingsPage.tailnet.oauthMode")}
+            checked={oauth}
+            onChange={(event) => setOAuth(event.target.checked)}
+          />
           <span>{t("settingsPage.tailnet.oauthMode")}</span>
         </label>
         <label className="tailnet-join-check">
-          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />
+          <input
+            type="checkbox"
+            aria-label={t("settingsPage.tailnet.switch")}
+            checked={switchTailnet}
+            onChange={(event) => setSwitchTailnet(event.target.checked)}
+          />
           <span>{t("settingsPage.tailnet.switch")}</span>
         </label>
         {error && (

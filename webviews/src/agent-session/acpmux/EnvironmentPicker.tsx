@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocationShortcut } from "./composerControls";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { Combobox } from "../../ui/Combobox";
@@ -234,10 +234,13 @@ export function EnvironmentPicker({
   // The lists opened on the way here, so a list opened in place has a way back (Leo 2026-11-24: "i
   // cant click back"): its heading row, or ← with no search typed, goes to the list it came from.
   const [trail, setTrail] = useState<readonly PickerList[]>([]);
-  const setList = (next: PickerList) => {
-    setTrail(next === "main" ? [] : (before) => [...before, list]);
-    setListOnly(next);
-  };
+  const setList = useCallback(
+    (next: PickerList) => {
+      setTrail(next === "main" ? [] : (before) => [...before, list]);
+      setListOnly(next);
+    },
+    [list],
+  );
   const back = () => {
     setQuery("");
     setListOnly(trail.at(-1) ?? "main");
@@ -280,7 +283,7 @@ export function EnvironmentPicker({
     setPopoverOpen(false);
     setQuery("");
     setList("main");
-  }, [closeOnTrustAsk, open, setPopoverOpen]);
+  }, [closeOnTrustAsk, open, setPopoverOpen, setList]);
   // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const clouded = runMode?.mode === "cloud";

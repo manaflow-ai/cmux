@@ -3230,7 +3230,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
             Some(if full {
-                let mut summary = hub.session_change_summary(&s);
+                let mut summary = hub.session_change_summary(&s, rec.seq, lean);
                 if lean {
                     requests::without_time_breakdown(&mut summary);
                 }
