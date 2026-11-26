@@ -74,7 +74,7 @@ import {
   cmuxTuiServiceInstallCommand,
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
@@ -89,7 +89,7 @@ import {
   devboxSnapshotClockCommand,
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
-} from "../devbox-image-common";
+} from "./machine-commands";
 import {
   devTreeCredentialCheckCommand,
   devTreeLock,
@@ -157,7 +157,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "../../services/vms/images/metadataGuard";
+} from "./metadata-guard";
 import {
   cronAtAllowCommand,
   cronAtAllowProblems,
@@ -198,6 +198,7 @@ import {
   storeEntry,
   ROLES_MANIFEST_PATH,
   rolesManifest,
+  pinnedFetchCommand,
   sq,
   STORE_DIR,
   ubuntuSourcesFile,
@@ -1254,7 +1255,7 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
   const tgz = `${dir}/syft.tgz`;
   return [
     `mkdir -p ${dir}`,
-    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    pinnedFetchCommand(tgz, syft.sha256, syft.size, syft.url),
     `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
     `test "$(stat -c %s ${tgz})" = ${syft.size}`,
     `tar -xzf ${tgz} -C ${dir} syft`,
