@@ -13,7 +13,6 @@
 // line fills the header's free room, so the time and the controls after it never move or clip.
 import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Translate } from "../i18n";
-import { Icon } from "../icons/Icon";
 import { PHASE_DWELL_MS } from "./hatStep";
 import { useDwell } from "./HatStepSlot";
 import type { TrayItem } from "./runningTray";
@@ -37,8 +36,6 @@ type Kind = { part: TrayHeadPart; forms: TrayHeadForms; named?: string };
 export function HeadSummary({
   t,
   parts,
-  plan,
-  planIcon,
   separator,
   markSize,
   mark,
@@ -47,8 +44,6 @@ export function HeadSummary({
 }: {
   t: Translate;
   parts: readonly TrayHeadPart[];
-  plan: string;
-  planIcon: string;
   /// Between the kinds in the word steps (trayKindLine.experiment.ts).
   separator: string;
   markSize: number;
@@ -110,12 +105,6 @@ export function HeadSummary({
       data-shown={step.shown}
       data-folded={folded.length || undefined}
     >
-      {plan && (
-        <span className="acpmux-running-tray__kind" data-kind="plan">
-          <Icon name={planIcon} size={markSize} row />
-          <span className="acpmux-running-tray__kind-text">{plan}</span>
-        </span>
-      )}
       <span ref={line} className="acpmux-running-tray__summary-line">
         {drawn.map((kind, index) => (
           <span key={kind.part.key} className="acpmux-running-tray__kind-unit">
