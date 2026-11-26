@@ -15,12 +15,17 @@ import CmuxMobileSupport
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
         tracker.keyboardOwnerPresent = { false }
+        // This test's window has no scene, so UIKit's keyboard layout guide never
+        // moves for a posted frame (the iOS 26 simulator kept the dock at rest, CI run
+        // 45364817994). The dock then follows the notified frames, the path a stalled
+        // guide takes. The override is this controller's own, so no other suite's
+        // controller sees it (the shared probe latch stays untouched).
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         let surface = AgentChatSurface()
         let controller = ChatTranscriptController(
             placement: .owned, surface: surface, store: store,
             empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil,
-            keyboardTracker: tracker
+            keyboardTracker: tracker, assumesStalledLayoutGuide: true
         )
         // The kit's test host has no window scene (connectedScenes is empty there), so the window
         // is made without one when none exists. The posted frame is then built from the view's

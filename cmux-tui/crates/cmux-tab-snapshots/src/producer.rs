@@ -45,6 +45,8 @@ pub struct ScreenInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Observation {
     pub tab_id: String,
+    /// The tab's durable id ([`Row::tab_key`]); empty when unknown.
+    pub tab_key: String,
     pub title: String,
     pub kind: Kind,
     pub favicon: Option<FaviconInput>,
@@ -280,6 +282,7 @@ impl Producer {
         let screen = obs.screen.as_ref();
         let row = Row {
             tab_id: obs.tab_id,
+            tab_key: obs.tab_key,
             title: obs.title,
             kind: obs.kind,
             favicon_hash,

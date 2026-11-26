@@ -63,12 +63,14 @@
         "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
-        "apps.asset.get"
+        "apps.asset.get",
+        "apps.features.list"
       ],
       "gesture": [
         "apps.hidden.set",
         "apps.grant.revoke",
-        "apps.install"
+        "apps.install",
+        "apps.features.set"
       ],
       "confirm": [
         "apps.set",
@@ -178,6 +180,16 @@
         "apps.hidden.set",
         "apps.grant.set",
         "apps.grant.revoke"
+      ]
+    },
+    "apps_features": {
+      "owner": "apps.features",
+      "description": "Built-in features as App Store switches (server/app_features.rs): list reads each feature's existing settings key; set writes that key the way Settings does (a toggle's bool, or a choice's value and a reset to the default). No key of its own, no default changed. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "apps.features.list"
+      ],
+      "mutation": [
+        "apps.features.set"
       ]
     },
     "agent_session": {

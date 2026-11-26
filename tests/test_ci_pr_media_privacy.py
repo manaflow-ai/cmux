@@ -633,7 +633,9 @@ class WriterInventoryTests(unittest.TestCase):
     # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
     NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
                    "scripts/cmux-next/hot-verify-ci.py",
-                   "scripts/cmux-next/release-notes.py"}
+                   "scripts/cmux-next/release-notes.py",
+                   # Names pr-media.py's GIF encoder and its upload check in help text; writes local files only.
+                   "scripts/media/media_polish.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
