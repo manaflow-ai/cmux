@@ -405,6 +405,8 @@ final class AppReviewGateUITests: XCTestCase {
         let email = app.buttons["Continue with email"]
         XCTAssertTrue(email.waitForExistence(timeout: 20), "sign-in must show; on screen: \(onScreen(app))")
         capture("type-xxxl-signin", app)
+        // Judged at the top, as it opens, and again after scrolling to the end.
+        assertNothingOffscreen(app, step: "type-xxxl-signin-top")
         for label in ["Continue with Apple", "Continue with Google", "Continue with GitHub", "Continue with email"] {
             let button = app.buttons[label]
             scrollTo(button, in: app)
@@ -772,8 +774,16 @@ final class AppReviewGateUITests: XCTestCase {
             guard button.exists, button.isHittable else { continue }
             let frame = button.frame
             if keyboards.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) }) { continue }
-            // A row of a scrolling list may run past the bottom edge; a
-            // control cut off at the sides is a layout glitch.
+            // A row of a scrolling list may run past the top or bottom edge;
+            // it is judged where it is whole (at the top, or once scrolled
+            // to). On iPad a control scrolled partly off the top reports its
+            // frame in the iPhone app's own unscaled points, not the screen's
+            // (feat-cmux-next gate run 45740664901: Continue with Apple at
+            // (20, -30, 350, 217.5), 390 pt wide less 20 pt margins, while it
+            // drew inside the window at (199, 0, 635, 1376)), so its sides
+            // would be judged against the wrong space.
+            guard frame.minY >= window.minY - 1, frame.maxY <= window.maxY + 1 else { continue }
+            // A control cut off at the sides is a layout glitch.
             XCTAssertTrue(
                 frame.minX >= window.minX - 1 && frame.maxX <= window.maxX + 1 && frame.intersects(window),
                 "\(step): \(button.identifier.isEmpty ? button.label : button.identifier) is outside the window \(frame) vs \(window)"
