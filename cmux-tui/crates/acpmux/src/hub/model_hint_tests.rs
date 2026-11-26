@@ -35,13 +35,14 @@ fn harness_profile_gets_no_claude_model_suggestion() {
 fn a_missing_harness_names_its_next_step() {
     let codex = hint_text("unknown harness \"codex\"".into(), "codex", &[], None);
     assert!(codex.contains("`cmux harness install codex`"), "{codex}");
-    let gemini = hint_text("unknown harness \"gemini\"".into(), "gemini", &[], None);
-    assert!(gemini.contains("`cmux harness add gemini --example gemini`"), "{gemini}");
-    for agent in ["grok", "cursor", "antigravity"] {
-        let out = hint_text(format!("unknown harness {agent:?}"), &format!("{agent}/x"), &[], None);
-        assert!(out.contains(&format!("{agent:?} is not set up here")), "{out}");
-        assert!(out.contains("`cmux harness add ID --registry`"), "{out}");
+    for agent in ["gemini", "cursor", "antigravity"] {
+        let out = hint_text(format!("unknown harness {agent:?}"), agent, &[], None);
+        assert!(out.contains(&format!("`cmux harness add {agent} --example {agent}`")), "{out}");
     }
+    // An agent cmux knows by name but ships no profile for: the ACP Registry adds it.
+    let grok = hint_text("unknown harness \"grok\"".into(), "grok/x", &[], None);
+    assert!(grok.contains("\"grok\" is not set up here"), "{grok}");
+    assert!(grok.contains("`cmux harness add ID --registry`"), "{grok}");
     assert_eq!(hint_text("bad".into(), "a b", &[], None), "bad");
 }
 

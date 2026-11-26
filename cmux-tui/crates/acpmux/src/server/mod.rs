@@ -3250,12 +3250,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         };
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
-            Some(if full {
-                let mut summary = hub.session_change_summary(&s);
-                if lean {
-                    requests::without_time_breakdown(&mut summary);
-                }
-                summary
+            Some(if lean {
+                // Not the whole row cut: building it marks the chart a turn owes as sent
+                // (`row_snapshot`), and a pane's row of the same record would go without it.
+                hub.session_change_summary_lean(&s)
+            } else if full {
+                hub.session_change_summary(&s)
             } else {
                 hub.session_list_summary(&s)
             })

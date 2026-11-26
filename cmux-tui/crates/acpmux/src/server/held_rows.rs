@@ -14,7 +14,7 @@
 //! most [`HOLD`] after its record. Only its place among the agent's output moves, and the events
 //! of the same records (`_acpmux/event`) go at once as before.
 
-use super::{Conn, Hub, Message, json, method, outbound, requests, session_patch};
+use super::{Conn, Hub, Message, json, method, outbound, session_patch};
 use crate::no_panic::LockExt as _;
 use serde_json::Value;
 use std::sync::Arc;
@@ -100,13 +100,15 @@ pub(super) fn flush_sharing(
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
             let lean = conn.omit_time_breakdown.load(Ordering::SeqCst)
                 || super::omits_time_breakdown(conn, &row.session_id);
+            // A client that draws no breakdown gets none, and leaves the chart a turn owes to
+            // the connections that draw it (`Hub::session_change_summary_lean`).
             let build = || {
                 let s = hub.resolve(&row.session_id).ok()?;
-                let mut summary = hub.session_change_summary(&s);
-                if lean {
-                    requests::without_time_breakdown(&mut summary);
-                }
-                Some(summary)
+                Some(if lean {
+                    hub.session_change_summary_lean(&s)
+                } else {
+                    hub.session_change_summary(&s)
+                })
             };
             let summary = match ev {
                 Some(ev) if ev.remote.is_none() && ev.session_id == row.session_id => {
