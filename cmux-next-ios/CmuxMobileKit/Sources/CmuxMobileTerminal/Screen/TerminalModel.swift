@@ -237,9 +237,18 @@ public final class TerminalModel {
     }
 
     /// The bytes this host's fresh surface shows before the Mac's replay: its kept rows, else
-    /// the Mac's screen text when it came first. Once, at the session's start.
-    func takeSeed() -> Data? {
-        guard !seeded, let rows = seedRows ?? cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) else { return nil }
+    /// the Mac's screen text when it came first, each of its rows cut at the surface's `columns`
+    /// (``TerminalSeed/rows(_:clippedTo:)``). Once, at the session's start.
+    func takeSeed(columns: Int = 0) -> Data? {
+        guard !seeded else { return nil }
+        let rows: String
+        if let kept = seedRows {
+            rows = kept
+        } else if let mac = cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) {
+            rows = TerminalSeed.rows(mac, clippedTo: columns)
+        } else {
+            return nil
+        }
         seedRows = nil
         seeded = true
         return TerminalSeed.bytes(rows: rows)
@@ -270,6 +279,8 @@ public final class TerminalModel {
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
+    /// The composer's text view, for the controller's inset (`stripOverlap`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
 
     public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
                 quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -665,6 +676,10 @@ public final class TerminalModel {
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid the Mac's program ends at, and whether an answer to a
+    /// resize is still on its way (the demo's `attach` phase). Set, the page
+    /// keeps a ``TerminalAttachTrace`` from its view loading on.
+    var demoFinalGrid: (() -> (columns: Int, rows: Int, inFlight: Bool))?
     /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
     /// PTY), nil while a size change is on its way (the settle probe).
     @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
@@ -718,6 +733,16 @@ public final class TerminalModel {
             self.snapshot = image
             Self.dumpCard(image)
         }
+    }
+
+    /// The card's picture as last drawn, once the off-main render in flight (if any) lands: kept
+    /// as the tab's last-known picture when the person leaves the tab or the app goes to the
+    /// background (`TabCardSnapshots`). The page's snapshot once it drew the Mac's output, else
+    /// the frame the tab was restored with: never a page from before the first attach (as
+    /// `frameToKeep`). Nothing is rendered here.
+    public func cardPictureToKeep() async -> UIImage? {
+        await cardRender?.value
+        return drewLiveOutput ? snapshot : restoredFrame
     }
 
     /// The last off-main card render (tests await it).
@@ -1020,7 +1045,18 @@ public final class TerminalModel {
     }
     #endif
 
+    #if DEBUG
+    /// DEBUG, for TerminalComposerTapBleedUITests: how many key-row keys fired and the last
+    /// one's identifier ("3:ctrl-c"), read through the composer's `terminal.keyBar.fired` probe.
+    var keyBarFired = "0"
+    @ObservationIgnored private var keyBarFiredCount = 0
+    #endif
+
     func keyBar(_ key: KeyBarKey) {
+        #if DEBUG
+        keyBarFiredCount += 1
+        keyBarFired = "\(keyBarFiredCount):\(key.identifier)"
+        #endif
         guard let surface = controller?.surface else { return }
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)
         // first turn off an armed modifier, so it cannot linger unseen.
