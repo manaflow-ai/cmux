@@ -109,7 +109,7 @@ fn a_non_holding_edit_passes_the_macs_group_through() {
 fn an_unanswered_edit_holds_until_its_window_passes() {
     let mut collapsed = group("g", 0, None);
     collapsed.is_collapsed = true;
-    let e = edit(Some(collapsed.clone()), Some(100.0), None);
+    let e = edit(Some(collapsed), Some(100.0), None);
     let incoming = Some(group("g", 3, None));
     let mut shown = incoming.clone().unwrap();
     shown.is_collapsed = true;
@@ -136,7 +136,7 @@ fn an_unanswered_edit_holds_even_when_a_refresh_shows_it() {
 #[test]
 fn an_answered_edit_ends_when_a_refresh_shows_it_or_its_window_passes() {
     let g = group("g", 0, None);
-    let e = edit(Some(g.clone()), Some(0.0), Some(1.0));
+    let e = edit(Some(g), Some(0.0), Some(1.0));
     assert_eq!(pending_group_edit_step(e.clone(), Some(group("g", 7, Some(2))), 2.0), GroupEditStep::Forget);
     assert!(matches!(pending_group_edit_step(e.clone(), None, 5.0), GroupEditStep::Hold { group: Some(_) }));
     assert_eq!(pending_group_edit_step(e, None, 11.5), GroupEditStep::Forget);
