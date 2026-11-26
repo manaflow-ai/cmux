@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "chatMenu.presentation.transcript" : {
-      "comment" : "Agent pane: the chat's ··· menu presentation submenu, full transcript view (conversation/presentation.ts)",
+    "settings.default.none" : {
+      "comment" : "Settings default label: unset shows nothing.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "النص"
+            "value" : "لا شيء"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkript"
+            "value" : "Ništa"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transskription"
+            "value" : "Ingen"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkript"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Transcript"
+            "value" : "Keine"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transcripción"
+            "value" : "Ninguna"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transcription"
+            "value" : "Aucune"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trascrizione"
+            "value" : "Nessuno"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "トランスクリプト"
+            "value" : "なし"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ប្រតិចារឹក"
+            "value" : "គ្មាន"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "대화 내용"
+            "value" : "없음"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkripsjon"
+            "value" : "Ingen"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transkrypcja"
+            "value" : "Brak"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transcrição"
+            "value" : "Nenhum"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Транскрипт"
+            "value" : "Нет"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "บันทึกการสนทนา"
+            "value" : "ไม่มี"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Döküm"
+            "value" : "Yok"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Транскрипт"
+            "value" : "Немає"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bản ghi"
+            "value" : "Không có"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "对话记录"
+            "value" : "无"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "對話記錄"
+            "value" : "無"
           }
         }
       }
