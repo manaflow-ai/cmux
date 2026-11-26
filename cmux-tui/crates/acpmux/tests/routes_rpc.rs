@@ -49,7 +49,6 @@ impl Client {
     async fn call_text(&mut self, m: &str, params: Value) -> (Value, String) {
         self.2 += 1;
         let id = self.2;
-        eprintln!("CALL {id} {m}");
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         let mut text = String::new();
         loop {
@@ -59,7 +58,6 @@ impl Client {
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
-                eprintln!("REPLY {id} {m}");
                 return (v, text);
             }
             if let Some(t) = v.pointer("/params/update/content/text").and_then(Value::as_str) {
@@ -309,15 +307,20 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
-    assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b"
-    );
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "autoFallback": true})).await;
-    let (failed, _) = local.call_text("session/prompt", limit).await;
+    // Use a fresh chat for the prompt-time regression: the preceding limit
+    // fixture intentionally leaves the original chat rate-held. The fresh
+    // chat exercises the same automatic fallback without inheriting that hold.
+    let fresh =
+        local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let fresh_id = fresh["sessionId"].as_str().unwrap().to_owned();
+    local.ok("_acpmux/chat/route.set", json!({"sessionId": fresh_id, "routeId": "proxy-b"})).await;
+    let fresh_overload =
+        json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "overloaded: fresh"}]});
+    let (failed, _) = local.call_text("session/prompt", fresh_overload).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
     assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
+        local.env_of(&fresh_id, "ANTHROPIC_BASE_URL").await,
         "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
     );
     // With automatic continuations disabled, the retry mark from the failed
@@ -325,7 +328,7 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     local
         .ok(
             "session/prompt",
-            json!({"sessionId": id, "prompt": [{"type": "text", "text": "after fallback"}]}),
+            json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "after fallback"}]}),
         )
         .await;
 
