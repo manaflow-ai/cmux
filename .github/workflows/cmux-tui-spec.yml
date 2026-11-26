@@ -172,18 +172,24 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 12
+    # actions and statuses: the full-ci base merge carry step reads the previous head's runs and cmux/land-tier.
+    permissions:
+      contents: read
+      actions: read
+      statuses: read
+    # A head the full-ci base merge carry rule carries (steps.carry tier `none`) routes every job off.
     outputs:
-      run: ${{ steps.route.outputs.run }}
-      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir }}
+      run: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.route.outputs.run }}
+      acpmux_protocol_ir: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir }}
       acpmux_protocol_ir_tree: ${{ steps.graph.outputs.acpmux_protocol_ir_tree }}
-      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests }}
+      acpmux_tests: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests }}
       acpmux_tests_tree: ${{ steps.graph.outputs.acpmux_tests_tree }}
-      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim }}
+      acpmux_sim: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim }}
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
-      carrier_sim: ${{ steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim }}
+      carrier_sim: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
-      router_changed: ${{ steps.graph.outputs.router_changed || steps.gate.outputs.router_changed }}
-      acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
+      router_changed: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.graph.outputs.router_changed || steps.gate.outputs.router_changed }}
+      acpmux_own: ${{ steps.carry.outputs.tier == 'none' && 'false' || steps.acpmux-own.outputs.changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
       # Blobless, and at first only the router's own files: the names and trees come from git (about 1 s).
@@ -258,6 +264,19 @@ jobs:
           fi
           git checkout -q --detach "$SHA"
           echo "checked out $(git rev-parse HEAD) from the pool mirror"
+
+      # The full-ci base merge carry rule (scripts/ci/head_tier.py): a full-ci pulse or ready-to-land on a head that
+      # only merges the base onto a head whose land tier ran carries that run: tier `none` when this workflow passed
+      # there, and every output above reads `false`. Anything unread is `full`, and a failed step routes as usual.
+      - name: Full-ci base merge carry
+        id: carry
+        if: github.event_name == 'pull_request' && github.event.action == 'labeled'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
 
       # Whether the change needs the crate graph at all (affected_jobs.py gate): it does when it touches this
       # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
