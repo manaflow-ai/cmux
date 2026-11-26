@@ -7,6 +7,7 @@
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
 import { useContext } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
@@ -17,8 +18,9 @@ import { rowIconSize } from "../icons/iconSize";
 import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
 
-import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
-import { Spinner } from "../conversation/icons";
+import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
+import { WaitSpinner } from "../conversation/WaitSpinner";
+import { Spinner } from "../conversation/Spinner";
 import {
   SUBSESSION_STATE_LABEL,
   subsessionDisplayName,
@@ -96,6 +98,8 @@ export function SubagentStatusList({
   // change of the setting draws them again.
   const senderBadge = useSenderIconLook().badge;
   const t = useT();
+  // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const chatHarness = useContext(SubagentHarnessContext);
   const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
@@ -118,7 +122,7 @@ export function SubagentStatusList({
           icon={SUBAGENT_FALLBACK}
           mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
           status={status}
-          state={subagentStateText(t, agent, waiting)}
+          state={subagentStateText(t, agent, waiting, connectionQuiet)}
           working={Boolean(retrying(agent))}
           time={formatDuration(elapsed(agent, now))}
           iconSize={ROW_ICON}
@@ -203,6 +207,8 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
   // While acpmux retries its failed turn, it works again (subagents/retryState.ts ``sessionRetry``).
   const phase = sessionRetry(session);
   const retry = phase.kind === "retrying" ? phase.retry : undefined;
+  // Its words wait out the shared bound (retryState.ts ``retryWords``); the ring turns at once.
+  const retryLasting = useConnectionQuietKeys()(sessionRetryKey(session.sessionId), retry !== undefined);
   const status = retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
   // What a working one does now, or what one waiting on the person waits for.
   const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
@@ -236,9 +242,16 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         className="acpmux-summary-meta acpmux-summary-agent__state"
         title={t(SUBSESSION_STATE_LABEL[session.state])}
       >
-        {(retry || session.state === "working") && <Spinner size={12} loading />}
-        {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
-        {retry ? retryLabel(t, retry) : session.state === "working" ? null : t(SUBSESSION_STATE_LABEL[session.state])}
+        {retry ? <WaitSpinner size={12} loading /> : session.state === "working" && <Spinner size={12} loading />}
+        {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). A retry
+            inside the shared bound reads as working too. */}
+        {retry
+          ? retryLasting
+            ? retryLabel(t, retry)
+            : null
+          : session.state === "working"
+            ? null
+            : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );
