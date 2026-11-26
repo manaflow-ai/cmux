@@ -45,9 +45,12 @@
 # 1475 s for the build step (job 139565194555, 2026-11-25: 270 workspace and 102 dependency
 # crates recompiled after an exact R2 hit). Pool hosts are shared and have run out of disk
 # (jobs 139596782005, 45713322066), so a pool tree is bounded tighter: record prunes it to
-# MACHINE_CHANNEL_WARM_POOL_MAX_BYTES (48 GiB; the fat darwin tree is about 39 GB), and
-# restore and record remove it outright when the filesystem has less than
-# MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES (40 GiB) free: a cold build, never a full disk.
+# MACHINE_CHANNEL_WARM_POOL_MAX_BYTES (48 GiB), and restore and record remove it outright when
+# the filesystem has less than MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES (20 GiB) free: a cold
+# build, never a full disk. The floor was 40 GiB, sized for a 39 GB tree; the darwin tree
+# records 7.7 GB, and a pool host held 38.6 GB free after recording it, so 40 GiB removed
+# every tree it had just recorded and the leg never ran warm (job 140059291498, 2026-11-26).
+# 20 GiB still leaves room for a whole darwin build (7.7 GB of output) beside the tree.
 # On a pool tree's first job the workflow's R2 restore has filled cmux-tui/target; restore
 # moves it into the empty tree instead of refusing, so the tree starts from R2 (kept only
 # when MACHINE_CHANNEL_WARM_SEED_EXACT=true says the restore was an exact, same-stamp hit).
@@ -96,7 +99,7 @@ registry="${CARGO_HOME:-$HOME/.cargo}/registry"
 # tests/test_ci_cmux_tui_fat_warm_target.py keeps it above measured use.
 max_bytes="${MACHINE_CHANNEL_WARM_MAX_BYTES:-$((100 * 1024 * 1024 * 1024))}"
 pool_max_bytes="${MACHINE_CHANNEL_WARM_POOL_MAX_BYTES:-$((48 * 1024 * 1024 * 1024))}"
-pool_min_free="${MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES:-$((40 * 1024 * 1024 * 1024))}"
+pool_min_free="${MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES:-$((20 * 1024 * 1024 * 1024))}"
 
 # DISK is this pool runner slot's own tree (never a path outside it).
 pool_disk() {
