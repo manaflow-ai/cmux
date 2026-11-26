@@ -35,18 +35,27 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ARTIFACT = "cmux-next-web-bundles"
+# Seconds a run waits in total for the API budget to reset before it skips the report.
+WAIT_BUDGET = 180
 
 
-def api(path, token, raw=False, tries=6):
-    """GET one GitHub API path. A rate-limit 403/429 waits for its reset (at most 10 min each)
-    and retries; any other HTTP error raises with GitHub's message."""
-    url = path if path.startswith("https://") else f"https://api.github.com/{path}"
+class RateLimited(Exception):
+    """The token's API budget is spent past what this report waits for."""
+
+
+def api(path, token, raw=False, budget=None):
+    """GET one GitHub API path. The token goes only to GitHub, never to the blob storage an
+    artifact download redirects to (it rejects a Bearer header with 401). A rate-limit 403/429
+    waits for its reset while `budget` (seconds of total waiting, shared across calls) lasts,
+    then raises RateLimited; any other HTTP error exits with GitHub's message."""
+    budget = budget if budget is not None else [WAIT_BUDGET]
+    url = path if "://" in path else f"https://api.github.com/{path}"
     req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    for attempt in range(tries):
+    req.add_unredirected_header("Authorization", f"Bearer {token}")
+    for _ in range(8):
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
                 body = r.read()
@@ -56,18 +65,22 @@ def api(path, token, raw=False, tries=6):
             h = e.headers
             limited = e.code == 429 or (e.code == 403 and (
                 h.get("retry-after") or h.get("x-ratelimit-remaining") == "0" or "rate limit" in msg))
-            if not limited or attempt == tries - 1:
+            if not limited:
                 raise SystemExit(f"GET {url}: HTTP {e.code}: {msg}")
             wait = int(h.get("retry-after") or 0) or max(5, int(h.get("x-ratelimit-reset") or 0) - int(time.time()))
-            wait = min(wait, 600)
+            if wait > budget[0]:
+                raise RateLimited(f"GET {url}: rate limited (HTTP {e.code}), reset in {wait}s: {msg[:200]}")
+            budget[0] -= wait
             print(f"GET {url}: rate limited (HTTP {e.code}), retrying in {wait}s", file=sys.stderr)
             time.sleep(wait)
+    raise RateLimited(f"GET {url}: still rate limited after 8 tries")
 
 
 def fetch(repo, token, count, work):
     """Download the newest `count` feat-cmux-next bundle artifacts; return their run dirs, oldest
     first. One list call names them all (a run whose key was already published uploads none)."""
-    arts = api(f"repos/{repo}/actions/artifacts?name={ARTIFACT}&per_page=100", token)["artifacts"]
+    budget = [WAIT_BUDGET]
+    arts = api(f"repos/{repo}/actions/artifacts?name={ARTIFACT}&per_page=100", token, budget=budget)["artifacts"]
     arts = [a for a in arts if not a["expired"] and (a.get("workflow_run") or {}).get("head_branch") == "feat-cmux-next"]
     arts.sort(key=lambda a: a["created_at"], reverse=True)
     got = []
@@ -77,7 +90,7 @@ def fetch(repo, token, count, work):
             os.makedirs(d, exist_ok=True)
             z = os.path.join(d, "a.zip")
             with open(z, "wb") as f:
-                f.write(api(art["archive_download_url"], token, raw=True))
+                f.write(api(art["archive_download_url"], token, raw=True, budget=budget))
             with zipfile.ZipFile(z) as zf:
                 zf.extractall(d)
             os.remove(z)
@@ -134,7 +147,18 @@ def main():
     if a.from_dir:
         run_dirs = sorted(d for d in glob.glob(os.path.join(a.from_dir, "*")) if os.path.isdir(d))
     else:
-        run_dirs = fetch(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], a.count, a.work)
+        try:
+            run_dirs = fetch(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], a.count, a.work)
+        except RateLimited as e:
+            # The repo's GITHUB_TOKEN budget (1000/h, shared by every job) is spent: this run has
+            # no row, which is a gap in a report, not a failure of the code under test.
+            print(f"::warning::W1 replay skipped: {e}", file=sys.stderr)
+            summary = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary:
+                with open(summary, "a") as f:
+                    f.write(f"### RFD 0166 W1: skipped\n\nThe API budget is spent: {e}\n")
+            print(json.dumps({"row": "W1", "skipped": str(e)}))
+            return 0
     if len(run_dirs) < 2:
         raise SystemExit(f"need two bundle publishes to replay, found {len(run_dirs)}")
     trees, sizes = unpack(run_dirs, a.work)
