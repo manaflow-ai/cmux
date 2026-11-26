@@ -145,20 +145,21 @@ struct AccessibilityEnabledRuntimeTests {
     }
 }
 
-private class PressWithoutEnabledFixture: NSAccessibilityElement {
+// Match NSAccessibilityElement's nonisolated API under this package's MainActor default.
+private nonisolated class PressWithoutEnabledFixture: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { true }
 }
 
-private final class InheritedPressFixture: PressWithoutEnabledFixture {}
+private nonisolated final class InheritedPressFixture: PressWithoutEnabledFixture {}
 
-private class PressWithEnabledFixture: NSAccessibilityElement {
+private nonisolated class PressWithEnabledFixture: NSAccessibilityElement {
     override func isAccessibilityEnabled() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { true }
 }
 
-private final class InheritedEnabledFixture: PressWithEnabledFixture {}
+private nonisolated final class InheritedEnabledFixture: PressWithEnabledFixture {}
 
-private final class StaticTextFixture: NSAccessibilityElement {
+private nonisolated final class StaticTextFixture: NSAccessibilityElement {
     override func accessibilityLabel() -> String? { "text" }
 }
 
