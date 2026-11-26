@@ -154,9 +154,23 @@ export const RESERVATION_TTL_MS = 5 * 60 * 1000;
  * twice the 120 s create timeout plus provider propagation. Only then may it be resent or its cancellation settle.
  */
 export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
+/**
+ * After this long, a send whose outcome was never learned may be sent again under the same slug, once the caller's
+ * exact-slug read answered 404. The provider refuses a second VM at a slug ("409 CONFLICT: that slug is already used by
+ * another VM in your account"; nothing here passes `reassignSlug`), so a resend can never make a second VM: either the
+ * first send made nothing and this one creates it, or it answers 409 and the read after it adopts the first send's VM.
+ * It is the 120 s create timeout plus 30 s, so no two of this key's sends are open at once, and it sits well inside the
+ * platform's 5-minute create retry window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the
+ * whole CREATE_SEND_GRACE_MS: one provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504,
+ * 2026-11-26: 1 timed-out send, then 7 refused retries and cloud.provider.unavailable). Settling a cancellation as
+ * "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer backs that one.
+ */
+export const CREATE_RESEND_AFTER_MS = 150 * 1000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
-const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
-  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= CREATE_SEND_GRACE_MS);
+const sentAgo = (dispatch: Dispatch, nowMs: number | undefined, ms: number) =>
+  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= ms);
+const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_SEND_GRACE_MS);
+const sendResendable = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_RESEND_AFTER_MS);
 
 /**
  * Takes lock `key` for `holder` inside the caller's transaction. Every read-modify-write of a lock or a coverage key runs
@@ -211,14 +225,14 @@ export class TenantLedger {
 
   /**
    * One potentially allocating provider send at a time. An unknown outcome reopens this gate only after
-   * CREATE_SEND_GRACE_MS, and the caller sends only after its exact-slug lookup found nothing.
+   * CREATE_RESEND_AFTER_MS, and the caller sends only after its exact-slug lookup found nothing.
    */
   async beginCreateSend(key: string, vmId: string, token: string, nowMs?: number): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendSettled(p.dispatch, nowMs)) return false;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendResendable(p.dispatch, nowMs)) return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
