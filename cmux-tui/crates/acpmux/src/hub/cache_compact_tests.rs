@@ -28,7 +28,8 @@ fn usage(used: u64, size: u64, expires: Option<u64>) -> Value {
 
 #[test]
 fn the_settings_source_matches_the_daemon() {
-    assert_eq!(row(SETTING_ENABLED)["default"], json!(true), "on by default (Leo, 2026-11-24)");
+    // Unset, cache-expiry compaction is on only under the fleet policy, so the Settings default is off.
+    assert_eq!(row(SETTING_ENABLED)["default"], json!(false));
     assert_eq!(row(SETTING_MIN_CONTEXT)["default"], json!(30));
     assert_eq!(row(SETTING_MIN_CONTEXT)["range"]["min"], json!(10));
     assert_eq!(row(SETTING_MIN_CONTEXT)["range"]["max"], json!(95));
