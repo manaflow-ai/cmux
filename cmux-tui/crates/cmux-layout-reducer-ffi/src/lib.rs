@@ -91,6 +91,7 @@ mod cloud_handoff;
 mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
+mod cloud_move_host;
 mod cloud_sequence;
 mod cloud_task;
 pub mod drag_handle;
@@ -612,6 +613,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_hybrid::handles(operation) => {
                 cloud_hybrid::respond(operation, request)?
+            }
+            operation if cloud_move_host::handles(operation) => {
+                cloud_move_host::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
