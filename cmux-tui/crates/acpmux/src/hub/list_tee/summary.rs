@@ -126,8 +126,10 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
+            // A null says nothing a reader's missing key does not: kept, twenty of them and the
+            // peer form's copy pushed an idle chat's row past the 2 KiB budget.
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !value.is_null()
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
                     && value.get("kind").and_then(Value::as_str) == Some("image"))
