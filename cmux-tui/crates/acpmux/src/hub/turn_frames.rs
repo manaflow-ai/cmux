@@ -17,11 +17,16 @@
 //! A frame within [`SAME`] bits (64-bit dHash) of the turn's last kept frame is dropped, so a turn
 //! that changed nothing on screen keeps one frame. At most [`MAX_FRAMES`] a turn (the turn's end
 //! always gets one more). Each frame keeps a [`THUMB_WIDTH`] px thumbnail and a picture at most
-//! [`FULL_WIDTH`] px wide. Disk: `<ACPMUX_HOME>/turn-frames/<session>/<turn>/`, [`KEEP_TURNS`]
+//! [`FULL_WIDTH`] px wide.
+//!
+//! Beside the picture, a page's frame reads its accessibility tree of what is on screen
+//! (`turn_tree.rs`): a frame the dHash calls the same is kept anyway when the tree and the pixels
+//! both changed (a changed label), and each kept frame names what changed (`tree`). Disk: `<ACPMUX_HOME>/turn-frames/<session>/<turn>/`, [`KEEP_TURNS`]
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
 
 use super::Session;
-use super::turn_shots::{capture_page, prune, segment};
+use super::turn_shots::{capture_page, prune, segment, tree_path};
+use super::turn_tree::{TreeChange, keeps_anyway, pixel_sig, take_tree, tree_diff};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -68,6 +73,9 @@ pub(crate) struct Frame {
     pub hash: u64,
     #[serde(default)]
     pub url: Option<String>,
+    /// What changed in the page's tree since the frame before (none: no tree was read).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<TreeChange>,
 }
 
 /// The chat's running (or last) turn and its frames.
@@ -86,6 +94,11 @@ struct Turn {
     /// The turn customizes the app itself ([`customizes_app`]): with no agent-driven page, frames
     /// are of the app's window (`cmux window screenshot`, masked by the app).
     chrome: bool,
+    /// The last kept frame's tree lines, and the turn's first, for the structural diff.
+    tree: Option<Vec<String>>,
+    first_tree: Option<Vec<String>>,
+    /// The last kept frame's thumbnail pixels ([`pixel_sig`]).
+    thumb_sig: Option<u64>,
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
@@ -314,6 +327,9 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             debounce: 0,
             kinds: HashMap::new(),
             chrome: false,
+            tree: None,
+            first_tree: None,
+            thumb_sig: None,
         },
     );
     ask(&session.id, "turn-start");
@@ -435,14 +451,16 @@ fn ask(session: &str, trigger: &'static str) {
 /// Takes one frame of `session`'s current turn and keeps it unless it is the same picture as the
 /// last kept. The kept frame, or none. Blocking.
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
-    let (turn_id, _, dir, picture) = shoot(session, repl)?;
-    keep(session, &turn_id, &dir, &picture, trigger, None)
+    let (turn_id, _, dir, picture, tree) = shoot(session, repl)?;
+    keep(session, &turn_id, &dir, &picture, trigger, None, tree)
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
 /// customizes the app, the app's window. The turn, what was shot (a tab id or `window`), the turn's
-/// folder and the picture. Blocking.
-fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
+/// folder, the picture and, for a page, its tree lines. Blocking.
+type Shot = (String, String, PathBuf, Rgb, Option<Vec<String>>);
+
+fn shoot(session: &str, repl: &str) -> Option<Shot> {
     let (turn_id, workspace, chrome) = {
         let all = turns();
         let turn = all.get(session)?;
@@ -458,8 +476,9 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
     }
     let bytes = shown.as_ref().and_then(|_| std::fs::read(&raw).ok());
     let _ = crate::home_fs::remove_file(&raw);
+    let tree = take_tree(&tree_path(&raw));
     let picture = decode(&bytes?)?;
-    Some((turn_id, shown?, dir, picture))
+    Some((turn_id, shown?, dir, picture, tree))
 }
 
 /// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
@@ -484,7 +503,9 @@ fn window_shot(out: &Path) -> bool {
 }
 
 /// Keeps `picture` as the turn's next frame unless it matches the last kept one (a `turn-end`
-/// matching it is still dropped: the strip already shows that picture).
+/// matching it is still dropped: the strip already shows that picture). A match by dHash is kept
+/// anyway when `tree` changed and the thumbnail's pixels did too ([`keeps_anyway`]).
+#[allow(clippy::too_many_arguments)]
 fn keep(
     session: &str,
     turn_id: &str,
@@ -492,15 +513,25 @@ fn keep(
     picture: &Rgb,
     trigger: &'static str,
     url: Option<String>,
+    tree: Option<Vec<String>>,
 ) -> Option<Frame> {
     let hash = dhash(picture);
     let full = shrink(picture, FULL_WIDTH, None);
     let thumb = shrink(picture, THUMB_WIDTH, None);
+    let sig = pixel_sig(&thumb.pixels);
     let (full_bytes, thumb_bytes) = (encode(&full)?, encode(&thumb)?);
     let mut all = turns();
     let turn = all.get_mut(session).filter(|t| t.id == turn_id)?;
     let last = turn.frames.last().map(|f| f.hash);
-    if last.is_some_and(|last| bits(last, hash) <= SAME) {
+    let change = match (&turn.tree, &tree) {
+        (Some(old), Some(new)) => Some(tree_diff(old, new)),
+        (None, Some(new)) if turn.frames.is_empty() => Some(tree_diff(&[], new)),
+        _ => None,
+    };
+    let pixels_moved = turn.thumb_sig != Some(sig);
+    if last.is_some_and(|last| bits(last, hash) <= SAME)
+        && !keeps_anyway(change.as_ref(), pixels_moved)
+    {
         return None;
     }
     let first = turn.frames.first().map(|f| f.hash);
@@ -515,6 +546,7 @@ fn keep(
         moved: first.map_or(0.0, |f| f64::from(bits(f, hash)) / 64.0),
         hash,
         url,
+        tree: change,
     };
     let written = crate::home_fs::write(dir.join(format!("{}.png", frame.index)), &full_bytes)
         .and_then(|()| {
@@ -524,6 +556,13 @@ fn keep(
         return None;
     }
     turn.frames.push(frame.clone());
+    turn.thumb_sig = Some(sig);
+    if tree.is_some() {
+        if turn.first_tree.is_none() {
+            turn.first_tree.clone_from(&tree);
+        }
+        turn.tree = tree;
+    }
     let index = serde_json::to_vec(&turn.frames).unwrap_or_default();
     drop(all);
     let _ = crate::home_fs::write(dir.join(INDEX), index);
@@ -557,6 +596,9 @@ fn frame_value(dir: &Path, frame: &Frame, full: bool) -> Option<Value> {
         "moved": frame.moved,
         "thumb": picture_value(&thumb),
     });
+    if let Some(tree) = &frame.tree {
+        value["tree"] = json!(tree);
+    }
     if full && let Ok(bytes) = std::fs::read(dir.join(format!("{}.png", frame.index))) {
         value["full"] = picture_value(&bytes);
     }
@@ -632,10 +674,13 @@ fn look_now(session: &str) -> Value {
     if let Some(turn) = turns().get_mut(session) {
         turn.chrome = true;
     }
-    let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
+    let Some((turn_id, tab, dir, picture, tree)) = shoot(session, LOOK_REPL_SESSION) else {
         return json!({"error": "no agent-driven page is showing in this chat's workspace and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
-    let kept = keep(session, &turn_id, &dir, &picture, "look", None);
+    let since_start = turns()
+        .get(session)
+        .and_then(|t| t.first_tree.as_ref().zip(tree.as_ref()).map(|(a, b)| tree_diff(a, b)));
+    let kept = keep(session, &turn_id, &dir, &picture, "look", None, tree);
     let hash = dhash(&picture);
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));
@@ -643,7 +688,7 @@ fn look_now(session: &str) -> Value {
     let Some(png) = encode(&small) else {
         return json!({"error": "the picture could not be encoded"});
     };
-    json!({
+    let mut reply = json!({
         "image": picture_value(&png),
         "width": small.width,
         "height": small.height,
@@ -651,7 +696,11 @@ fn look_now(session: &str) -> Value {
         "movedBits": moved,
         "kept": kept.map(|f| f.index),
         "turnId": turn_id,
-    })
+    });
+    if let Some(change) = since_start {
+        reply["structure"] = json!(change.summary());
+    }
+    reply
 }
 
 #[cfg(test)]

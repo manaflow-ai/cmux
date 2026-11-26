@@ -134,14 +134,46 @@ fn host_socket() -> PathBuf {
 /// marked it and attaching again rebuilds nothing), never one the person alone used. Listing
 /// attaches nothing; only `tabs.get` does, on the chosen tab.
 pub(crate) fn capture_code(workspace: &str, out: &Path, tab: Option<&str>) -> String {
+    capture_cell(workspace, out, tab, false)
+}
+
+/// The longest a frame's tree read may run before the cell gives up on it (the picture stays).
+pub(crate) const TREE_LIMIT_MS: u64 = 4_000;
+/// The most page text one frame's tree reads (the snapshot's own `_maxSize`).
+pub(crate) const TREE_MAX_SIZE: usize = 256 << 10;
+
+/// [`capture_code`], and with `tree`, the page's accessibility tree of what is on screen
+/// (`snapshot(page, {viewport: true})`, the host's own read, which hides typed secrets) written
+/// beside the picture as `<out>.tree` for a turn's frames (RFD 0151's structural diff). The read
+/// is bounded by [`TREE_LIMIT_MS`] and [`TREE_MAX_SIZE`]; a slow or failing read leaves no tree and
+/// the picture still counts. The page keeps the agent's own snapshot baseline: this read puts back
+/// what the agent's next `snapshot({viewport: true})` diffs against.
+pub(crate) fn capture_cell(workspace: &str, out: &Path, tab: Option<&str>, tree: bool) -> String {
     let workspace = json!(workspace_key(workspace));
-    let tab = json!(tab);
-    let out = json!(out.display().to_string());
+    let only = json!(tab);
+    let out_json = json!(out.display().to_string());
+    let tree_step = if tree {
+        let tree_out = json!(format!("{}.tree", out.display()));
+        format!(
+            r#"
+  try {{
+    const keys = ["page|false|false|false|false|true", "page|false|false|false|false|true|full"];
+    const had = page._snapshotBaselines ? keys.map((k) => [k, page._snapshotBaselines.has(k), page._snapshotBaselines.get(k)]) : keys.map((k) => [k, false]);
+    const snap = await Promise.race([snapshot(page, {{ viewport: true, maxChars: Infinity, _maxSize: {TREE_MAX_SIZE} }}), sleep({TREE_LIMIT_MS}).then(() => null)]);
+    const baselines = page._snapshotBaselines;
+    if (baselines) for (const [k, kept, v] of had) {{ if (kept) baselines.set(k, v); else baselines.delete(k); }}
+    if (snap) fs.writeFileSync({tree_out}, String(snap.tree));
+  }} catch (e) {{}}"#
+        )
+    } else {
+        String::new()
+    };
     format!(
         r#"const key = (id) => String(id || "").replace(/^ws_/, "").replace(/-/g, "").toLowerCase();
-const only = {tab};
+const only = {only};
 const tab = (await tabs.list({{ all: true }})).find((t) => t.agentDriven === true && (only === null || t.id === only) && t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
-if (tab) {{ await screenshot(await tabs.get(tab.id), {{ path: {out} }}); console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url, id: tab.id }})); }}"#
+if (tab) {{ const page = await tabs.get(tab.id); await screenshot(page, {{ path: {out_json} }});{tree_step}
+  console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url, id: tab.id }})); }}"#
     )
 }
 
@@ -190,7 +222,7 @@ fn capture(
     tab: Option<&str>,
     out: &Path,
 ) -> Option<String> {
-    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures")
+    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures", false)
 }
 
 /// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
@@ -203,9 +235,10 @@ pub(super) fn capture_page(
     repl: &str,
     label: &str,
 ) -> Option<String> {
-    capture_in(&host_socket(), base, workspace, None, out, repl, label)
+    capture_in(&host_socket(), base, workspace, None, out, repl, label, true)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn capture_in(
     socket: &Path,
     base: &Path,
@@ -214,6 +247,7 @@ fn capture_in(
     out: &Path,
     repl: &str,
     label: &str,
+    tree: bool,
 ) -> Option<String> {
     if !socket.exists() {
         return None;
@@ -223,7 +257,7 @@ fn capture_in(
         "engine": "cef",
         "label": label,
         "cwd": base.display().to_string(),
-        "code": capture_code(workspace, out, tab),
+        "code": capture_cell(workspace, out, tab, tree),
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
     });
     let taken = host_call(socket, "browser.repl.eval", params)
@@ -239,8 +273,16 @@ fn capture_in(
     });
     if kept.is_none() {
         let _ = crate::home_fs::remove_file(out);
+        if tree {
+            let _ = crate::home_fs::remove_file(&tree_path(out));
+        }
     }
     kept
+}
+
+/// Where a frame capture's tree goes: beside its picture, `<out>.tree` ([`capture_cell`]).
+pub(super) fn tree_path(out: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.tree", out.display()))
 }
 
 /// Drops a turn's pictures, and its chat's folder once that holds none, so a chat with no pair

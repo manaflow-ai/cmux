@@ -460,6 +460,7 @@ mod turn_git;
 mod turn_retry;
 mod turn_rules;
 pub(crate) mod turn_shots;
+pub(crate) mod turn_tree;
 mod turn_usage;
 mod turns;
 #[cfg(test)]
