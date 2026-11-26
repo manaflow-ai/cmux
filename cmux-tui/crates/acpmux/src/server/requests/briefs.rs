@@ -39,8 +39,7 @@ pub(super) async fn steer(
             &params,
             &mut forwarded,
         );
-        let result = peer
-            .request(method::MUX_STEER, forwarded)
+        let result = crate::server::peer_targeted::request(&peer, method::MUX_STEER, forwarded)
             .await
             .map_err(|e| super::forward_failed(format!("steer to {host}"), e))?;
         if let Some(remote) = result.get("brief").cloned() {
@@ -229,8 +228,7 @@ pub(super) async fn report(
             &params,
             &mut forwarded,
         );
-        let result = peer
-            .request(method::MUX_REPORT, forwarded)
+        let result = crate::server::peer_targeted::request(&peer, method::MUX_REPORT, forwarded)
             .await
             .map_err(|e| super::forward_failed(format!("report to {host}"), e))?;
         if let Some(remote) = result.get("brief").cloned() {
