@@ -20,8 +20,7 @@
 #   try-pr.sh PR --stop             quit and remove the PR's side instance and its dev server
 #
 # By default the PR opens in a side instance, "cmux PR #N" (side-instance.sh pr-N): a copy of APP
-# (default /Applications/cmux NEXT.app; a nightly, or a DEV build for rebuilds only: a DEV copy
-# cannot load a web overlay) with its own data, socket,
+# (default /Applications/cmux NEXT.app; a nightly or a DEV build) with its own data, socket,
 # daemon, settings and web overlay, so your app and its sessions are not touched. Like every cmux
 # build on the Mac, it shares two folders: agent-home (the folder a chat with no folder runs in)
 # and Chat Uploads. A rebuild opens the PR's own build
@@ -289,10 +288,6 @@ live_swift() {
 web_live() {
   if [[ -z "$here" ]]; then
     [[ -n "$dry" || -d "$from" ]] || { echo "no app at $from to copy (--from APP names another)" >&2; exit 1; }
-    # A DEV copy has its own bundle id, and the app reads web-dev.json only under DEV's own.
-    if [[ "$("$buddy" -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
-      echo "a copy of cmux NEXT DEV cannot load the PR's web UI (it reads web-dev.json only under DEV's own bundle id): --from a nightly, or --here to patch your DEV" >&2; exit 1
-    fi
     open_side "$from"
     side_env
     # The side instance keeps the port it was given; a new one takes the first free port from
@@ -366,10 +361,6 @@ print(json.dumps({"why": lines(left), "left_out": lines(out), "web": web}))
   local web=""
   if [[ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["web"])' <<<"$sorted")" == True ]]; then
     web=1
-  fi
-  # A copy of a DEV build cannot load a web overlay (see web_live): refused before anything changes.
-  if [[ -n "$web" && -z "$here" && "$("$buddy" -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
-    echo "daemon swap: the PR changes web UI too, and a copy of cmux NEXT DEV cannot load it (--from a nightly, or --here)"; return 1
   fi
   if [[ -n "$here" ]]; then
     target="$from"

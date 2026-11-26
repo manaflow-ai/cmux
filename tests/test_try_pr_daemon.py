@@ -272,15 +272,23 @@ class TryPrDaemonTests(unittest.TestCase):
         self.assertIn("did not open", out.stdout)
         self.assertEqual(self.calls_of("cmux-ci"), [], "no dev build after the daemon went in")
 
-    def test_a_dev_copy_with_web_is_refused_before_anything_changes(self):
+    def test_a_dev_copy_takes_the_daemon_and_the_web_part(self):
+        # Every build reads web-dev.json (cmux#36173), so a DEV copy takes the overlay like a nightly's.
         self.push_pr(RUST, WEB)
         self.write_plan(left={"web (not published for a branch)": [WEB]})
+        self.stub_side_instance()
         with open(self.app / "Contents/Info.plist", "wb") as handle:
             plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.next", "CFBundleVersion": "1",
                            "CMUXCommit": self.base}, handle)
         out = self.try_pr("--no-build")
-        self.assertIn("a copy of cmux NEXT DEV cannot load it", out.stdout)
-        self.assertFalse([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertNotIn("cannot load", out.stdout + out.stderr)
+        self.assertIn("its web UI is patched in too", out.stdout)
+        apply = [c for c in self.calls_of("hot-apply") if " apply " in f" {c} "]
+        self.assertEqual(len(apply), 1)
+        self.assertIn("--parts rust", apply[0])
+        self.assertEqual(len(self.calls_of("web-overlay.sh")), 1, self.calls.read_text())
+        self.assertFalse([c for c in self.calls_of("hot-apply") if c.startswith("hot-apply rollback")])
 
     def test_a_side_instance_gets_its_own_copy_swapped_before_it_opens(self):
         self.push_pr(RUST)
