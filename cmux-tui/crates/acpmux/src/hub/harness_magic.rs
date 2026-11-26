@@ -23,7 +23,7 @@ use serde_json::{Map, Value, json};
 
 /// The features this build carries, by the name their setting and counters use. A builder adds
 /// its feature here; an empty list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[&str] = &["turnRules", "sidecars"];
+pub(crate) const FEATURES: &[&str] = &["turnRules", "cacheAlarm", "sidecars"];
 
 /// The features that are off unless their setting is `true` (opinionated nudges).
 pub(crate) const DEFAULT_OFF: &[&str] = &["sidecars"];
