@@ -76,6 +76,9 @@ EXCLUDED_SHARED: dict[tuple[str, str], str] = {
     ("nightly-next-tick.yml", "request"): "the tick dispatches no build itself; a sha request has its own group",
     ("nightly-next-tick.yml", "unstick"): "reads every run's state when it starts; builds nothing",
     ("nightly.yml", ""): "the scheduled cache seed builds the branch tip when it starts; pushes are per run",
+    ("nightly.yml", "decide"): (
+        "main's app ticks decide one at a time so the in-flight cap sees the previous tick's build; "
+        "each decides main HEAD when it starts and builds nothing in decide itself"),
     ("nightly.yml", "promote-nightly-next"): "a promotion request builds nothing; decideNewest() covers an evicted one",
     ("nightly.yml", "await-release-surface-ack"): "retired (if: false); it never runs",
     ("nightly.yml", "publish-nightly"): (

@@ -490,13 +490,21 @@ def public_get(path: str):
         return json.loads(answer.read().decode("utf-8"))
 
 
+# A bound on each gh api read: a read that hangs is a refused read (and goes on to the next token and the
+# no-token read), never a tick that never decides.
+GH_API_SECONDS = 60
+
+
 def _read_on_tokens(path: str, env, run):
     """(answer, None) from the first token that reads `path`, else (None, (exit code, gh's last words))."""
     tokens = [None, env["SPARE_READ_TOKEN"]] if env.get("SPARE_READ_TOKEN") else [None]
     refused = (1, "")
     for index, token in enumerate(tokens):
         child = None if token is None else {**env, "GH_TOKEN": token}
-        done = run(["gh", "api", path], capture_output=True, text=True, env=child)
+        try:
+            done = run(["gh", "api", path], capture_output=True, text=True, env=child, timeout=GH_API_SECONDS)
+        except subprocess.TimeoutExpired:
+            done = subprocess.CompletedProcess(["gh", "api", path], 124, "", f"gh api took more than {GH_API_SECONDS} s")
         if done.returncode == 0:
             if index:
                 print(f"gh api {path.split('?')[0]}: the job's token was refused; read on the spare token")
