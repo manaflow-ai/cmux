@@ -54,10 +54,7 @@ public actor AndroidPhoneBackend: PhoneBackend {
     }
 
     public nonisolated func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
-        var caps: PhoneCapabilities = [.screenshot, .recordVideo, .deviceLog, .openURL, .touch, .keyboard, .buttons,
-                                       .appearance, .apps, .accessibility, .liveScreen]
-        if device.mode == .emulator { caps.formUnion([.boot, .location, .rotate, .locale]) }
-        return caps
+        PhoneCapabilities(for: device.mode, android: true)
     }
 
     public func boot(_ id: PhoneDeviceID) async throws {
@@ -96,8 +93,6 @@ public actor AndroidPhoneBackend: PhoneBackend {
         try png.write(to: file, options: .atomic)
     }
 
-    public nonisolated func videoExtension(for id: PhoneDeviceID) -> String { "mp4" }
-
     public func startVideo(_ id: PhoneDeviceID, to file: URL) async throws -> any PhoneRunningCommand {
         let serial = try await serial(id)
         // Raw H.264 straight to the Mac file; SIGINT ends adb and the file is complete up to the last frame.
@@ -121,7 +116,7 @@ public actor AndroidPhoneBackend: PhoneBackend {
         let calls: [AdbCall]
         do {
             calls = try PhoneRules.decode([AdbCall].self, "calls", "android_input_calls",
-                                          ["input": Self.wire(input), "emulator": id.mode == .emulator, "scale": scale],
+                                          ["input": input.wire, "emulator": id.mode == .emulator, "scale": scale],
                                           what: "the adb calls")
         } catch let refusal as PhoneRules.Refusal where refusal.kind == "unsupported" {
             throw PhoneError.unsupported(mode: id.mode, what: input.kind)
@@ -250,25 +245,6 @@ public actor AndroidPhoneBackend: PhoneBackend {
         enum CodingKeys: String, CodingKey {
             case args, name
             case deadlineSeconds = "deadline_seconds"
-        }
-    }
-
-    /// `input` as `cmux-phone-core`'s `AndroidInput` reads it.
-    static func wire(_ input: PhoneInput) -> [String: Any] {
-        switch input {
-        case .tap(let point): ["kind": "tap", "x": point.x, "y": point.y]
-        case .swipe(let from, let to, let seconds):
-            ["kind": "swipe", "from_x": from.x, "from_y": from.y, "to_x": to.x, "to_y": to.y, "seconds": seconds]
-        case .text(let text): ["kind": "text", "text": text]
-        case .button(let button): ["kind": "button", "button": button.rawValue]
-        case .openURL(let url): ["kind": "open_url", "url": url.absoluteString]
-        case .pasteboard: ["kind": "pasteboard"]
-        case .appearance(let appearance): ["kind": "appearance", "dark": appearance == .dark]
-        case .location(let latitude, let longitude): ["kind": "location", "latitude": latitude, "longitude": longitude]
-        case .locale(let identifier): ["kind": "locale", "identifier": identifier]
-        case .install(let apk): ["kind": "install", "path": apk.path]
-        case .launch(let package): ["kind": "launch", "package": package]
-        case .softwareKeyboard: ["kind": "software_keyboard"]
         }
     }
 }

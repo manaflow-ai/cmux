@@ -56,14 +56,16 @@ public final class PhoneService {
     }
 
     /// The device commands use when none is named: the recorded one, else the
-    /// first ready simulator, else the first ready phone.
+    /// first ready simulator, else the first ready phone (`cmux-phone-core`'s `default_device`).
     public func defaultDevice() async throws -> PhoneDevice {
-        if let recording { return recording.device }
-        if devices.isEmpty { try await reload() }
-        let ready = devices.filter(\.state.isReady)
-        guard let pick = ready.first(where: { $0.mode == .simulator }) ?? ready.first ?? devices.first(where: { $0.mode == .simulator })
-        else { throw PhoneError.unknownDevice("(none)") }
-        return pick
+        if recording == nil, devices.isEmpty { try await reload() }
+        var fields: [String: Any] = ["devices": devices.map { PhoneRules.field(PhoneDeviceReply($0)) }]
+        if let recording { fields["recording"] = PhoneRules.field(PhoneDeviceReply(recording.device)) }
+        do {
+            return try PhoneRules.decode(PhoneDeviceReply.self, "device", "default_device", fields, what: "the default phone").device
+        } catch is PhoneRules.Refusal {
+            throw PhoneError.unknownDevice("(none)")
+        }
     }
 
     public func capabilities(_ device: PhoneDevice) -> PhoneCapabilities {
@@ -86,9 +88,8 @@ public final class PhoneService {
     /// time matches the moment it was asked for.
     public func send(_ input: PhoneInput, to id: PhoneDeviceID) async throws {
         let device = try await device(id)
-        guard backend.capabilities(for: device).contains(input.requiredCapability) else {
-            throw PhoneError.unsupported(mode: id.mode, what: input.kind)
-        }
+        let check = input.check(on: id, backend.capabilities(for: device))
+        guard check.allowed else { throw PhoneError.unsupported(mode: id.mode, what: check.what) }
         await recorder.note(input, on: id)
         try await backend.send(input, to: id)
         changeCount += 1
@@ -97,10 +98,12 @@ public final class PhoneService {
     /// Sends a tap or swipe the person made on the tab's still frame, in 0...1 screen coordinates.
     public func touch(from start: CGPoint, to end: CGPoint, seconds: Double, on id: PhoneDeviceID) async throws {
         let size = try await backend.screenPoints(id)
-        let a = PhonePoint(x: start.x * size.x, y: start.y * size.y), b = PhonePoint(x: end.x * size.x, y: end.y * size.y)
-        // Under 2% of the screen is a tap, not a drag.
-        let moved = hypot(end.x - start.x, end.y - start.y) > 0.02
-        try await send(moved ? .swipe(from: a, to: b, seconds: max(0.1, seconds)) : .tap(a), to: id)
+        let reply = PhoneRules.ask("touch_input", ["screen": [size.x, size.y], "from": [Double(start.x), Double(start.y)],
+                                                   "to": [Double(end.x), Double(end.y)], "seconds": seconds])
+        guard let wire = reply?["input"] as? [String: Any], let input = PhoneInput(touch: wire) else {
+            throw PhoneError.unreadable(what: "the touch")
+        }
+        try await send(input, to: id)
     }
 
     /// The `adb` path and serial an Android phone's live screen streams from.
@@ -116,7 +119,7 @@ public final class PhoneService {
 
     /// The shell line that streams `id`'s log, for a terminal tab.
     public func logShellLine(_ id: PhoneDeviceID) async throws -> String {
-        try await backend.logCommand(id).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }.joined(separator: " ")
+        try PhoneRules.decode(String.self, "line", "shell_line", ["argv": try await backend.logCommand(id)], what: "the log command")
     }
 
     /// Turns the phone a quarter turn (Android emulators; iOS rotation comes later).
@@ -161,8 +164,8 @@ public final class PhoneService {
 
     /// The still frame a phone tab shows: one file per device, rewritten.
     public func frame(_ id: PhoneDeviceID) async throws -> URL {
-        let safe = id.description.replacingOccurrences(of: ":", with: "-")
-        return try await screenshot(id, to: scratch.appendingPathComponent("frame-\(safe).png"))
+        let file = try PhoneRules.decode(String.self, "file", "frame_file", ["id": id.description], what: "the frame file")
+        return try await screenshot(id, to: scratch.appendingPathComponent(file))
     }
 
     @discardableResult
