@@ -469,6 +469,23 @@ class RegressionTests(unittest.TestCase):
                                      {"perf_gate.tabs.failed_checks": row(0, "checks", 0.5)}, None, None, budgets_mod)
         self.assertEqual(len(regs), 1)
 
+    def test_a_wakeup_row_regresses_by_the_timer_that_woke_it(self):
+        """shadow-leo on goal idle-cpu-wakeups: "make a new idle timer fail the PR that adds it" by name. The bench's
+        rest_wakeups row carries its sources (perfRow.ts); the regression and the issue cell name them."""
+        named = ["3x timeouts: armRequestCheck < noteRequest @ 10,2010,4010 ms", "1x frames: frameTally | x"]
+        rows = cron.webui_rows([{"name": "chat_switch.god.unread.rest_wakeups", "p95": 4, "unit": "count",
+                                 "target": 0, "floor": 0.5, "sources": named + [7, ""]}])
+        now = rows["webui.chat_switch.god.unread.rest_wakeups"]
+        self.assertEqual(now["sources"], named, "strings only, busiest first")
+        regs = cron.find_regressions(rows, {"webui.chat_switch.god.unread.rest_wakeups": {**now, "p95": 1}},
+                                     None, None, budgets_mod)
+        self.assertEqual(regs[0]["sources"], named)
+        cell = cron.sources_note(regs[0])
+        self.assertIn("woken by: 3x timeouts: armRequestCheck", cell)
+        self.assertIn("frameTally \\| x", cell, "a pipe is escaped: it never splits the issue table")
+        self.assertEqual(cron.sources_note({"name": "a"}), "", "a row with no sources keeps its cell")
+        self.assertNotIn("sources", cron.webui_rows([{"name": "a.b", "p95": 1}])["webui.a.b"])
+
     def test_no_baseline_no_regression(self):
         self.assertEqual(cron.find_regressions({"a": row(9.0)}, {}, None, None, budgets_mod), [])
         self.assertEqual([r["base"] for r in cron.find_regressions({"a": row(99.0)}, {}, None, None, budgets_mod)], [None],

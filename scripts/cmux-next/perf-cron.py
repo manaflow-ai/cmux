@@ -1000,7 +1000,27 @@ def webui_rows(rows, prefix="webui."):
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        named = row_sources(r)
+        if named:
+            out[f"{prefix}{name}"]["sources"] = named
     return out
+
+
+def row_sources(row):
+    """A wakeup row's sources (perfRow.ts `sources`: what woke the page, busiest first), at most 8 strings of 200
+    characters; [] for any other row (pure). The issue names them beside the count (sources_note)."""
+    got = row.get("sources") if isinstance(row, dict) else None
+    return [str(x)[:200] for x in got if isinstance(x, str) and x.strip()][:8] if isinstance(got, list) else []
+
+
+def sources_note(entry, shown=3):
+    """'; woken by: A; B; C (+2 more)' for an issue table cell of a row that carries sources, else '' (pure): a
+    wakeup row that regresses is red by the timer that woke it, not only by its count (goal idle-cpu-wakeups)."""
+    named = row_sources(entry)
+    if not named:
+        return ""
+    more = f" (+{len(named) - shown} more)" if len(named) > shown else ""
+    return ("; woken by: " + "; ".join(named[:shown]) + more).replace("|", "\\|").replace("\n", " ")
 
 
 def median(values):
@@ -1406,7 +1426,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
             if over_target(name, row, refresh_ms):
                 out.append({"name": name, "p95": row["p95"], "base": None, "unit": row.get("unit", "ms"),
                             "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
-                            "why": NO_REFERENCE})
+                            "why": NO_REFERENCE, **({"sources": row["sources"]} if row_sources(row) else {})})
             continue
         crossed = (over_target(name, row, refresh_ms) and not over_target(name, base, base_refresh_ms)
                    and row["p95"] - base["p95"] > row_floor(name, row))
@@ -1415,7 +1435,8 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
             out.append({"name": name, "p95": row["p95"], "base": base["p95"], "unit": row.get("unit", "ms"),
                         "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
                         "floor": row_floor(name, row),
-                        "why": "worse than last good" if name in worse else "newly over target"})
+                        "why": "worse than last good" if name in worse else "newly over target",
+                        **({"sources": row["sources"]} if row_sources(row) else {})})
     return out
 
 
@@ -2965,7 +2986,7 @@ def issue_body(state, repo, now):
         for r in regs:
             change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r.get("base") else "new"
             rng = r.get("range") or {}
-            why = r.get("why", "") + (" (not measured again since)" if r.get("unmeasured_at") else "")
+            why = r.get("why", "") + sources_note(r) + (" (not measured again since)" if r.get("unmeasured_at") else "")
             if r.get("recovering"):
                 why += f" (within its threshold in {len(r['recovering'])} of the {RECOVER_RUNS} runs in a row that close it)"
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
@@ -2985,7 +3006,7 @@ def issue_body(state, repo, now):
         for u in unconfirmed[:20]:
             sha_link = f"[`{str(u.get('sha'))[:11]}`]({u.get('run_url')})" if u.get("sha") else "?"
             lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('top', u.get('max')))} | "
-                         f"{u.get('samples')} | {sha_link} | {u.get('why')} |")
+                         f"{u.get('samples')} | {sha_link} | {u.get('why')}{sources_note(u)} |")
     every = [x for x in state.get("baseline_restarts") or [] if isinstance(x, dict)]
     # Every restart not seen yet (each keeps the issue open), and the newest seen ones.
     restarts = [x for i, x in enumerate(every) if x.get("seen") is False or i >= len(every) - 5]
@@ -3447,7 +3468,8 @@ def confirm_regressions(state, regs, cur, run_url, t, regression):
         streak = [v for v in prior.get("values") or [] if isinstance(v, dict)][-(REF_RUNS - 1):] + [value]
         entry = {"name": name, "p95": r["p95"], "unit": r.get("unit"), "base": r.get("base"),
                  "top": spread_top(samples) if samples else None, "max": max(samples) if samples else None,
-                 "samples": len(samples), "sha": cur["sha"], "at": iso(t), "run_url": run_url, "held": len(streak)}
+                 "samples": len(samples), "sha": cur["sha"], "at": iso(t), "run_url": run_url, "held": len(streak),
+                 **({"sources": r["sources"]} if row_sources(r) else {})}
         if len(samples) < CONFIRM_SAMPLES:
             pending.pop(name, None)
             building.add(name)
@@ -3522,7 +3544,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # A row over target with no reference has no culprit range: it is listed, never a regression.
     regs = [r for r in found if r.get("base") is not None]
     no_ref = [{"name": r["name"], "p95": r["p95"], "unit": r.get("unit"), "base": None, "max": None, "samples": 0,
-               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "why": r["why"]} for r in found if r.get("base") is None]
+               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "why": r["why"],
+               **({"sources": r["sources"]} if row_sources(r) else {})} for r in found if r.get("base") is None]
     # The rows find_regressions could judge: a frame row on another display refresh than its reference (or an
     # unknown one), or a row on another macOS, was measured but not compared, so it neither clears a regression nor
     # counts as good.
