@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """CmuxNext's Linux shape links CCmuxAppFFI as a system library (scripts/ci/app_ffi_linux.py).
 
-  - Packages/macOS/CmuxNext/LinuxAppFFI/module.modulemap is what `app_ffi_linux.py modulemap` writes
-    from scripts/cmux-next/build-app-ffi.sh's headers_in: one module per header, the same names the
-    xcframework gives them, so a header added to the xcframework is importable on Linux too;
+  - the module map `app_ffi_linux.py build` writes (LinuxAppFFI/module.modulemap, gitignored) holds
+    CCmuxAppFFI and one module per entry of scripts/cmux-next/build-app-ffi.sh's headers_in, the names
+    the xcframework gives them, so a header added to the xcframework is importable on Linux too;
   - every header it names exists, and every module links libcmux_app_ffi.a;
-  - Package.swift's Linux shape declares CCmuxAppFFI as that system library, and the lane script builds
+  - Package.swift's Linux shape declares that system library, and the lane script builds
     the library before a CmuxNext suite on Linux, and SwiftPM purges keep it;
   - with no `cc` (the swift container), clang compiles and links the crates.
 """
@@ -27,11 +27,12 @@ spec.loader.exec_module(app_ffi_linux)
 
 
 class AppFFILinuxTests(unittest.TestCase):
-    def test_modulemap_is_current(self) -> None:
-        self.assertEqual(app_ffi_linux.modulemap(check=True), 0, "run python3 scripts/ci/app_ffi_linux.py modulemap")
+    def test_the_module_map_is_build_output(self) -> None:
+        ignore = (app_ffi_linux.MODULEMAP.parent / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(app_ffi_linux.MODULEMAP.name, ignore.split())
 
     def test_every_xcframework_module_and_header(self) -> None:
-        text = app_ffi_linux.MODULEMAP.read_text(encoding="utf-8")
+        text = app_ffi_linux.render()
         modules = re.findall(r"^module (\w+) \{", text, re.M)
         entries = app_ffi_linux.headers_in()
         self.assertEqual(modules, ["CCmuxAppFFI", *[module for _, module in entries]])
@@ -41,7 +42,8 @@ class AppFFILinuxTests(unittest.TestCase):
 
     def test_linux_shape_and_lane_script(self) -> None:
         manifest = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text(encoding="utf-8")
-        self.assertIn('.systemLibrary(name: "CCmuxAppFFI", path: "LinuxAppFFI")', manifest)
+        self.assertIn('.systemLibrary(name: "CCmuxAppFFILinux", path: "LinuxAppFFI")', manifest)
+        self.assertIn('let appFFIDependency: [Target.Dependency] = targetsLinux ? ["CCmuxAppFFILinux"] : ["CCmuxAppFFI"]', manifest)
         lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
         self.assertIn("python3 scripts/ci/app_ffi_linux.py build", lane)
         # The lane builds the library into .build before SwiftPM's purges (a resolve retry, a header
