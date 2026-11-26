@@ -345,7 +345,7 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
     // directory where a `.git` would make a repository.
     let real = |path: std::path::PathBuf| std::fs::canonicalize(path).unwrap();
     assert_eq!(read_git_head_at(&nested).1, real(repo.join(".git")));
-    assert_eq!(read_git_head_at(&worktree).1, real(worktree_git.clone()));
+    assert_eq!(read_git_head_at(&worktree).1, real(worktree_git));
     assert_eq!(read_git_head_at(&root.join("gitdirs")).1, real(root.join("gitdirs")));
 
     let mux = Mux::new_for_test("git-heads", SurfaceOptions::default());
