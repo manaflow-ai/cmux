@@ -35,6 +35,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 READS_FAILURE = re.compile(r"needs\.([\w-]+)\.result\s*==\s*'failure'")
 ANY_NEED_CANCELLED = re.compile(r"contains\(\s*needs\.\*\.result\s*,\s*'cancelled'\s*\)")
 
+# A head fail-fast cancels the PR head's other runs once a check judged the head red
+# (docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast); a job its timeout stopped judged nothing
+# (a stalled runner, not the head), and cancelling the head's runs on it would cost a full rerun.
+HEAD_FAIL_FAST = "a fail-fast cancels a head's runs on a red verdict; a timed-out job gave no verdict on the head"
+
 # (workflow, job, needed job): why a timeout of the needed job is no reason to run the job.
 FAILURE_ONLY = {
     ("auto-resume-nightly-notarization.yml", "poll-outer", "wait-and-staple"):
@@ -47,6 +52,24 @@ FAILURE_ONLY = {
         "a revert needs a compile that judged the merge; a stopped compile judged nothing",
     ("cmux-next.yml", "release-compile-revert", "release-compile-fast-admission"):
         "a revert needs a compile that judged the merge; a stopped admission judged nothing",
+    ("cmux-next-fast-gates.yml", "fast-gates-fail-fast", "fast-gates"):
+        HEAD_FAIL_FAST,
+    ("cmux-next-guards.yml", "tooling-tests-fail-fast", "tooling-tests"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "app-compile-fleet-fail-fast", "app-compile-fleet"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "fast-tier-fail-fast", "fast-tier"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "fast-tier-cargo-fail-fast", "fast-tier-cargo"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "web-bundles-fail-fast", "web-bundles"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "generated-files-fail-fast", "generated-files"):
+        HEAD_FAIL_FAST,
+    ("pr-router.yml", "pipeline-fail-fast", "pipeline"):
+        HEAD_FAIL_FAST,
+    ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
+        "the notice names the landings behind tests that failed (scripts/ci/ios_kit_base_red.py); a stopped kit run failed no test",
 }
 
 # (workflow, job, needed job): the issue that tracks a condition that misses a timeout.

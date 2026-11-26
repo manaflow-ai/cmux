@@ -357,8 +357,10 @@ def check_verdicts():
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
-                ("a current lane/ head with a pull request runs with no API call",
-                 "refs/heads/lane/current", {}, "false", [], head),
+                # Build on request (#53129): a pull request's head alone no longer asks for its tree, so
+                # the one lookup left is whether a cmux-next dispatch did.
+                ("a current lane/ head with a pull request nobody asked about is superseded",
+                 "refs/heads/lane/current", {dispatch_path: no_dispatch}, "true", [dispatch_path], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
                  {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
                 ("a current lane/ head another pull request's head does not match is superseded",
@@ -381,6 +383,13 @@ def check_verdicts():
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
                 paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
                 _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
+            # CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule: that head runs, read over git only.
+            git(remote, "update-ref", "refs/pull/7/head", head)
+            api.reset({})
+            got = run_check(api, repo, script, "push", "refs/heads/lane/current", head,
+                            dict(over_git, CMUX_TUI_BRANCH_ON_REQUEST="0"))
+            _check(got == "false", f"over git: the old rule runs a current lane/ head with a pull request ({got!r})")
+            _check(api.requests == [], f"over git: the old rule asks no API for a pull request's head ({api.requests})")
             api.reset({})
             got = run_check(api, repo, script, "push", "refs/heads/feat-cmux-next-x-current", head,
                             {"CMUX_TUI_REF_REMOTE": f"file://{tmp}/missing.git"})
@@ -481,8 +490,11 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
+    # cmux-next-daemon-tests takes next-cache-writer on feat-cmux-next (its cache bucket write); neither job
+    # takes the routing environment it does not use.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+        _check("ci-routing-agent" not in str(all_jobs[name].get("environment", "")),
+               f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
