@@ -751,6 +751,19 @@ pub(super) trait Runner {
         let _ = until;
         self.cmux(args)
     }
+    /// [`Runner::cmux_by`], whose `until` may move: when it comes with the child still running, `later` is asked
+    /// (with this runner, for steps of its own), and a later instant it names is the child's new end, asked again
+    /// when that one comes ([`fresh::Boot`]: a new machine still booting is waited on). A runner that cannot keep a
+    /// child running while it asks runs it as [`Runner::cmux_by`].
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let _ = later;
+        self.cmux_by(args, until)
+    }
     /// One line of progress while the run goes on (on stderr: never part of the answer), so a start that gives up a
     /// machine and tries another is never a silent wait.
     fn say(&mut self, _line: &str) {}
@@ -878,6 +891,22 @@ impl Runner for SelfRunner {
             ),
             Err(ran) => ran,
         }
+    }
+
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let command = match self.step(args) {
+            Ok(command) => command,
+            Err(ran) => return ran,
+        };
+        // Never past the runner's own deadline, however far `later` moves it.
+        let own = self.until;
+        let cap = move |at: Instant| own.map_or(at, |own| own.min(at));
+        internal::bounded::output_by_unless(command, cap(until), &mut || later(self).map(cap))
     }
 
     fn say(&mut self, line: &str) {
@@ -1545,6 +1574,18 @@ impl Runner for Timed<'_> {
         ran
     }
 
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux_by_unless(args, until, later);
+        self.record(args, from, &ran);
+        ran
+    }
+
     fn say(&mut self, line: &str) {
         self.inner.say(line);
     }
@@ -1781,16 +1822,20 @@ fn steps(
     start.push("--json".to_owned());
     // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
-    let bound = fresh
+    // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
+    let mut boot = fresh
         .as_ref()
         .filter(|_| request.from_folder.is_none())
-        .map(|_| fresh::start_until(runner, deadline));
-    let ran = match bound {
-        Some(until) => runner.cmux_by(&start, until),
+        .map(|name| fresh::Boot::new(runner, name, deadline));
+    let ran = match &mut boot {
+        Some(boot) => {
+            let until = boot.until;
+            runner.cmux_by_unless(&start, until, &mut |runner| boot.later(runner))
+        }
         None => runner.cmux(&start),
     };
     if let Some(name) = &fresh
-        && let Some(stuck) = fresh::stuck(runner, &ran, bound, name, deadline)
+        && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
     }
