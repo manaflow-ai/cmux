@@ -246,6 +246,15 @@ int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t st
 /* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
    when cap is too small; *out_len then holds the size needed. */
 int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
+/* Session report (cmux.rd-session-report/1). The viewer began connecting at
+   at_us (the clock passed to push_*): the report's first frame counts from
+   the first call. */
+int32_t cmux_rd_session_note_connect_started(CmuxRdSession *session, uint64_t at_us);
+/* Writes this session's report so far (connect to first frame on glass,
+   display-to-glass and Present p50/p95 over every presented frame) as one
+   UTF-8 JSON object. CMUX_RD_ERR_BUFFER when cap is too small; *out_len then
+   holds the size needed. */
+int32_t cmux_rd_session_report(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */

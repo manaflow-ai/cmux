@@ -24,4 +24,5 @@ pub mod resolution;
 pub mod screen_kit;
 pub mod service;
 pub mod session;
+pub mod session_report;
 pub mod upstream;
