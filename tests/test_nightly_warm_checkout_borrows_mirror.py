@@ -128,24 +128,34 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
         self.git(self.origin, "commit", "-qm", message)
         return self.git(self.origin, "rev-parse", "HEAD")
 
-    def run_warm_step(self) -> subprocess.CompletedProcess:
+    def run_warm_step(self, *, sha: str | None = None, repo_url: str | None = None, check: bool = True,
+                      **extra: str) -> subprocess.CompletedProcess:
+        sha = sha or self.sha
         warm = step("build-nightly-app", WARM_STEP)
         script = self.temp / "runner-temp/warm-checkout.sh"
         script.write_text(warm["run"])
         shim = self.temp / "bin/git"
         shim.write_text(GIT_SHIM)
         shim.chmod(0o755)
-        env = {**self.env, "BUILD_SHA": self.sha, "WORKFLOW_SHA": self.sha, "REPO_URL": self.origin.as_uri(),
+        env = {**self.env, "BUILD_SHA": sha, "WORKFLOW_SHA": sha, "REPO_URL": repo_url or self.origin.as_uri(),
+               "MIRROR_POLL_S": "0.2", "MIRROR_WAIT_BEFORE_FETCH_S": "1", "MIRROR_WAIT_AFTER_FETCH_S": "1", **extra,
                "GITHUB_WORKSPACE": str(self.ws), "RUNNER_TEMP": str(self.temp / "runner-temp"),
                "GITHUB_REPOSITORY": "o/r", "GLAEDA_GIT_MIRROR_DIR": str(self.fleet_git),
                "SHIM_REAL_GIT": REAL_GIT, "SHIM_LOG": str(self.log), "SHIM_RECORD": RECORD,
                "SHIM_OBJECTS": self.objects}
         # The runner's default for a `run:` step with no `shell:` is `bash -e {0}`.
         result = subprocess.run(["bash", "-e", str(script)], cwd=self.temp, env=env, capture_output=True, text=True)
+        if not check:
+            return result
         self.assertEqual(result.returncode, 0, f"the warm checkout step failed\n{result.stdout}\n{result.stderr}")
-        self.assertEqual(self.git(self.ws, "rev-parse", "HEAD"), self.sha)
-        self.assertEqual((self.ws / "Sources/App.swift").read_text(), "let build = 2\n")
+        self.assertEqual(self.git(self.ws, "rev-parse", "HEAD"), sha)
+        if sha == self.sha:
+            self.assertEqual((self.ws / "Sources/App.swift").read_text(), "let build = 2\n")
         return result
+
+    def commit_after_mirror(self) -> str:
+        """A build sha origin has and the mirror does not (yet): the mirror's fetcher has not run since."""
+        return self.commit({"Sources/App.swift": "let build = 3\n"}, "after the mirror's last fetch")
 
     def fetches(self) -> list[str]:
         return self.log.read_text().splitlines() if self.log.exists() else []
@@ -165,13 +175,38 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
     # -- a healthy mirror: the slot borrows it before the fetch ---------------------------------------
 
     def test_a_cold_slot_borrows_the_mirror_before_it_fetches(self) -> None:
-        result = self.run_warm_step()
+        result = self.run_warm_step(sha=self.commit_after_mirror())
         self.assertTrue(self.fetches(), "the step ran no git fetch")
         self.assertEqual(self.fetches()[0], "fetch: record alternates",
                          "the slot must list the mirror and hold its borrow record when the fetch starts")
         self.assertEqual(self.alternates(), [self.objects])
         self.assertIn("cold slot: borrowing", result.stdout)
         self.assertIn("MiB", result.stdout.split("cold slot: borrowing", 1)[1].splitlines()[0])
+
+    def test_a_build_the_mirror_holds_reads_nothing_from_github(self) -> None:
+        # Run 45744507889 (11-26): github.com answered 429 then 403. The mirror held the build, so the
+        # step must not have asked github.com at all; an origin that refuses everything proves it.
+        result = self.run_warm_step(repo_url=(self.temp / "no-such-origin").as_uri())
+        self.assertEqual(self.fetches(), [], "the step fetched from origin a build the mirror holds")
+        self.assertIn("github.com git fetches: 0", result.stdout)
+
+    def test_a_refused_fetch_waits_for_the_mirror_instead_of_failing(self) -> None:
+        sha = self.commit_after_mirror()
+        # The mirror's fetcher catches up while the step waits; origin refuses every fetch.
+        catch_up = subprocess.Popen(["bash", "-c", f'sleep 1.5; exec "$0" -C "$1" fetch -q "$2" "+refs/heads/*:refs/heads/*"',
+                                     REAL_GIT, str(self.mirror), str(self.origin)], env=self.env)
+        self.addCleanup(catch_up.wait)
+        result = self.run_warm_step(sha=sha, repo_url=(self.temp / "no-such-origin").as_uri(),
+                                    MIRROR_WAIT_AFTER_FETCH_S="60")
+        # Either the wait after the refusal sees the mirror catch up, or a retry of the fetch finds the
+        # objects already borrowed; both check the build out instead of failing the job.
+        self.assertRegex(result.stdout, r"github.com refused the fetch|github.com git fetches: 1")
+
+    def test_a_build_in_neither_the_mirror_nor_origin_fails_with_an_error(self) -> None:
+        result = self.run_warm_step(sha=self.commit_after_mirror(),
+                                    repo_url=(self.temp / "no-such-origin").as_uri(), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is neither in", result.stdout)
 
     def test_the_fetch_of_a_commit_the_mirror_has_transfers_nothing(self) -> None:
         self.run_warm_step()
