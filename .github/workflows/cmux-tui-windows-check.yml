@@ -139,6 +139,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
   workflow_dispatch:
 
 concurrency:
@@ -295,11 +296,18 @@ jobs:
           # libc::mkfifo) with no cfg landed through this check because it never compiled test
           # code, and then broke the Windows jobs that do (2026-11-16: cmux-tui.yml's test
           # (windows) checks acpmux --all-targets; cmux-tui-build-package.yml's long-path step
-          # builds cmux-tui-core's lib tests). Each line is what one of those compiles.
+          # builds cmux-tui-core's lib tests). Each line is what one of those compiles. cmux-host (the
+          # machine agent and updater) had no Windows check at all (RFD 0157 D2); it compiles for
+          # Windows today, and this keeps it so. cmux-browser-host's tests were the same gap: acpmux
+          # links its lib, but nothing compiled its unit tests for Windows (its integration tests read
+          # CARGO_BIN_EXE_*, which cargo check never sets, so they are left to cargo test).
           for targets in "-p cmux-tui-core -p cmux-tui -p acpmux" \
                          "-p acpmux --all-targets" \
                          "-p cmux-tui-core --lib --tests" \
-                         "-p cmux-tui --lib --bins --tests"; do
+                         "-p cmux-tui --lib --bins --tests" \
+                         "-p cmux-host --lib --bins --tests" \
+                         "-p cmux-browser-host --lib --bins" \
+                         "-p cmux-browser-host --lib --profile test"; do
             # shellcheck disable=SC2086 # $targets is a list of cargo arguments
             if ! cargo check --locked --target x86_64-pc-windows-gnu $targets 2>&1 | tee "$log"; then
               if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
