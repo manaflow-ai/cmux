@@ -30,6 +30,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[path = "duress_starved.rs"]
 mod starved;
 
+#[path = "duress_cgroup.rs"]
+mod cgroup;
+
 /// Legs beside `ALL_LEGS` that a run names on purpose (`all` does not take them).
 pub(super) const EXTRA_LEGS: [&str; 5] =
     ["host150", "peerscale", starved::LEG, BURST_LEG, super::rfd0050::LEG];
@@ -519,6 +522,8 @@ struct PresenceOut {
     swap_used_kib_max: u64,
     daemon_rss_kib_max: u64,
     memory_psi_max: Option<f64>,
+    /// The daemon's cgroup and the host's pressure, once a second (`duress_cgroup.rs`).
+    cg: cgroup::Track,
 }
 
 pub(super) struct Presence {
@@ -539,7 +544,9 @@ impl Presence {
         let started = Instant::now();
         let cgroup = cgroup_dir(daemon_pid);
         let thread = std::thread::spawn(move || {
-            let mut out = PresenceOut::default();
+            let mut out =
+                PresenceOut { cg: cgroup::Track::new(cgroup.clone()), ..Default::default() };
+            let mut read_ms_since: Option<f64> = None;
             for n in &tracked {
                 out.peers.insert(n.clone(), PeerTrack::default());
             }
@@ -559,7 +566,9 @@ impl Presence {
                     match r.call("_acpmux/peers", json!({}), Duration::from_secs(5)) {
                         Ok(v) => {
                             out.reads += 1;
-                            out.read_ms.push(ms_f(asked.elapsed()));
+                            let took = ms_f(asked.elapsed());
+                            out.read_ms.push(took);
+                            read_ms_since = Some(read_ms_since.map_or(took, |m: f64| m.max(took)));
                             let states: BTreeMap<String, String> = v["peers"]
                                 .as_array()
                                 .into_iter()
@@ -623,6 +632,7 @@ impl Presence {
                     if let Some(p) = cgroup.as_deref().and_then(memory_pressure) {
                         out.memory_psi_max = Some(out.memory_psi_max.map_or(p, |m: f64| m.max(p)));
                     }
+                    out.cg.sample(daemon_pid, read_ms_since.take());
                 }
                 tick_n += 1;
                 if let Some(rest) = SAMPLE_EVERY.checked_sub(tick.elapsed()) {
@@ -1013,6 +1023,7 @@ pub(super) fn close(
             "swapTotalKib": meminfo_kib("SwapTotal"),
         }),
     );
+    f.insert("cgroup".into(), p.cg.report());
     f.insert(
         "phoneLink".into(),
         json!(
