@@ -2675,7 +2675,14 @@ function TranscriptView({
         const row = current[index];
         if (!row || row !== shown[index]) continue;
         const key = heightKey(current, index, sessionId, heightLayout, scaledRowWidth);
-        if (!key || key.rev !== entry.rev || key.width !== entry.width || key.signature !== entry.signature) continue;
+        if (
+          !key ||
+          key.edition !== entry.edition ||
+          key.rev !== entry.rev ||
+          key.width !== entry.width ||
+          key.signature !== entry.signature
+        )
+          continue;
         const known = pendingDrawn.current.get(row.id) ?? drawnRef.current.get(row.id);
         if (known?.sessionId === sessionId && known?.width === scaledRowWidth && known.version === row.version)
           continue;
