@@ -66,8 +66,8 @@ pub fn ensure(home: &Path) -> std::io::Result<bool> {
         Err(e) => return Err(e),
     }
     let temp = home.join(".README.md.cmux-tmp");
-    std::fs::write(&temp, &want)?;
-    std::fs::rename(&temp, &path)?;
+    crate::home_fs::write(&temp, &want)?;
+    crate::home_fs::rename(&temp, &path)?;
     Ok(true)
 }
 
