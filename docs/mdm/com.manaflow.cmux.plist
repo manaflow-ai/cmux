@@ -3080,7 +3080,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_name</key>
 			<string>customize.doctorNotice</string>
 			<key>pfm_title</key>
