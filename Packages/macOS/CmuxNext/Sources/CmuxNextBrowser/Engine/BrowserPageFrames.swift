@@ -41,7 +41,7 @@ package final class BrowserPageFrames {
     private var savedScales: [String: Int] = [:]
     /// Pictures saved in this run whose file is not written yet: ``lastFrame(_:)`` hands them out before the file,
     /// so a read never finds the picture this one replaces (cmux#57419 review: the read's lane can run first).
-    private var pending: [String: (image: CGImage, scale: Int)] = [:]
+    private let pending = PendingFrames()
     /// Set at quit before its own writes: no write or removal posted earlier lands after them.
     private let stopped = StopFlag()
     /// The tabs with a picture in the folder: the last run's the launch read, and each saved in this run (handed out
@@ -109,7 +109,7 @@ package final class BrowserPageFrames {
     /// ``lastPicture(_:)`` with its pixels per point and, when read from its file, its compressed bytes (nil for a
     /// picture of this run whose file is not written yet, handed out as it was saved).
     package func lastFrame(_ key: String) async -> (image: CGImage, data: Data?, scale: Int)? {
-        if let picture = pending[key] { return (picture.image, nil, picture.scale) }
+        if let picture = pending.frame(key) { return (picture.image, nil, picture.scale) }
         if let data = saved?[key], !data.isEmpty { return Self.image(data).map { ($0, data, savedScales[key] ?? 2) } }
         guard keys.contains(key), let directory, let work, LaunchFrameFiles.isFileSafe(key) else { return nil }
         guard let file = try? await work.run(.bestEffort, mayBlock: .files, { Self.readFrame(key, in: directory) }) else { return nil }
@@ -127,10 +127,10 @@ package final class BrowserPageFrames {
         guard let directory, let work, LaunchFrameFiles.isFileSafe(key), !stopped.isSet else { return }
         saved?[key] = Data()
         keys.insert(key)
-        pending[key] = (image, scale)
-        let capacity = capacity, stopped = stopped
-        work.post(.bestEffort, mayBlock: .files) { [weak self] in
-            defer { MainDelivery().run { if self?.pending[key]?.image === image { self?.pending[key] = nil } } }
+        pending.set(key, image, scale)
+        let capacity = capacity, stopped = stopped, pending = pending
+        work.post(.bestEffort, mayBlock: .files) {
+            defer { pending.written(key, image) }
             guard !stopped.isSet else { return }
             // A picture that cannot be written takes the older one with it: no read finds a picture this one replaced.
             guard let data = Self.encoded(image) else { return Self.removeAll(of: key, in: directory) }
@@ -143,7 +143,7 @@ package final class BrowserPageFrames {
         guard let directory, let work, !stopped.isSet else { return }
         saved?[key] = nil
         keys.remove(key)
-        pending[key] = nil
+        pending.set(key, nil, 0)
         if saved == nil { removedDuringRead.insert(key) }
         let stopped = stopped
         work.post(.bestEffort, mayBlock: .files) {
@@ -239,6 +239,16 @@ package final class BrowserPageFrames {
         .sorted { $0.date != $1.date ? $0.date > $1.date : $0.name < $1.name }
         .map { ($0.name, $0.key, $0.size) }
     }
+}
+
+/// The pictures saved whose file is not written yet, by tab key: set on the main thread at a save, dropped by the write
+/// itself on its files lane once it landed (the newest save of a key only), read by ``BrowserPageFrames/lastFrame(_:)``.
+private nonisolated final class PendingFrames: Sendable {
+    // carve-out justification: a dictionary the main thread sets and a BackgroundWork write clears; no actor can be reached synchronously from the write, and nothing blocks under the lock.
+    private let frames = Mutex<[String: (image: CGImage, scale: Int)]>([:])
+    func frame(_ key: String) -> (image: CGImage, scale: Int)? { frames.withLock { $0[key] } }
+    func set(_ key: String, _ image: CGImage?, _ scale: Int) { frames.withLock { $0[key] = image.map { ($0, scale) } } }
+    func written(_ key: String, _ image: CGImage) { frames.withLock { if $0[key]?.image === image { $0[key] = nil } } }
 }
 
 /// Set once, read from any thread: shared by the store and the writes it posts (a `Mutex` cannot be captured).
