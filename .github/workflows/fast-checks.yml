@@ -605,7 +605,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           mkdir -p -- .fast-checks-checkout
-          rm -rf -- .fast-checks-checkout/.git
+          rm -rf -- .fast-checks-checkout/.git .fast-checks-tools/.git
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 10
@@ -631,6 +631,41 @@ jobs:
             echo "the snapshot's tree differs from $TESTED_SHA's: it does not test that commit" >&2
             exit 2
           fi
+
+      # A SwiftPM command (cmux-ci test --setup kernel-free -- bash -c 'cd Packages/macOS/CmuxNext && swift test
+      # --filter X') failed on the mini before compiling: the mini's anonymous github.com requests get HTTP 403
+      # (git ls-remote and curl alike; actions/checkout, which authenticates, works), so SwiftPM could neither
+      # clone Sparkle nor download CCmuxAppFFI. As cmux-next.yml's Mac tiers do, the prefetch seeds each binary
+      # target into the mini's shared SwiftPM cache first; --resolve then checks out every pinned dependency
+      # into the package's .build with this job's read-only token in git's environment, so the command, which
+      # never sees the token, fetches nothing. The script comes from this workflow's commit, never the snapshot.
+      - name: Check out the SwiftPM artifact prefetch on the Mac
+        if: contains(inputs.command, 'swift')
+        timeout-minutes: 5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .fast-checks-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout-cone-mode: false
+
+      - name: Prefetch SwiftPM dependencies on the Mac
+        if: contains(inputs.command, 'swift')
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+          CMUX_SWIFTPM_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          auth="$(printf 'x-access-token:%s' "$CMUX_SWIFTPM_GITHUB_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          i="${GIT_CONFIG_COUNT:-0}"
+          export "GIT_CONFIG_KEY_$i=http.https://github.com/.extraheader" "GIT_CONFIG_VALUE_$i=AUTHORIZATION: basic $auth"
+          export GIT_CONFIG_COUNT="$((i + 1))"
+          python3 "$GITHUB_WORKSPACE/.fast-checks-tools/scripts/ci/swiftpm_prefetch_binary_artifacts.py" --resolve \
+            --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
 
       # Same receipt as the Linux job. macOS has no GNU `timeout`, so Python keeps the deadline (exit 124, as
       # `timeout` reports) and ends the command's own process group, never anything else on the mini.
