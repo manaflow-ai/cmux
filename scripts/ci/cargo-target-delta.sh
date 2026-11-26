@@ -30,7 +30,8 @@
 # a delta of a delta.
 #
 # The CPU fingerprint is pinned to TRIPLE as machine-channel-warm-target.sh pins it: the build output is
-# for an explicit zig -Dtarget, so it is valid on every pool host. scripts/ci/tests/cargo-target-delta.test.sh.
+# for an explicit zig -Dtarget, so it is valid on every pool host; TRIPLE host keeps the real CPU.
+# scripts/ci/tests/cargo-target-delta.test.sh.
 set -euo pipefail
 
 usage() {
@@ -44,7 +45,7 @@ case "$command" in
   pack) target=$2 stamp=$3 out=$4 triple=$5 ;;
   *) usage ;;
 esac
-[[ "$triple" =~ ^[a-z0-9_]+-[a-z0-9_-]+$ ]] || { echo "invalid triple: $triple" >&2; exit 2; }
+[[ "$triple" == host || "$triple" =~ ^[a-z0-9_]+-[a-z0-9_-]+$ ]] || { echo "invalid triple: $triple" >&2; exit 2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mtimes="$repo/scripts/blacksmith-testbox-source-mtimes.py"
@@ -52,9 +53,14 @@ manifest_name=.cmux-testbox-source-mtimes.tsv
 source_name=.cargo-target-delta-source
 list="$stamp.list"
 
-cpuinfo="${RUNNER_TEMP:-/tmp}/cargo-target-delta-cpu-$triple"
-printf 'model name\t: zig -Dtarget=%s\nflags\t: %s\n' "$triple" "$triple" > "$cpuinfo"
-export CMUX_TESTBOX_CPUINFO="$cpuinfo"
+# TRIPLE host (the cmux-next fast tier builds for the machine it runs on) keeps this machine's CPU: apply
+# then drops the native-CPU build output another CPU made (blacksmith-testbox-source-mtimes.py), as the
+# pool warm target does.
+if [[ "$triple" != host ]]; then
+  cpuinfo="${RUNNER_TEMP:-/tmp}/cargo-target-delta-cpu-$triple"
+  printf 'model name\t: zig -Dtarget=%s\nflags\t: %s\n' "$triple" "$triple" > "$cpuinfo"
+  export CMUX_TESTBOX_CPUINFO="$cpuinfo"
+fi
 
 # Hard links where TARGET and the other tree share a filesystem (both under the workspace), else copies.
 copy_tree() { # <from> <to>: every entry, mtimes kept
