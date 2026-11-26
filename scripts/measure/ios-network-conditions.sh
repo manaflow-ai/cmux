@@ -22,6 +22,12 @@
 #   R1 (time to readable, the chat surface in mode=links and mode=duress):
 #     cmux-tui/crates/cmux-mobile-core/tests/read_first_r1.rs (the Agent Chats first page read and
 #     decoded from the phone's own read-first store with the link cut; profile no-link@1).
+#   transcript (R1 of one agent chat, mode=links and mode=duress, macOS only):
+#     cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift (tap
+#     to the first frame of a kept chat from AgentTranscriptCache's disk entry, link cut, through
+#     the real AcpmuxHub source and AgentChatStore; rows `transcript | no-link@1 | cold|warm | Nx |
+#     r1_ms`). It needs swift test with the CmuxMobileLinkFFI xcframework, so it runs on a Mac
+#     (cmux-ci run --os macos ... --arg surfaces=transcript); on Linux it prints NETCOND-SKIP.
 # Each prints NETCOND lines; ios-network-conditions-report.py makes report.json (profile x surface
 # x phase x scale x metric: p50, p95, n) and report.md (the table a PR body pastes, with a before
 # column and the change when before= is given).
@@ -103,7 +109,7 @@ done
 [[ "$mode" == send && -z "$n_given" ]] && n=25
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: n is 1-999" >&2; exit 2; }
 [[ "$seed" =~ ^[0-9]{1,9}$ ]] || { echo "ios-network-conditions.sh: seed is a number" >&2; exit 2; }
-[[ "$surfaces" =~ ^(terminal|chat)(,(terminal|chat))?$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat" >&2; exit 2; }
+[[ "$surfaces" =~ ^(terminal|chat|transcript)(,(terminal|chat|transcript)){0,2}$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat,transcript" >&2; exit 2; }
 [[ "$scales" =~ ^[0-9]+x(,[0-9]+x)*$ ]] || { echo "ios-network-conditions.sh: scales=1x,10x,100x" >&2; exit 2; }
 [[ -z "$profiles" || "$profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: profiles=NAME,..." >&2; exit 2; }
 [[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
@@ -145,6 +151,7 @@ harness_files=(
   cmux-tui/crates/cmux-fault/link-profiles.json
   cmux-tui/crates/cmux-tui/tests/mobile_link_conditions.rs
   cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs
+  cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift
 )
 overlay() {  # overlay TREE: the yardstick of this ref laid over TREE.
   local tree="$1" file
@@ -186,9 +193,36 @@ r1() {
   (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label r1 /"; return 1; }
 }
 
+# transcript LABEL TREE: R1 of one kept agent chat from AgentTranscriptCache with the link cut
+# (CmuxMobileLiveTests TranscriptReadFirstR1Bench, swift test on macOS); NETCOND lines into lines.txt.
+transcript() {
+  local label="$1" tree="$2" log="$work/$1-transcript.log" code=0
+  local bench=cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift
+  [[ "$mode" == links || "$mode" == duress ]] || { echo "NETCOND-SKIP $label transcript: mode=links or mode=duress only"; return 0; }
+  [[ "$(uname -s)" == Darwin ]] || { echo "NETCOND-SKIP $label transcript: needs swift test on macOS (CmuxMobileLive)"; return 0; }
+  [[ -f "$tree/$bench" ]] || { echo "NETCOND-SKIP $label transcript: no TranscriptReadFirstR1Bench at this ref"; return 0; }
+  # CmuxMobileKit names a local xcframework (a binaryTarget) that SwiftPM needs even on macOS;
+  # it is built, not checked in (as swift-test-bench.sh builds it).
+  (cd "$tree" && JOBS="$(sysctl -n hw.ncpu)" bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$log" 2>&1 || code=$?
+  if (( code == 0 )); then
+    (cd "$tree" && swift build -c release --package-path cmux-next-ios/CmuxMobileKit --build-tests) >>"$log" 2>&1 || code=$?
+  fi
+  if (( code == 0 )); then
+    (cd "$tree" && NETCOND_TRANSCRIPT_R1=1 NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
+      NETCOND_SEED_BASE="$seed" swift test -c release --package-path cmux-next-ios/CmuxMobileKit --skip-build \
+      --filter TranscriptReadFirstR1Bench 2>&1 | tee -a "$log" |
+      { sed -un "s/^NETCOND /NETCOND-LIVE $label /p" || true; }) || code=$?
+  fi
+  sed -n "s/^NETCOND /$label /p" "$log" >>"$work/lines.txt"
+  grep -E '^NETCOND-ERROR' "$log" | sed "s/^/$label /" || true
+  echo "NETCOND-STATUS $label transcript exit=$code log=$log"
+  (( code == 0 )) || { tail -n 40 "$log" | sed "s/^/NETCOND-LOG $label transcript /"; return 1; }
+}
+
 # bench LABEL TREE SURFACE: one surface's bench in TREE; its NETCOND lines labelled into lines.txt.
 bench() {
   local label="$1" tree="$2" surface="$3" crate log code=0
+  [[ "$surface" == transcript ]] && { transcript "$label" "$tree"; return; }
   case "$surface" in terminal) crate=cmux-tui ;; chat) crate=acpmux ;; esac
   [[ -f "$tree/cmux-tui/crates/$crate/tests/mobile_link_conditions.rs" ]] || {
     echo "NETCOND-SKIP $label $surface: no bench file at this ref"; return 0; }
