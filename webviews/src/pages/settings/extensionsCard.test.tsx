@@ -190,6 +190,7 @@ test("a manifest saved while Settings is open redraws the card with the new sche
   expect(row(page.container, "compact")).not.toBeNull();
   // The extension's author saves its manifest: a renamed setting and a new one. The daemon reloads it
   // and the app tells the page (`cmux.settings.extensions.changed`), as it does on an install or removal.
+  // The card must list again and draw the new schema without a remount.
   const app = page.provider.extensionApps[0]!;
   const { compact, ...rest } = app.schema.properties;
   app.schema.properties = { ...rest, dense: { ...compact!, title: "Dense rows" } };
