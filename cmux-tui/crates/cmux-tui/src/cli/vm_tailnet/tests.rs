@@ -5,6 +5,10 @@ use cmux_cloud_start_core::machine_bootstrap::ExecAnswer;
 
 use super::*;
 
+fn no_mint(_: &MintSource, _: &MintSpec, _: bool) -> Result<Secret, String> {
+    panic!("an auth key is never minted")
+}
+
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
 }
@@ -53,7 +57,7 @@ fn said(text: &str) -> ExecAnswer {
 #[test]
 fn a_join_writes_the_key_0600_runs_detached_and_reads_the_node() {
     let args = parse_join(&words("vm_1 --key-stdin --hostname box --ssh")).unwrap();
-    let checked = checked(args, |_| Ok("tskey-auth-SECRET\n".to_owned())).unwrap();
+    let checked = checked(args, |_| Ok("tskey-auth-SECRET\n".to_owned()), no_mint).unwrap();
     let mut guest = FakeGuest {
         answers: [
             said("prepared\n"),
@@ -76,7 +80,7 @@ fn a_join_writes_the_key_0600_runs_detached_and_reads_the_node() {
 #[test]
 fn another_tailnet_and_failures_come_back_as_words() {
     let args = parse_join(&words("vm_1 --key-stdin")).unwrap();
-    let checked = checked(args, |_| Ok("tskey-auth-a".to_owned())).unwrap();
+    let checked = checked(args, |_| Ok("tskey-auth-a".to_owned()), no_mint).unwrap();
     let mut guest = FakeGuest {
         answers: [
             said("prepared\n"),
@@ -196,4 +200,93 @@ fn a_move_from_a_vm_with_no_node_changes_nothing() {
     assert!(error.contains("no node state"), "{error}");
     assert_eq!(from.commands.len(), 1);
     assert!(!to.commands.iter().any(|c| c.contains("started")));
+}
+
+#[test]
+fn an_oauth_client_is_traded_on_the_mac_and_only_the_minted_key_goes_to_the_vm() {
+    let args = parse_join(&words("vm_1 --key-stdin --oauth --tag cmux --ephemeral")).unwrap();
+    let mut asked = None;
+    let checked = checked(
+        args,
+        |_| Ok("tskey-client-kID-LONGLIVED\n".to_owned()),
+        |source, spec, _| {
+            asked = Some((source.clone(), spec.clone()));
+            Ok(Secret::new("tskey-auth-ONEUSE"))
+        },
+    )
+    .unwrap();
+    let (source, spec) = asked.unwrap();
+    assert!(matches!(source, MintSource::TailscaleOauth { .. }));
+    assert!(spec.ephemeral);
+    // Raw here; mint_key's check_source gives each tag its tag:NAME form before any call.
+    assert_eq!(spec.tags, ["cmux"]);
+    assert_eq!(checked.key_file_contents(), "tskey-auth-ONEUSE");
+    let script = cmux_tailnet_join::vm_join_script(&checked);
+    assert!(!script.contains("LONGLIVED"));
+}
+
+#[test]
+fn an_oauth_client_without_tags_is_refused_before_any_call() {
+    let args = parse_join(&words("vm_1 --key-stdin --oauth")).unwrap();
+    let error = checked(args, |_| Ok("tskey-client-kID-x".to_owned()), no_mint).unwrap_err();
+    assert!(error.contains("tag"), "{error}");
+}
+
+#[test]
+fn a_headscale_api_key_mints_for_its_server_and_user() {
+    assert!(parse_join(&words("vm_1 --key-stdin --headscale-api --headscale-user 1")).is_err());
+    assert!(
+        parse_join(&words("vm_1 --key-stdin --headscale-api --login-server https://h")).is_err()
+    );
+    assert!(parse_join(&words("vm_1 --key-stdin --oauth --headscale-api")).is_err());
+    let args = parse_join(&words(
+        "vm_1 --key-stdin --headscale-api --login-server http://127.0.0.1:8080 --headscale-user 1 --allow-http",
+    ))
+    .unwrap();
+    let checked = checked(
+        args,
+        |_| Ok("hsapikey".to_owned()),
+        |source, _, allow_http| {
+            assert!(allow_http);
+            assert_eq!(
+                *source,
+                MintSource::Headscale {
+                    server: "http://127.0.0.1:8080".into(),
+                    api_key: Secret::new("hsapikey"),
+                    user: "1".into()
+                }
+            );
+            Ok(Secret::new("minted"))
+        },
+    )
+    .unwrap();
+    assert_eq!(checked.key_file_contents(), "minted");
+}
+
+#[test]
+fn mint_key_needs_out_and_a_mint_kind_and_never_overwrites() {
+    assert!(parse_mint(&words("--key-stdin --oauth --tag x")).is_err());
+    assert!(parse_mint(&words("--key-stdin --out /tmp/k")).is_err());
+    let (args, out) = parse_mint(&words("--key-stdin --oauth --tag x --out /tmp/k")).unwrap();
+    assert!(args.oauth);
+    assert_eq!(out, PathBuf::from("/tmp/k"));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("key");
+    write_new_key_file(&path, &Secret::new("k1")).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "k1");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(dir.path().join("elsewhere"), &link).unwrap();
+        assert!(write_new_key_file(&link, &Secret::new("k2")).is_err());
+        assert!(!dir.path().join("elsewhere").exists());
+    }
+    assert!(write_new_key_file(&path, &Secret::new("k2")).is_err());
+}
+
+#[test]
+fn form_fields_are_escaped() {
+    assert_eq!(form_escape("a b&c=d+e"), "a%20b%26c%3Dd%2Be");
 }

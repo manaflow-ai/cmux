@@ -6,7 +6,7 @@
 # device). VM A joins once as `leo-cmux`, tagged. Then the node moves A -> B -> A ... MOVES times, each
 # move as move_node runs it: prepare + adopt script on the target, release on the holder, state written
 # 0600, detached adopt run read until it ends, forget on the old holder. Meanwhile the laptop opens a
-# TCP connection to the node's Tailscale SSH port every 100 ms, and with DURESS=1 each VM burns every
+# TCP connection to the node's Tailscale SSH port every 50 ms (0.25 s connect timeout), and with DURESS=1 each VM burns every
 # core (`yes`) during the moves.
 #
 # Rows: per move the gap measured on the machines (old holder stopped -> new holder Running), the gap
@@ -31,8 +31,8 @@ D="sudo docker"
 LOGIN=http://172.17.0.1:$PORT
 
 cleanup() {
+  [ -n "${KEEP_PROBE:-}" ] && $D logs che-probe >"$KEEP_PROBE" 2>&1 || true
   $D ps -aq --filter "label=$LABEL" | xargs -r $D rm -f >/dev/null 2>&1 || true
-  [ -n "${PROBE_PID:-}" ] && kill "$PROBE_PID" 2>/dev/null || true
   sudo rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -81,11 +81,11 @@ KEY_NODE=$($HS preauthkeys create --user 1 --tags tag:cmux --expiration 1h -o js
 KEY_LAPTOP=$($HS preauthkeys create --user 1 --expiration 1h -o json | jq -r .key)
 
 say "laptop and two VMs"
-$D run -d --label $LABEL --name che-laptop --hostname leo-laptop --cap-add NET_ADMIN --device /dev/net/tun \
+$D run -d --label $LABEL --name che-laptop --hostname leo-laptop --init --cap-add NET_ADMIN --device /dev/net/tun \
   -e TS_AUTHKEY="$KEY_LAPTOP" -e TS_EXTRA_ARGS="--login-server=$LOGIN" -e TS_USERSPACE=false -e TS_HOSTNAME=leo-laptop \
   -e TS_STATE_DIR=/var/lib/tailscale $TS_IMAGE >/dev/null
 for vm in a b; do
-  $D run -d --label $LABEL --name che-vm-$vm --hostname vm-$vm --cap-add NET_ADMIN --device /dev/net/tun \
+  $D run -d --label $LABEL --name che-vm-$vm --hostname vm-$vm --init --cap-add NET_ADMIN --device /dev/net/tun \
     cmux-handoff-e2e-vm sleep infinity >/dev/null
 done
 
@@ -102,14 +102,14 @@ IDENT0=$(ident a)
 NODE_IP=$(echo "$IDENT0" | cut -d' ' -f2)
 say "node: $IDENT0"
 
-# The laptop's view: a TCP connect to the node's port 22 (Tailscale SSH) every 100 ms, one line per
+# The laptop's view: a TCP connect to the node's port 22 (Tailscale SSH) every 50 ms, one line per
 # try: "<epoch ms> ok|no". Run from a VM-image container in the laptop's network namespace (bash, ms clock).
 $D run -d --label $LABEL --name che-probe --network container:che-laptop cmux-handoff-e2e-vm bash -c "
   while :; do t=\${EPOCHREALTIME/./}; t=\${t:0:13}
-    if timeout 0.5 bash -c 'exec 3<>/dev/tcp/$NODE_IP/22' 2>/dev/null; then echo \"\$t ok\"; else echo \"\$t no\"; fi
-    sleep 0.1; done" >/dev/null
-for _ in $(seq 100); do $D logs che-probe 2>/dev/null | grep -q ' ok$' && break; sleep 0.2; done
-$D logs che-probe 2>/dev/null | grep -q ' ok$' || { echo "the laptop never reached the node" >&2; exit 1; }
+    if timeout 0.25 bash -c 'exec 3<>/dev/tcp/$NODE_IP/22' 2>/dev/null; then echo \"\$t ok\"; else echo \"\$t no\"; fi
+    sleep 0.05; done" >/dev/null
+for _ in $(seq 100); do $D logs che-probe 2>/dev/null | grep -c ' ok$' >/dev/null && break; sleep 0.2; done
+$D logs che-probe 2>/dev/null | grep -c ' ok$' >/dev/null || { echo "the laptop never reached the node" >&2; exit 1; }
 
 if [ "$DURESS" = 1 ]; then
   say "duress: every core busy on both VMs"
@@ -148,13 +148,14 @@ for n in $(seq "$MOVES"); do
   # The laptop's answer again, then its gap: last ok at or before the stop -> first ok after it.
   seen=""
   for _ in $(seq 300); do
-    seen=$($D logs che-probe 2>/dev/null | awk -v s="$stopped" '$1 > s && $2 == "ok" {print $1; exit}')
+    $D logs che-probe >"$WORK/probe" 2>/dev/null || true
+    seen=$(awk -v s="$stopped" '$1 > s && $2 == "ok" {print $1; exit}' "$WORK/probe")
     [ -n "$seen" ] && break; sleep 0.1
   done
-  last_ok=$($D logs che-probe 2>/dev/null | awk -v s="$stopped" '$1 <= s && $2 == "ok" {t=$1} END {print t}')
+  last_ok=$(awk -v s="$stopped" '$1 <= s && $2 == "ok" {t=$1} END {print t}' "$WORK/probe")
   laptop_gap=$(( ${seen:-0} - ${last_ok:-0} ))
-  printf 'move %2d %s->%s gap_ms=%d laptop_gap_ms=%d same_identity=yes cmux_nodes=%s\n' \
-    "$n" $holder $target $((online - stopped)) "$laptop_gap" "$nodes" | tee -a "$ROWS"
+  printf 'move %2d %s->%s gap_ms=%d laptop_gap_ms=%d same_identity=yes cmux_nodes=%s stopped=%s online=%s last_ok=%s seen=%s\n' \
+    "$n" $holder $target $((online - stopped)) "$laptop_gap" "$nodes" "$stopped" "$online" "$last_ok" "$seen" | tee -a "$ROWS"
   [ "$nodes" = 1 ] || { echo "move $n: headscale lists $nodes cmux nodes" >&2; exit 1; }
   holder=$target
   sleep 1
