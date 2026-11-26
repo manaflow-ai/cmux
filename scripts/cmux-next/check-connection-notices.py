@@ -107,8 +107,8 @@ ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
+    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"  # web holds
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|AutoRetry|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.
