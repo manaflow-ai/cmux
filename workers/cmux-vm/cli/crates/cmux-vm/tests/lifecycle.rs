@@ -1794,6 +1794,57 @@ async fn explicit_public_egress_is_sent_and_requires_confirmation() {
 }
 
 #[tokio::test]
+async fn egress_allow_locks_the_vm_to_presets_and_hosts_and_requires_confirmation() {
+    for confirmed in [true, false] {
+        let server = MockServer::start().await;
+        let mut response = vm("starting");
+        if confirmed {
+            response["initialNetwork"] = json!({
+                "publicEgress": false,
+                "httpsProxyHosts": [],
+                "allowedDomains": ["files.cmux.com", "registry.npmjs.org", "example.dev"],
+            });
+        }
+        Mock::given(method("POST"))
+            .and(path("/v1/vms"))
+            .and(body_json(json!({"initialNetwork": {
+                "publicEgress": false,
+                "egress": {"mode": "allowlist", "presets": ["npm"], "domains": ["example.dev"]},
+            }})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "create",
+                "--egress-allow",
+                "npm",
+                "--egress-allow",
+                "example.dev",
+            ],
+        )
+        .await;
+        assert_eq!(out.code == exit::OK, confirmed, "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn egress_allow_conflicts_with_public_egress() {
+    let server = MockServer::start().await;
+    let out = cli(
+        &server,
+        &["create", "--egress-allow", "npm", "--public-egress"],
+    )
+    .await;
+    assert_ne!(out.code, exit::OK);
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn image_list_human_output_includes_revision() {
     let server = MockServer::start().await;
     Mock::given(method("GET")).and(path("/v1/vm-images"))

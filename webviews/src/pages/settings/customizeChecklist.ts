@@ -22,8 +22,24 @@ export type ChecklistGroupId = (typeof CHECKLIST_GROUPS)[number];
 /** The Labs switch that is not under `labs.` (Settings > Experimental > Customize From the Window). */
 export const LABS_EXTRA_KEYS: ReadonlySet<string> = new Set(["customize.fromTheApp"]);
 
-/** One switch of the checklist. `id` is unique across groups: a setting key, `library:NAME` or
- * `look:ID`. */
+/** The choice setting whose non-default choices the Looks group lists as switches: a sidebar look
+ * (Leo, ask-b9d8846cc2: "having people be able to easily toggle my customieer or whatever would be
+ * god"). Switching one on picks it; switching it off puts the setting back to its default. */
+export const SIDEBAR_LOOK_KEY = "sidebar.look";
+
+/** The id of a sidebar look's switch: `sidebar.look=rex`. */
+export function sidebarLookItemId(value: string): string {
+  return `${SIDEBAR_LOOK_KEY}=${value}`;
+}
+
+/** The choice a sidebar look switch picks, or null for any other item. */
+export function sidebarLookOf(item: Pick<ChecklistItem, "id">): string | null {
+  const prefix = `${SIDEBAR_LOOK_KEY}=`;
+  return item.id.startsWith(prefix) ? item.id.slice(prefix.length) : null;
+}
+
+/** One switch of the checklist. `id` is unique across groups: a setting key, `library:NAME`,
+ * `look:ID` or a sidebar look (`sidebar.look=rex`). */
 export type ChecklistItem = {
   id: string;
   group: ChecklistGroupId;
@@ -130,6 +146,8 @@ export type ChecklistInput = {
   /** Why the library cannot change now (a change on its way), else null. */
   libraryLocked: string | null;
   looks: readonly VerifiedLook[];
+  /** The `sidebar.look` row when the page shows it: each choice but its default is one switch. */
+  sidebarLook?: SchemaRow | null;
   /** The CLI's standup lines, which word the code group's rows; null draws them from the entry. */
   standup?: Standup | null;
 };
@@ -176,10 +194,31 @@ export function checklistGroups(input: ChecklistInput): ChecklistGroup[] {
     experiments: input.rows.experiments.map((row) => setting("experiments", row)),
     labs: input.rows.labs.map((row) => setting("labs", row)),
     library,
-    looks,
+    looks: [...sidebarLookItems(input), ...looks],
     all: input.rows.all.map((row) => setting("all", row)),
   };
   return CHECKLIST_GROUPS.map((id) => counted(id, items[id]));
+}
+
+/** The sidebar looks as switches ("Sidebar Look: Rex"), in the schema's choice order. The default
+ * (`cmux`) has none: it is what every switch off goes back to. */
+function sidebarLookItems(input: ChecklistInput): ChecklistItem[] {
+  const row = input.sidebarLook;
+  if (!row?.choices) return [];
+  const current = input.value(row.key) ?? row.default;
+  const locked = input.locked(row.key);
+  return row.choices
+    .filter((choice) => choice.value !== row.default)
+    .map((choice) => ({
+      id: sidebarLookItemId(choice.value),
+      group: "looks",
+      title: `${text(row.title)}: ${text(choice.title)}`,
+      help: shortLine(text(row.summary) || text(row.help)),
+      detail: text(row.help),
+      terms: `${row.key} ${choice.value} ${row.keywords.join(" ")}`,
+      on: current === choice.value,
+      locked,
+    }));
 }
 
 function libraryItem(entry: LibraryEntry, locked: string | null): ChecklistItem {

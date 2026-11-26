@@ -142,7 +142,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
@@ -169,7 +168,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
-| `index.crates.io` | connects | crates.io's package index, fetched by a Cloud machine's crates cache for cargo on that machine when its copy is older than a minute |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
@@ -191,7 +189,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
 | `share.cmux.dev` | connects | shared workspace links (production) |
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
-| `static.crates.io` | connects | crate downloads, fetched once by a Cloud machine's crates cache for cargo on that machine, then served from its copy |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
