@@ -63794,7 +63794,7 @@
               "kind": "primitive",
               "name": "string",
               "max_length": 512,
-              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
             }
           },
           "expected_revision": {
@@ -63905,7 +63905,7 @@
           "return_to": {
             "type": "string",
             "maxLength": 512,
-            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
           }
         },
         "required": [
