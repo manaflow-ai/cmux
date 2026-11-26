@@ -113,9 +113,19 @@ struct ColumnEdgeAtStripEndTests {
         for (kind, view) in screen.dividerViews where !view.isHidden {
             let band = view.convert(view.cursorRectInBounds, to: nil)
             guard band.width > 0, band.height > 0 else { continue }
-            let points = view.axis == .horizontal
-                ? [0.1, 0.5, 0.9].flatMap { f in [band.minX + 0.5, band.midX, band.maxX - 0.5].map { CGPoint(x: $0, y: band.minY + band.height * f) } }
-                : [0.1, 0.5, 0.9].flatMap { f in [band.minY + 0.5, band.midY, band.maxY - 0.5].map { CGPoint(x: band.minX + band.width * f, y: $0) } }
+            let fractions: [CGFloat] = [0.1, 0.5, 0.9]
+            var points: [CGPoint] = []
+            for f in fractions {
+                if view.axis == .horizontal {
+                    let y: CGFloat = band.minY + band.height * f
+                    let xs: [CGFloat] = [band.minX + 0.5, band.midX, band.maxX - 0.5]
+                    for x in xs { points.append(CGPoint(x: x, y: y)) }
+                } else {
+                    let x: CGFloat = band.minX + band.width * f
+                    let ys: [CGFloat] = [band.minY + 0.5, band.midY, band.maxY - 0.5]
+                    for y in ys { points.append(CGPoint(x: x, y: y)) }
+                }
+            }
             for point in points {
                 let hit = frame.hitTest(frame.superview?.convert(point, from: nil) ?? point)
                 #expect(hit === view, "\(kind.mouseAreaID) at \(point): the press goes to \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")

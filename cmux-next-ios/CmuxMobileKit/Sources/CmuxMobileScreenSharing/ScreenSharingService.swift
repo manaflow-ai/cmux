@@ -1,6 +1,8 @@
 #if os(iOS)
 public import CmuxDeviceHub
+public import CmuxMobileBrowserStream
 import enum CmuxMobileModel.UserFacingError
+import struct CmuxMobileModel.BoundedWait
 public import Foundation
 public import Observation
 
@@ -77,6 +79,20 @@ public final class ScreenSharingService {
     public private(set) var hub: DeviceHub?
     /// The viewer on screen: one session at a time from this phone.
     public private(set) var viewer: ScreenSharingViewer?
+    /// A Mac's screen shown over its link instead (Settings → Transport → Mac Screen over Link);
+    /// at most one of this and `viewer` is set.
+    public private(set) var linkViewer: ScreenSharingLinkViewer?
+
+    /// The Macs this phone holds a link to, with their `version` capabilities (the shell fills
+    /// it; none: Screen Sharing always uses the device hub).
+    @ObservationIgnored public var linkedMacs: @MainActor () -> [ScreenSharingLinkedMac] = { [] }
+    /// Whether Mac Screen over Link is on (tests replace it).
+    @ObservationIgnored var linkSetting: @MainActor () -> Bool = { ScreenSharingLinkRoute.settingOn() }
+    /// Opens the main display of the link Mac `macID` (`d~0`), view only; nil when not linked.
+    @ObservationIgnored var openMacDisplay: @MainActor (_ macID: String, _ refused: @escaping @MainActor @Sendable (String) -> Void)
+        -> StreamedBrowserModel? = { macID, refused in
+            StreamedBrowserDirectory.shared.macDisplayModel(display: 0, macID: macID, refused: refused)
+        }
     /// Why the tapped Mac can't be shared, shown as an alert over the list (nil: none).
     public internal(set) var alert: ScreenSharingMacAlert?
     /// The person's viewer choices (input mode, quality, stats), kept on this phone.
@@ -117,14 +133,18 @@ public final class ScreenSharingService {
         public var tokens: any DeviceHubAccountTokenProvider
         /// The signed-in account: the Macs list it last read draws before the next read (nil: none).
         public var accountID: String?
+        /// The build's cloud data space (``DeviceHubBuildSpace``): a tagged Debug build lists and reaches only its
+        /// own tag's Macs on the hub, never NIGHTLY's or another tag's of the same account.
+        public var buildSpace: DeviceHubBuildSpace
 
         public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider,
-                    accountID: String? = nil) {
+                    accountID: String? = nil, buildSpace: DeviceHubBuildSpace = .nightly) {
             self.baseURL = baseURL
             self.bundleIdentifier = bundleIdentifier
             self.deviceName = deviceName
             self.tokens = tokens
             self.accountID = accountID
+            self.buildSpace = buildSpace
         }
     }
 
@@ -226,10 +246,11 @@ public final class ScreenSharingService {
             let hub: DeviceHub
             do {
                 hub = try await DeviceHub.forApp(baseURL: configuration.baseURL, bundleIdentifier: configuration.bundleIdentifier,
-                                                 deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
+                                                 deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens,
+                                                 buildSpace: configuration.buildSpace)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start. Try again."))
+                self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start."))
                 return
             }
             guard let self, !Task.isCancelled else { return }
@@ -244,6 +265,7 @@ public final class ScreenSharingService {
         startTask = nil
         viewer?.close(reason: .signedOut)
         viewer = nil
+        closeLinkViewer()
         alert = nil
         pendingSelection = nil
         endShare()
@@ -298,6 +320,35 @@ public final class ScreenSharingService {
         // A failed list (the hub, the list read, or a socket replaced or signed out) starts over;
         // otherwise everything is read again.
         if case .failed = discovery { await hub.start() } else { await hub.refreshAll() }
+    }
+
+    /// The list can't be reached for a reason that can pass (the network, the hub, a list read):
+    /// the page reads it again on its own. A socket another connection took over, or a phone
+    /// removed or signed out of the hub, is not retried: starting again takes the connection
+    /// back or registers the phone again, which is the person's choice.
+    public var listFailureRetries: Bool {
+        guard case .failed = discovery else { return false }
+        #if DEBUG
+        if demoDiscovery != nil { return true }
+        #endif
+        switch hub?.connection {
+        case .replaced?, .removed?, .signedOut?: return false
+        default: return true
+        }
+    }
+
+    /// Reads the list again and returns once it answered (listed or failed), or after `bound`:
+    /// the page's automatic retry waits on this, so a moment of "finding" is not a recovery.
+    public func refreshUntilAnswered(within bound: Duration = .seconds(30)) async {
+        await refresh()
+        // A first start loads this phone's identity in its own task: wait for it too.
+        await startTask?.value
+        guard discovery == .finding else { return }
+        // The bound: a list that never answers still lets the next retry run.
+        await BoundedWait(bound).run { @MainActor [weak self] in
+            // No strong reference across the wait: a service torn down meanwhile goes away.
+            await BoundedWait.observing { self?.discovery == .finding }
+        }
     }
 
     private func attach(_ hub: DeviceHub) {
@@ -423,10 +474,49 @@ public final class ScreenSharingService {
         dismissViewer()
     }
 
-    /// Asks `mac` for a session and puts its viewer on screen.
+    /// Shows `mac`: over its link when Mac Screen over Link is on and the Mac streams its screen
+    /// there (`mac-display-v1`), else asks the hub for a session and puts its viewer on screen.
     @discardableResult
     public func connect(to mac: HubDevice, scope: SessionScope) -> ScreenSharingViewer? {
+        if showOverLink(mac, scope: scope) { return nil }
+        return connectOverHub(to: mac, scope: scope)
+    }
+
+    /// The link path (`d~0` on the paired Mac's link, view only); false leaves `mac` to the hub.
+    private func showOverLink(_ mac: HubDevice, scope: SessionScope) -> Bool {
+        if let current = linkViewer, current.hostID == mac.id, current.failure == nil { return true }
+        guard let macID = ScreenSharingLinkRoute.linkMac(named: mac.name, settingOn: linkSetting(), linked: linkedMacs()) else {
+            return false
+        }
+        let refusals = LinkRefusals()
+        guard let stream = openMacDisplay(macID, { code in refusals.viewer?.refused(code) }) else { return false }
+        viewer?.close(reason: .viewerDisconnected)
+        viewer = nil
+        closeLinkViewer()
+        let link = ScreenSharingLinkViewer(mac: mac, scope: scope, stream: stream)
+        refusals.viewer = link
+        link.onFailure = { [weak self] failed in self?.linkFailed(failed) }
+        linkViewer = link
+        return true
+    }
+
+    /// The link stream failed: the same Mac goes to the WebRTC path, as if the setting were off.
+    func linkFailed(_ failed: ScreenSharingLinkViewer) {
+        guard linkViewer === failed else { return }
+        closeLinkViewer()
+        connectOverHub(to: failed.mac, scope: failed.scope)
+    }
+
+    private func closeLinkViewer() {
+        linkViewer?.close()
+        linkViewer = nil
+    }
+
+    /// Asks `mac` for a session on the device hub and puts its viewer on screen.
+    @discardableResult
+    func connectOverHub(to mac: HubDevice, scope: SessionScope) -> ScreenSharingViewer? {
         guard let hub else { return nil }
+        closeLinkViewer()
         let viewer: ScreenSharingViewer
         if let current = self.viewer, current.hostID == mac.id {
             viewer = current
@@ -456,6 +546,13 @@ public final class ScreenSharingService {
     public func dismissViewer() {
         viewer?.close(reason: .viewerDisconnected)
         viewer = nil
+        closeLinkViewer()
+    }
+
+    /// What shows full screen: a Mac's screen over its link, else the hub's viewer once shown.
+    var screenOnScreen: ScreenSharingScreen? {
+        if let linkViewer { return .link(linkViewer) }
+        return viewerOnScreen.map { .hub($0) }
     }
 
     /// A `session.*` push: the viewer on screen takes the ones about its session.
@@ -493,5 +590,10 @@ public struct ScreenSharingMacAlert: Identifiable, Equatable, Sendable {
 extension HubDevice {
     /// Sharing and online first, then online, then the rest.
     fileprivate var rank: Int { macScreenShared && online ? 0 : online ? 1 : 2 }
+}
+/// Carries the link stream's refusals (they arrive from its sink) to the viewer made after it opened.
+@MainActor
+private final class LinkRefusals {
+    weak var viewer: ScreenSharingLinkViewer?
 }
 #endif

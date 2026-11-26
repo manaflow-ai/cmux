@@ -39,6 +39,40 @@ import Testing
         #expect(await services.cache.previewImage(for: tab, maxPixelSize: size) == nil)
     }
 
+    /// The root of the blank tiles: a hidden terminal's frame is volatile and memory pressure purges it, after which
+    /// the card's capture found nothing, even with the terminal alive. Found in a dev build (the sidebar miniature's
+    /// tiles: `terminal=1 raw=0` for both panes of a background workspace). The picture taken as it paused stands in.
+    @Test func aHiddenTerminalWhoseFrameWasPurgedKeepsItsPicture() async throws {
+        let (services, tab, session, done) = try await Self.terminal(output: "npm run dev\r\n  ready on http://localhost:3000\r\n")
+        defer { done() }
+        let size = CGSize(width: 320, height: 200)
+
+        // Its tab leaves the screen: the surface pauses and pictures its frame before the frame turns volatile.
+        session.isRenderingSuspended = true
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.surfaceView.pausedPicture == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let paused = try #require(session.surfaceView.pausedPicture, "the pausing surface took no picture")
+        #expect(max(paused.width, paused.height) <= Int(TerminalSurfaceView.pausedPictureSide))
+
+        // Memory pressure purges the volatile frame: the layer shows nothing any more.
+        session.surfaceView.layer?.contents = nil
+        services.cache.previews.remove(tab)
+        #expect(session.surfaceView.presentedFrame == nil, "setup: the frame is still there")
+
+        let image = await services.cache.previewImage(for: tab, maxPixelSize: size)
+        #expect(image != nil, "a hidden terminal whose frame was purged showed an empty tile")
+        #expect(await ThumbnailStats.measure(try #require(image))?.isBlank == false)
+
+        // Hibernated after that: the eviction keeps the paused picture too.
+        let removed = services.cache.terminals.removeValue(forKey: tab)
+        let entry = try #require(removed)
+        services.cache.lastFrames.evict(session, key: tab, capacity: 8, atOnce: true)
+        await services.cache.lastFrames.pictureSettled(tab)
+        entry.close()
+        services.cache.previews.remove(tab)
+        #expect(await services.cache.previewImage(for: tab, maxPixelSize: size) != nil, "the hibernated terminal lost the paused picture")
+    }
+
     @Test func aNewShellsPromptStillHasNoPicture() async throws {
         let (services, tab, session, done) = try await Self.terminal(output: "Last login: Mon Oct 13 09:12:44 on ttys004\r\nyou@mac ~ % ")
         defer { done() }

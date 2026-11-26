@@ -19,7 +19,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "race_start",
-            "description": "Best-of-N: run one task as several attempts, each a sub-session of this chat in its own git worktree of this chat's folder, then an independent reviewer reads every attempt and picks one. Give one model with attempts (4 attempts of codex) or several models. Returns the race id at once; race_show reads its state, each attempt's worktree and the reviewer's pick. Nothing is merged or discarded: losing worktrees are kept.",
+            "description": "Best-of-N: run one task as several attempts, each a sub-session of this chat in its own git worktree of this chat's folder, then an independent reviewer reads every attempt and picks one. Give one model with attempts (4 attempts of codex) or several models. Returns the race id at once; race_show reads its state and pick. Losing worktrees are kept.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -28,7 +28,7 @@ pub(super) fn tools() -> Vec<Value> {
                     "attempts": {"type": "integer", "minimum": 1, "maximum": MAX_ATTEMPTS, "description": "Attempts of each model (default 1; one model needs 2 or more)."},
                     "reviewer": {"type": "string", "description": "HARNESS[/MODEL] of the reviewer that picks the winner."},
                     "effort": {"type": "string", "description": "Thinking effort of the attempts (default: each harness's)."},
-                    "hints": {"type": "array", "items": {"type": "string"}, "description": "A plan hint per candidate, in candidate order (each model's attempts together), put before the task so attempts diverge on purpose; \"\" or a missing one leaves that attempt with the task alone."},
+                    "hints": {"type": "array", "items": {"type": "string"}, "description": "A plan hint per candidate, in candidate order (each model's attempts together), put before the task so attempts diverge; \"\" or none leaves the task alone."},
                     "reviewer_effort": {"type": "string", "description": "Thinking effort of the reviewer."}
                 },
                 "required": ["prompt", "models", "reviewer"]

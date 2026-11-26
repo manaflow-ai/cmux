@@ -36,7 +36,10 @@ fn writes_each_agents_own_file() {
     assert_eq!(codex.description, "Ship \"it\"");
     assert_eq!(codex.prompt, "Ship it.\n\nNow.");
     let cmux = add(&homes, &new(Target::Cmux, "standup", "Write my standup")).unwrap();
-    assert_eq!(cmux.path, dir.path().join(".config/cmux/commands/standup.md"));
+    assert_eq!(
+        cmux.path,
+        dir.path().join(".config").join(cmux_config::NEXT_DIR).join("commands/standup.md")
+    );
 
     // Claude Code's own reader (the skills listing) sees the new command as a slash command.
     let listing = crate::skills::list(&homes, &crate::skills::ListOptions::default());

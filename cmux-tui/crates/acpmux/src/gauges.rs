@@ -9,6 +9,8 @@
 //! Every gauge here is a few atomics or a short lock that no request holds, so `daemon status`
 //! reads them even while startup runs.
 
+pub mod carrier;
+
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -101,6 +103,7 @@ impl Gauges {
             "fanout": fanout_status(),
             "links": links().status(),
             "workerLag": worker_lag().status(),
+            "carrier": carrier::global().status(),
         })
     }
 }
@@ -661,20 +664,56 @@ pub fn worker_lag() -> &'static WorkerLag {
     RING.get_or_init(WorkerLag::default)
 }
 
+/// The name of the canary's idle watch thread ([`IdleWatch`]); the idle test allows it, and only
+/// it, to wake (`tests/daemon_idle.rs`). Under 16 bytes: linux thread names stop at 15.
+pub const CANARY_THREAD: &str = "lag-canary";
+
 /// Sleeps on the runtime it is spawned on, forever, and records in `ring` how far past its sleep
-/// each wake came: [`CANARY_PERIOD`] while the runtime works, backing off to
-/// [`CANARY_IDLE_PERIOD`] while it is quiet ([`canary_next`]). Its cost is one timer, one atomic
-/// store and one read of the workers' busy time per wake.
+/// each wake came: [`CANARY_PERIOD`] while the runtime works, backing off while it is quiet
+/// ([`canary_next`]). Its cost is one timer, one atomic store and one read of the workers' busy
+/// time per wake. Backed off to [`CANARY_IDLE_PERIOD`], it hands the quiet runtime to an
+/// [`IdleWatch`] and wakes no runtime worker until the watch sees one run.
 pub async fn worker_lag_canary(ring: &'static WorkerLag) {
+    canary_from(ring, (CANARY_PERIOD, Duration::ZERO), CANARY_IDLE_PERIOD).await;
+}
+
+/// [`worker_lag_canary`] from a given sleep and quiet span, its idle watch looking every
+/// `watch_every` (tests look more often than 4 s).
+async fn canary_from(
+    ring: &'static WorkerLag,
+    (mut period, mut quiet): (Duration, Duration),
+    watch_every: Duration,
+) {
     let metrics = tokio::runtime::Handle::current().metrics();
     let busy = || -> Duration {
         (0..metrics.num_workers()).map(|w| metrics.worker_total_busy_duration(w)).sum()
     };
-    let (mut period, mut quiet) = (CANARY_PERIOD, Duration::ZERO);
+    // Started at the first quiet stretch; no thread (an unspawnable one) keeps the 4 s sleep.
+    let mut watch: Option<IdleWatchGuard> = None;
     loop {
-        let (asked, busy_before) = (Instant::now(), busy());
-        tokio::time::sleep(period).await;
-        let late = asked.elapsed().saturating_sub(period);
+        let (asked, mut busy_before) = (Instant::now(), busy());
+        let late = if period >= CANARY_IDLE_PERIOD {
+            if watch.is_none() {
+                watch = IdleWatch::start(ring, metrics.clone(), watch_every).ok();
+            }
+            match &watch {
+                // How long the runtime took to run this task after the watch woke it, and the
+                // busy time since the watch's last look before (not since this task slept:
+                // minutes of tiny tasks would add up to a block).
+                Some(watch) => {
+                    let (woke_at, busy_at_look) = watch.0.quiet().await;
+                    busy_before = busy_at_look;
+                    woke_at.elapsed()
+                }
+                None => {
+                    tokio::time::sleep(period).await;
+                    asked.elapsed().saturating_sub(period)
+                }
+            }
+        } else {
+            tokio::time::sleep(period).await;
+            asked.elapsed().saturating_sub(period)
+        };
         ring.record(late);
         ring.period_ms
             .store(u64::try_from(period.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
@@ -683,6 +722,118 @@ pub async fn worker_lag_canary(ring: &'static WorkerLag) {
             if late > CANARY_TIMER_SLACK { canary_late(late, host_overloaded()) } else { late };
         (period, quiet) = canary_next(period, judged, busy().saturating_sub(busy_before), quiet);
     }
+}
+
+/// The backed-off canary's look at a quiet runtime, from a thread of its own ([`CANARY_THREAD`])
+/// so the runtime's workers all sleep: every few seconds it reads the workers' metrics, no task
+/// polled. Every worker parked (tokio counts each park and unpark: an odd count is a parked
+/// worker) and no busy time since its last look is a lag of zero, recorded in the ring as the
+/// 4 s canary wake did. A worker that runs (a task blocking it shows here) or busy time over 1%
+/// of the look's span wakes the canary task, which records how long the runtime took to poll it.
+///
+/// Why not a wake with no timer at all, from tokio's `on_thread_unpark` hook: that wake is put in
+/// the waking worker's own LIFO slot, which no other worker takes, so a task that blocks that
+/// worker also holds the canary and its lag is never seen; and every other wake would cost the
+/// canary one more. The 4 s look stays, off the runtime: 0.25 thread wakes a second, no worker.
+struct IdleWatch {
+    state: Mutex<WatchState>,
+    changed: std::sync::Condvar,
+    woke: tokio::sync::Notify,
+}
+
+#[derive(Default)]
+struct WatchState {
+    /// The canary waits on [`IdleWatch::woke`]: the thread looks.
+    armed: bool,
+    /// The canary is gone (its scope cancelled): the thread ends.
+    stopped: bool,
+    /// When the thread woke the canary, and the workers' busy time at its look before.
+    woke_at: Option<(Instant, Duration)>,
+}
+
+/// The canary's handle: dropping it ends the watch thread.
+struct IdleWatchGuard(std::sync::Arc<IdleWatch>);
+
+impl Drop for IdleWatchGuard {
+    fn drop(&mut self) {
+        self.0.state.lock().unwrap_or_else(PoisonError::into_inner).stopped = true;
+        self.0.changed.notify_all();
+    }
+}
+
+impl IdleWatch {
+    fn start(
+        ring: &'static WorkerLag,
+        metrics: tokio::runtime::RuntimeMetrics,
+        every: Duration,
+    ) -> std::io::Result<IdleWatchGuard> {
+        let watch = std::sync::Arc::new(Self {
+            state: Mutex::default(),
+            changed: std::sync::Condvar::new(),
+            woke: tokio::sync::Notify::new(),
+        });
+        let looks = watch.clone();
+        std::thread::Builder::new()
+            .name(CANARY_THREAD.into())
+            .stack_size(64 * 1024)
+            .spawn(move || looks.run(ring, &metrics, every))?;
+        Ok(IdleWatchGuard(watch))
+    }
+
+    /// Waits until the thread sees the runtime work; returns when it woke this task and the
+    /// workers' busy time at its look before.
+    async fn quiet(&self) -> (Instant, Duration) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).armed = true;
+        self.changed.notify_all();
+        // A wake before this await is kept as a permit: none is lost.
+        self.woke.notified().await;
+        let woke_at = self.state.lock().unwrap_or_else(PoisonError::into_inner).woke_at.take();
+        woke_at.unwrap_or_else(|| (Instant::now(), Duration::ZERO))
+    }
+
+    fn run(&self, ring: &WorkerLag, metrics: &tokio::runtime::RuntimeMetrics, every: Duration) {
+        let busy = || -> Duration {
+            (0..metrics.num_workers()).map(|w| metrics.worker_total_busy_duration(w)).sum()
+        };
+        let mut last_busy = busy();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if state.stopped {
+                return;
+            }
+            if !state.armed {
+                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+                last_busy = busy();
+                continue;
+            }
+            let (next, waited) =
+                self.changed.wait_timeout(state, every).unwrap_or_else(PoisonError::into_inner);
+            state = next;
+            if state.stopped || !state.armed || !waited.timed_out() {
+                continue;
+            }
+            let (looked_busy, now_busy) = (last_busy, busy());
+            let worked = now_busy.saturating_sub(looked_busy) > every / 100;
+            last_busy = now_busy;
+            if worked || workers_running(metrics) {
+                state.armed = false;
+                state.woke_at = Some((Instant::now(), looked_busy));
+                self.woke.notify_one();
+            } else {
+                ring.record(Duration::ZERO);
+                ring.period_ms.store(
+                    u64::try_from(CANARY_IDLE_PERIOD.as_millis()).unwrap_or(u64::MAX),
+                    Ordering::Relaxed,
+                );
+            }
+        }
+    }
+}
+
+/// Whether any worker of the runtime is unparked now: tokio counts each park and each unpark of a
+/// worker, from 0 for a worker that starts awake, so an even count is a worker awake.
+fn workers_running(metrics: &tokio::runtime::RuntimeMetrics) -> bool {
+    (0..metrics.num_workers()).any(|w| metrics.worker_park_unpark_count(w).is_multiple_of(2))
 }
 
 /// `gauges` in `_acpmux/status`: [`Gauges::status`] with each connection's queue.
@@ -1040,6 +1191,59 @@ mod tests {
             canary_next(CANARY_PERIOD, Duration::ZERO, ms(1), Duration::ZERO).0,
             CANARY_PERIOD
         );
+    }
+
+    /// A backed-off canary on a runtime of `workers` that starts quiet, its watch looking every
+    /// 50 ms: each worker's park/unpark count before and after `run` (with a task blocking one
+    /// worker for `block` 100 ms in), and the ring's status.
+    fn idle_canary(
+        workers: usize,
+        block: Option<Duration>,
+        run: Duration,
+    ) -> (Vec<u64>, Vec<u64>, Value) {
+        let ring: &'static WorkerLag = Box::leak(Box::default());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(workers)
+            .enable_time()
+            .build()
+            .unwrap();
+        let quiet = (CANARY_IDLE_PERIOD, Duration::from_secs(60));
+        runtime.spawn(canary_from(ring, quiet, Duration::from_millis(50)));
+        std::thread::sleep(Duration::from_millis(200));
+        let metrics = runtime.metrics();
+        let counts =
+            || (0..workers).map(|w| metrics.worker_park_unpark_count(w)).collect::<Vec<_>>();
+        let before = counts();
+        if let Some(block) = block {
+            std::thread::sleep(Duration::from_millis(100));
+            runtime.spawn(async move { std::thread::sleep(block) });
+        }
+        std::thread::sleep(run);
+        let after = counts();
+        runtime.shutdown_background();
+        (before, after, ring.status())
+    }
+
+    /// An idle daemon's canary woke a runtime worker every 4 s, so the idle test saw the runtime's
+    /// pool run in every 10 s window (`tests/daemon_idle.rs`). Backed off, it wakes no worker: its
+    /// watch thread reads the metrics and still records a sample per look.
+    #[test]
+    fn a_backed_off_canary_wakes_no_runtime_worker() {
+        let (before, after, status) = idle_canary(2, None, Duration::from_millis(1000));
+        assert_eq!(before, after, "a worker woke on a quiet runtime: {status}");
+        assert!(status["samples"].as_u64().unwrap() >= 5, "the watch recorded no look: {status}");
+        assert_eq!(status["maxMs"], 0.0, "{status}");
+        assert_eq!(status["periodMs"], CANARY_IDLE_PERIOD.as_millis() as u64, "{status}");
+    }
+
+    /// A worker blocked while the canary is backed off: the watch sees it awake and wakes the
+    /// canary, whose lag is how long the runtime took to poll it (the rest of the block).
+    #[test]
+    fn a_worker_blocked_at_idle_shows_in_the_worker_lag_max() {
+        let (_, _, status) =
+            idle_canary(1, Some(Duration::from_millis(300)), Duration::from_millis(600));
+        let max = status["maxMs"].as_f64().unwrap();
+        assert!(max >= 150.0, "the canary saw at most {max} ms behind a 300 ms block: {status}");
     }
 
     #[test]

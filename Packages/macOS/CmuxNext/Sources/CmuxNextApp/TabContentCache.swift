@@ -134,10 +134,8 @@ final class TabContentCache {
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
     var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
-    /// The omnibar's browser profile badge of tab `key` (nil: hidden).
+    /// The avatar the toolbar's profile button draws for tab `key` (nil: its plain glyph).
     var profileBadge: ((String) -> BrowserProfileBadge?)?
-    /// The menu of tab `key`'s browser profile badge.
-    var profileBadgeMenu: ((String) -> NSMenu?)?
     /// The omnibar and tab-strip machine chip of tab `key` for a URL.
     var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
     /// The tab with durable id `key` on any machine (`browserTabs` only
@@ -275,7 +273,7 @@ final class TabContentCache {
                          machine: daemon.machineID)
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
-        if let entry = browsers[key] { return entry }
+        if let entry = browsers[key] ?? daemon.store.creations.standIn(replacedBy: tab.surface).flatMap({ moveBrowser($0, to: tab) ? browsers[key] : nil }) { return entry } // a stand-in's daemon tab takes its page, whichever asks first: one page, no blank frame (ask-08552f8ea0)
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
@@ -452,7 +450,6 @@ final class TabContentCache {
         entry.state.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         serveAppPages(entry, key: key)
         entry.state.profileBadge = profileBadge?(key)
-        entry.state.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
         if Self.isBrowserPage(page) { onBrowserTab?() }
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
@@ -466,7 +463,7 @@ final class TabContentCache {
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         phonePictures?.followFavicon(tab: key) { [weak page] in page?.favicon }
-        (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)
+        if let tab = page as? CEFTab { (tab.onReadyForKeys, tab.onLaunchMark) = ({ [weak self] in self?.onBrowserReady?(key) }, { DebugTimings.markLaunch($0) }) } // ready for keys (a restored page: its document loaded); its launch marks
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)

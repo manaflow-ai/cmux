@@ -85,7 +85,16 @@ export function sentVideosOf(
     const path = attachmentPath(part.uri);
     if (!path || found.some((video) => video.name === part.name && video.path === path)) return [];
     const note = framed.find((video) => video.name === part.name);
-    const video = note ? { ...note, path } : { name: part.name, path };
+    // Its size: its note's, else what acpmux kept with its part (the pane sends it,
+    // hub/prompt_images.rs), else the host's read of its file this page made (`noteVideoSize`), so its
+    // tile has its box at once.
+    const size =
+      note?.width && note.height
+        ? undefined
+        : part.width && part.height
+          ? { width: part.width, height: part.height }
+          : readSizes.get(path);
+    const video = { ...(note ?? { name: part.name }), ...size, path };
     found.push(video);
     return [video];
   });
@@ -198,4 +207,17 @@ export function withoutRepeatedVideos<T extends PromptContentPart>(
     drawn.add(key);
     return true;
   });
+}
+
+/// The sizes the host read of videos sent without frames (SentVideoTile.tsx `video.info`), by path:
+/// a tile drawn again, and the row's estimate (model.ts), take the box the read gave from the first
+/// frame. The most recent READ_SIZES_KEPT are kept.
+const readSizes = new Map<string, { width: number; height: number }>();
+const READ_SIZES_KEPT = 256;
+
+/// Keeps the size the host read of the video at `path`.
+export function noteVideoSize(path: string, size: { width: number; height: number }): void {
+  readSizes.delete(path);
+  readSizes.set(path, { width: size.width, height: size.height });
+  if (readSizes.size > READ_SIZES_KEPT) readSizes.delete(readSizes.keys().next().value!);
 }

@@ -21,6 +21,21 @@ RUN_LOOP = ("<CFRunLoopTimer 0x1>{valid = Yes, firing = No, interval = 1, tolera
             "callout = Dead (0x6)}\n")
 
 
+class WakeupKinds(unittest.TestCase):
+    def test_a_window_splits_package_idle_and_interrupt_wakeups(self):
+        # host_load=8 runs read about half the idle runs' wakeups/s (0.85 against 1.5 per acpmux daemon) with the same
+        # context switches/s (0.9): the wakeups counter is package-idle plus interrupt wakeups, and a busy Mac's
+        # package is never idle. Each window keeps both, so a busy run is judged by a counter the load does not hide.
+        usage = lambda cpu, pkg, intr: (0, 0, 0, cpu, pkg + intr, pkg)
+        spans = [((0.0, {7: (usage(0, 10, 5), 100)}), (10.0, {7: (usage(10**7, 13, 15), 109)}))]
+        row = idle_cpu.rows_of({7: ("acpmux-daemon", "acpmux")}, spans)[0]
+        self.assertEqual(row["windows"][0]["wakeups_per_s"], 1.3)
+        self.assertEqual(row["windows"][0]["idle_wakeups_per_s"], 0.3)
+        self.assertEqual(row["windows"][0]["interrupt_wakeups_per_s"], 1.0)
+        self.assertEqual((row["idle_wakeups_per_s"], row["interrupt_wakeups_per_s"], row["switches_per_s"]),
+                         (0.3, 1.0, 0.9))
+
+
 class WakeReport(unittest.TestCase):
     def test_ledger_rates_over_the_windows_busiest_first(self):
         before = {"uptime_s": 100.0, "ledger": [{"owner": "dock", "reason": "badge", "count": 10},

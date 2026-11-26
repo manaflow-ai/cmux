@@ -277,10 +277,14 @@ def segment_verbs(scope: str, tokens: list[str]) -> tuple[list[str], bool]:
 
 def usage_verbs(scope: str, text: str) -> list[tuple[str, bool]]:
     """Verb paths of a scope help's `cmux SCOPE ...` usage lines (indented, or after `usage:`)."""
-    out = []
+    out, examples = [], False
     for raw in text.splitlines():
+        # An EXAMPLES section's lines are uses, not usage: `cmux move my-chat --to auto` names a session, no verb.
+        if re.match(r"[A-Z][A-Z ]*:?$", raw.strip()) and not raw.startswith(" "):
+            examples = raw.strip().rstrip(":") == "EXAMPLES"
+            continue
         m = re.match(r"(?:\s*usage:?\s*|\s{2,})cmux\s+(.*)$", raw, re.I)
-        if not m:
+        if not m or examples:
             continue
         line = re.split(r"\s{2,}", _protect(m.group(1)).strip())[0]  # drop the description column
         no_bare = bool(re.search(r"[\[<](COMMAND|verb|action)", line, re.I))
@@ -587,6 +591,9 @@ Prose: cmux workspace close --all closes them.
         self.assertEqual(scope_verbs("open", "usage: cmux open <path|url>... [--focus]\n  cmux open --link\n"), ["open"])
         self.assertEqual(scope_verbs("status", "  cmux status run [--label <text>] -- CMD …\n"), ["status run"])
         self.assertEqual(scope_verbs("identify", "usage: cmux identify | ping | capabilities\n"), ["identify"])
+        # An EXAMPLES section names sessions and hosts, not verbs (`cmux move my-chat`, `cmux move first second`).
+        self.assertEqual(scope_verbs("move", "USAGE\n  cmux move [SESSION...] --to MACHINE\nEXAMPLES\n"
+                                     "  cmux move my-chat --to auto\n  cmux move first second --to box\n"), ["move"])
         self.assertEqual(scope_verbs("app", "  cmux app <verb...> [--x <v>]\n  cmux app ping\n"), ["app ping"])
         self.assertEqual(scope_verbs("device", "  cmux device add HOST --yes\n  cmux device remove ID|NAME\n"),
                          ["device add", "device remove"])

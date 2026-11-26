@@ -339,7 +339,7 @@
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
     "cloud-composer-journey.yml#journey": {"class": "apple-app-build"},
-    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
+    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: attempt 1 takes the owned side label (glaeda-side-std-xcode-26.6) while CI_PR_POOL_OWNED is 1, a re-run the declared macos_26 pool; feat-cmux-next only, manual dispatch; take the label from a placement job"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -455,10 +455,6 @@
     "cmux-vnc.yml#swift-test": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
-    "coderouter-release.yml#build": {
-      "class": "apple-signing-release",
-      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
     "ios-app-store.yml#upload-and-validate": {
       "class": "apple-ios",
@@ -631,8 +627,7 @@
       "class": "apple-gui",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
-    "test-ios.yml#ios-simulator-build": "apple-ios",
-    "test-ios.yml#mobile-core-package": "apple-ios"
+    "test-ios.yml#ios-simulator-build": "apple-ios"
   },
   "hosted_light_jobs": {
     "$comment": [
@@ -726,7 +721,8 @@
       "cmux-tui-artifacts.yml#point-windows-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads one completion record and uploads one channel file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#point-mac-live-channel": {"size": 4, "failover": 8, "measured": {}, "why": "delivery-only: downloads and hashes Mac binaries, signs a small manifest and uploads it; split from point-machine-channel (not measured separately yet)"},
       "cmux-tui-artifacts.yml#point-machine-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: downloads four published binaries, signs and uploads one file; the same shape as point-feat-channel (not measured yet)"},
-      "cmux-tui-artifacts.yml#point-machine-channel-early": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
+      "cmux-machine-channel.yml#point-x86_64": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
+      "cmux-machine-channel.yml#point-linux": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish": {"size": 8, "failover": 16, "measured": {"32": [584.5, 2.33, 7.55], "4": [129.5, 4.72, 8.13]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-artifacts.yml#publish-ref-notice": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "cmux-tui-artifacts.yml#publish-tree": {"size": 4, "failover": 8, "measured": {"32": [548.0, 1.18, 1.48], "4": [108.0, 2.13, 2.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
@@ -771,8 +767,6 @@
       "cmux-vm-clients.yml#sdk": {"size": 4, "failover": 8, "measured": {"16": [21.5, 0.53, 0.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-vm-cloud.yml#check": {"size": 4, "failover": 8, "measured": {"16": [1.5, 1.96, 2.02]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-vm.yml#check": {"size": 8, "failover": 16, "measured": {"16": [28.5, 2.51, 3.03]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
-      "coderouter-ci.yml#test": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
-      "coderouter-release.yml#build-linux": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "fast-checks.yml#checks": {"routes": [8, 16, 32], "target": 8, "measured": {"32": [1524.0, 3.56, 5.88], "16": [77.5, 2.89, 5.08]}, "pending": "#29934 and #29932 change this job's runs-on; the broker's reroute set lists 32 (tests/test_ci_runner_set.py)"},
       "gallery-advisory.yml#capture": {"size": 8, "failover": 16, "measured": {"16": [870.5, 3.3, 4.25]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "gallery-health.yml#health": {"routes": [4, 16, 32], "target": 16, "measured": {"16": [3964.0, 12.24, 21.77]}, "pending": "#29844 moves this job to the Linux pool"},

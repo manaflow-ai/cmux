@@ -85,15 +85,20 @@ test("an attachment-only prompt with blank recorded text reserves only its attac
   setComposerSettings({ attachmentView: "inline" });
 });
 
-// Two wide screenshots draw 480px each and wrap to two rows in a 720px pane's 504px column.
+// Two wide screenshots draw 480x120 each and wrap to two rows in a 720px pane's 504px column; two
+// pictures of no known size draw 160px squares and share one row.
 test("two wide images in an attachment-only prompt reserve two thumbnail rows", () => {
   const images = [
-    { id: "a", mimeType: "image/png" },
-    { id: "b", mimeType: "image/png" },
+    { id: "a", mimeType: "image/png", width: 1600, height: 400 },
+    { id: "b", mimeType: "image/png", width: 1600, height: 400 },
   ];
   const [one] = heightsOf([{ id: "one", version: 1, at: 0, kind: "user", images: images.slice(0, 1) }]);
   const [two] = heightsOf([{ id: "two", version: 1, at: 0, kind: "user", images }]);
-  expect(two! - one!).toBe(SENT_IMAGE_HEIGHT + 8);
+  expect(two! - one!).toBe(120 + 8);
+  const squares = images.map(({ id, mimeType }) => ({ id, mimeType }));
+  const [square] = heightsOf([{ id: "sq1", version: 1, at: 0, kind: "user", images: squares.slice(0, 1) }]);
+  const [squaresTwo] = heightsOf([{ id: "sq2", version: 1, at: 0, kind: "user", images: squares }]);
+  expect(squaresTwo).toBe(square);
 });
 
 // A video sent with its frames draws a SENT_IMAGE_HEIGHT tile in the thumbnail row, not a 36px file chip.
@@ -103,6 +108,29 @@ test("a video-only prompt reserves its tile's thumbnail row", () => {
   const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/c.mp4", mimeType: "video/mp4", size: 1, video };
   const [height] = heightsOf([{ id: "video", version: 1, at: 0, kind: "user", retryAttachments: [chip] }]);
   expect(height).toBeGreaterThanOrEqual(SENT_IMAGE_HEIGHT + ATTACHMENT_BAND_BELOW);
+});
+
+// A wide recording's tile is its own shape, 480 wide and 148 tall for Leo's 1406x434 (2026-11-22:
+// "having this square is kinda strange"), and the estimate reserves that, not a 160 square: a kept
+// size on a bare file part (after a reload) reserves its own shape too.
+test("a wide video-only prompt reserves its tile's own height", () => {
+  const poster = "data:image/jpeg;base64,AA==";
+  const sent = (id: string, width: number, height: number) => {
+    const video = { width, height, durationMs: 4_000, poster, frames: ["f"] };
+    const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/c.mp4", mimeType: "video/mp4", size: 1, video };
+    return { id, version: 1, at: 0, kind: "user", retryAttachments: [chip] };
+  };
+  const [wide, square] = heightsOf([sent("wide", 1406, 434), sent("square", 1000, 1000)]);
+  expect(square! - wide!).toBe(SENT_IMAGE_HEIGHT - Math.round((434 * 480) / 1406));
+  const kept = (id: string, width: number, height: number) => ({
+    id,
+    version: 1,
+    at: 0,
+    kind: "user",
+    inlineParts: [{ kind: "file", name: "clip.mp4", uri: "file:///c.mp4", width, height }],
+  });
+  const [keptWide, keptSquare] = heightsOf([kept("kept-wide", 1406, 434), kept("kept-square", 1000, 1000)]);
+  expect(keptSquare! - keptWide!).toBe(square! - wide!);
 });
 
 // Its clock sits beside the attachment band (UserBubble.tsx), so the row keeps its height when it lands.
@@ -170,12 +198,11 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
     const live = turnView(source as never, new Set(), {
       now: 3_000,
       working: true,
-      sessionStatus: true,
     });
     const settled = turnView(
       [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
       new Set(),
-      { now: 4_000, sessionStatus: true },
+      { now: 4_000 },
     );
     expect(live.at(-1)).toMatchObject({ below: true });
     expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
@@ -188,7 +215,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const liveSource = [
     { id: "u", version: 1, at: 1_000, kind: "user", text: "Run it" },
     { id: "a", version: 1, at: 2_000, kind: "assistant", text: "The command is ready." },
-    { id: "p", version: 1, at: 3_000, kind: "plan", plan: [{ content: "Run", status: "in_progress" }] },
     {
       id: "t",
       version: 1,
@@ -200,7 +226,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const live = turnView(liveSource as never, new Set(), {
     now: 5_000,
     working: true,
-    sessionStatus: true,
   });
   const settledSource = [
     ...liveSource.slice(0, -1),
@@ -212,9 +237,8 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   ];
   const settled = turnView(settledSource as never, new Set(), {
     now: 6_000,
-    sessionStatus: true,
   });
-  expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
+  expect(live.at(-1)).toMatchObject({ below: true });
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
   expect(layoutConversation(live, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
   expect(layoutConversation(settled, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
@@ -913,19 +937,24 @@ test("a placed paste is estimated as the one body its bubble draws", () => {
 
 // An attachment in a placed prompt's text is an inline block on the text's line, as the bubble's CSS
 // flows it (`.cv-user__inline-content`, `pre-wrap`): a line is as tall as its tallest thumbnail, an
-// image is its own sent size (UserBubble.tsx `sentImageSize`, up to 480px wide and 160px tall), and
-// an image's retained original, which the bubble does not draw, takes no room. At ac67fede each image
-// was a 128px-wide row of its own under the text, and a companion file a chip row too.
+// image is its own sent size (UserBubble.tsx `sentImageSize`, at most 160px tall and 480px wide,
+// scaled down whole to the bubble's text), and an image's retained original, which the bubble does
+// not draw, takes no room. At ac67fede each image was a 128px-wide row of its own under the text.
 test("a placed image is estimated at its own size, on its text's line", () => {
   const padding = 5 * gridLength("base");
   const { y } = INLINE_ATTACHMENT_MARGIN;
   const row = (parts: unknown[]) => ({ id: "u", version: 1, at: 0, kind: "user", text: "look", inlineParts: parts });
-  // A 1600x400 screenshot draws 480x120, whole; in a 720px pane's bubble it scales to the line.
+  // A 400x100 picture draws at its own 400x100 (never upscaled), on the line of the word before it.
+  const small = { kind: "image", id: "small", mimeType: "image/png", width: 400, height: 100, placed: true };
+  const [smallHeight] = heightsOf([row([{ kind: "text", text: "look " }, small])]);
+  expect(smallHeight).toBeCloseTo(padding + 100 + 2 * y, 5);
+  // A 1600x400 screenshot draws at most 480x120, whole: never taller than 120, on its word's line or
+  // under it when the line is full.
   const wide = { kind: "image", id: "wide", mimeType: "image/png", width: 1600, height: 400, placed: true };
-  const [wideHeight] = heightsOf([row([wide])]);
-  expect(wideHeight).toBeGreaterThan(padding);
-  expect(wideHeight).toBeLessThanOrEqual(padding + 120 + 2 * y + 0.0001);
-  // A square one with no known size draws SENT_IMAGE_HEIGHT square; the words after it share its line.
+  const [wideHeight] = heightsOf([row([{ kind: "text", text: "look " }, wide])]);
+  expect(wideHeight!).toBeLessThanOrEqual(padding + currentChatMetrics().lineHeight + 120 + 2 * y + 0.001);
+  expect(wideHeight!).toBeGreaterThan(padding + 100 + 2 * y);
+  // A square one with no known size draws 160x160; the words after it share its line.
   const square = { kind: "image", id: "sq", mimeType: "image/png", blockIndex: 0 };
   const companion = { kind: "file", name: "shot.heic", uri: "file:///tmp/shot.heic", companionOf: 0 };
   const [withOriginal] = heightsOf([row([square, companion, { kind: "text", text: " then words" }])]);
@@ -945,8 +974,8 @@ test("placed attachments wrap to a new line only when the line is full", () => {
     text: "four",
     inlineParts: [{ kind: "text", text: "four " }, ...Array.from({ length: count }, (_, index) => image(`i${index}`))],
   });
-  // Each SENT_IMAGE_HEIGHT square is 8px wider with its margins; at 720px the bubble's text is about
-  // 480px wide, so two fit beside the word and a third starts the next line.
+  // Each 160px square is 168px with its margins; at 720px the bubble's text is under 504px wide, so
+  // two fit beside the word and a third starts the next line.
   const tile = SENT_IMAGE_HEIGHT + 2 * y;
   expect(heightsOf([row(2)])[0]).toBeCloseTo(padding + tile, 5);
   expect(heightsOf([row(3)])[0]).toBeCloseTo(padding + 2 * tile, 5);

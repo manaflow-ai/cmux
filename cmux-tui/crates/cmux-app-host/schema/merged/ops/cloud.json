@@ -168,7 +168,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "0e5c01ef5e37ba4e"
+      "digest": "8b49f3a3ff528f5b"
     },
     "cloud.machine.delete": {
       "source": "cloud",
@@ -543,6 +543,13 @@
       "source": "local",
       "class": "read",
       "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.machine.request": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "bd1a173ec0a3df5e"
     },
     "cloud.vm.network_policy": {
       "source": "cloud",

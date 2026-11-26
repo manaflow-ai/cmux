@@ -27,6 +27,12 @@ case "${1:-}" in
     ;;
   take)
     derived_data="$RUNNER_TEMP/cmux-scheme-fleet"
+    if [[ -z "${CMUX_SCHEME_FLEET_JOB:-}" ]]; then
+      # No passing fleet build: say why, so every Mac compile of this scheme is a logged fallback.
+      echo "ok=false" >> "$GITHUB_OUTPUT"
+      echo "::warning title=fleet fallback::no build fleet app for this head (fleet job: ${FLEET_RESULT:-none}, verdict: ${FLEET_VERDICT:-none}, CI_SCHEME_COMPILE_FLEET: ${FLEET_SWITCH:-unset}); compiling the cmux scheme on this Mac"
+      exit 0
+    fi
     if [[ "$PARITY" == true ]]; then
       # The parity sample: keep the fleet app aside and compile here too (Compare step below).
       if "$here/fleet-scheme-app.sh" "$CMUX_SCHEME_FLEET_JOB" "$RUNNER_TEMP/cmux-scheme-parity"; then

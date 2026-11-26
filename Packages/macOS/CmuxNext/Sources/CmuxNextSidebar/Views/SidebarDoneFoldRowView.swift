@@ -5,7 +5,13 @@ import CmuxNextIcons
 /// The "Done (N)", "Archived (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in
 /// the folder header's quiet style. A click opens or folds the rows it holds; it is no drop target and has no menu of
 /// its own (its list's menu shows).
-final class SidebarDoneFoldRowView: SidebarRowView {
+/// A disclosure row that draws the keyboard focus ring (`SidebarGroupKeys.focusFold`): the Done, Archived and Show more
+/// rows, and Group by Status's headers.
+@MainActor protocol SidebarFoldRingView: AnyObject {
+    var isKeyboardFocused: Bool { get set }
+}
+
+final class SidebarDoneFoldRowView: SidebarRowView, SidebarFoldRingView {
     var isKeyboardFocused = false {
         didSet {
             performWithTheme {
@@ -31,8 +37,6 @@ final class SidebarDoneFoldRowView: SidebarRowView {
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
         case let .doneFold(fold) where fold.kind == .settled:
             name.setString(Strings.settledFold(row.childCount))
-        case let .doneFold(fold) where fold.kind == .automatic:
-            name.setString(Strings.automaticFold(row.childCount))
         case let .doneFold(fold) where fold.kind == .archived:
             name.setString(Strings.archivedFold(row.childCount))
         default:

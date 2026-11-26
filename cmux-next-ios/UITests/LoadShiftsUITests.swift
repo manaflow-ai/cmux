@@ -32,7 +32,7 @@ final class LoadShiftsUITests: XCTestCase {
         results.append(measure(app, "launch-list", target: { $0.buttons["workspace.row.ws-cmux"].firstMatch }) { app.launch() })
 
         // 2. Open an agent workspace (its chat).
-        results.append(measure(app, "open-agent-workspace", target: Self.anyComposer) {
+        results.append(measure(app, "open-agent-workspace", target: { Self.anyComposer($0) }) {
             app.buttons["workspace.row.ws-cmux"].firstMatch.tap()
         })
         back(app)
@@ -79,7 +79,10 @@ final class LoadShiftsUITests: XCTestCase {
         }
     }
 
-    static let anyComposer: (XCUIApplication) -> XCUIElement = { app in
+    /// A method, not a stored closure: XCUIElement's queries are main-actor, and a stored
+    /// closure would be a nonisolated, non-Sendable static (Swift 6 refuses both).
+    @MainActor
+    static func anyComposer(_ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier IN %@", ["chat.composer.field", "chat.composer.card", "conversation.composer.text", "terminal.composer.field"]
         )).firstMatch

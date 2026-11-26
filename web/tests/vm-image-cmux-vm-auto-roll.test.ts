@@ -276,6 +276,31 @@ describe("auto-roll keeps cmux-platform's pinned image", () => {
       expect({ env, auto: locate(text, env).images.filter((i) => i.id.startsWith(AUTO_PREFIX)).length }).toEqual({ env, auto: KEEP_AUTO + 1 });
     }
   });
+  // Production, 2026-11-25 (roll 45625813906): with a pin plus KEEP_AUTO keyed rolls, the next roll's list came to
+  // 5,150 bytes and approve threw, so no roll could promote. A list keeps fewer rolls until it fits.
+  test("approve keeps fewer unpinned rolls when the pin and KEEP_AUTO rolls would pass MAX_BYTES", () => {
+    const pinned = keyed("700");
+    let text = approve(wrangler, pinned).text;
+    for (let run = 1; run <= KEEP_AUTO + 8; run++) text = approve(text, keyed(String(700 + run)), [pinned.id]).text;
+    const newest = keyed(String(700 + KEEP_AUTO + 8)).id;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+      expect({ env, pinned: images.some((i) => i.id === pinned.id), newest: images.some((i) => i.id === newest) }).toEqual({ env, pinned: true, newest: true });
+      expect(images.filter((i) => !i.id.startsWith(AUTO_PREFIX))).toEqual(locate(wrangler, env).images);
+    }
+    expect(bootedImage(text, "production")).toBe(newest);
+  });
+  test("approve on the 2026-11-25 production list (pin 45ed727f, six rolls) fits instead of throwing", () => {
+    const pin = "cloud-native-auto-45ed727f-45133798615-1";
+    if (!locate(checkedIn, "production").images.some((i) => i.id === pin)) return;
+    const { text } = approve(checkedIn, keyed("45629291168"), [pin]);
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+      expect(images.some((i) => i.id === pin)).toBe(true);
+    }
+  });
   test("rollback refuses to take out a pinned image", () => {
     const pinned = entry("550");
     const text = approve(approve(wrangler, pinned).text, entry("551")).text;
@@ -428,10 +453,22 @@ describe("auto-roll settle", () => {
   });
 
   test("a cancelled, timed out or failed deploy rolls back while the image is still first at the tip", () => {
-    for (const deploy of ["cancelled", "failure", "skipped", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    for (const deploy of ["cancelled", "failure", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "skipped", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
     expect(settle(roll({ product: "failure" })).outcome).toBe("rollback");
     // A green create that booted some other image proves nothing about this one.
     expect(settle(roll({ bootImage: previous })).outcome).toBe("rollback");
+  });
+
+  test("a roll whose production deploy never ran (check red first) is deployed again, at most ROLLBACK_DEPLOYS deploys", () => {
+    // 6fde033d-45743286480-3, 2026-11-26: the check job's checkout hung, deploy-production was skipped, and the image
+    // was rolled back with production never having booted it.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++) {
+      expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", deployedFirst: image, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    }
+    expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // Gone from both lists already: nothing to deploy again.
+    expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
   });
 
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
@@ -530,6 +567,8 @@ describe("auto-roll workflows", () => {
     expect(retry.if).toBe("steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'");
     expect(retry.run).toContain("-f action=deploy-production");
     expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
+    expect(retry.run).toContain('-f image_roll_redeploy="$redeploy"');
+    expect(read).toContain('if [ "$IN_REDEPLOY" = true ]; then kind=roll; fi');
     expect(settleJob.permissions).toMatchObject({ actions: "write" });
   });
 

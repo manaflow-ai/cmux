@@ -3,7 +3,7 @@
 // the members policy and the Add a Connection sheet (cmux-tui/docs/model-connections.md).
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { mockModels } from "./mockModels";
-import type { AccountsState, ModelsState } from "./ops";
+import type { ModelsState, AccountsState } from "./ops";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 
 const shown: PageFixtureStep = { selector: '[data-card="models"]', action: "wait" };
@@ -53,6 +53,7 @@ export default settingsPageEntry({
     ),
     "chatgpt-error": variant(
       mockModels.chatgptError,
+      // retry-prompt-ok: the ChatGPT Try Again opens its sign-in again.
       "The ChatGPT sign-in came back without plan access: the reason in plain words and Try Again.",
     ),
     "add-sheet": variant(mockModels.macLogins, "The Add a Connection sheet: search, Subscriptions and API keys.", [
@@ -68,7 +69,7 @@ export default settingsPageEntry({
     ]),
     "claude-token": variant(
       mockModels.macLogins,
-      "Add a Connection > Claude Code: Open Terminal runs claude setup-token, then paste the token it prints.",
+      "Add a Connection > Claude Code: one Connect Claude button; Paste a token instead stays collapsed.",
       [
         shown,
         { selector: '[data-models-action="add"]', action: "click" },
@@ -83,6 +84,7 @@ export default settingsPageEntry({
         shown,
         { selector: '[data-models-action="add"]', action: "click" },
         { selector: '[data-models-choice="claude"]', action: "click" },
+        { selector: "[data-models-claude-paste] > summary", action: "click" },
         { selector: '[data-models-claude-form] input[type="password"]', action: "input", value: "not a token" },
       ],
     ),

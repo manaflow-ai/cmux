@@ -411,3 +411,49 @@ test("the usage card names the ring's key once usage is known", async () => {
   await wait();
   expect(card()!.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘U");
 });
+
+// Leo 2026-11-25: "honestly do we want a compact button here or...". One Compact conversation row
+// above Details, sending /compact; emphasised from 80% used; inert, in place, mid-turn.
+test("Compact conversation sits above Details, sends once and closes the card", async () => {
+  let compacted = 0;
+  const ring = await mount({
+    used: 154_100,
+    size: 157_100,
+    onOpenDetails: () => undefined,
+    onCompact: () => compacted++,
+  });
+  await act(async () => ring.focus());
+  await wait();
+  const rows = [...card()!.querySelectorAll<HTMLButtonElement>(".acpmux-context-card-foot button")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    translate("context.compactConversation"),
+    translate("context.details"),
+  ]);
+  expect(rows[0]!.hasAttribute("data-emphasis")).toBe(true);
+  expect(rows[0]!.disabled).toBe(false);
+  await act(async () => rows[0]!.click());
+  await wait();
+  expect(compacted).toBe(1);
+  expect(card()).toBeNull();
+});
+
+test("Compact conversation reads plain under 80% and stays in place, disabled, mid-turn", async () => {
+  const ring = await mount({
+    used: 60_000,
+    size: 200_000,
+    onCompact: () => undefined,
+    compactDisabled: true,
+  });
+  await act(async () => ring.focus());
+  await wait();
+  const row = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-compact")!;
+  expect(row.hasAttribute("data-emphasis")).toBe(false);
+  expect(row.disabled).toBe(true);
+});
+
+test("no Compact conversation row where the agent offers no /compact", async () => {
+  const ring = await mount({ used: 60_000, size: 200_000, onOpenDetails: () => undefined });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".acpmux-context-card-compact")).toBeNull();
+});
