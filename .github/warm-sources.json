@@ -26,6 +26,7 @@
     "cmux-next-quality-report.yml:report": {"class": "linux-rust", "warm": [], "exempt": "cold: the daily cargo bench of acpmux's v2 gate from an empty target directory; the actions/cache step this entry once named was only the daily marker (lookup-only, never a cargo target), and #44882 replaced it with the sticky issue's history"},
     "acpmux-sim-sweep.yml:sweep": {"class": "linux-rust", "warm": ["actions-cache"]},
     "agent-brands.yml:swift-test": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
+    "app-ffi-release.yml:portable-tests": {"class": "linux-rust", "warm": ["actions-cache"]},
     "app-ffi-release.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo from an empty target directory; a build script from a clean tree; no warm source wired yet"},
     "app-ffi-release.yml:macos-cross-shadow": {"class": "linux-swift", "warm": ["actions-cache"]},
     "auth-refresh-tests.yml:auth-refresh-tests": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
