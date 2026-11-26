@@ -97,7 +97,7 @@ struct HomeSidebarDragTests {
             let want = w < HomeSidebarWidth.fullMinimum ? HomeSidebarWidth.minimum : w
             #expect(abs(p.split.sidebarWidth - want) < 1, "asked \(w), got \(p.split.sidebarWidth)")
             let m = SidebarMetrics(width: p.home.list.bounds.width)
-            let tiles = (0..<5).map(m.tileRect)
+            let tiles = (0..<5).map { m.tileRect($0, count: 5) }
             for t in tiles {
                 #expect(t.minX >= 0 && t.maxX <= m.width + 0.5, "a tile leaves the \(m.width) pt list")
                 let slab = m.tileSelection.offsetBy(dx: t.minX, dy: t.minY)

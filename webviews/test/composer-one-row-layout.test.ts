@@ -29,7 +29,7 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  test("Claude heads the box with folder and machine; the quiet row keeps mode and model", async () => {
+  test("Claude heads the card with folder and machine; its bar keeps mode and model", async () => {
     for (const width of [420, 760]) {
       const page = await browser.newPage({ viewport: { width, height: 520 } });
       try {
@@ -63,6 +63,7 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
             box: rect(".nt-box"),
             access: rect(".nt-foot .acpmux-access"),
             accessIcon: rect(".nt-foot .acpmux-access svg"),
+            plusIcon: rect(".nt-box .acpmux-composer-plus svg"),
             model: rect(".nt-foot .acpmux-model"),
             foot: rect(".nt-foot .acpmux-composer-foot"),
             footLocation: Boolean(document.querySelector(".nt-foot .acpmux-location-picker")),
@@ -87,8 +88,12 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
         if (width >= 760)
           expect(layout.computer.right - layout.folder.left).toBeLessThan((layout.box.right - layout.box.left) / 2);
         else expect(layout.computer.right).toBeLessThanOrEqual(layout.box.right);
-        // The strip's first icon stands on the quiet row's icon column.
-        expect(Math.abs(layout.folderIcon.left - layout.accessIcon.left)).toBeLessThanOrEqual(2);
+        // The strip's first icon stands on the bar's icon column: the folder glyph over +.
+        const middle = (box: { left: number; right: number }) => (box.left + box.right) / 2;
+        expect(Math.abs(middle(layout.folderIcon) - middle(layout.plusIcon))).toBeLessThanOrEqual(0.5);
+        // The bar: + first, then the quiet row's shield, on one line.
+        expect(layout.accessIcon.left).toBeGreaterThan(layout.plusIcon.right);
+        expect(Math.abs(layout.accessIcon.center - layout.plusIcon.center)).toBeLessThanOrEqual(0.5);
         // The quiet row: the mode, then the model on its trailing edge.
         expect(layout.access.right).toBeLessThanOrEqual(layout.model.left + 1);
         expect(Math.abs(layout.model.right - layout.foot.right)).toBeLessThanOrEqual(1);

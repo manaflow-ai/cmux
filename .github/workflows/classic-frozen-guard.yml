@@ -67,6 +67,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/classic_frozen_guard.py
             .github/classic-frozen.txt
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check the changed paths against the classic-frozen list
