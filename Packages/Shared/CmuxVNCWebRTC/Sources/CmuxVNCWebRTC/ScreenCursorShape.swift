@@ -14,7 +14,7 @@ import ImageIO
 /// fraction of the cursor's own size. The image carries no shadow: macOS
 /// draws the cursor's shadow itself (``shadow``), and so does the viewer.
 public struct ScreenCursorShape: Codable, Sendable, Equatable {
-    /// The shape's id (``ScreenCursorShape/id(png:hotspot:)``): equal images share it.
+    /// The shape's id (cmux-rd-screen `screen_cursor_shape`: FNV-1a 64 over its PNG and hotspot): equal images share it.
     public var id: String
     /// The image as base64 PNG (straight alpha), at most ``maxSide`` pixels a side.
     public var png: String
@@ -48,13 +48,6 @@ public struct ScreenCursorShape: Codable, Sendable, Equatable {
     /// at 0.45 alpha, blur 2, offset 0, -1 (one point down).
     public static let shadow = (opacity: 0.45, blur: 2.0, offsetDown: 1.0)
 
-    /// A shape's id: FNV-1a 64 over its PNG and hotspot, in hex.
-    public static func id(png: Data, hotspot: CGPoint) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        func mix(_ byte: UInt8) {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
         for byte in png { mix(byte) }
         for value in [hotspot.x, hotspot.y] {
             withUnsafeBytes(of: Double(value).bitPattern.littleEndian) { $0.forEach(mix) }
