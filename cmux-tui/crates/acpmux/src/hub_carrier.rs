@@ -344,6 +344,7 @@ pub fn service_name(service: CircuitService) -> &'static str {
         CircuitService::TransferSource => TRANSFER_SERVICE,
         CircuitService::Echo => ECHO_SERVICE,
         CircuitService::LaneGhBroker => LANE_GH_BROKER_SERVICE,
+        CircuitService::DirectOffer => punch::DIRECT_OFFER_SERVICE,
     }
 }
 
