@@ -75,7 +75,8 @@ pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 mod bootstrap;
 mod placement;
 mod session;
-pub(super) use session::NoCredential;
+#[cfg(test)]
+use session::NoCredential;
 pub(crate) use session::read_credential;
 pub(super) mod vault;
 mod windows;
