@@ -823,17 +823,28 @@ linux_suite_setup() {
 # finished for minutes until the watchdog ended it (fleet bd721902, 2026-11-15). A word that names no suite fails.
 expand_each_filters() {
   local package="$1" filter word list filters expanded=() found=() matched line suite
+  local discovery_status=0 discovery_log
+  list="$(mktemp -t swift-suite-list.XXXXXX)" filters="$(mktemp -t swift-suite-filters.XXXXXX)"
+  discovery_log="$(mktemp -t swift-suite-discovery.XXXXXX)"
+  SWIFT_BACKTRACE=enable=no python3 scripts/ci/run_with_timeout.py --timeout-seconds "${CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS:-300}" \
+    -- swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build \
+    < /dev/null > "$list" 2> "$discovery_log" || discovery_status=$?
+  if [ "$discovery_status" -ne 0 ]; then
+    cat "$discovery_log" >&2
+    exit "$discovery_status"
+  fi
+  python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" > "$filters" 2> "$discovery_log" || discovery_status=$?
+  if [ "$discovery_status" -ne 0 ]; then
+    cat "$discovery_log" >&2
+    record_suite_outcome discovery "$discovery_status" "$discovery_log"
+    exit "$discovery_status"
+  fi
   for filter in "${suite_filters[@]}"; do
     [[ "$filter" == each:* ]] || { expanded+=("$filter"); continue; }
     if [ "$lane_os" = Linux ]; then
       echo "package-test-lane.sh: $filter runs on macOS only" >&2; exit 2
     fi
     word="${filter#each:}"
-    if [ -z "${list:-}" ]; then
-      list="$(mktemp -t swift-suite-list.XXXXXX)" filters="$(mktemp -t swift-suite-filters.XXXXXX)"
-      swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build < /dev/null > "$list"
-      python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" > "$filters"
-    fi
     matched=0
     while IFS= read -r line; do
       suite="$(filter_label "$line")"
@@ -849,6 +860,16 @@ expand_each_filters() {
     echo "$filter: $matched suites, each in its own process"
   done
   suite_filters=("${expanded[@]}")
+  local requested=()
+  for filter in "${suite_filters[@]}"; do
+    requested+=("--require-filter=$(swift_filter "$filter")")
+  done
+  python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" "${requested[@]}" > /dev/null 2> "$discovery_log" || discovery_status=$?
+  if [ "$discovery_status" -ne 0 ]; then
+    cat "$discovery_log" >&2
+    record_suite_outcome discovery "$discovery_status" "$discovery_log"
+    exit "$discovery_status"
+  fi
   # The suites each: found, one per line: one whose own traits skip all of it (an opt-in gallery or profile,
   # a display check) is "skipped", not "no result", since nobody named it; a named suite that runs nothing fails.
   printf '%s\n' ${found[@]+"${found[@]}"} > "$each_found"
@@ -923,6 +944,14 @@ ensure_mobile_link_ffi() {
   echo "::endgroup::"
 }
 
+record_suite_outcome() {
+  local phase="$1" status="$2" log="${3:-}" arguments=()
+  [ -n "${suite_outcome_state:-}" ] || return 0
+  [ -z "$log" ] || arguments+=(--log "$log")
+  python3 scripts/ci/package-test-lane/swift_suite_outcomes.py record --state "$suite_outcome_state" \
+    --phase "$phase" --status "$status" ${arguments[@]+"${arguments[@]}"} || true
+}
+
 run_suite() {
   local app_ffi_link=()
   if [ "$lane_os" = Linux ]; then
@@ -965,6 +994,19 @@ run_suite() {
   if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
+  fi
+  local suite_outcome_state outcome_status=0 outcome_filter outcome_configuration outcome_args=()
+  suite_outcome_state="$(mktemp -t swift-suite-outcome.XXXXXX)"
+  for outcome_filter in "${suite_filters[@]}"; do
+    outcome_args+=("--filter=$outcome_filter")
+  done
+  for outcome_configuration in "${configuration[@]}"; do
+    outcome_args+=("--configuration=$outcome_configuration")
+  done
+  python3 scripts/ci/run_with_timeout.py --timeout-seconds 15 -- python3 scripts/ci/package-test-lane/swift_suite_outcomes.py check --state "$suite_outcome_state" --package "$suite_package" \
+    --lane-script "$lane_script" "${outcome_args[@]}" || outcome_status=$?
+  if { [ "$outcome_status" -eq 1 ] || [ "$outcome_status" -eq 2 ]; } && [ -s "${CMUX_CI_SUITE_FAILURE_FILE:-/dev/null}" ]; then
+    exit "$outcome_status"
   fi
   # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: targets that read
   # neither the web bundles nor cmux-tui's daemon), and the swift container has no curl to fetch bun.
@@ -1011,16 +1053,19 @@ run_suite() {
     swiftpm_purge_build_outputs "$scratch"
     swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
     build_status=0
-    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 | tee "$build_log" || build_status=$?
   elif [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
     echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$scratch"
     swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
     build_status=0
-    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 | tee "$build_log" || build_status=$?
+  fi
+  if [ "$build_status" -ne 0 ]; then
+    record_suite_outcome compile "$build_status" "$build_log"
+    exit "$build_status"
   fi
   rm -f "$build_log"
-  [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
   fi
@@ -1143,6 +1188,9 @@ run_suite() {
       if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
       echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
     fi
+    if [ "$status" -ne 0 ]; then
+      record_suite_outcome assertion "$status" "$log"
+    fi
     rows+=("$(printf '%-48s %-24s %6ss' "$(filter_label "$filter")" "$result" "$((SECONDS - started))")")
   done
   local table
@@ -1159,6 +1207,7 @@ run_suite() {
     echo "$((${#suite_filters[@]} - display_only)) of ${#suite_filters[@]} suites passed; $display_only skipped (needs a display, not gating)."
   else
     echo "All ${#suite_filters[@]} suites passed."
+    record_suite_outcome passed 0
   fi
 }
 
