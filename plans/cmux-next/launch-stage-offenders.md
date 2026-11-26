@@ -1,19 +1,52 @@
 # Launch work still ahead of the first frame
 
-Source: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift` at
-`354ac70ce252` (2026-11-16), method `finishLaunching`.
-This is an implementation handoff inventory, not a passing runtime registry.
-The shell-first reorder must move these call sites before a registry can truthfully
-declare them stage 1 or 2. The Rust stage-0 allowlist remains exactly
-`read_launch_record`, `make_window`, `put_saved_image`, `commit_first_frame`,
-`finish_launching`; the last name means the shell check-in, not the entire current
-Swift method of that name.
+The stage-0 shell shows the saved workspace and tab (including Home). In
+`AppDelegate.finishLaunching`, `firstFrame` opens on the Core Animation commit
+of the restored window, with a three-second backstop for launches without a
+window. The Rust stage-0 allowlist covers only `read_launch_record`,
+`make_window`, `put_saved_image`, `commit_first_frame` and `finish_launching`.
 
-All direct calls below currently execute or enqueue their work before the first
-frame completion opens `firstFrame`. An asynchronous body can continue later;
-starting it in this method is still pre-frame work.
+## After the restored window commits
 
-| Current pre-frame call site | Work to relocate |
+- Old design-mode cards and deleted workspace folders can be cleaned up then.
+  A card attached during this launch keeps its files.
+- Publish the external CLI pointer and check whether to offer a move to Applications.
+  The second-copy URL listener must register before either copy can hand off URLs.
+- Create the launch-times recorder. Subscribe before reading the accumulated marks
+  so a front chat that already painted and connected still gets its timing row.
+- Verify handler coverage and count unbound actions after binding the menu and shortcuts.
+- Probe WebKit for the hidden New Tab spare with the other later-tab warmups.
+- Start harness icon, GitHub feed and update-card observers, Cloud machine update
+  checks, customization diagnostics, auto-archive and workspace hibernation.
+  These read current state when subscribed.
+
+## Work needed through the first interaction
+
+- Daemon preparation, prompts, health and settle subscriptions precede the first
+  daemon events. Restore, Home and Cloud authentication supply the saved workspace,
+  chat, identity and interactive composer.
+- Quit signals and relaunch policy apply throughout startup. The watchdog, hang
+  reporting, timing sinks and window recorder need the interval they measure.
+- Window placement, settings, import policy, themes, desktop backdrop, scroll
+  anchors, launch layout overrides and page roots affect restored content.
+  A browser can reopen directly into a named profile or a first-party page.
+- Build and retain services, bind actions, key routing, clipboard hooks, mouse
+  buttons and menu actions before the window accepts input. Watch Ghostty's
+  config files from their initial load so an edit during restore is observed.
+- Install page hosts and schemes before a restored page requests a resource.
+  Bookmark and history persistence must observe its first navigation. Install
+  the Chromium runtime request hook for a restored browser's first request.
+- Keep window, appearance and external-open callbacks ready for the initial
+  presentation, including launches from a sign-in, Apple event or Services menu.
+  Arm the frame backstop even when no window will arrive.
+
+## Original inventory
+
+The table records the audit at `354ac70ce252` (2026-11-16). Several entries mix
+first-interaction work with independent maintenance. Runtime scheduling above
+describes the split.
+
+| Call site at the audited revision | Work |
 | --- | --- |
 | `DaemonService.prestart` | Resolve and prepare the daemon |
 | `BrowserDesignModeController.tempFiles.removeAll` | Enqueue crash-file cleanup |
