@@ -67,12 +67,14 @@ FIRST_PARTY_GPL = {
     "cmux-keymap",
     "cmux-launch-image",
     "cmux-pane-pictures",
+    "cmux-screenshots",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
     "cmux-sdk",
     "cmux-sdk-ffi",
     "cmux-terminal-prediction",
+    "cmux-url-input",
     "cmux-window-rules",
 }
 
