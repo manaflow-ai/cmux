@@ -589,10 +589,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_every_dispatch_is_on_the_publish_path(self) -> None:
         for name, job in self.jobs.items():
-            # A run block moved to scripts/ci/nightly-steps/ (nightly.yml's size budget) counts by its script.
-            dispatches = [s for s in job.get("steps", []) if "gh workflow run" in str(s.get("run", "")) + "".join(
-                (ROOT / f).read_text() for f in re.findall(r"scripts/ci/nightly-steps/[\w.-]+\.sh", str(s.get("run", "")))
-                if (ROOT / f).is_file())]
+            dispatches = [s for s in job.get("steps", []) if "gh workflow run" in str(s.get("run", ""))]
             if name in DISPATCH_NEVER_WAITS:
                 for step in dispatches:
                     self.assertEqual(step.get("name"), DISPATCH_NEVER_WAITS[name], name)

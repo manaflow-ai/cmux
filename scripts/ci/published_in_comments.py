@@ -25,12 +25,16 @@ a publication is never failed by a comment.
 from __future__ import annotations
 
 import argparse
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 import json
 import re
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
+from xml.etree import ElementTree
 
 # This script is also loaded by path in tests.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -52,16 +56,40 @@ def pr_numbers(subjects: list[str]) -> list[int]:
 
 
 def build_line(name: str, url: str, sha: str, at: str = "") -> str:
-    """One build's line. With `at` (the UTC publish time) it reads "Shipped in NIGHTLY <build> at <time>"."""
-    if at:
-        return f"- Shipped in [{name}]({url}) at {at} (`{sha[:10]}`)"
-    return f"- [{name}]({url}) (`{sha[:10]}`)"
+    """One build's line; `at` is when the feed started serving it ("NIGHTLY 4572038238101 at 2026-11-26 01:40 UTC")."""
+    return f"- [{name}]({url})" + (f" at {at}" if at else "") + f" (`{sha[:10]}`)"
 
 
-def same_build(item: str, line: str) -> bool:
-    """Whether `item` is an older wording of `line`'s build (same name and link, another time or sha)."""
-    key = line.split(") at ", 1)[0] + ") at " if line.startswith("- Shipped in [") and ") at " in line else ""
-    return bool(key) and item != line and item.startswith(key)
+def line_key(line: str) -> str:
+    """A line's build ("- [name](url)"): a rerun that reads another time for the same build adds no second line."""
+    match = re.match(r"- \[[^\]]*\]\([^)]*\)", line)
+    return match.group(0) if match else line
+
+
+SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+
+
+def shipped_at(feed: str, build: str) -> str | None:
+    """When the feed started serving `build` ("2026-11-26 01:40 UTC"), "" when a newer build has since replaced its
+    item, None when the feed has not moved to it yet (no comment: the PRs did not ship)."""
+    builds = {}
+    for item in ElementTree.fromstring(feed).iter("item"):
+        version = (item.findtext(f"{SPARKLE}version") or "").strip()
+        if version.isdigit():
+            builds[int(version)] = (item.findtext("pubDate") or "").strip()
+    if not builds or max(builds) < int(build):
+        return None
+    if not builds.get(int(build)):
+        return ""
+    try:
+        return parsedate_to_datetime(builds[int(build)]).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except (TypeError, ValueError):
+        return ""
+
+
+def read_feed(url: str) -> str:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return response.read().decode("utf-8")
 
 
 def updated_body(existing: str | None, line: str) -> str | None:
@@ -80,12 +108,7 @@ def publication_text(comments: list[dict], line: str, previous: str = "") -> str
     bodies += [c["body"] for c in pr_status.bot_comments(comments, MARKER)]
     lines = list(dict.fromkeys(item for body in bodies for item in body.splitlines()
                               if item.startswith("- ")))
-    # A build's line is edited in place: a rerun with another time replaces it where it stands.
-    for index, item in enumerate(lines):
-        if same_build(item, line):
-            lines[index] = line
-    lines = list(dict.fromkeys(lines))
-    if line not in lines:
+    if line_key(line) not in {line_key(item) for item in lines}:
         lines.append(line)
     return "Shipped in:\n" + "\n".join(lines)
 
@@ -95,7 +118,7 @@ def has_publication_line(comments: list[dict], line: str) -> bool:
     sections = [pr_status.parse(c["body"]).get(SECTION, "")
                 for c in pr_status.bot_comments(comments, pr_status.MARKER)]
     sections += [c["body"] for c in pr_status.bot_comments(comments, MARKER)]
-    return any(line in body.splitlines() for body in sections)
+    return any(line_key(line) in {line_key(item) for item in body.splitlines()} for body in sections)
 
 
 def already_noted(comments: list[dict], line: str) -> bool:
@@ -329,11 +352,25 @@ def main() -> int:
     parser.add_argument("--head", required=True, help="the commit this build published")
     parser.add_argument("--name", required=True, help="build name shown in the comment, e.g. 'v0.66.0'")
     parser.add_argument("--url", required=True, help="release page for the build")
-    parser.add_argument("--at", default="", help="UTC publish time shown in the line, e.g. '2026-11-26 03:12 UTC'")
     parser.add_argument("--max", type=int, default=1000, help="comment on no PR when the span has more than this many")
     parser.add_argument("--pause", type=float, default=7.5, help="seconds between comment writes (500 an hour)")
     parser.add_argument("--dry-run", action="store_true", help="print what would be posted")
+    parser.add_argument("--feed", help="the appcast that serves --build: comment only once it does, with its time")
+    parser.add_argument("--build", help="the build number the feed names (sparkle:version)")
     args = parser.parse_args()
+
+    at = ""
+    if args.feed and args.build:
+        try:
+            moved = shipped_at(read_feed(args.feed), args.build)
+        except (OSError, ElementTree.ParseError, ValueError) as error:
+            # The publish already succeeded (this job runs after it): comment without the time.
+            print(f"published-in: cannot read {args.feed} ({error}); commenting without the time", file=sys.stderr)
+            moved = ""
+        if moved is None:
+            print(f"published-in: {args.feed} does not serve {args.build} yet; commenting on none", file=sys.stderr)
+            return 0
+        at = moved
 
     try:
         numbers = pr_numbers(git_subjects(args.since, args.head))
@@ -343,7 +380,7 @@ def main() -> int:
     if len(numbers) > args.max:
         print(f"published-in: {len(numbers)} PRs in the span, over --max {args.max}; commenting on none", file=sys.stderr)
         return 0
-    line = build_line(args.name, args.url, args.head, args.at)
+    line = build_line(args.name, args.url, args.head, at)
     if args.dry_run:
         existing, unreadable = {}, set()
     else:

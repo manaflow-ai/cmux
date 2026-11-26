@@ -167,8 +167,6 @@ for trusted in ("publish-nightly-next-github", "generate-nightly-deltas", "repub
                         "while the whole-Mac publishing waits")
 # The loop run dispatches the tail once its GitHub release is written; the dispatched run never dispatches again.
 dispatch = job("dispatch-published-in") if "\n  dispatch-published-in:\n" in TEXT else ""
-if "bash scripts/ci/nightly-steps/dispatch-published-in.sh" in dispatch:
-    dispatch += (ROOT / "scripts/ci/nightly-steps/dispatch-published-in.sh").read_text()
 if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch \
         or "publish-nightly-next-github" not in needs(dispatch):
     failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish after the GitHub release")

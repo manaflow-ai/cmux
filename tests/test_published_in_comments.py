@@ -28,18 +28,33 @@ class PublishedInTests(unittest.TestCase):
         subjects = ["fix: a (#12)", "feat: b (#11)", "revert fix: a (#12)", "safe-push train", "mentions (#9) mid subject", "c (#10) "]
         self.assertEqual(module.pr_numbers(subjects), [12, 11, 10])
 
-    def test_a_nightly_line_names_build_and_time_and_is_edited_in_place(self):
-        url = "https://x/releases/tag/nightly-next"
-        older = module.build_line("v1", "https://x/v1", "c" * 40)
-        first = module.build_line("NIGHTLY 2026112601", url, "a" * 40, "2026-11-26 03:12 UTC")
-        self.assertEqual(first, f"- Shipped in [NIGHTLY 2026112601]({url}) at 2026-11-26 03:12 UTC (`{'a' * 10}`)")
-        rerun = module.build_line("NIGHTLY 2026112601", url, "a" * 40, "2026-11-26 04:00 UTC")
-        later = module.build_line("NIGHTLY 2026112602", url, "b" * 40, "2026-11-26 09:00 UTC")
-        comments = [{"id": 1, "body": module.pr_status.render({"published": "Shipped in:\n" + older + "\n" + first + "\n" + later}),
-                     "user": {"login": "github-actions[bot]"}}]
-        self.assertFalse(module.already_noted(comments, rerun))
-        self.assertEqual(module.publication_text(comments, rerun), "Shipped in:\n" + "\n".join([older, rerun, later]))
-        self.assertTrue(module.already_noted(comments, first))
+    FEED = """<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>
+<item><sparkle:version>4572038238101</sparkle:version><pubDate>Thu, 26 Nov 2026 01:40:12 +0000</pubDate></item>
+<item><sparkle:version>4569392993001</sparkle:version><pubDate>Wed, 25 Nov 2026 22:05:00 +0000</pubDate></item>
+</channel></rss>"""
+
+    def test_the_line_names_the_build_and_when_the_feed_served_it(self):
+        # Leo 2026-11-26: "do we display which prs go into which nightly maybe that'd be useful per thing?"
+        line = module.build_line("NIGHTLY 4572038238101", "https://x/n", "a" * 40, at="2026-11-26 01:40 UTC")
+        self.assertEqual(line, "- [NIGHTLY 4572038238101](https://x/n) at 2026-11-26 01:40 UTC (`aaaaaaaaaa`)")
+        self.assertEqual(module.build_line("v1", "https://x/v", "b" * 40), "- [v1](https://x/v) (`bbbbbbbbbb`)")
+
+    def test_a_build_is_shipped_only_once_the_feed_moved_to_it(self):
+        self.assertEqual(module.shipped_at(self.FEED, "4572038238101"), "2026-11-26 01:40 UTC")
+        self.assertEqual(module.shipped_at(self.FEED, "4569392993001"), "2026-11-25 22:05 UTC")
+        # Not yet served: the feed still ends at an older build.
+        self.assertIsNone(module.shipped_at(self.FEED, "4580000000001"))
+        # Served, then replaced past the feed's two items: shipped, at an unknown time.
+        self.assertEqual(module.shipped_at(self.FEED, "4560000000001"), "")
+
+    def test_main_skips_a_build_the_feed_does_not_serve(self):
+        with patch.object(module, "read_feed", return_value=self.FEED), \
+                patch.object(module, "git_subjects") as subjects, \
+                patch.object(sys, "argv", ["x", "--repo", "o/r", "--since", "a" * 40, "--head", "b" * 40,
+                                           "--name", "NIGHTLY 4580000000001", "--url", "https://x/n",
+                                           "--feed", "https://feed/appcast-arm64.xml", "--build", "4580000000001"]):
+            self.assertEqual(module.main(), 0)
+        subjects.assert_not_called()
 
     def test_publication_lines_preserved_in_shared_status(self):
         nightly = module.build_line("nightly-next 2026101901", "https://x/n", "a" * 40)

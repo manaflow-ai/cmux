@@ -589,13 +589,40 @@ class ReleaseNotesTests(unittest.TestCase):
                                      "- and 3 more"])
 
     def test_prs_counts_past_the_change_cap_and_escapes_mentions(self):
+        # The release body names up to 300 PRs, a busy day's whole build (Leo 2026-11-26: "do we display
+        # which prs go into which nightly"); 40 cut most of them.
         since = self.head
-        for number in range(1, 206):
+        for number in range(1, 306):
             git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: thanks @someone <x> {number} (#{number})")
         self.head = git(self.repo, "rev-parse", "HEAD")
         lines = run(self.repo, "prs", "--head", self.head, "--since", since).splitlines()
-        self.assertEqual(lines[2], "- [#205](https://github.com/manaflow-ai/cmux/pull/205) fix: thanks &#64;someone &lt;x> 205 by t")
-        self.assertEqual(lines[-1], "- and 165 more")
+        self.assertEqual(lines[2], "- [#305](https://github.com/manaflow-ai/cmux/pull/305) fix: thanks &#64;someone &lt;x> 305 by t")
+        self.assertEqual(lines[-1], "- and 5 more")
+
+    def test_items_name_their_area_and_the_notes_name_their_span(self):
+        # "What's in this build" groups the PRs by area, and `cmux nightly which` needs where a build starts.
+        for path, subject in (("webviews/src/chat.ts", "Chat keeps its scroll (#701)"),
+                              ("cmux-tui/crates/cmux-tui/src/main.rs", "Panes split evenly (#702)"),
+                              ("Packages/macOS/CmuxNext/Sources/A.swift", "Sidebar rows stay put (#703)"),
+                              ("cmux-next-ios/CmuxMobileKit/B.swift", "iPhone keyboard stays open (#704)"),
+                              ("tests/test_x.py", "Cover the sidebar (#705)")):
+            os.makedirs(os.path.join(self.repo, os.path.dirname(path)), exist_ok=True)
+            with open(os.path.join(self.repo, path), "w") as f:
+                f.write(subject)
+            git(self.repo, "add", ".")
+            git(self.repo, "commit", "-q", "-m", subject)
+        since, self.head = self.head, git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="5")
+        self.assertEqual(notes["since"], {"build": "", "head": since})
+        self.assertEqual({i["pr"]: i.get("area") for i in notes["items"]},
+                         {701: "Agent chat", 702: "Terminal and CLI", 703: "Mac app", 704: "iOS", 705: "Tooling"})
+
+    def test_notes_keep_every_item_past_the_old_cap(self):
+        since = self.head
+        for number in range(1, 251):
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", f"Change {number} (#{number})")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(len(self.build(since, build="6")["items"]), 250)
 
     def test_items_are_every_commit_with_area_url_and_merge_time(self):
         # Build 4572038238101 carried exactly MAX_CHANGES (200) items: the cap dropped PRs from the notes.
@@ -609,18 +636,17 @@ class ReleaseNotesTests(unittest.TestCase):
         newest = notes["items"][0]
         self.assertEqual(newest["pr"], 205)
         self.assertEqual(newest["url"], "https://github.com/manaflow-ai/cmux/pull/205")
-        self.assertEqual(newest["area"], "Other")
         self.assertRegex(newest["mergedAt"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
         self.assertEqual(notes["since"], {"build": "", "head": since})
         self.assertRegex(notes["publishedAt"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
-    def test_a_build_without_a_start_keeps_the_cap_and_a_null_since(self):
+    def test_a_build_without_a_start_keeps_the_cap_and_no_since(self):
         out = os.path.join(self.repo, "out")
         run(self.repo, "build", "--build", "3", "--short", "1.0.0-nightly.3", "--date", "2026-10-04",
             "--head", self.head, "--out", out)
         with open(os.path.join(out, "3.json")) as f:
             notes = json.load(f)
-        self.assertIsNone(notes["since"])
+        self.assertNotIn("since", notes)
 
     def test_since_names_the_previous_build_from_the_index_and_published_at_passes_through(self):
         since = self.head
@@ -659,44 +685,6 @@ class ReleaseNotesTests(unittest.TestCase):
         run(self.repo, "pr-index", "--notes", notes_path, "--out", out)
         with open(out) as f:
             self.assertEqual(sorted(json.load(f)["prs"]), ["101", "102"])
-
-    def test_change_area_reads_the_changed_paths(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("release_notes_areas", SCRIPT)
-        notes = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(notes)
-        area = notes.change_area
-        self.assertEqual(area("fix: x", ["cmux-next-ios/CmuxMobileKit/A.swift"]), "iOS")
-        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux-cloud-cli/src/lib.rs"]), "Cloud")
-        self.assertEqual(area("fix: x", ["workers/cmux-vm/src/index.ts"]), "Cloud")
-        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux-browser-host/src/lib.rs"]), "Browser")
-        self.assertEqual(area("fix: x", ["cmux-tui/crates/acpmux-core/src/lib.rs"]), "Agents")
-        self.assertEqual(area("fix: x", ["webviews/src/agent-chat/Pane.tsx"]), "Agents")
-        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux/src/cli/main.rs"]), "CLI")
-        self.assertEqual(area("fix: x", ["cmux-tui/crates/cmux-pty/src/lib.rs"]), "Terminal")
-        self.assertEqual(area("fix: x", ["Packages/macOS/Sidebar/Row.swift", "tests/test_x.py"]), "App")
-        self.assertEqual(area("fix: x", ["webviews/src/settings/Page.tsx"]), "App")
-        self.assertEqual(area("fix: x", [".github/workflows/nightly.yml", "tests/test_x.py"]), "CI")
-        self.assertEqual(area("ci: retry", []), "CI")
-        self.assertEqual(area("feat: x", []), "Other")
-        self.assertEqual(area("fix: x", ["scenarios/a.txt"]), "Other")
-        # Most files win; a tie keeps the AREAS order.
-        self.assertEqual(area("fix: x", ["Packages/macOS/A.swift", "Packages/macOS/B.swift",
-                                         "cmux-tui/crates/cmux-pty/src/lib.rs"]), "App")
-        self.assertIn(area("fix: x", ["Packages/macOS/A.swift"]), notes.AREAS)
-
-    def test_appcast_pr_text_lists_title_number_and_author(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("release_notes_appcast", SCRIPT)
-        notes = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(notes)
-        items = [notes.change_item("feat: a tab moves (#102)", "Ann"), notes.change_item("ci: x", "Bo"),
-                 notes.change_item("fix: row (#101)", ""), notes.change_item("feat: a tab moves again (#102)", "Ann")]
-        self.assertEqual(notes.appcast_pr_text(items),
-                         "PRs in this build:\n- feat: a tab moves (#102) by Ann\n- fix: row (#101)")
-        self.assertEqual(notes.appcast_pr_text(items, limit=1),
-                         "PRs in this build:\n- feat: a tab moves (#102) by Ann\n- and 1 more")
-        self.assertEqual(notes.appcast_pr_text([items[1]]), "")
 
     def test_prs_is_empty_for_an_empty_span(self):
         self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", self.head), "")

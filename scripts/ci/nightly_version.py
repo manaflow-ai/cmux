@@ -28,10 +28,6 @@
       is latest-wins) prints `superseded=true` and exits 0 instead of
       refusing; otherwise `superseded=false` follows.
 
-  published-at --feed FILE_OR_URL --build B
-      Prints when the feed's item for build B went live (its pubDate, as
-      "YYYY-MM-DD HH:MM UTC"), or nothing while the feed does not offer B.
-
   published-source --feed FILE_OR_URL [--before B]
       Prints the cmux:sourceCommit of the feed's newest item (the highest
       sparkle:version), or nothing when that item names none. It is the
@@ -45,8 +41,6 @@ which only grows; Sparkle compares it, never the marketing version.
 """
 
 import argparse
-import datetime
-import email.utils
 import http.client
 import os
 import re
@@ -224,25 +218,6 @@ def published_source(source, before=None):
     return commit
 
 
-def published_at(source, build):
-    """The UTC publish time ("YYYY-MM-DD HH:MM UTC") of the feed's item for `build`, or "" when the
-    feed does not offer it (yet). The item's pubDate is the time it went live."""
-    for item in read_feed(source).iter("item"):
-        if int(build) not in feed_builds(item):
-            continue
-        text = (item.findtext("pubDate") or "").strip()
-        try:
-            when = email.utils.parsedate_to_datetime(text)
-        except (TypeError, ValueError):
-            when = None
-        if when is None:
-            return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
-        if when.tzinfo is not None:
-            when = when.astimezone(datetime.timezone.utc)
-        return when.strftime("%Y-%m-%d %H:%M UTC")
-    return ""
-
-
 class Superseded(Exception):
     """A feed is already above the build: a newer build published first."""
 
@@ -303,9 +278,6 @@ def main(argv):
     s = commands.add_parser("published-source")
     s.add_argument("--feed", required=True)
     s.add_argument("--before", help="the newest item below this build that names a source")
-    a = commands.add_parser("published-at")
-    a.add_argument("--feed", required=True)
-    a.add_argument("--build", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "marketing":
@@ -316,10 +288,6 @@ def main(argv):
             if args.before is not None and not BUILD.match(args.before):
                 raise Refused(f"build {args.before!r} is not a number")
             print(published_source(args.feed, args.before))
-        elif args.command == "published-at":
-            if not BUILD.match(args.build):
-                raise Refused(f"build {args.build!r} is not a number")
-            print(published_at(args.feed, args.build))
         else:
             try:
                 published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok,

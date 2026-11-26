@@ -79,12 +79,9 @@ def record(needs: dict, run_id: str, attempt: str, sha: str) -> dict[str, str]:
 
 
 def comments(rec: dict[str, str]) -> bool:
-    """published-in's dispatch condition: a new build of this run, not a recovered or already published one.
-
-    A build with no recorded published commit comments too: published-in starts its span at the feed's
-    previous item (published-in-fetch-span.sh)."""
+    """published-in's old dispatch condition: a new build of this run, not a recovered or already published one."""
     return (rec["track"] == "nightly-next" and rec["should_publish"] == "true" and rec["no_publish"] != "true"
-            and rec["publish_result"] == "success"
+            and rec["published_sha"] != "" and rec["publish_result"] == "success"
             and rec["publish_already_published"] != "true" and rec["publish_refused"] != "true"
             and rec["publish_source"] != "recovered")
 

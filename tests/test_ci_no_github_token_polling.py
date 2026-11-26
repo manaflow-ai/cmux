@@ -38,10 +38,6 @@ ALLOWED: dict[str, str] = {
     "cmux-next.yml: Dispatch with GITHUB_TOKEN, waiting through a rate limit":
         "the DEV handoff's fallback dispatch (#25458), only when the App token cannot: at most three "
         "tries, each sleeping only after a rate-limit refusal (the /rate_limit read costs nothing)",
-    "nightly.yml: Ask for this build's post-publication run":
-        "once per published nightly-next build (scripts/ci/nightly-steps/dispatch-published-in.sh): at most three "
-        "dispatch tries, 20 s and 50 s apart, each retry first one run list so an accepted dispatch never starts "
-        "a second tail; a lost dispatch left a build with no notes, PR list or PR comments",
     "ios-testflight.yml: Decide whether a TestFlight upload is needed":
         "orders uploads: waits only while an earlier TestFlight run is active, listing runs and jobs "
         "each pass; a candidate for a concurrency group",

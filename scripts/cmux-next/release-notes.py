@@ -53,9 +53,9 @@ still decode, and the app then reads the PR from each subject.
 
 Which PRs are in which build (additive; older notes lack these keys):
   "items" are every commit of the span (no MAX_CHANGES cap once the span has a start), each
-  also with "area" (one of AREAS, change_area), "url" (its PR, when it has one) and "mergedAt"
+  also with "area" (change_area), "url" (its PR, when it has one) and "mergedAt"
   (ISO 8601 UTC). The notes gain "since": {"build", "head"} of the published build the span
-  starts at (null without a start) and "publishedAt" (ISO 8601 UTC).
+  starts at (absent without a start) and "publishedAt" (ISO 8601 UTC).
   notes/pr-index.json (signed): {"version": 1, "prs": {"<number>": {"build", "shortVersion",
   "publishedAt"}}}, each PR's first published build, merged from the previous copy (pr_index).
 
@@ -83,9 +83,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
-MAX_CHANGES = 200
+MAX_CHANGES = 600
 SUMMARY_LIMIT = 8
-PR_LIMIT = 40
+PR_LIMIT = 300
 DESCRIPTION_LIMIT = 240
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
@@ -139,45 +139,38 @@ TOOLING_PATHS = re.compile(
     r"|arch[-_]|codebase-health|every-action|install-git-hooks|release-notes\.py|check-release-notes)[^/]*$")
 
 
-def tooling_only(paths):
-    """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
-    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
-
-
-# An item's "area" (the notes schema's closed set; the update card and `cmux nightly` group by it).
-AREAS = ("App", "Terminal", "Agents", "Browser", "Cloud", "iOS", "CLI", "CI", "Other")
-# First match wins, path by path; a commit takes the area most of its non-tooling files fall in
-# (ties: this order). The order puts the narrower product areas before the shells that hold them:
-# cmux-tui/crates/cmux-cloud-cli is Cloud, webviews/src/agent-chat is Agents, the rest of webviews/ App.
-AREA_PATHS = (
-    ("iOS", re.compile(r"^(?:cmux-next-ios|ios|Packages/iOS)/|(?:^|/)(?:[\w-]+-)?ios(?:-[\w-]+)?/", re.I)),
-    ("Cloud", re.compile(r"^(?:web|backend|workers|services|server|deploy|images/cmux-vm)/|cloud", re.I)),
-    ("Browser", re.compile(r"browser|chromium|(?:^|[/_-])cef(?:[/_.-]|$)|webkit", re.I)),
-    ("Agents", re.compile(r"acpmux|agent|chatmux|coderouter|(?:^|[/_-])chats?(?:[/_.-]|$)|claude|codex", re.I)),
-    ("CLI", re.compile(r"(?:^|/)(?:cli|cmux-cli)(?:/|$)|[\w-]-cli(?:/|$)|(?:^|/)cli\.\w+$", re.I)),
-    ("Terminal", re.compile(r"ghostty|terminal|^cmux-tui/|^daemon/|^mux/", re.I)),
-    ("App", re.compile(r"^(?:Packages/(?:macOS|Shared)|webviews|App|Native|Resources|Assets\.xcassets|cmux\.xcodeproj"
-                       r"|first-party-apps|agent-chat|schemas)/")),
+# The area a change is in, for "What's in this build" (Leo 2026-11-26: "do we display which prs go into
+# which nightly maybe that'd be useful per thing?"): the first rule matching most of its shipped files.
+AREAS = (
+    ("Agent chat", re.compile(r"^(?:webviews/|agent-chat/|Native/OptChat/)")),
+    ("Terminal and CLI", re.compile(r"^(?:cmux-tui/|daemon/|mux/|ghostty(?:-next)?/)")),
+    ("iOS", re.compile(r"^(?:cmux-next-ios/|Packages/iOS/)")),
+    ("Mac app", re.compile(r"^(?:Packages/(?:macOS|Shared)/|App/|Native/|Resources/|schemas/settings/|cmux\.xcodeproj/)")),
+    ("Cloud", re.compile(r"^(?:backend/|server/|services/|workers/|deploy/|clients/)")),
+    ("Website", re.compile(r"^web/")),
 )
 
 
-def change_area(subject, paths=()):
-    """One of AREAS for a commit, from the files it changes: CI when every file is tooling
-    (TOOLING_PATHS), else the area most of its other files fall in (AREA_PATHS), else Other.
-    A commit with no files (an empty one) reads its conventional type: ci/test/build are CI."""
-    if not paths:
-        match = CONVENTIONAL.match(subject.strip())
-        return "CI" if match and match["type"].lower() in {"ci", "test", "tests", "build"} else "Other"
+def change_area(paths):
+    """The area most of a commit's files are in (AREAS), "Tooling" when every file is CI or tooling,
+    else None (no files, or none in an area)."""
     if tooling_only(paths):
-        return "CI"
+        return "Tooling"
     counts = {}
     for path in paths:
         if TOOLING_PATHS.search(path):
             continue
-        area = next((name for name, pattern in AREA_PATHS if pattern.search(path)), "Other")
-        counts[area] = counts.get(area, 0) + 1
-    ranked = sorted(counts, key=lambda a: (-counts[a], a == "Other", AREAS.index(a)))
-    return ranked[0] if ranked else "Other"
+        for name, pattern in AREAS:
+            if pattern.search(path):
+                counts[name] = counts.get(name, 0) + 1
+                break
+    order = [name for name, _ in AREAS]
+    return max(counts, key=lambda name: (counts[name], -order.index(name))) if counts else None
+
+
+def tooling_only(paths):
+    """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
+    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
 
 
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -956,21 +949,20 @@ def find_pr_media(highlight, path, head):
 def change_item(subject, author, paths=(), descriptions=None, merged_at=None, repo=None):
     """One structured change (UPDATE-CARD): title, author, PR, and a deterministic one-line
     description from the PR body when the release job has enabled PR descriptions.
-    With `repo` (the notes `build` passes it) the item also carries its "area" (change_area),
-    its PR's "url" and "mergedAt" (the squash commit's time): the notes schema's per-item PR fields.
+    With `repo` (the notes `build` passes it) the item also carries its PR's "url" and "mergedAt"
+    (the squash commit's time): the notes schema's per-item PR fields.
     """
     description = ""
     match = PR_SUFFIX.match(subject)
     if match and descriptions is not None:
         description = descriptions.get(int(match["pr"]), "")
     item = {"title": subject.strip(), "author": author.strip() or None,
-            "internal": internal_change(subject, paths, description) or None}
+            "internal": internal_change(subject, paths, description) or None, "area": change_area(paths)}
     if match and match["title"].strip():
         item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
         if description:
             item["description"] = description
     if repo:
-        item["area"] = change_area(subject, paths)
         if "pr" in item:
             item["url"] = f"https://github.com/{repo}/pull/{item['pr']}"
         item["mergedAt"] = merged_at
@@ -1247,8 +1239,10 @@ def build(args):
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes, descriptions=descriptions),
-             "since": since_build(args.since, args.previous_index),
              "publishedAt": args.published_at or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    since = since_build(args.since, args.previous_index)
+    if since:
+        notes["since"] = since  # {"build", "head"}: the published build (and commit) the span starts after
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
@@ -1275,7 +1269,7 @@ def since_build(since, index_path):
     """The notes' "since": {"build", "head"} of the published build this span starts at, or None
     when the span has no start. The build is the index entry (a verified notes/index.json) whose
     head is `since`; a start no entry records keeps its head with an empty build."""
-    if not since:
+    if not re.fullmatch(r"[0-9a-f]{40}", since or ""):
         return None
     build = ""
     if index_path and os.path.exists(index_path):
@@ -1333,33 +1327,17 @@ def add_prs(prs, notes):
             prs[str(number)] = dict(entry)
 
 
-def appcast_pr_text(items, limit=PR_LIMIT):
-    """The appcast <description>'s plain-text PR list: "Title (#N) by author", each PR once,
-    newest first, at most `limit`, then "and K more"; empty when the span has no PR."""
-    seen, lines = set(), []
-    for item in items:
-        if "pr" in item and item["pr"] not in seen:
-            seen.add(item["pr"])
-            by = f" by {item['author']}" if item.get("author") else ""
-            lines.append(f"- {item['title']} (#{item['pr']}){by}")
-    if not lines:
-        return ""
-    more = [f"- and {len(lines) - limit} more"] if len(lines) > limit else []
-    return "PRs in this build:\n" + "\n".join(lines[:limit] + more)
-
-
 def appcast(args):
     """Writes the build's short changelog into its item in every published appcast."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
     from nightly_release_notes import update_appcasts
     lines = summarize_changes(commit_subjects(args.since, args.head))
     text = summary_text(lines) or "Maintenance and internal improvements."
-    # Which PRs the build carries (Leo 2026-11-26: "do we display which prs go into which nightly"),
-    # under the summary: the update dialog and any feed reader show them.
-    listed = appcast_pr_text([change_item(s, a) for s, a in commits_with_authors(args.since, args.head, limit=None)])
-    if listed:
-        text = f"{text}\n\n{listed}"
-    update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds))
+    # The PR list rides in the item, beside its sourceCommit: the span is the feed's own (the previous item's source).
+    numbers = list(dict.fromkeys(item["pr"] for item in (change_item(subject, author)
+                   for subject, author in commits_with_authors(args.since, args.head, limit=None)) if "pr" in item))
+    since = args.since if re.fullmatch(r"[0-9a-f]{40}", args.since or "") else None
+    update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds), since=since, pull_requests=numbers)
     print(text)
 
 
