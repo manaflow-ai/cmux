@@ -1,7 +1,11 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 internal import Atomics
 internal import CoreFoundation
+#if canImport(Darwin)
 internal import Darwin
+#else
+internal import Glibc
+#endif
 internal import Dispatch
 internal import Foundation
 #if DEBUG

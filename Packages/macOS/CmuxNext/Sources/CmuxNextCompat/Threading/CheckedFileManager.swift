@@ -187,11 +187,13 @@ public struct CheckedFileManager: Sendable {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try FileManager.default.createSymbolicLink(atPath: path, withDestinationPath: destPath) }
     }
 
+    #if canImport(ObjectiveC)
     /// Moves a file or folder to the Trash. Like `FileManager.trashItem`, checked.
     @inlinable
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>? = nil, fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.fileIO, fileID: fileID, line: line) { try FileManager.default.trashItem(at: url, resultingItemURL: outResultingURL) }
     }
+    #endif
 
     /// Finds (and with `create`, makes) a system folder such as Application Support. Like `FileManager.url`, checked.
     @inlinable

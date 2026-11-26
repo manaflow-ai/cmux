@@ -1,3 +1,4 @@
+#if canImport(XPC)
 public import XPC
 
 /// Sends an XPC message and waits for its reply, like `xpc_connection_send_message_with_reply_sync`,
@@ -15,3 +16,4 @@ public func blockingXPCSendWithReply(_ connection: xpc_connection_t, _ message: 
                                      fileID: StaticString = #fileID, line: UInt = #line) -> xpc_object_t {
     return blockingCall(.ipcReply, fileID: fileID, line: line) { xpc_connection_send_message_with_reply_sync(connection, message) }
 }
+#endif
