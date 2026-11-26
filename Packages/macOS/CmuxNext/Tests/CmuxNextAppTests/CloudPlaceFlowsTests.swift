@@ -363,4 +363,32 @@ import Testing
     private static func start(_ data: Data) -> [String: Any]? {
         (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["start"] as? [String: Any]
     }
+
+    /// Keep Running: the priority and its first time persist, reach Rust in the control facts, and Rust's `keep` reaches the header.
+    @Test func keepRunningPersistsReachesRustAndCarriesItsKeep() throws {
+        let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
+        let sent = SentControl()
+        let core: CloudPlaceFlows.Core = { operation, request in
+            guard operation == "cloud_move_place_control" else { return nil }
+            sent.request = try? JSONSerialization.jsonObject(with: request) as? [String: Any]
+            return Data(#"{"keep":{"priority":"high","pin":"auto","at":"local","lit":true,"used":1,"total":3,"waiting":false}}"#.utf8)
+        }
+        let first = CloudPlaceFlows(defaults: defaults, core: core, clock: { 1 })
+        #expect(first.priority(of: "s") == "normal")
+        first.setPriority("high", of: "s", nowMs: 42)
+        first.setPriority("high", of: "s", nowMs: 99)  // already on: keeps its first time (the slot rule's order)
+        let place = CloudPlaceFlows(defaults: defaults, core: core, clock: { 1 })
+        #expect(place.priority(of: "s") == "high" && place.priorities["s"] == 42)
+        let chats = place.controlChats([CloudPlaceChat(id: "t", session: "s", onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false)])
+        let facts = CloudPlaceFlows.ControlFacts(signedIn: true, restoring: false, planKnown: true, planId: "next_plus", chats: chats)
+        let object = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, control: facts)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        #expect((object["keep"] as? [String: Any])?["lit"] as? Bool == true)
+        let chat = try #require((sent.request?["chats"] as? [[String: Any]])?.first)
+        #expect(chat["priority"] as? String == "high" && chat["litAtMs"] as? Int == 42)
+        place.setPriority("normal", of: "s")
+        #expect(CloudPlaceFlows(defaults: defaults).priority(of: "s") == "normal")
+        place.setPriority("sideways", of: "s")
+        #expect(place.priorities.isEmpty)
+    }
 }

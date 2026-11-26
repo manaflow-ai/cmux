@@ -37,6 +37,13 @@ public final class OverlaySurfaceView: NSView {
     public let glassVariant: OverlayGlassVariant
     /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
     public private(set) var rimView: GlassRimView?
+    /// The theme's edge on Liquid Glass with no neutral rim (variant 1, the theme tone): one
+    /// device-pixel stroke of the theme's card rim (the web's `--glass-edge`, `--cmux-card-rim`) over
+    /// the glass's own edge, opaque so the system's dark outline under it never shows (Leo 2026-11-21,
+    /// on the tab hover card: "has a black border... no bueno. no cohesiveness/theme synchronizing!").
+    /// Nil on the other materials (their hairline is the theme separator already), on a card (its
+    /// tint view draws the rim), clear glass and a surface that stands on its window.
+    public private(set) var edgeView: ThemeEdgeView?
     private let reduceTransparency: ReduceTransparency
     /// The glass keeps its key-window look while its window is not key (``GlassPanelView``): a
     /// dialog's card, whose overlay panel gives key back as the dialog starts to fade out; the
@@ -268,14 +275,32 @@ public final class OverlaySurfaceView: NSView {
               material != .liquidGlass || floatingVariant?.drawsRim != false else {
             rimView?.removeFromSuperview()
             rimView = nil
+            installEdge()
             return
         }
+        edgeView?.removeFromSuperview()
+        edgeView = nil
         let rim = rimView ?? GlassRimView(cornerRadius: cornerRadius, look: style.look(isDark: themeTokens.isDark))
         rim.frame = bounds
         rim.autoresizingMask = [.width, .height]
         rim.removeFromSuperview()
         addSubview(rim)
         rimView = rim
+    }
+
+    /// The theme edge over Liquid Glass that draws no rim of its own (``edgeView``).
+    private func installEdge() {
+        guard material == .liquidGlass, !isCard, !drawsNoMaterial else {
+            edgeView?.removeFromSuperview()
+            edgeView = nil
+            return
+        }
+        let edge = edgeView ?? ThemeEdgeView(cornerRadius: cornerRadius)
+        edge.frame = bounds
+        edge.autoresizingMask = [.width, .height]
+        edge.removeFromSuperview()
+        addSubview(edge)
+        edgeView = edge
     }
 
     private func applyShadow() {
@@ -296,6 +321,7 @@ public final class OverlaySurfaceView: NSView {
     private func applyShape() {
         if castShadow != nil { applyShadow() }
         rimView?.cornerRadius = cornerRadius
+        edgeView?.cornerRadius = cornerRadius
         // The content takes the surface's shape on every material. The blur and the solid
         // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never
         // clips its content view: a content background (`OverlayBackingView`'s veil) painted
@@ -342,6 +368,11 @@ public final class OverlaySurfaceView: NSView {
             let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
+                if let edgeView {
+                    // Clear glass (a dragged row) shows only the lens, no drawn edge.
+                    edgeView.isHidden = isClear
+                    edgeView.color = Self.themeEdge(cardMaterial)
+                }
                 let untinted = tone.style.map { floatingVariant?.tintsGlass($0) == false } ?? false
                 (materialView as? GlassPanelView)?.tintColor = isClear || untinted ? nil : veil ?? overlayTint
                 if let card {
@@ -359,6 +390,13 @@ public final class OverlaySurfaceView: NSView {
             }
         }
         applyShape()
+    }
+
+    /// The theme's edge as one opaque color: the card rim (the primary text at its rim alpha, the web's
+    /// `--cmux-card-rim`) over the theme's popup fill, so it covers the glass's own outline.
+    static func themeEdge(_ card: CardMaterial) -> NSColor {
+        let rim = card.rim.nsColor
+        return card.fill.nsColor.blended(withFraction: rim.alphaComponent, of: rim.withAlphaComponent(1)) ?? rim
     }
 
     /// The card material of the theme in effect (call inside `performWithTheme`).
