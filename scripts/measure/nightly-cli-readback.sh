@@ -6,19 +6,23 @@
 # chief-mark=TEXT (repeatable) says whether the bundled optchat-chief holds TEXT, a string a Chief change added,
 # to show the NIGHTLY carries that Chief change (its `--version` also names the commit it was built from).
 #   cmux-ci run --label measure --script scripts/measure/nightly-cli-readback.sh --ref <sha> \
-#     [--arg=build=VERSION | --arg=dmg=URL] [--arg=mark=WORD] [--arg=chief-mark=TEXT ...]
+#     [--arg=build=VERSION | --arg=dmg=URL] [--arg=mark=WORD] [--arg=chief-mark=TEXT ...] [--arg=help=VERB...]
 #   build=VERSION  a NIGHTLY's build number (CFBundleVersion, e.g. 4557519416001)
 #   dmg=URL        any NIGHTLY DMG (default: the newest in the NEXT feed)
+#   help=VERB      also run the bundled `cmux VERB --help` (VERB may be several words joined by +, e.g. link+dial),
+#                  print its exit code and first line; repeatable. A nonzero exit fails the read-back.
 # Prints NCR lines; the temp folder is removed at the end.
 set -uo pipefail
 dmg="" build="" mark=""
 chief_marks=()
+helps=()
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     build=*) build="${arg#build=}" ;;
     mark=*) mark="${arg#mark=}" ;;
     chief-mark=?*) chief_marks+=("${arg#chief-mark=}") ;;
+    help=?*) helps+=("${arg#help=}") ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -50,7 +54,7 @@ for key in CFBundleShortVersionString CFBundleVersion CFBundleIdentifier; do
 done
 plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */NCR plist /'
 # The app's own executable (Contents/MacOS/cmux) shares the CLI's name; run with --version it starts the GUI and
-# never exits on a headless Mac, so it is skipped, and each --version is bounded at 30 s.
+# never exits on a headless Mac, so it is skipped, and each CLI call is bounded at 30 s.
 main_exe="$app/Contents/MacOS/$(plutil -extract CFBundleExecutable raw -o - "$plist" 2>/dev/null)"
 bounded() { perl -e 'alarm shift; exec @ARGV or die "exec: $!\n"' 30 "$@"; }
 status=0
@@ -62,6 +66,14 @@ for name in cmux acpmux optchat-chief; do
   ver="$(head -3 <<<"$ver" | tr '\n' ' ')"
   if [[ "$rc" -eq 142 ]]; then echo "NCR $name --version: no answer in 30 s"; status=1
   else echo "NCR $name --version: $ver"; fi
+  if [[ "$name" == cmux ]]; then
+    for verb in ${helps[@]+"${helps[@]}"}; do
+      IFS=+ read -r -a words <<<"$verb"
+      out="$(HOME="$work" bounded "$bin" "${words[@]}" --help 2>&1)"; rc=$?
+      echo "NCR cmux ${words[*]} --help exit=$rc: $(printf '%s\n' "$out" | grep -m1 -v '^[[:space:]]*$')"
+      [[ $rc -eq 0 ]] || status=1
+    done
+  fi
   if [[ "$name" == acpmux && -n "$mark" ]]; then
     if LC_ALL=C grep -qaF $'\x01'"$mark"$'\x01' "$bin"; then echo "NCR acpmux mark present: $mark"
     else echo "NCR acpmux mark absent: $mark"; status=1; fi
