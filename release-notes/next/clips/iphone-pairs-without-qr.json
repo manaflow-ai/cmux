@@ -4,9 +4,8 @@
   "steps": [
     {"title": "Launch", "wait": 2},
     {"title": "A fixed window", "rpc": {"method": "debug.window_frame", "params": {"frame": [80, 80, 1200, 800]}}, "wait": 0.5},
-    {"title": "Settings at Accounts > iPhone", "rpc": {"method": "action.run", "params": {"action": "openSettings", "arguments": {"setting": "mobile.autoApprovePhones"}}}, "wait": 3, "clip": true},
-    {"title": "Approve Phone Requests Automatically on", "cmux": ["settings", "set", "mobile.autoApprovePhones", "true"], "wait": 1.5, "clip": true, "optional": "the before app has no mobile.autoApprovePhones"},
-    {"title": "Back off", "cmux": ["settings", "reset", "mobile.autoApprovePhones"], "wait": 0.5, "optional": "the before app has no mobile.autoApprovePhones"}
+    {"title": "The window, before Settings opens", "wait": 1, "clip": true},
+    {"title": "Settings at Accounts > iPhone: Approve Phone Requests Automatically under Allow iPhone Connections", "rpc": {"method": "action.run", "params": {"action": "openSettings", "arguments": {"setting": "mobile.allowIPhoneConnections"}, "focus": true}}, "wait": 3.5, "clip": true}
   ],
   "crop": [0.25, 0.0, 0.75, 0.7]
 }

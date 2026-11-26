@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8d17d007206f151c218d7447ac98ebb43e38c90c9eea22dafcb6b2b168dfd1a1.
+// cmux-tui mux protocol 12, IR b75238ebbb5a319cde650372bde790dcd69764cd6411a53c07f18a5d984ae8d7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "8d17d007206f151c218d7447ac98ebb43e38c90c9eea22dafcb6b2b168dfd1a1";
+pub const SDK_IR_SHA256: &str = "b75238ebbb5a319cde650372bde790dcd69764cd6411a53c07f18a5d984ae8d7";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
