@@ -40,6 +40,8 @@ Packages/Shared/CmuxPagePushBound  CmuxPagePushBound
 Packages/Shared/CmuxPagePushBound  CmuxPagePushBoundTests
 Packages/Shared/CmuxSentryTelemetry  CmuxSentryScrubbing
 Packages/Shared/CmuxSentryTelemetry  CmuxSentryScrubbingTests
+Packages/Shared/CmuxSpinner  CmuxSpinner
+Packages/Shared/CmuxSpinner  CmuxSpinnerTests
 Packages/Shared/CmuxTerminalSizing  CmuxTerminalSizing
 Packages/Shared/CmuxTerminalSizing  CmuxTerminalSizingTests
 Packages/Shared/CmuxTerminalStream  CmuxTerminalStream
