@@ -46,11 +46,12 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        sessionConsent: SessionConsentResponder? = nil
     ) async throws -> ControlService {
         await firstFrame()
         return try start(registry: registry, settings: settings, launch: launch, environment: environment, bundle: bundle,
-                         accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog)
+                         accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog, sessionConsent: sessionConsent)
     }
 
     /// Resolves path and access mode, binds, and starts serving.
@@ -63,6 +64,7 @@ public final class ControlService {
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
+        sessionConsent: SessionConsentResponder? = nil,
         classicMode: String? = ControlService.classicStoredMode(.standard)
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
@@ -88,7 +90,8 @@ public final class ControlService {
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
-            watchdog: watchdog
+            watchdog: watchdog,
+            sessionConsent: sessionConsent
         )
     }
 
@@ -100,7 +103,8 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        sessionConsent: SessionConsentResponder? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
@@ -108,6 +112,7 @@ public final class ControlService {
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
+        server.setSessionConsent(sessionConsent)
         try server.start()
         return ControlService(server: server, router: router, bridge: bridge)
     }
