@@ -8047,7 +8047,27 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       RETRY: ${{ inputs.nightly_next_loop_retry }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The retry runs after a failure that is often GitHub refusing this host's git traffic (run 45744507889:
+      # actions/checkout got 403 here too). On an owned Mac, scripts/ci comes from the host's git mirror (fetched
+      # every minute by its one fetcher), with no github.com git fetch; actions/checkout only when it lacks SHA.
+      - name: Read scripts/ci from the host's git mirror
+        id: mirror-scripts
+        if: runner.environment == 'self-hosted'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          if [ ! -f "$mirror/glaeda-verified" ] || [ -e "$mirror/glaeda-repair-pending" ]; then echo "no healthy mirror at $mirror"; exit 0; fi
+          until=$((SECONDS + 180))
+          until git --git-dir="$mirror" cat-file -e "$SHA^{commit}" 2>/dev/null; do
+            if [ "$SECONDS" -ge "$until" ]; then echo "the mirror lacks $SHA after 180 s"; exit 0; fi
+            sleep 10
+          done
+          git --git-dir="$mirror" archive "$SHA" scripts/ci | tar -x -C "$GITHUB_WORKSPACE"
+          echo "github.com git fetches: 0 (scripts/ci of $SHA from $mirror)"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - if: steps.mirror-scripts.outputs.ok != 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
