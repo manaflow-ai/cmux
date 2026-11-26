@@ -100,6 +100,20 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
     manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
     a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
     3adae25c4c5d596467f12ffa016a6c49359818aa765e20e262880d1ab1ed8ce6
+  ].freeze,
+  # The hosted successor of the read-token successor: the same action and
+  # steps; CLAAssistant.runs-on becomes the literal CLA_PINNED_HOSTED_RUNNER
+  # (ubuntu-22.04), plus the comments that say why. The persistent Linux pool
+  # (cmux-runner-pool-*, runner group cmux-fleet-linux) registers the
+  # Blacksmith Ubuntu labels, so CLA_TRUSTED_RUNNER_EXPRESSION's default sent
+  # CLAAssistant to pool VM cmux-runner-pool-he4a-0037 and its runner guard
+  # refused it (job 136688165968, run 44852893055). Only a GitHub-hosted label
+  # the pool does not carry still names a one-job VM; the unchanged
+  # CLA_EPHEMERAL_RUNNER_GUARD_* step admits it as github-hosted.
+  %w[
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+    75f3398810605a9bfb3c718e4622ce08fb7c024b6a3b541a5a65fea1402b7eab
   ].freeze
 ].freeze
 # Reviewed successors that also move the action, as [from action reference,
@@ -127,7 +141,13 @@ CLA_ACTION_BASE_REFS = (
 CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
 # ephemeral VM that runs one job and is destroyed: GitHub-hosted ubuntu-24.04
-# or a Blacksmith Ubuntu 24.04 VM. A repository variable must never redirect
+# or a Blacksmith Ubuntu 24.04 VM. Since 2026-11-20 our persistent Linux pool
+# (cmux-runner-pool-*) also registers the Blacksmith Ubuntu labels, so a
+# Blacksmith label can land a job on a reused pool VM, which the runner guard
+# step below then refuses. cla.yml therefore moves to the pinned hosted
+# successor above (CLA_PINNED_HOSTED_RUNNER, a GitHub-hosted label the pool
+# does not carry); that move is checked by its exact bytes, not by the
+# structural allowlist here. A repository variable must never redirect
 # this privileged work to a persistent self-hosted machine, so runs-on is an
 # exact-string allowlist, never a pattern. CLA_TRUSTED_RUNNER_EXPRESSION is
 # the CI_TRUSTED_RUNNER selector main already uses for trusted tokens
@@ -136,6 +156,8 @@ CLA_ACTION = CLA_ACTION_FINAL
 # running its own copy gets GitHub-hosted. Either provider can then carry the
 # CLA checks while the other is down.
 CLA_RUNNER = "ubuntu-24.04".freeze
+# The label the hosted cla.yml successor pins (CLA_ACTION_RUNNER_SUCCESSOR_PINS).
+CLA_PINNED_HOSTED_RUNNER = "ubuntu-22.04".freeze
 CLA_BLACKSMITH_RUNNERS = %w[blacksmith-2vcpu-ubuntu-2404 blacksmith-4vcpu-ubuntu-2404].freeze
 CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
 # The required merge gates' reserved one-job label (cmuxterm-hq gha_runners.py
@@ -182,7 +204,10 @@ SH
 # cannot stop a hostile administrator or a compromised runner; it catches a
 # job that lands on an owned machine by mistake. The real control is the
 # exact runs-on allowlist above, which routes only to GitHub-hosted runners
-# or Blacksmith's read-only scale-set labels. If Blacksmith renames its VMs
+# or Blacksmith's read-only scale-set labels. Those labels are no longer
+# Blacksmith's alone: the persistent pool registers them too, and its VMs
+# (cmux-runner-pool-*) match no admitted prefix, so the guard refuses them
+# and a job that must run picks a GitHub-hosted label. If Blacksmith renames its VMs
 # again so that a name no longer starts with its label, this guard fails
 # closed, and CI_TRUSTED_RUNNER=ubuntu-24.04 restores the GitHub-hosted route.
 CLA_EPHEMERAL_RUNNER_PREFIXES = CLA_BLACKSMITH_RUNNERS.map { |label| "#{label}-" }.freeze
@@ -260,7 +285,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
+EXPECTED_GUARD_SCRIPT_DIGEST = "83f1ed10176de26cae7ad03b3692b3e4ed95be3ada7ccbf26374fccfd32ebda1"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1490,6 +1515,8 @@ def run_action_transition_regression_matrix!
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
   read_from_ref, read_from, read_to_ref, read_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(0)
+  hosted_ref, hosted_from, hosted_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(-1)
+  gate_ref, gate_from, gate_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(-2)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -1530,7 +1557,15 @@ def run_action_transition_regression_matrix!
     ["read-token action with unpinned bytes", read_from_ref, read_to_ref, true, read_from, nil, nil, false, "0" * 64],
     ["read-token bytes from unreviewed base", read_from_ref, read_to_ref, true, "0" * 64, nil, nil, false, read_to],
     ["read-token bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, read_to],
-    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to]
+    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to],
+    ["read-token successor to hosted successor", hosted_ref, hosted_ref, true, hosted_from, nil, nil, true, hosted_to],
+    ["hosted successor no-op", hosted_ref, hosted_ref, false, hosted_to, nil, nil, true],
+    ["hosted successor to final", hosted_ref, final, true, hosted_to, nil, nil, true],
+    ["hosted successor reverted", hosted_ref, hosted_ref, true, hosted_to, nil, nil, false, hosted_from],
+    ["hosted successor to gate successor", hosted_ref, gate_ref, true, hosted_to, nil, nil, false, gate_to],
+    ["hosted successor bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, hosted_to],
+    ["hosted successor with helper", hosted_ref, hosted_ref, true, hosted_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, hosted_to],
+    ["read-token successor to gate successor", gate_ref, gate_ref, true, gate_from, nil, nil, true, gate_to]
   ]
 
   failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
