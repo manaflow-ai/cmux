@@ -980,5 +980,67 @@ class GhApiSpareTokenTests(unittest.TestCase):
         self.assertEqual(calls, ["job"])
 
 
+class GhApiNoTokenAndSecondaryWaitTests(unittest.TestCase):
+    """gh_api: both tokens refused, a read with no token answers; a secondary limit waits once, then reads again."""
+
+    SECONDARY = "HTTP 403: You have exceeded a secondary rate limit ... https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
+
+    def setUp(self):
+        rolling._secondary_waited = False
+        self.addCleanup(setattr, rolling, "_secondary_waited", False)
+
+    def runner(self, answers):
+        calls = []
+
+        def run(argv, capture_output, text, env):
+            calls.append((env or {}).get("GH_TOKEN", "job"))
+            code, out, err = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_both_tokens_refused_is_read_with_no_token(self):
+        run, calls = self.runner([(1, "", self.SECONDARY), (1, "", self.SECONDARY)])
+        asked = []
+        answer = rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run,
+                                anonymous=lambda path: asked.append(path) or {"workflow_runs": []},
+                                sleep=lambda s: self.fail("no wait when the no-token read answers"))
+        self.assertEqual(answer, {"workflow_runs": []})
+        self.assertEqual(calls, ["job", "s"])
+        self.assertEqual(asked, ["repos/o/r/actions/runs"])
+
+    def test_a_secondary_limit_everywhere_waits_once_then_reads(self):
+        run, calls = self.runner([(1, "", self.SECONDARY), (1, "", self.SECONDARY), (0, '{"ok": 1}', "")])
+        slept = []
+
+        def anonymous(path):
+            raise OSError("HTTP Error 403: rate limit exceeded")
+        answer = rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run, anonymous=anonymous,
+                                sleep=slept.append)
+        self.assertEqual(answer, {"ok": 1})
+        self.assertEqual(slept, [rolling.SECONDARY_WAIT_SECONDS])
+        self.assertEqual(calls, ["job", "s", "job"])
+
+    def test_the_wait_happens_once_per_process(self):
+        run, calls = self.runner([(1, "", self.SECONDARY)] * 3)
+        slept = []
+        for _ in range(2):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                rolling.gh_api("repos/o/r/x", env={}, run=run, sleep=slept.append)
+        self.assertEqual(slept, [rolling.SECONDARY_WAIT_SECONDS])
+        self.assertEqual(calls, ["job", "job", "job"])
+        self.assertIn("secondary rate limit", repr(caught.exception))
+
+    def test_a_plain_refusal_never_waits(self):
+        run, calls = self.runner([(1, "", "HTTP 404: Not Found")])
+        with self.assertRaises(subprocess.CalledProcessError):
+            rolling.gh_api("repos/o/r/x", env={}, run=run, sleep=lambda s: self.fail("waited on a 404"))
+        self.assertEqual(calls, ["job"])
+
+    def test_main_runs_the_rule_on_the_production_reads(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("api=production_api", text)
+        self.assertIn("anonymous=public_get, sleep=time.sleep", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

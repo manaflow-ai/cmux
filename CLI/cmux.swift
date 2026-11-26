@@ -14595,7 +14595,16 @@ struct CMUXCLI {
             cliDebugLog(
                 "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
             )
-            if didCreateWorkspace {
+            // Roll back only when the app answered with an error. A dropped
+            // connection or a missing reply says nothing about whether the
+            // request ran, and the new terminal may already be connecting, so
+            // the workspace stays open and keeps its launcher (#21405).
+            if didCreateWorkspace,
+               (error as? CLIError)?.isStructuredProtocolResponse != true {
+                launchScripts.handOff()
+                let note = "Note: workspace \(workspaceId) stays open; cmux did not answer its setup request\n"
+                cliWriteStderr(Data(note.utf8))
+            } else if didCreateWorkspace {
                 do {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {

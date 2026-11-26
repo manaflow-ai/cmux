@@ -691,6 +691,34 @@ class MainTests(unittest.TestCase):
         self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
                                          ("CI_CLOUD_OVERFLOW_SAVED", None)])
 
+    def test_a_record_clears_when_the_smallest_size_serves_and_a_larger_one_stalls(self) -> None:
+        # 2026-11-17: a record from 19:48Z stayed set past 00:48Z. Every pass was partial (4 vCPU started,
+        # 16 vCPU no runner) while ~216 overflow readers sat on 16 and 32 vCPU because the record was set.
+        self.assertEqual(switch.SERVING_PROBE, "blacksmith-4vcpu-ubuntu-2404")
+        small = {**probe_job(6, runner_name="bs-1", status="in_progress"),
+                 "name": switch.probe_job_name(switch.SERVING_PROBE)}
+        large = [{**probe_job(6), "name": switch.probe_job_name(label)}
+                 for label in switch.PROBE_LABELS if label != switch.SERVING_PROBE]
+        self.assertEqual(switch.probe_set_outcome([small, *large], switch.PROBE_LABELS, NOW, 5)[0], "partial")
+        record = {"since": ago(300), "probe": ", ".join(switch.PROBE_LABELS), "changed": {
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
+            "LINUX_RUNNER": {"before": switch.SERVING_PROBE, "after": "blacksmith-16vcpu-ubuntu-2404"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6",
+               "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions([small, *large]), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=partial", out)
+        # LINUX_RUNNER goes back onto the size that started, never the stalled one, and the record is deleted.
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", switch.SERVING_PROBE),
+                                         ("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
+                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        # With no record the same partial result writes nothing but health: overflow never turns off on it.
+        writer = FakeSwitch()
+        code, _, _ = run_main(BLACKSMITH_STEADY, FakeActions([small, *large]), writer)
+        self.assertEqual((code, writer.writes), (0, []))
+        self.assertEqual(writer.health[-1]["labels"][switch.SERVING_PROBE], "started")
+
     def test_health_only_probes_report_but_never_decide(self) -> None:
         # 2026-11-18: 32 vCPU started nothing from about 23:12Z while RUNNER_POOLS kept linux_16 and linux_32
         # on it, because no probe asked for it. The extra sizes are probed for CI_CLOUD_LABEL_HEALTH only:
@@ -727,6 +755,34 @@ class MainTests(unittest.TestCase):
         self.assertIn("outcome=started", out)
         self.assertIn("all_started=false", out)
         self.assertEqual(set(writer.health[-1]["labels"]), set(switch.PROBE_LABELS))
+
+    def test_a_record_clears_when_the_smallest_size_serves_and_a_larger_one_stalls(self) -> None:
+        # 2026-11-17: a record from 19:48Z stayed set past 00:48Z. Every pass was partial (4 vCPU started,
+        # 16 vCPU no runner) while ~216 overflow readers sat on 16 and 32 vCPU because the record was set.
+        self.assertEqual(switch.SERVING_PROBE, "blacksmith-4vcpu-ubuntu-2404")
+        small = {**probe_job(6, runner_name="bs-1", status="in_progress"),
+                 "name": switch.probe_job_name(switch.SERVING_PROBE)}
+        large = [{**probe_job(6), "name": switch.probe_job_name(label)}
+                 for label in switch.PROBE_LABELS if label != switch.SERVING_PROBE]
+        self.assertEqual(switch.probe_set_outcome([small, *large], switch.PROBE_LABELS, NOW, 5)[0], "partial")
+        record = {"since": ago(300), "probe": ", ".join(switch.PROBE_LABELS), "changed": {
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
+            "LINUX_RUNNER": {"before": switch.SERVING_PROBE, "after": "blacksmith-16vcpu-ubuntu-2404"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6",
+               "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions([small, *large]), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=partial", out)
+        # LINUX_RUNNER goes back onto the size that started, never the stalled one, and the record is deleted.
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", switch.SERVING_PROBE),
+                                         ("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
+                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        # With no record the same partial result writes nothing but health: overflow never turns off on it.
+        writer = FakeSwitch()
+        code, _, _ = run_main(BLACKSMITH_STEADY, FakeActions([small, *large]), writer)
+        self.assertEqual((code, writer.writes), (0, []))
+        self.assertEqual(writer.health[-1]["labels"][switch.SERVING_PROBE], "started")
 
     def test_a_partial_result_writes_nothing_but_health(self) -> None:
         # Review at 437df955 and edbbce33: per-size moves belong to the RUNNER_POOLS reconciler, which
