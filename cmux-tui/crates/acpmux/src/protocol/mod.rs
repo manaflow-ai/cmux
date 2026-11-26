@@ -373,6 +373,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
+        untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
