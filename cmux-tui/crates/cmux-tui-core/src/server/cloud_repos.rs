@@ -1,10 +1,12 @@
 //! The shared repo actions on local sockets and authenticated Cloud links.
 use super::{ClientTransport, MessageWriter, Mux};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use std::sync::{Mutex, OnceLock};
 static WORKERS: AtomicUsize = AtomicUsize::new(0);
 const MAX_WORKERS: usize = 16;
 /// Threads running or waiting for a worker slot. A request past
@@ -13,6 +15,32 @@ const MAX_WORKERS: usize = 16;
 static QUEUED: AtomicUsize = AtomicUsize::new(0);
 const MAX_QUEUED: usize = MAX_WORKERS * 4;
 const SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// One add per destination can run at a time. The runtime keeps the same
+/// serialization around the seed job, but taking this gate before the worker
+/// slot prevents duplicate adds from parking scarce workers while they wait
+/// for the first clone to finish.
+static DESTINATION_GATES: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn destination_lock(key: &str) -> Arc<Mutex<()>> {
+    let mut gates =
+        DESTINATION_GATES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    gates.retain(|_, gate| Arc::strong_count(gate) > 1);
+    gates.entry(key.to_owned()).or_default().clone()
+}
+
+/// Derive the folder destination used by `git.seed.start` from an add frame.
+/// Invalid requests return no key and continue through normal validation.
+fn destination_key(request: &Value) -> Option<String> {
+    let session = request.get("session")?.as_str()?.trim();
+    let input = request.get("repo")?.as_str()?.trim().trim_end_matches('/');
+    if session.is_empty() || input.is_empty() {
+        return None;
+    }
+    let normalized = crate::cloud_repos::normalize(input).ok()?;
+    let leaf = normalized.rsplit('/').next()?;
+    Some(format!("{}/{}", session, leaf.to_ascii_lowercase()))
+}
 
 fn busy(message: &str) -> Value {
     json!({"code":"seed.clone_failed","message":message})
@@ -61,6 +89,7 @@ pub(super) fn try_handle(
     let writer = writer.clone();
     let fallback = writer.clone();
     let fallback_id = id.clone();
+    let destination = (cmd == "cloud.repo.add").then(|| destination_key(&request)).flatten();
     match std::thread::Builder::new().name("cloud-repo".into()).spawn(move || {
         struct Queued;
         impl Drop for Queued {
@@ -69,6 +98,11 @@ pub(super) fn try_handle(
             }
         }
         let _queued = Queued;
+        // Wait for another add targeting the same destination before taking a
+        // worker. The queued-thread cap bounds parked duplicate requests.
+        let destination_lock = destination.as_deref().map(destination_lock);
+        let _destination =
+            destination_lock.as_ref().map(|lock| lock.lock().unwrap_or_else(|e| e.into_inner()));
         if !take_slot(&WORKERS, MAX_WORKERS, SLOT_WAIT) {
             let message = format!(
                 "Repository actions stayed busy for {} s: {MAX_WORKERS} were still running.",
@@ -109,6 +143,22 @@ fn a_full_worker_pool_is_waited_for_instead_of_refused() {
     });
     assert_eq!(workers.load(Ordering::Acquire), 2);
     assert!(!take_slot(&workers, 2, std::time::Duration::from_millis(150)));
+}
+
+#[test]
+fn duplicate_destination_waits_before_worker_admission() {
+    let key = format!("gate-test-{}", std::process::id());
+    let first = destination_lock(&key);
+    let first_guard = first.lock().unwrap_or_else(|e| e.into_inner());
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let second = destination_lock(&key);
+        let _second = second.lock().unwrap_or_else(|e| e.into_inner());
+        sent.send(()).unwrap();
+    });
+    assert!(received.recv_timeout(std::time::Duration::from_millis(100)).is_err());
+    drop(first_guard);
+    assert!(received.recv_timeout(std::time::Duration::from_secs(1)).is_ok());
 }
 
 /// Local user and linked Mac requests retain their existing access. A

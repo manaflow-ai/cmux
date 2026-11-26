@@ -10,6 +10,18 @@ fn client(mux: &Mux, transport: ClientTransport) -> (u64, MessageWriter, Arc<Bou
 }
 
 #[test]
+fn cloud_repo_destination_key_normalizes_raw_urls_once() {
+    assert_eq!(
+        destination_key(&json!({"session":"chat","repo":"https://github.com/owner/tool.git"})),
+        Some("chat/tool".into())
+    );
+    assert_eq!(
+        destination_key(&json!({"session":"chat","repo":"owner/tool.git"})),
+        Some("chat/tool.git".into())
+    );
+}
+
+#[test]
 fn cloud_repo_agent_credential_cannot_target_another_chat() {
     let mux = Mux::new_for_test("repo-auth", crate::SurfaceOptions::default());
     let (client, writer, outbound) = client(&mux, ClientTransport::Unix);
