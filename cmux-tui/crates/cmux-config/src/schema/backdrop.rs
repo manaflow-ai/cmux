@@ -64,9 +64,9 @@ pub(crate) fn is_live(text: &str) -> bool {
 /// raw values; `shader:` plus one is a background id). The test
 /// `shader_names_match_swift` holds this list to the Swift enum, so a new
 /// shader the app draws is one a theme file, a recipe or an agent may pick.
-pub(crate) const SHADERS: [&str; 11] = [
+pub(crate) const SHADERS: [&str; 12] = [
     "currents", "ripples", "aurora", "field", "aero", "sakura", "sumi", "koi", "snowfall",
-    "lanterns", "rain",
+    "lanterns", "rain", "matrix",
 ];
 
 /// The prefix of a living wallpaper's id (Swift `BackdropShader.idPrefix`).
