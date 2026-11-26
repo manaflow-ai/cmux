@@ -982,6 +982,7 @@ pub mod sidebar_face;
 pub mod sidebar_launch_order;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
+pub mod sidebar_region_layout;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod workspace_port_links;
