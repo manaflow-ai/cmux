@@ -23,6 +23,9 @@ struct VerticalTabDrag: Equatable {
     var id: TabID
     var isActive = true
     var slot: VerticalTabListLayout.Slot?
+    /// The pointer and where it holds the row (its offset from the row's origin), content coordinates.
+    var pointer: CGPoint = .zero
+    var grab: CGPoint = .zero
 }
 
 // Hover, clicks, the context menus, drag reorder and wheel scrolling.
@@ -129,12 +132,17 @@ extension VerticalTabListView {
         case .tab(let id):
             if drag == nil {
                 guard hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value else { return }
-                drag = VerticalTabDrag(id: id)
+                let start = contentPoint(press.start)
+                let origin = listLayout.frame(of: id)?.origin ?? start
+                drag = VerticalTabDrag(id: id, grab: CGPoint(x: start.x - origin.x, y: start.y - origin.y))
                 hoverTimer.cancel()
             }
             autoscroll(toward: point)
+            drag?.pointer = contentPoint(point)
+            let before = drag?.slot
             if let item = model.tab(id) { drag?.slot = listLayout.slot(at: contentPoint(point), dragging: item) }
-            needsDisplay = true
+            // The other rows spring aside to open the gap where the row would land (the sidebar's drag).
+            if drag?.slot != before || before == nil { retargetMotion(animated: true) } else { needsDisplay = true }
         default:
             updateHover(at: point)
         }
@@ -154,6 +162,7 @@ extension VerticalTabListView {
         let content = contentPoint(point)
         let released = press
         let dragged = drag
+        let lifted = liftedFrame()
         press = nil
         drag = nil
         defer {
@@ -177,6 +186,8 @@ extension VerticalTabListView {
         case .tab(let id):
             if let dragged, dragged.isActive {
                 endDrag(id, slot: dragged.slot)
+                // The row drops from under the pointer into its slot (the model's new order, or back).
+                if let lifted { landLifted(id, from: lifted) }
             } else if released.collapsesSelection {
                 model.clearMultiSelection()
             }

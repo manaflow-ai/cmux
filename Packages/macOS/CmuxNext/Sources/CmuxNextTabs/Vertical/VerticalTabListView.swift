@@ -57,6 +57,9 @@ public final class VerticalTabListView: NSView {
     var hoveredAudio: TabID?
     var press: VerticalTabPress?
     var drag: VerticalTabDrag?
+    /// Every row's spring (`VerticalTabListView+Motion`).
+    var motion = VerticalTabMotion()
+    weak var motionClock: MotionClock?
     private var observation: Task<Void, Never>?
     private var tokenObservation: Task<Void, Never>?
     let hoverTimer = DemandTimer(owner: "VerticalTabList.hoverExpand")
@@ -101,6 +104,8 @@ public final class VerticalTabListView: NSView {
             tokenObservation = nil
             selectionEscape.remove()
             endHoverExpansion()
+            stopMotion()
+            motionSettle()
             return
         }
         startObserving()
@@ -166,12 +171,14 @@ public final class VerticalTabListView: NSView {
 
     /// Builds the rows for the current model, width and collapse state, then redraws.
     func relayout() {
+        let old = listLayout
         metrics = .current
         listLayout = VerticalTabListLayout(tabs: model.orderedTabs, groups: model.groups, showsNewTab: model.showsNewTabButton,
                                            iconsOnly: !showsTitles, width: bounds.width, metrics: metrics)
         clampScroll()
         updateAccessibilityRows()
-        needsDisplay = true
+        // A model change (reorder, fold, add, close, a drop) springs; a new width or density lands at once.
+        retargetMotion(animated: old.width == listLayout.width && old.iconsOnly == listLayout.iconsOnly && old.metrics == listLayout.metrics)
     }
 
     var maxScrollOffset: CGFloat { max(0, listLayout.contentHeight - bounds.height) }

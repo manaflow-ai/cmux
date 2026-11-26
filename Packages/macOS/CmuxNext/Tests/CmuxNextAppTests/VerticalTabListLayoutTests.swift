@@ -147,3 +147,29 @@ import Testing
         #expect(drop.intent(dropping: TabID("t1"), at: 1, in: nil) == .reorderTabs(["t0", "t1", "t3", "t2", "t4", "t5"].map { TabID($0) }))
     }
 }
+
+/// A dragged tab's preview: the rows as they stand with it dropped, which the list springs to while it is lifted.
+@MainActor @Suite struct VerticalTabListDragPreviewTests {
+    @Test func previewMovesTheTabIntoTheSlotsGroup() throws {
+        let layout = VerticalTabListLayoutTests.layout()
+        let a = try VerticalTabListLayoutTests.row(layout, .tab(TabID("a")))
+        let w2 = try VerticalTabListLayoutTests.row(layout, .tab(TabID("w2")))
+        let slot = layout.slot(at: CGPoint(x: 20, y: w2.frame.minY + 2), dragging: TabItem(id: TabID("a"), title: "a"))
+        let moved = try #require(layout.previewTabs(dragging: TabID("a"), on: slot))
+        #expect(moved.map(\.id.rawValue) == ["p1", "p2", "w1", "a", "w2", "l1", "b"])
+        #expect(moved.first { $0.id == TabID("a") }?.groupID == VerticalTabListLayoutTests.work)
+        let preview = layout.preview(dragging: TabID("a"), on: slot, showsNewTab: true)
+        let w1 = try VerticalTabListLayoutTests.row(preview, .tab(TabID("w1")))
+        #expect(w1.frame.minY < a.frame.maxY + 40, "the rows below the dragged tab move up into its old place")
+    }
+
+    @Test func pinnedTabsStayFirstAndNoMoveIsNil() throws {
+        let layout = VerticalTabListLayoutTests.layout()
+        let p1 = try VerticalTabListLayoutTests.row(layout, .pinned(TabID("p1")))
+        let slot = layout.slot(at: CGPoint(x: p1.frame.minX + 1, y: p1.frame.midY), dragging: TabItem(id: TabID("p1"), title: "p1", isPinned: true))
+        #expect(layout.previewTabs(dragging: TabID("p1"), on: slot) == nil)
+        let end = VerticalTabListLayout.Slot(index: 7, group: nil, indicator: .zero)
+        let moved = try #require(layout.previewTabs(dragging: TabID("p1"), on: end))
+        #expect(moved.prefix(2).allSatisfy(\.isPinned), "a pinned tab stays among the pinned tabs")
+    }
+}
