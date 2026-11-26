@@ -1,46 +1,75 @@
+public import Foundation
 public import CmuxNextDesign
-import Foundation
 
-/// `appearance.backgroundPlacement`: picture id to where that picture lies (``BackdropPlacement``;
-/// Rust `cmux-config` `backdrop_placement` is the spec). Unset, and any picture without an entry,
-/// is today's centered fill. Adjust Background… and the Settings page's Background preview write it.
-public struct BackdropPlacementSetting: Sendable {
-    public init() {}
+/// The automatic backgrounds (schemas/settings/source/appearance.json): Light and Dark
+/// (`appearance`, with `appearance.backgroundLight` / `appearance.backgroundDark`), Time of Day
+/// (`schedule`, with `appearance.backgroundSchedule`), how a dynamic macOS wallpaper changes
+/// (`appearance.backgroundDynamic`) and where the sun is read for (`appearance.backgroundLocation`).
+extension BackdropSelectionSetting {
+    /// Light and Dark: the light and dark pictures, per window appearance.
+    public static let appearanceID = "appearance"
+    /// Time of Day: the schedule's picture of now.
+    public static let scheduleID = "schedule"
 
-    /// The placements by picture id; a value that is not a map of placement texts is none plus a
-    /// diagnostic, and so is each entry that does not read (the others still apply).
-    public static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [String: BackdropPlacement] {
-        guard let value = root.value(at: placementPath) else { return [:] }
-        guard let members = value.objectValue else {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backgroundPlacement",
-                                                  message: "expected an object of picture ids to placements, such as {\"munch-scream\": \"fit\"}"))
-            return [:]
-        }
-        var out: [String: BackdropPlacement] = [:]
-        for (id, entry) in members {
-            let reply = SettingsRust.answer("backdrop.placement", ["action": .string("parse"), "text": entry.stringValue.map(JSONValue.string) ?? .null])
-            if !id.trimmingCharacters(in: .whitespaces).isEmpty, let text = reply["value"]?.stringValue,
-               let placement = BackdropPlacement(text: text) {
-                out[id] = placement
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backgroundPlacement.\(id)",
-                                                      message: "expected fill, fit, center or stretch, then optionally X Y (0 to 1) and a zoom (1 to 4)"))
-            }
-        }
-        return out
+    /// `appearance.backgroundRotation`: a choice string, or a number of minutes (1...1440).
+    public static func rotation(_ value: JSONValue?) -> BackdropRotation? {
+        if let text = value?.stringValue { return BackdropRotation(rawValue: text) }
+        return value?.doubleValue.flatMap(BackdropRotation.init(minutes:))
     }
 
-    /// Whether `value` loads with no diagnostic (Rust `is_placement_map`).
-    static func accepts(_ value: JSONValue) -> Bool {
-        SettingsRust.answer("backdrop.placement", ["action": .string("accepts"), "value": value])["valid"]?.boolValue ?? false
+    /// `appearance.backgroundDynamic`, its default when unset or unknown.
+    public static func dynamicMode(_ root: JSONValue) -> BackdropDynamicMode {
+        root.value(at: dynamicPath)?.stringValue.flatMap(BackdropDynamicMode.init(rawValue:)) ?? dynamicDefault
     }
 
-    /// The whole map with `id` set to `placement` (removed for a centered fill, so Reset leaves
-    /// no entry), as the file's value; nil when nothing is left.
-    public static func value(_ current: [String: BackdropPlacement], setting id: String, to placement: BackdropPlacement) -> JSONValue? {
-        var next = current
-        next[id] = placement.isCenteredFill ? nil : placement
-        guard !next.isEmpty else { return nil }
-        return .object(next.mapValues { .string($0.text) })
+    /// A picture `appearance.backgroundLight`, `appearance.backgroundDark` or a schedule entry may
+    /// name: a fixed background (art, `desktop`, `system:`, `file:`), never a shuffle or `none`.
+    public static func picture(_ raw: String) -> BackdropSelection? {
+        guard !BackdropArt.removedIDs.contains(raw) else { return nil }
+        return BackdropSelection(id: raw)
+    }
+
+    /// Light and Dark's pictures as one selection; an unset side shows the other's, and with
+    /// neither set there is none.
+    public static func pair(_ root: JSONValue) -> BackdropSelection? {
+        let light = root.value(at: lightPath)?.stringValue.flatMap(picture)
+        let dark = root.value(at: darkPath)?.stringValue.flatMap(picture)
+        guard let shownLight = light ?? dark else { return nil }
+        let shownDark = dark ?? shownLight
+        return shownLight == shownDark ? shownLight : .pair(light: shownLight, dark: shownDark)
+    }
+
+    /// `appearance.backgroundSchedule` read; nil when unset, empty or any entry is invalid.
+    public static func schedule(_ root: JSONValue) -> BackdropTimeOfDay? {
+        guard let members = root.value(at: schedulePath)?.objectValue, !members.isEmpty else { return nil }
+        var strings: [String: String] = [:]
+        for (key, value) in members {
+            guard let text = value.stringValue else { return nil }
+            strings[key] = text
+        }
+        return BackdropTimeOfDay.parse(strings) { picture($0) != nil }
+    }
+
+    /// Whether a value is valid for `appearance.backgroundLight` or `appearance.backgroundDark`.
+    static func acceptsPicture(_ value: JSONValue) -> Bool {
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("picture"), "value": value])["valid"]?.boolValue ?? false
+    }
+
+    /// Whether a value is valid for `appearance.backgroundSchedule`: an object (empty allowed) of
+    /// valid times to fixed backgrounds.
+    static func acceptsSchedule(_ value: JSONValue) -> Bool {
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("schedule"), "value": value])["valid"]?.boolValue ?? false
+    }
+
+    /// Whether a value is valid for `appearance.backgroundMemory`, what each background mode last
+    /// showed: an object with at most `rotate` (`daily` or a folder), `folder` (a folder) and `off`
+    /// (`none` or a fixed picture). The Settings page reads and writes it; the engine never does.
+    static func acceptsMemory(_ value: JSONValue) -> Bool {
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("memory"), "value": value])["valid"]?.boolValue ?? false
+    }
+
+    /// Whether a value is valid for `appearance.backgroundLocation`: `"LAT,LON"`.
+    static func acceptsLocation(_ value: JSONValue) -> Bool {
+        SettingsRust.answer("backdrop.accepts", ["kind": .string("location"), "value": value])["valid"]?.boolValue ?? false
     }
 }
