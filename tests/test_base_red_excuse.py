@@ -8602,7 +8602,9 @@ class WsCheckPerTest(unittest.TestCase):
         # for it instead of having their own red named.
         main8 = self.gh.TIP[:8]
         for description in (f"1 failed after discounting 1 on main {main8}: test_b.py",
-                            f"1 failed after discounting 1 on main {main8}: test_"):
+                            f"1 failed after discounting 1 on main {main8}: test_",
+                            f"1 failed after discounting 1 on main {main8}: test_b.py, test_c.py",  # more units
+                            f"1 failed after discounting 1 on main {main8}: test_b.py cmux-cp-1; log x"):  # a host
             with self.subTest(description=description):
                 self.discounted_red(description)
                 with self.assertRaisesRegex(excuse.Refused, "test_b"):  # read, and test_b is the head's own red
@@ -8618,7 +8620,8 @@ class WsCheckPerTest(unittest.TestCase):
         for description in (f"2 failed after discounting 1 on main {main8}: test_b.py",  # own count
                             f"1 failed after discounting 2 on main {main8}: test_b.py",  # discounted count
                             f"1 failed after discounting 1 on main {'0' * 8}: test_b.py",  # main
-                            f"1 failed after discounting 1 on main {main8}: test_c.py"):  # unit
+                            f"1 failed after discounting 1 on main {main8}: test_c.py",  # unit
+                            f"1 failed after discounting 1 on main {main8}: test_b.pyc"):  # not the unit
             with self.subTest(description=description):
                 self.discounted_red(description)
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):

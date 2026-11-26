@@ -7562,7 +7562,8 @@ def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[st
         step, bracket, unit = own[0].partition(" [")
         first = unit.removesuffix("]") if bracket else step
         return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
-                and first.startswith(named[4]) and bool(named[4]))
+                and bool(named[4]) and (first.startswith(named[4])  # the unit, maybe cut at the status's room
+                                        or named[4].startswith((first + ", ", first + " "))))  # more units after it
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
