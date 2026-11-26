@@ -694,17 +694,24 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
-# Every on-disk format a cmux-tui build leaves for the next build ships its migration (Leo, 2026-11-24,
+# Every on-disk format a build leaves for the next build ships its migration (Leo, 2026-11-24,
 # ask-1f9e8b7422: "we need to make sure in the future these kinds of cutovers always have proper migrations.").
-# The registry is cmux-tui/persisted-formats/formats.toml; the cmux_next_persisted_* Rust tests load its fixtures
-# through the real readers (the cmux_next_ daemon tests step). Seconds.
+# Registries: cmux-tui/persisted-formats/formats.toml (the acpmux store, hosts, caches) and persisted-formats/formats.toml
+# (Swift app state, webviews versions and storage keys); settings keys: schemas/settings/published-keys.txt and
+# retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
+# published settings key is a row or retired (the cmux_next_ daemon tests step). Seconds.
 [step.persisted-formats]
 job = "linux"
 timeout = 300
 title = "Persisted formats ship their migration"
-about = "every stored-format version constant in cmux-tui is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy"
+about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; published settings keys and retired-keys entries are never removed"
 inputs = [
   "cmux-tui/**",
+  "persisted-formats/**",
+  "Packages/**",
+  "cmux-next-ios/**",
+  "webviews/src/**",
+  "schemas/settings/**",
   "scripts/ci/persisted_formats.py",
   "tests/test_ci_persisted_formats.py",
   "tests/git_fixture_env.py",
@@ -1122,33 +1129,6 @@ python3 tests/test_remote_daemon_release_verification.py || rc=1
 python3 tests/test_remote_daemon_notices.py || rc=1
 python3 tests/test_remote_daemon_release_assets.py || rc=1
 exit "$rc"
-'''
-
-# coderouter-ci.yml's test job, which keeps its main push runs. `inputs` is its former pull_request path filter
-# (`.github/workflows/coderouter-*.yml`) less coderouter-ci.yml. It had a Swatinem/rust-cache; here coderouter/target
-# starts empty: 159 s on 2 CPUs with an empty cargo registry too, which the runner keeps.
-[step.coderouter]
-job = "linux"
-# Its cargo build takes every core: a step with deadlines beside it fails (broker.test.mjs, twice).
-alone = true
-timeout = 360
-title = "coderouter CLI"
-about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.94.0, its cargo, Python and npm versions agree, and its npm package packs"
-needs = ["rust", "node"]
-inputs = [
-  "coderouter/**",
-  ".github/workflows/coderouter-release.yml",
-  ".github/workflows/coderouter-verify-release.yml",
-]
-run = '''
-cd coderouter
-export RUSTUP_TOOLCHAIN=1.94.0
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked --all-targets
-node scripts/check-version.mjs
-cd npm
-npm pack --dry-run
 '''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
@@ -1600,6 +1580,70 @@ done
 exit "$status"
 '''
 
+# Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction,
+# steer-during-compaction, background-task and reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
+# frame), with a planted 24 px jump per flow that must break it. The pane runs on the papercut stand-in daemon, so
+# no acpmux build. Alone: its WebKit install takes apt's lock, as agent-pane-real-acpmux's does.
+[step.chat-flow-shift-budget]
+job = "web-browser"
+timeout = 900
+alone = true
+title = "Chat flow layout-shift budget"
+about = "the chat's send, thinking, compaction, steer-during-compaction, background-task and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "Resources/markdown-viewer/**",
+  "config/vite-plus/**",
+  "cmux-tui/**",
+  "schemas/**",
+  "release-notes/next/highlights/*.md",
+  "web/data/**",
+  "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
+  "scripts/build-webviews-app.sh",
+  "scripts/check-webviews-bun-version.sh",
+  "scripts/check-webviews-react-compiler.mjs",
+  "scripts/webviews_bun_version.py",
+  "scripts/cmux-next/build-*-web.sh",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "scripts/cmux-next/regenerate-web-bundles.sh",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/ci/run-webviews-tests.sh",
+  "scripts/ci/webviews_test_shards.py",
+  "scripts/ci/webviews-tests-new-reds.sh",
+  "scripts/ci/webviews_test_results.py",
+  "scripts/ci/guards_new_reds.py",
+  "scripts/ci/webviews_test_history.py",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/playwright-apt-deps.sh*",
+  "scripts/ci/web_subareas.py",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "scripts/ci/r2-cache.sh",
+  "scripts/blacksmith-testbox-source-mtimes.py",
+  "scripts/tests/test_pr_scoped_webviews_checks.py",
+  "scripts/install-git-hooks.sh",
+  "tests/test_install_git_hooks.py",
+  ".gitattributes",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/playwright-apt-cache/**",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
+root="$PWD"
+cd webviews
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+./node_modules/.bin/playwright install --with-deps webkit
+log="$(mktemp)"
+bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
+chrome="$(tail -n 1 "$log")"
+case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
+export CMUX_BROWSER_TESTS=1 FAST_CHECKS_OUT="${RUNNER_TEMP:-$root/.ci-tmp}/chat-flow-shift-budget"
+bun test test/chat-flow-shift-budget-browser.test.ts
+'''
+
 # Leo's UI removals stay removed (Leo, 2026-11-25, ask-9e3c3b10a7: "why are random things getting introduced...").
 # scripts/cmux-next/removed-ui.json lists each element he asked to remove, his words and a marker only it has; a
 # change that brings a marker back fails here, naming the line and the ask. Bringing one back on purpose: the row's
@@ -1702,6 +1746,7 @@ about = "the cmux_next_ daemon tests of the cmux-tui workspace members that name
 needs = ["rust", "zig"]
 inputs = [
   "cmux-tui/**",
+  "schemas/settings/**",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/cmux-next/cargo-locks.py",
   "scripts/ci/cmux-tui-test-target.sh",
@@ -1846,7 +1891,8 @@ python3 -I scripts/cmux-next/check-connection-notices.py --root "$PWD"
 job = "ios"
 # Takes the Mac's cores and its one simulator; the phone cells follow it.
 alone = true
-timeout = 3600
+# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
+timeout = 4800
 title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
 about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
@@ -1884,6 +1930,7 @@ inputs = [
   "scripts/ci/ios_link_ffi_key.py",
   "scripts/ci/ios_link_ffi.sh",
   "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios-sim-pool.sh",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
@@ -1916,13 +1963,31 @@ swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter Ter
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
+# The fleet pool runs these simulator tests too when the job submitted them (scripts/ci/ios-sim-pool.sh, the ios
+# job's "Fleet pool" steps). vars.CMUX_IOS_SIM_LINUX=on: the pool's verdict is the check, and this Mac runs them only
+# when the pool gave none (a logged Mac fallback). shadow: this Mac runs them and the pool is timed beside it.
+# Unset or off: the pool is left out.
+mode="${CMUX_IOS_SIM_LINUX:-off}"
+pool_dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:-$CI_TOOLS}/sim-pool}"
+pool=""
+sim=0
+if [[ "$mode" == on && -f "$pool_dir/submitted" ]]; then
+  pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=1200 bash scripts/ci/ios-sim-pool.sh collect)"
+  echo "fleet pool: $pool"
+fi
+case "${pool%% *}" in
+pass) echo "iOS simulator tests passed on the fleet pool; this Mac skips them" ;;
+fail) echo "::error title=fleet pool::iOS simulator tests failed on the fleet pool (${pool#* })"; sim=1 ;;
+*)
+[[ "$mode" == on ]] && echo "::notice title=fleet pool::no verdict from the fleet pool (${pool#* }); this Mac runs the simulator tests"
+mac_start=$(date +%s)
 udid="$(python3 -I scripts/ci/ios_sim_udid.py)"
 bundle="${RUNNER_TEMP:-$CI_TOOLS}/ios-sim.xcresult"
 rm -rf "$bundle"
-sim=0
 (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
   -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-${RUNNER_TEMP:-$CI_TOOLS}/dd-ios-sim}" \
   CODE_SIGNING_ALLOWED=NO -quiet -skip-testing:CmuxMobileInstantPerfTests -resultBundlePath "$bundle") || sim=$?
+mac_seconds=$(( $(date +%s) - mac_start ))
 # -quiet drops Swift Testing's output: report from the result bundle (counts, suites that did not pass, and every failure).
 xcrun xcresulttool get test-results tests --path "$bundle" --compact 2>/dev/null | python3 -c '
 import json, sys
@@ -1944,6 +2009,16 @@ for root in json.load(sys.stdin).get("testNodes", []):
     walk(root, [root.get("name", "")])
 print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
 ' || echo "::warning::could not read the result bundle"
+if [[ "$mode" == shadow && -f "$pool_dir/submitted" ]]; then
+  # Advisory: the pool started before the swift tests, so a short wait is enough; its verdict never fails the step.
+  pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=300 bash scripts/ci/ios-sim-pool.sh collect 2>/dev/null)"
+  read -r pool_verdict pool_seconds _ <<< "$pool"
+  echo "fleet pool (shadow): $pool; this Mac: exit $sim in $mac_seconds s"
+  printf '\n**iOS simulator, fleet pool shadow:** pool %s in %s s, this Mac exit %s in %s s\n' \
+    "$pool_verdict" "$pool_seconds" "$sim" "$mac_seconds" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+fi
+;;
+esac
 exit $(( status || sim ))
 '''
 

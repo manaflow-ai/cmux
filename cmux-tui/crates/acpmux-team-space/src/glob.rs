@@ -20,24 +20,24 @@ fn matches_at(pattern: &[char], text: &[char]) -> bool {
     let mut star: Option<(usize, usize, bool)> = None;
     while t < text.len() {
         if pattern.get(p) == Some(&'*') {
-            let double = pattern.get(p + 1) == Some(&'*');
-            p += if double { 2 } else { 1 };
+            let double = pattern.get(p.saturating_add(1)) == Some(&'*');
+            p = p.saturating_add(if double { 2 } else { 1 });
             star = Some((p, t, double));
             continue;
         }
         if let Some(c) = pattern.get(p)
             && (*c == '?' || text.get(t) == Some(c))
         {
-            p += 1;
-            t += 1;
+            p = p.saturating_add(1);
+            t = t.saturating_add(1);
             continue;
         }
         match star {
             // A single star never swallows a '/'.
             Some((sp, st, double)) if double || text.get(st) != Some(&'/') => {
-                star = Some((sp, st + 1, double));
+                star = Some((sp, st.saturating_add(1), double));
                 p = sp;
-                t = st + 1;
+                t = st.saturating_add(1);
             }
             _ => return false,
         }
