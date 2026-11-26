@@ -3276,7 +3276,7 @@ fn journal_store_forwards_every_local_store_override() {
         let names = body.lines().filter_map(|l| l.strip_prefix("    fn "));
         names.filter_map(|l| l.split(['(', '<']).next()).map(str::to_owned).collect()
     };
-    let store = std::fs::read_to_string(format!("{root}/store.rs")).unwrap();
+    let store = std::fs::read_to_string(format!("{root}/store/local_store.rs")).unwrap();
     let journal = std::fs::read_to_string(format!("{root}/store/journal_store.rs")).unwrap();
     let local = fns(&store, "impl Store for LocalStore {");
     let forwarded = fns(&journal, "impl Store for JournalStore {");
