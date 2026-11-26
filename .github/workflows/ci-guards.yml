@@ -1013,7 +1013,9 @@ jobs:
 
       - name: Validate the package test lane's single-suite phase
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_package_lane_suite.py
+        run: |
+          python3 tests/test_ci_package_lane_suite.py
+          python3 tests/test_ci_package_lane_preflight.py
 
       - name: Validate the Linux-capable Swift package list
         if: ${{ !cancelled() && matrix.group == 'ci' }}
