@@ -1,6 +1,6 @@
 use super::*;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 #[test]
 fn every_reconnect_wait_recovers() {
@@ -74,4 +74,58 @@ async fn a_dial_that_fails_gives_up_at_the_budget_with_its_reason() {
         .expect_err("no daemon")
         .to_string();
     assert!(err.contains("within 60s: no socket"), "{err}");
+}
+
+/// Before: a daemon restart drew "daemon connection closed; reconnecting…" and an error row
+/// at once, even when it was back in a second. After: nothing within 10 s.
+#[tokio::test(start_paused = true)]
+async fn a_reconnect_back_within_ten_seconds_says_nothing() {
+    let mut said = false;
+    let back = quietly(
+        async {
+            tokio::time::sleep(Duration::from_secs(9)).await;
+            Ok(7)
+        },
+        QUIET,
+        || {
+            said = true;
+            Ok(())
+        },
+    )
+    .await
+    .expect("back");
+    assert_eq!(back, 7);
+    assert!(!said, "a reconnect back within 10 s said the connection was down");
+}
+
+/// A reconnect still running at 10 s says so once, then still waits for the daemon.
+#[tokio::test(start_paused = true)]
+async fn a_reconnect_past_ten_seconds_says_so_once_and_keeps_waiting() {
+    let started = Instant::now();
+    let mut said = Vec::new();
+    let back = quietly(
+        async {
+            tokio::time::sleep(Duration::from_secs(25)).await;
+            Ok("back")
+        },
+        QUIET,
+        || {
+            said.push(started.elapsed());
+            Ok(())
+        },
+    )
+    .await
+    .expect("back");
+    assert_eq!(back, "back");
+    assert_eq!(said, vec![QUIET]);
+    assert_eq!(started.elapsed(), Duration::from_secs(25));
+}
+
+/// A give-up within the quiet still reaches the caller with its reason.
+#[tokio::test(start_paused = true)]
+async fn a_failure_within_the_quiet_is_still_returned() {
+    let err = quietly(async { Err::<(), _>(anyhow::anyhow!("no socket")) }, QUIET, || Ok(()))
+        .await
+        .expect_err("failed");
+    assert_eq!(err.to_string(), "no socket");
 }

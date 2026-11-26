@@ -102,6 +102,26 @@ impl BoundedMachine for Reconnect {
     }
 }
 
+/// How long a lost daemon connection stays quiet: no error row and no "reconnecting…" before
+/// it (the GUI chat's Reconnecting waits the same 10 s, cmux#43290, #43291, #43349).
+pub(super) const QUIET: Duration = cmux_bounded::CONNECTION_QUIET;
+
+/// `work`'s result. Only if it is still running after `quiet` does `loud` run, once (it says the
+/// connection is down); a `work` that ends within `quiet` says nothing.
+pub(super) async fn quietly<T>(
+    work: impl Future<Output = Result<T>>,
+    quiet: Duration,
+    loud: impl FnOnce() -> Result<()>,
+) -> Result<T> {
+    tokio::pin!(work);
+    tokio::select! {
+        done = &mut work => return done,
+        () = tokio::time::sleep(quiet) => {}
+    }
+    loud()?;
+    work.await
+}
+
 /// Dial with `dial` until one attempt answers whole within [`ATTEMPT`], pausing between
 /// attempts, for at most [`BUDGET`].
 pub(super) async fn redial<T, F, Fut>(mut dial: F) -> Result<T>
