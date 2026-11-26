@@ -43,7 +43,8 @@ public struct LayoutShiftCounter: Sendable {
     public private(set) var shiftedRows = 0
     /// The last row that shifted: `id y/h->y/h`.
     public private(set) var lastMoved = ""
-    /// The first `movesKept` shifts, each `frame:id y/h->y/h` (one per shifted row), so a run's
+    /// The first `movesKept` shifts, each `frame:id y/h->y/h` (a list row's with `dy`, `dh` and the
+    /// frame's `scroll`, to a tenth of a point; one per shifted row), so a run's
     /// record says when and how a row moved, not only its last move.
     public private(set) var moves: [String] = []
     public static let movesKept = 24
@@ -100,7 +101,14 @@ public struct LayoutShiftCounter: Sendable {
         shiftedRows += shifted.count
         lastMoved = Self.describe(first.id, first.before, first.after)
         for move in shifted.sorted(by: { $0.id < $1.id }) where self.moves.count < Self.movesKept {
-            self.moves.append("\(frames):\(Self.describe(move.id, move.before, move.after))")
+            var entry = "\(frames):\(Self.describe(move.id, move.before, move.after))"
+            // A list row: its exact move and resize, and the scroll it was read against, so a
+            // run's record tells a row moving against a scroll from a scroll split by rounding.
+            if move.space == .window {
+                entry += String(format: " dy %.1f dh %.1f", Double(move.after.minY - move.before.minY), Double(move.after.height - move.before.height))
+                if let scroll { entry += String(format: " scroll %.1f", Double(scroll.dy)) }
+            }
+            self.moves.append(entry)
         }
         return shifted.count
     }

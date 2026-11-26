@@ -159,8 +159,14 @@ private struct LayoutShiftTracked: ViewModifier {
         guard let visible = proxy.bounds(of: .scrollView),
               visible.intersects(CGRect(origin: .zero, size: proxy.size)) else { return nil }
         let frame = proxy.frame(in: .scrollView)
-        // `.window`: the frame in the scroll view's visible bounds (a scroll moves every row alike).
-        return space == .window ? CGRect(origin: CGPoint(x: -visible.minX, y: -visible.minY), size: frame.size) : frame
+        guard space == .window else { return frame }
+        // `.window`: the frame in the scroll view's visible bounds (a scroll moves every row alike),
+        // in the scroll view's points. `visible` is in the row's own space, which a scale between
+        // them (the tab grid's cards are pages drawn at ~0.44) makes larger: taken as is, the
+        // origin was in page points and the size in grid points, so a scroll's sub-point rounding,
+        // magnified 2.3x, split the cards' moves past the tolerance (tab-grid-51, one frame).
+        let scale = proxy.size.width > 0 ? frame.width / proxy.size.width : 1
+        return CGRect(origin: CGPoint(x: -visible.minX * scale, y: -visible.minY * scale), size: frame.size)
     }
 
     /// The view's frame in its host's root (`.layoutShiftHost()`), its y taken from the host's
