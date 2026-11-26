@@ -823,8 +823,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(set(wf.get("on", wf.get(True))), {"workflow_call"})
         self.assertEqual(wf["permissions"], {})
         job = wf["jobs"]["linux"]
-        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"},
-                         "id-token mints the step-result store's OIDC token, nothing else")
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write", "actions": "read"},
+                         "id-token mints the step-result store's OIDC token; actions reads tooling-tests' base verdict")
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
@@ -940,18 +940,11 @@ class PipelineTest(unittest.TestCase):
         table_jobs = set(ci_steps.load().jobs) - {"advisory", "verdict"}
         # The ios job's picker (IosJobTest): it runs no step, only when the ios job runs, and places it.
         pickers = {"ios-runner": "ios"}
+        # No gateway head start for the ios job: its request key is per runner, so it never shared a build.
+        self.assertNotIn("ios-ffi-fleet", wf["jobs"])
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
-            if name == "ios-ffi-fleet":
-                # The ios job's build fleet head start: no step, no checkout, only when the ios job runs, and
-                # never a verdict (each failure path is a warning and exit 0).
-                with self.subTest(helper=name):
-                    self.assertTrue(job["if"].startswith("${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && "))
-                    self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "") or "uses" in s])
-                    self.assertNotIn(name, wf["jobs"]["ios"]["needs"], "the ios job never waits for it")
-                    self.assertIn("exit 0", job["steps"][0]["run"])
-                continue
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
@@ -1112,6 +1105,59 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        guards = wf["jobs"]
+        # tooling-tests: on a feat-cmux-next pull request (not the fallback's call) the job keeps only the tt- steps the
+        # linux job cannot run; tooling-tests-1..5 carry every other tt- step's command, each behind the job's selection.
+        route = next(s for s in guards["tooling-tests"]["steps"] if s.get("id") == "setup-tooling-route")
+        staying = ("tt-remote-p10k", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
+        self.assertIn('[ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]',
+                      route["run"])
+        self.assertIn("for id in " + " ".join(staying) + "; do", route["run"])
+        shards = sorted((n for n in steps if re.fullmatch(r"tooling-tests-\d+", n)), key=lambda n: int(n.rsplit("-", 1)[1]))
+        self.assertEqual(shards, [f"tooling-tests-{i}" for i in range(1, len(shards) + 1)])
+        tooling = [steps[n] for n in shards]
+        carried = re.findall(r"^if want (tt-[\w-]+); then", "\n".join(s.run for s in tooling), re.M)
+        tt_ids = [s["id"] for s in guards["tooling-tests"]["steps"] if s.get("id", "").startswith("tt-")]
+        self.assertEqual(carried, [i for i in tt_ids if i not in staying])
+        for step in tooling:
+            with self.subTest(step=step.name):
+                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                self.assertLessEqual(step.timeout, 360)
+                self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
+                              step.run)
+        # The job's base-red skip comes with them: while tooling-tests is red on the base, the linux job leaves
+        # tooling-tests-N out of its run (not passed, so no skip is stored as a pass), and fails open.
+        linux = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]["linux"]
+        decide = next(s for s in linux["steps"] if s.get("id") == "tooling-tests-base-red")
+        self.assertIn('scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests"',
+                      decide["run"])
+        self.assertIs(decide["continue-on-error"], True)
+        self.assertEqual(decide["env"], {"GH_TOKEN": "${{ github.token }}"})
+        for part in ("github.event_name == 'pull_request'", "format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0'",
+                     "!contains(github.event.pull_request.labels.*.name, 'full-ci')"):
+            self.assertIn(part, decide["if"])
+        run = next(s for s in linux["steps"] if s.get("id") == "run")
+        self.assertEqual(run["env"]["TOOLING_TESTS_BASE_RED"], "${{ steps.tooling-tests-base-red.outputs.base_red }}")
+        self.assertEqual(run["env"]["CI_TOOLING_TESTS_PR_SCOPE"], "${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}")
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "ci").mkdir()
+            fake = Path(tmp) / "ci" / "run"
+            fake.write_text('#!/bin/sh\nif [ "$1" = route ]; then [ -n "$ROUTE" ] && printf %s "$ROUTE"; exit $?; fi\n'
+                            'echo "ran: $*"\n')
+            fake.chmod(0o755)
+
+            def ran(red: str, route: str) -> str:
+                env = dict(os.environ, TOOLING_TESTS_BASE_RED=red, ROUTE=route)
+                env.pop("PATHS_FILE", None)
+                return subprocess.run(["bash", "-e", "-c", run["run"]], cwd=tmp, env=env, capture_output=True,
+                                      text=True, check=True).stdout
+
+            routed = json.dumps({"linux": ["shellcheck", "tooling-tests-1", "web-tests-1", "tooling-tests-12"]})
+            self.assertIn("ran: run --job linux --only shellcheck web-tests-1\n", ran("true", routed))
+            self.assertEqual(ran("false", routed), "ran: run --job linux\n")
+            self.assertEqual(ran("", routed), "ran: run --job linux\n")
+            self.assertEqual(ran("true", ""), "ran: run --job linux\n", "an unread route runs every step")
+            self.assertNotIn("ran:", ran("true", json.dumps({"linux": ["tooling-tests-1"]})))
         # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
         # while docs-only fallback still runs the reusable job directly.
         diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
