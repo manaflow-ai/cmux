@@ -148,7 +148,7 @@ class GuardTests(unittest.TestCase):
         query.assert_not_called()
 
     def test_only_the_listed_workers_are_read(self):
-        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
+        for service in ("", "cmux-api", "cmux-platform-preview", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
             with self.subTest(service=service):
                 code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", service, "--id", TEAM,
                                               "--needles", LISTED])
@@ -344,6 +344,32 @@ class ProjectionTests(unittest.TestCase):
                 self.assertEqual(counts, {f"logs_dropped_{why}": 1})
                 self.assertNotIn("merger", json.dumps(row))
                 self.assertNotIn("hunter2", json.dumps(row))
+
+    def test_an_edge_dns_check_keeps_why_outcome_exit_and_ms(self):
+        # cmux-platform#2242 CloudCore.checkEdgeDns: the 2026-11-26 21:46Z signed-out read dropped it as unlisted.
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
+                               "outcome": "kicked", "exit": 0, "dns_upstream": "10.0.0.2,fd00::1", "ms": 812}))
+        self.assertEqual(row["log"], {"msg": "cloud.machine.edge_dns", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "why": "bind", "outcome": "kicked", "exit": 0,
+                                      "ms": 812})
+        self.assertNotIn("10.0.0.2", json.dumps(row))
+
+    def test_a_dropped_token_msg_is_named_and_free_text_is_not(self):
+        counts = {}
+        for msg in ("cloud.someday.new_line", "cloud.someday.new_line", "the merger closes friday",
+                    "cloud.x." + VM, LISTED + ": hunter2"):
+            logs.line(event({"msg": msg, "team": TEAM}), counts)
+        self.assertEqual(counts["logs_dropped_unlisted"], 5)
+        self.assertEqual(counts["unlisted_msgs"], {"cloud.someday.new_line": 2})
+        text = json.dumps(counts)
+        for leak in ("merger", "hunter2", VM):
+            self.assertNotIn(leak, text)
+
+    def test_named_unlisted_msgs_are_bounded(self):
+        counts = {}
+        for i in range(logs.UNLISTED_NAMED_MAX + 5):
+            logs.line(event({"msg": f"cloud.someday.line_{chr(97 + i % 26)}{chr(97 + i // 26)}"}), counts)
+        self.assertEqual(len(counts["unlisted_msgs"]), logs.UNLISTED_NAMED_MAX)
 
     def test_a_listed_line_keeps_typed_fields_with_ids_hashed(self):
         row = logs.line(event({"msg": LISTED, "team": TEAM, "machine": VM, "outcome": "refused", "status": 409,
