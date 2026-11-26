@@ -327,6 +327,10 @@
     "CI_REPAIR_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset (or anything but `1`) sends the repair workflows (compile attribution, owned-pool rescue, stale-run janitor) to cmux-gcp-repair-jit-x64, one-job JIT VMs made on demand (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default",
       "after_minutes": 10
+    },
+    "CI_SECRET_SKIP_FLEET": {
+      "fallback": "an off switch, not a host: unset (or anything but `1`) sends every Linux job that holds a secret, mints an App token or signs to cmux-gcp-secret-jit-x64, one-job JIT VMs made on demand and deleted after the job (never one host); `1` restores the selector after it in the same runs-on",
+      "after_minutes": 10
     }
   },
   "nightly_workflow_marker": "nightly",
