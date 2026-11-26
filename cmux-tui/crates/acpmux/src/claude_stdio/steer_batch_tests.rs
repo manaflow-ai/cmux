@@ -561,3 +561,85 @@ async fn a_persons_send_now_stops_the_step_through_a_flood_of_helpers() {
     );
     assert_eq!(t.subagents.lock().await.len(), 56, "a helper stopped with the step");
 }
+
+/// The person's steer, as the hub marks it (`hub/steer_end.rs`): `author` empty for the owner.
+fn person(id: i64, author: &str, text: &str) -> Message {
+    let meta = json!({"steer": true, "promptId": format!("p{id}"), "batch": {"person": author}});
+    steer(id, text, meta)
+}
+
+/// One message the person sent in pieces while the step runs goes in as one line, the pieces a
+/// blank line apart with no headers, and its echo answers every piece (Leo, 2026-11-25: "wait that
+/// message got split up and queued").
+#[tokio::test]
+async fn the_persons_steers_during_a_step_wait_as_one_line() {
+    let (t, mut q) = stepping().await;
+    for (id, text) in [(2, "first part"), (3, "second part"), (4, "third part")] {
+        write(&t, &mut q, &person(id, "", text)).await;
+        assert!(q.settle(&t).await.is_empty());
+    }
+    assert_eq!(q.waiting.len(), 1, "one line, not one per piece: {:#?}", q.waiting);
+    assert_eq!(text_of(&q.waiting[0]), "first part\n\nsecond part\n\nthird part");
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in 2..=4 {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}: {read:?}");
+    }
+}
+
+/// The person's steers and other sessions' messages never share a line, and two people of a
+/// shared chat never share one: each joins only the newest line of its own kind.
+#[tokio::test]
+async fn the_persons_steers_join_neither_agents_nor_another_person() {
+    let (t, mut q) = stepping().await;
+    write(&t, &mut q, &from(2, "lane-a", "from a lane")).await;
+    write(&t, &mut q, &person(3, "", "mine")).await;
+    write(&t, &mut q, &person(4, "", "mine too")).await;
+    q.settle(&t).await;
+    write(&t, &mut q, &person(5, "guest-1", "a guest's")).await;
+    write(&t, &mut q, &from(6, "lane-b", "another lane")).await;
+    q.settle(&t).await;
+    let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
+    assert_eq!(texts, ["from a lane", "mine\n\nmine too", "a guest's", "another lane"]);
+}
+
+/// A shared chat's label (`author::agent_label`) opens a line of one person's steers once.
+#[test]
+fn a_line_of_one_persons_steers_says_who_sent_it_once() {
+    let label =
+        json!({"type": "text", "text": "[Message from Ana, a participant in this shared chat]"});
+    let part = |id: &str, text: &str| super::steer_batch::Part {
+        id: id.into(),
+        prompt_id: Some(id.into()),
+        from: String::new(),
+        person: Some("ana".into()),
+        content: vec![label.clone(), json!({"type": "text", "text": text})],
+        bytes: 10,
+    };
+    let content = super::steer_batch::batch_content(&[part("1", "one"), part("2", "two")]);
+    let text: String = content.iter().filter_map(|b| b["text"].as_str()).collect();
+    assert_eq!(text, "[Message from Ana, a participant in this shared chat]one\n\ntwo");
+}
+
+/// Lines written again never mix kinds: a person's steer held behind a line of agents' messages
+/// starts its own line.
+#[test]
+fn lines_written_again_keep_each_kind_apart() {
+    let part = |id: &str, person: Option<&str>| super::steer_batch::Part {
+        id: id.into(),
+        prompt_id: None,
+        from: if person.is_some() { String::new() } else { "lane".into() },
+        person: person.map(str::to_owned),
+        content: vec![json!({"type": "text", "text": id})],
+        bytes: 1,
+    };
+    let lines = super::steer_batch::lines_of(vec![
+        part("a1", None),
+        part("a2", None),
+        part("p1", Some("")),
+        part("p2", Some("")),
+        part("a3", None),
+    ]);
+    let ids: Vec<Vec<&str>> =
+        lines.iter().map(|l| l.iter().map(|p| p.id.as_str()).collect()).collect();
+    assert_eq!(ids, [vec!["a1", "a2"], vec!["p1", "p2"], vec!["a3"]]);
+}
