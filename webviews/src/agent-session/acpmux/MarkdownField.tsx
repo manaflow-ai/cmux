@@ -1231,6 +1231,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // Set from a passed-on Return the field took until its key comes up: the paragraph an input
       // method may still insert for that key is the same Return, not a second one.
       let returnTaken = false;
+      // Whether a Return key is down: a paragraph input with no key behind it (Dictation's "new
+      // paragraph", a voice tool typing a message) is a line in the draft, never a send that splits it.
+      let returnKeyDown = false;
       // Whether the selection held the whole draft at the last update (`onWholeSelection`).
       let wholeNow = false;
       // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
@@ -1276,6 +1279,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   endPasteStep(_view, pasteStep.current);
                   joinsStep.current = false;
                   returnTaken = false;
+                  returnKeyDown = isReturnKey(event);
                   // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
                   // the editor's state only at the next selectionchange, a task later. A key that
                   // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
@@ -1353,11 +1357,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
-                  else returnInput();
+                  else if (returnKeyDown || !lines.current) returnInput();
+                  else {
+                    // No Return key behind it: the input adds the line Shift-Return would, so a
+                    // dictated message with paragraphs stays one draft (Leo: "wait that message got
+                    // split up and queued").
+                    const item = _view.state.schema.nodes.list_item;
+                    const enter = baseKeymap.Enter!;
+                    chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(
+                      _view.state,
+                      _view.dispatch,
+                      _view,
+                    );
+                  }
                   return true;
                 },
                 keyup: () => {
                   returnTaken = false;
+                  returnKeyDown = false;
                   return false;
                 },
                 compositionstart: () => {

@@ -56,13 +56,19 @@ impl H264Impl {
 ///
 /// Measurement knobs, read here only (never by a host): `CMUX_OPENH264_TUNING` holds
 /// [`cmux_encode::openh264::OpenH264Options::parse`]'s list and `CMUX_MF_TUNING`
-/// [`cmux_encode::mediafoundation::MfTuning::parse`]'s; unset is the shipped settings.
+/// [`cmux_encode::mediafoundation::MfTuning::parse`]'s; unset is the shipped settings (on
+/// Linux the Linux host's, [`cmux_encode::openh264::OpenH264Options::linux_host`]).
 pub fn open_h264(imp: H264Impl, cfg: &EncCfg) -> Res<Option<Box<dyn VideoEncoder>>> {
+    use cmux_encode::openh264::OpenH264Options;
     let tuning = |name: &str| std::env::var(name).unwrap_or_default();
     Ok(match imp {
         H264Impl::OpenH264 => {
-            let opts =
-                cmux_encode::openh264::OpenH264Options::parse(&tuning("CMUX_OPENH264_TUNING"))?;
+            let shipped = if cfg!(target_os = "linux") {
+                OpenH264Options::linux_host()
+            } else {
+                OpenH264Options::default()
+            };
+            let opts = OpenH264Options::parse_over(shipped, &tuning("CMUX_OPENH264_TUNING"))?;
             Some(Box::new(OpenH264::with_options(cfg, OpenH264Api::from_source(), &opts)?))
         }
         // Constrained baseline like OpenH264's, so both send the same profile.
