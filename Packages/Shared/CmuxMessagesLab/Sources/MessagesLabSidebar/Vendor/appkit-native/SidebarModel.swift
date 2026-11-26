@@ -377,13 +377,25 @@ struct SidebarMetrics: Equatable {
     /// cmux: the width a tile's name is fitted to (`SidebarDraw.tileNameKeyWidth`): the selection's, so a selected
     /// name stays 2 pt inside it.
     var tileNameWidth: CGFloat { compact ? tileWidth : tileSelection.width + 4 }
-    func tileRect(_ i: Int) -> CGRect {
+    /// cmux: tile `i` of a grid of `count`. A last row with fewer tiles than columns is centred in the list (Messages'
+    /// pinned grid; the user, 2026-11-25: one pinned Chief sat in the left column), so a resize keeps it centred.
+    func tileRect(_ i: Int, count: Int) -> CGRect {
         let cols = columns
         let r = i / cols, c = i % cols
         let tw = tileWidth
-        let used = tw * CGFloat(cols)
-        let x0 = ((width - used) / 2).rounded()
+        let inRow = max(1, min(cols, count - r * cols))
+        let x0 = ((width - tw * CGFloat(inRow)) / 2).rounded()
         return CGRect(x: x0 + CGFloat(c) * tw, y: CGFloat(r) * tileHeight, width: tw, height: tileHeight)
+    }
+    /// cmux: the slot under `p` in a grid of `count` (`tileRect(_:count:)`'s layout), clamped to the grid.
+    func tileSlot(at p: CGPoint, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let cols = columns, rows = (count + cols - 1) / cols
+        // no trap on NaN (a zero tile size) or a huge position
+        let r = min(rows - 1, max(0, CrashGuard.int(p.y / tileHeight, in: CrashGuard.rowRange)))
+        let inRow = min(cols, count - r * cols)
+        let c = min(inRow - 1, max(0, CrashGuard.int((p.x - tileRect(r * cols, count: count).minX) / tileWidth, in: CrashGuard.rowRange)))
+        return r * cols + c
     }
 }
 

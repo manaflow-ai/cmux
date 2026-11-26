@@ -68,20 +68,25 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     tracked.tool = None;
                 }
             }
-            Effect::WriteLeftoverPatch => self.lane(id, LaneOp::Leftover),
+            Effect::WriteLeftoverPatch => {
+                self.lane(id, LaneOp::Leftover);
+                self.unsent(id);
+            }
             // The copy sends the events ahead of its snapshot (`export::copy`).
             Effect::UploadEvents { .. } => {}
             Effect::UploadSnapshot { epoch, copy } => self.copy(id, epoch, copy),
             Effect::DrainInbox => self.lane(id, LaneOp::Drain),
-            Effect::Import { reason, epoch } => self.lane(id, LaneOp::Import { reason, epoch }),
-            Effect::AckAssignment { epoch } => self.lane(id, LaneOp::Ack { epoch }),
-            // A move by hand is not run by the daemon yet. No answer it reads carries a wish, so
-            // the holder asks for none of these; a give that began anyway ends at the next
-            // renewal, whose answer has no wish.
-            Effect::StopTurn | Effect::Give { .. } | Effect::Stay | Effect::NotMoved { .. } => {
-                let effect = effect.kind();
-                tracing::warn!(session = %id, effect, "auto session: a move by hand is not run");
+            Effect::Import { reason, epoch } => {
+                // Once more before the chat here is replaced, for a send that did not arrive.
+                self.unsent(id);
+                self.lane(id, LaneOp::Import { reason, epoch });
             }
+            Effect::AckAssignment { epoch } => self.lane(id, LaneOp::Ack { epoch }),
+            // A chat the person moved (`give.rs`).
+            Effect::StopTurn => self.stop_turn(id),
+            Effect::Give { epoch } => self.give(id, epoch),
+            Effect::Stay => self.stay(id),
+            Effect::NotMoved { to, why } => self.not_moved(id, to, why),
             // The row reads `Chat::blocked` when the record is written (`chats.rs`).
             Effect::ShowBlocked { .. } => {}
             Effect::ScheduleAt { at } => {
@@ -94,12 +99,22 @@ impl<C: AutoCloud + 'static> Loop<C> {
 
     /// Starts a copy, or keeps it as the next one while another is on its way: a newer copy
     /// replaces one that waits.
+    ///
+    /// A give's copy is the last the next holder gets of the chat, so it also waits for what
+    /// the chat's lane is in the middle of: an inbox message taken a moment ago is written to
+    /// the log and then acked, and a copy read between the two would leave it in neither the
+    /// copy nor the inbox. No drain starts in the lane of a chat that is given (`run_lane`;
+    /// what else may start there writes nothing to the log and ends by itself), and the
+    /// lane's end starts the copy (`lane_done`).
     fn copy(&mut self, id: &str, epoch: u64, copy: u64) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
-        if tracked.copying.is_some() {
+        let lane_writes = tracked.lane_busy && tracked.chat.moving().is_some();
+        if tracked.copying.is_some() || lane_writes {
             tracked.wanted = Some(copy);
             return;
         }
+        // Copies are asked for in order: one that still waits is older than this one.
+        tracked.wanted = None;
         tracked.copying = Some(epoch);
         let (after, tool) = (tracked.sent, tracked.tool.clone());
         let task = self.ctx.clone().copy(id.to_owned(), epoch, copy, after, tool);
@@ -120,12 +135,14 @@ impl<C: AutoCloud + 'static> Loop<C> {
         let event = match result {
             Ok(copied) => {
                 tracked.sent = copied.last_seq;
+                tracked.own = Some(copied.last_seq);
                 tracked.anchor = copied.stored.anchor;
                 Event::SnapshotStored { copy, snapshot: copied.stored.snapshot }
             }
             Err((stored, failed)) => {
                 if let Some(stored) = stored {
                     tracked.sent = stored;
+                    tracked.own = Some(stored);
                 }
                 if let Failed::Cloud(error) = &failed
                     && matches!(error.code(), Some(ErrorCode::StaleEpoch | ErrorCode::NotHolder))
@@ -145,12 +162,28 @@ impl<C: AutoCloud + 'static> Loop<C> {
             self.step(id, Event::Wake).await;
         }
         let Some(chat) = self.chats.get(id).map(|tracked| tracked.chat) else { return };
-        let Some(epoch) = chat.epoch().filter(|_| chat.may_run()) else { return };
+        // A holder in the middle of a give still copies: the give waits for the copy that
+        // covers the chat's last event, which may be one asked for while another was sent.
+        let copies = chat.may_run() || chat.moving().is_some();
+        let Some(epoch) = chat.epoch().filter(|_| copies) else { return };
         match wanted {
             Some(copy) => self.copy(id, epoch, copy),
             // The copy is still owed, at the epoch the chat runs at now.
-            None if outdated => self.read_work(id, Some(Change::QueueChanged)),
+            None if outdated && chat.may_run() => self.read_work(id, Some(Change::QueueChanged)),
             None => {}
+        }
+    }
+
+    /// A laptop that lost the chat, or brings its Cloud copy in, sends the Cloud inbox what
+    /// the person queued here that the store never had, so the chat's holder runs it once. A
+    /// takeover goes on from the store's copy, and an import replaces the chat here with it:
+    /// without this such a prompt would run nowhere.
+    fn unsent(&mut self, id: &str) {
+        if self.side != holder::Side::Laptop {
+            return;
+        }
+        if let Some(after) = self.chats.get(id).and_then(|tracked| tracked.own) {
+            self.lane(id, LaneOp::Unsent { after });
         }
     }
 
@@ -190,9 +223,18 @@ impl<C: AutoCloud + 'static> Loop<C> {
     pub(super) fn lane_done(&mut self, id: &str, drained: bool) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         tracked.lane_busy = false;
-        let runs = tracked.chat.may_run();
-        if drained && runs {
+        let chat = tracked.chat;
+        // The copy that waited for the lane (`copy`), when the chat still copies.
+        let waited = match tracked.copying {
+            None => tracked.wanted.take(),
+            Some(_) => None,
+        };
+        if drained && chat.may_run() {
             self.read_work(id, Some(Change::QueueChanged));
+        }
+        let copies = chat.may_run() || chat.moving().is_some();
+        if let (Some(copy), Some(epoch)) = (waited, chat.epoch().filter(|_| copies)) {
+            self.copy(id, epoch, copy);
         }
         self.run_lane(id);
         self.forget_spent(id);
@@ -221,6 +263,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     // The chat's log here is the store's now, and the folder is the snapshot's:
                     // the next copy sets the tree a leftover patch is cut against.
                     tracked.sent = imported.last_seq;
+                    tracked.own = Some(imported.last_seq);
                     tracked.anchor = None;
                     tracked.tool = None;
                     // The import made the chat a session of this daemon.
@@ -229,6 +272,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     // of this one (`settle.rs`).
                     tracked.settling = false;
                 }
+                self.give_forgotten(id);
                 done
             }
             Err(error) => {
