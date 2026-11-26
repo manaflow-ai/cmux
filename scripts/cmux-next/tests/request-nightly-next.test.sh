@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # request-nightly-next.sh: feat-cmux-next asks main to promote a commit to
 # nightly-next only when that commit's cmux-tui tree is published and
-# verified. Its daemon tests are not awaited (2026-10-28) and neither is its
-# Release compile (2026-10-26): the nightly
-# build compiles the commit itself and publishes nothing when that fails.
+# verified. Its daemon tests are not awaited (2026-10-28). The build fleet's
+# existing Release verdict is prechecked before the nightly starts its Mac
+# build, signing and notarization.
 # cmux-next.yml still asks after its Release compile, and cmux-tui-artifacts.yml
 # and nightly-next-tick after the publication, so nightly-next always points at
 # a commit the nightly can build with its own workflow and its own daemon.
@@ -58,23 +58,41 @@ publish() { # <commit>: publish its tree, built by that commit
   printf '{"commit": "%s", "binaries": {"%s": "%s"}}\n' "$1" "$bin" "$(sha "$cdn/tree/$k/$bin")" > "$cdn/$1/manifest.json"
 }
 
-mkdir -p "$TMP/bin"
+mkdir -p "$TMP/bin" "$TMP/precheck"
 # The CDN. With -w (tree-commit-marker.sh) it prints the HTTP status: 404 for a
 # missing object, 500 for a path listed in $cdn/FAIL (or, for -w reads only, $cdn/FAILW). A tree-commit marker is
 # served for every commit whose tree is published (the writer marks every ready
 # commit), unless $cdn/unmarked lists the commit or $cdn/NOAUTO exists (the writer's own test).
 cat > "$TMP/bin/curl" <<STUB
 #!/usr/bin/env bash
-out="" url="" fmt=""
+out="" url="" fmt="" ua="" failflag=0
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
     -w) fmt="\$2"; shift 2 ;;
+    -A|--user-agent) ua="\$2"; shift 2 ;;
+    -f*|--fail|--fail-with-body) failflag=1; shift ;;
     --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
   esac
 done
+# The build fleet's compile results service (the precheck): a passing record for every commit, unless
+# $TMP/precheck/<sha> names another state, 404 (no record) or down (no answer).
+if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
+  echo "\$url" >> "$TMP/precheck.log"
+  echo "\$ua" >> "$TMP/precheck-user-agents.log"
+  [[ "\$ua" == cmux-ci-fleet-compile-result/1 ]] || { printf 403; exit 0; }
+  c="\${url#https://gh-events.cmux.com/compile-checks/v1/}"; c="\${c%%\?*}"
+  st=pass; [[ ! -f "$TMP/precheck/\$c" ]] || st="\$(cat "$TMP/precheck/\$c")"
+  case "\$st" in
+    down) printf 000; exit 7 ;;
+    404) printf 404; exit 0 ;;
+    429|503) printf "\$st"; exit 0 ;;
+  esac
+  printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "%s"}\n' "\$c" "\$st" > "\${out:-/dev/stdout}"
+  printf 200; exit 0
+fi
 path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 # A -w read of a path listed in $cdn/TRUNC transfers, reports its status, then
 # fails (curl exit 18, a truncated transfer).
@@ -96,7 +114,13 @@ if [[ "\$path" == tree-commits/*.json && ! -f "$cdn/\$path" && ! -f "$cdn/NOAUTO
   fi
 fi
 if [[ "\$path" == "\$url" || ! -f "$cdn/\$path" ]]; then
-  [[ -n "\$fmt" ]] && { printf 404; exit 0; }
+  # curl --fail reports a 404 in -w output and exits 22. The downloader uses
+  # that combination to distinguish a missing object from a transport error.
+  if [[ -n "\$fmt" ]]; then
+    printf 404
+    (( failflag )) && exit 22
+    exit 0
+  fi
   exit 22
 fi
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
@@ -206,6 +230,69 @@ PROMOTE=0 request --sha "$head" --release-compile-green
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
+grep -q '^cmux-ci-fleet-compile-result/1$' "$TMP/precheck-user-agents.log" \
+  || fail "the precheck must identify its fleet compile client:" "$(cat "$TMP/precheck-user-agents.log")"
+
+# A red Release verdict refuses the candidate before the strings, tree marker
+# and promotion dispatch. Busy service answers are also deferred to a later
+# tick, while a confirmed outage keeps the cache from blocking promotion.
+echo fail > "$TMP/precheck/$head"
+RUN_ID=2 request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$head" || fail "a red fleet verdict must refuse promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck red" <<<"$out" || fail "the refusal must identify a red precheck:" "$out"
+run_id=3
+for busy in 429 503; do
+  echo "$busy" > "$TMP/precheck/$head"
+  RUN_ID=$run_id request --sha "$head" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$head" || fail "HTTP $busy must defer promotion:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "not prechecked yet" <<<"$out" || fail "HTTP $busy must be reported as pending:" "$out"
+  run_id=$((run_id + 1))
+done
+rm -f "$TMP/precheck/$head"
+
+# A notes-only child with no own record can reuse the nearest passing ancestor
+# because the nightly app and bundled cmux-tui tree are unchanged. An app
+# change cannot reuse that verdict, even though it has the same cmux-tui key.
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json
+import sys
+
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [path for path in paths if path == "App.swift"]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no app input changed"}))
+PY
+echo notes > "$src/NOTES.md"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "notes-only precheck child"
+child=$(git -C "$src" rev-parse HEAD)
+publish "$child"
+echo 404 > "$TMP/precheck/$child"
+RUN_ID=5 request --sha "$child" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$child" || fail "a same-app ancestor pass must be reusable:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since" <<<"$out" && grep -q "compiled .* in Release" <<<"$out" \
+  || fail "the reused ancestor must be named in the precheck reason:" "$out"
+
+echo app-change > "$src/App.swift"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "app change without own precheck"
+changed=$(git -C "$src" rev-parse HEAD)
+publish "$changed"
+echo 404 > "$TMP/precheck/$changed"
+RUN_ID=6 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$changed" || fail "an app change must not reuse an ancestor verdict:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not prechecked yet" <<<"$out" || fail "the changed app must remain pending:" "$out"
+
+echo down > "$TMP/precheck/$changed"
+RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+
+echo fail > "$TMP/precheck/$changed"
+RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "the explicit precheck opt-out must preserve promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck is off" <<<"$out" || fail "the opt-out reason must be visible:" "$out"
+git_q -C "$src" checkout -q --detach "$head"
 
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
 # posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
@@ -924,4 +1011,4 @@ request --sha nothex --release-compile-green
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
 : "$other"
-echo "PASS: nightly-next promotion waits for the published tree, not its daemon tests or the Release compile"
+echo "PASS: nightly-next promotion waits for a published tree and a usable fleet Release precheck, not daemon tests"

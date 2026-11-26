@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.chiefPet.about.machine-violet" : {
+      "comment" : "Chief pet character Violet Machine (the leaf-eared robot in violet): one-line description.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A violet robot that hums through the night shift."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "روبوت بنفسجي يدندن طوال نوبة الليل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ljubičasti robot koji pjevuši kroz noćnu smjenu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En violet robot, der nynner sig gennem nattevagten."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein violetter Roboter, der sich summend durch die Nachtschicht arbeitet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un robot violeta que tararea durante el turno de noche."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un robot violet qui fredonne pendant le service de nuit."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un robot viola che canticchia per tutto il turno di notte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "夜勤をハミングしながらこなすバイオレットのロボット。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រ៉ូបូតពណ៌ស្វាយ ដែលច្រៀងខ្សឹបៗពេញវេនយប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "야간 근무 내내 콧노래를 부르는 바이올렛 로봇."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En fiolett robot som nynner seg gjennom nattskiftet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fioletowy robot, który nuci przez całą nocną zmianę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um robô violeta que cantarola durante o turno da noite."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Фиолетовый робот, который напевает всю ночную смену."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หุ่นยนต์สีม่วงที่ฮัมเพลงตลอดกะดึก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gece vardiyası boyunca mırıldanan mor bir robot."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Фіолетовий робот, що наспівує всю нічну зміну."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chú robot tím vừa ngân nga vừa làm ca đêm."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "紫色机器人，哼着歌度过夜班。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "紫色機器人，哼著歌度過夜班。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

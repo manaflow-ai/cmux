@@ -52,7 +52,7 @@ fn heal(rs: &mut [R], now: u64) {
 
 #[test]
 fn every_replica_converges_whatever_the_order_loss_and_duplication() {
-    for seed in 1..=400u64 {
+    for seed in 1..=10_000u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
         let mut rs: Vec<R> = NAMES.iter().map(|n| Replica::new(Actor::new(*n))).collect();
         // Wall clocks off by up to 5 s from each other, as phones are.

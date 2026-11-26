@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.usageLimitUntil" : {
+      "comment" : "Agent pane: a failed turn's note when the agent's account used up a usage limit (Claude Code's weekly or session limit, Codex's usage limit; cmux#55066) and the refusal says when it resets; {harness} is the agent's name, {time} the reset as the agent or the local clock says it (\"Nov 27, 7am (UTC)\").",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "وصل حساب {harness} إلى حد الاستخدام. يُعاد تعيينه {time}؛ وحتى ذلك الحين تفشل كل رسالة بالطريقة نفسها. استخدم وكيلًا آخر للمتابعة الآن، أو سجّل الدخول بحساب آخر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Račun za {harness} je dostigao ograničenje korištenja. Resetuje se {time}; do tada svaka poruka ne uspijeva na isti način. Koristi drugog agenta da nastaviš odmah ili se prijavi drugim računom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}-kontoen har nået sin forbrugsgrænse. Den nulstilles {time}; indtil da mislykkes hver besked på samme måde. Brug en anden agent for at fortsætte nu, eller log ind med en anden konto."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Konto von {harness} hat sein Nutzungslimit erreicht. Es wird {time} zurückgesetzt; bis dahin scheitert jede Nachricht auf dieselbe Weise. Nutze einen anderen Agenten, um jetzt weiterzumachen, oder melde dich mit einem anderen Konto an."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}'s account hit its usage limit. It resets {time}; until then every message fails the same way. Use another agent to keep going now, or sign in with another account."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La cuenta de {harness} alcanzó su límite de uso. Se restablece {time}; hasta entonces cada mensaje falla igual. Usa otro agente para seguir ahora o inicia sesión con otra cuenta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le compte {harness} a atteint sa limite d’utilisation. Elle se réinitialise {time} ; d’ici là, chaque message échoue de la même façon. Utilisez un autre agent pour continuer maintenant, ou connectez-vous avec un autre compte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’account di {harness} ha raggiunto il limite di utilizzo. Si azzera {time}; fino ad allora ogni messaggio fallisce allo stesso modo. Usa un altro agente per continuare subito o accedi con un altro account."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} のアカウントが使用上限に達しました。リセットは {time} です。それまではどのメッセージも同じように失敗します。今すぐ続けるには別のエージェントを使うか、別のアカウントでサインインしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គណនី {harness} បានដល់ដែនកំណត់ប្រើប្រាស់។ វានឹងកំណត់ឡើងវិញ {time}; រហូតដល់ពេលនោះ សារនីមួយៗនឹងបរាជ័យដូចគ្នា។ ប្រើភ្នាក់ងារផ្សេងដើម្បីបន្តឥឡូវ ឬចូលដោយគណនីផ្សេង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 계정이 사용 한도에 도달했습니다. {time}에 초기화되며, 그때까지는 모든 메시지가 같은 방식으로 실패합니다. 지금 계속하려면 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}-kontoen har nådd bruksgrensen. Den nullstilles {time}; frem til da mislykkes hver melding på samme måte. Bruk en annen agent for å fortsette nå, eller logg inn med en annen konto."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Konto {harness} osiągnęło limit użycia. Zresetuje się {time}; do tego czasu każda wiadomość zakończy się tak samo. Użyj innego agenta, aby kontynuować teraz, albo zaloguj się innym kontem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A conta do {harness} atingiu o limite de uso. Ele é redefinido {time}; até lá, toda mensagem falha do mesmo jeito. Use outro agente para continuar agora ou entre com outra conta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Аккаунт {harness} исчерпал лимит использования. Он сбросится {time}; до этого каждое сообщение будет завершаться так же. Используйте другого агента, чтобы продолжить сейчас, или войдите в другой аккаунт."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บัญชี {harness} ใช้งานถึงขีดจำกัดแล้ว จะรีเซ็ต {time} ระหว่างนี้ทุกข้อความจะล้มเหลวแบบเดียวกัน ใช้เอเจนต์อื่นเพื่อทำต่อตอนนี้ หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} hesabı kullanım sınırına ulaştı. Sınır {time} sıfırlanır; o zamana kadar her mesaj aynı şekilde başarısız olur. Şimdi devam etmek için başka bir ajan kullanın veya başka bir hesapla giriş yapın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Обліковий запис {harness} вичерпав ліміт використання. Він скинеться {time}; до того кожне повідомлення завершуватиметься так само. Скористайтеся іншим агентом, щоб продовжити зараз, або увійдіть в інший обліковий запис."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tài khoản {harness} đã chạm giới hạn sử dụng. Giới hạn sẽ đặt lại {time}; đến lúc đó mọi tin nhắn đều thất bại như vậy. Dùng agent khác để tiếp tục ngay, hoặc đăng nhập bằng tài khoản khác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 的账户已达到用量上限，将于 {time} 重置；在此之前每条消息都会以同样方式失败。现在要继续，请使用其他智能体，或用另一个账户登录。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 的帳戶已達到用量上限，將於 {time} 重設；在此之前每則訊息都會以同樣方式失敗。現在要繼續，請使用其他智慧代理，或以另一個帳戶登入。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
