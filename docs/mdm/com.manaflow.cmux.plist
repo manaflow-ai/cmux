@@ -844,13 +844,22 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<string>download</string>
+			<key>pfm_description</key>
+			<string>Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.</string>
 			<key>pfm_name</key>
-			<string>updates.checkAutomatically</string>
+			<string>updates.automatic</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>notify</string>
+				<string>download</string>
+				<string>idle</string>
+			</array>
 			<key>pfm_title</key>
-			<string>Check for Updates Automatically</string>
+			<string>Automatic Updates</string>
 			<key>pfm_type</key>
-			<string>boolean</string>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -865,18 +874,6 @@
 			<string>Check Every</string>
 			<key>pfm_type</key>
 			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>Off: cmux asks before downloading. It always asks before restarting.</string>
-			<key>pfm_name</key>
-			<string>updates.downloadAutomatically</string>
-			<key>pfm_title</key>
-			<string>Download Updates Automatically</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -976,18 +973,6 @@
 			<string>updates.installOnQuit</string>
 			<key>pfm_title</key>
 			<string>Install Updates When Quitting</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.</string>
-			<key>pfm_name</key>
-			<string>updates.installWhenIdle</string>
-			<key>pfm_title</key>
-			<string>Update When Idle</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1526,6 +1511,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.</string>
+			<key>pfm_name</key>
+			<string>cloud.defaultImage</string>
+			<key>pfm_title</key>
+			<string>Default Image</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.</string>
@@ -1750,7 +1747,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1</integer>
+			<integer>0</integer>
 			<key>pfm_description</key>
 			<string>After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.</string>
 			<key>pfm_name</key>
@@ -1806,7 +1803,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>60000</integer>
+			<integer>20000</integer>
 			<key>pfm_description</key>
 			<string>Chats with at least this much context are compacted, whatever their window.</string>
 			<key>pfm_name</key>
@@ -4370,6 +4367,174 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowInset</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Inset</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowPadding</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Padding</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The gap between two sidebar rows. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowGap</string>
+			<key>pfm_range_max</key>
+			<real>12</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Gap</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowHeightWithSubtitle</string>
+			<key>pfm_range_max</key>
+			<real>96</real>
+			<key>pfm_range_min</key>
+			<real>28</real>
+			<key>pfm_title</key>
+			<string>Two-Line Row Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonSize</string>
+			<key>pfm_range_max</key>
+			<real>40</real>
+			<key>pfm_range_min</key>
+			<real>16</real>
+			<key>pfm_title</key>
+			<string>Toolbar Button Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The space between neighboring icon buttons in the title bar. Unset is three tenths of a button.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonGap</string>
+			<key>pfm_range_max</key>
+			<real>16</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Toolbar Button Gap</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonCornerRadius</string>
+			<key>pfm_range_max</key>
+			<real>20</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Toolbar Button Corner</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonActiveFill</string>
+			<key>pfm_range_max</key>
+			<real>0.40000000000000002</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Active Button Fill</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.headerDivider</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Header Divider</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.spacingScale</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.5</real>
+			<key>pfm_title</key>
+			<string>Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The room from the chat prompt box's sides to its text and controls. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.composerPadding</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Composer Padding</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.composerMinHeight</string>
+			<key>pfm_range_max</key>
+			<real>160</real>
+			<key>pfm_range_min</key>
+			<real>32</real>
+			<key>pfm_title</key>
+			<string>Composer Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
@@ -4567,6 +4732,24 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Tab Shape</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.</string>
+			<key>pfm_name</key>
+			<string>appearance.gooeyTabs</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>subtle</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Gooey Tabs</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -5957,6 +6140,18 @@
 			<string>agentPane.display.chatListStatusPills</string>
 			<key>pfm_title</key>
 			<string>Status Pills in All Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>In a subagent's own pane, show which chat it belongs to beside its name in the header.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.subagentOf</string>
+			<key>pfm_title</key>
+			<string>Subagent Of in Header</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

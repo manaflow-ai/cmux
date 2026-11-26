@@ -89,6 +89,13 @@ const TRANSCRIPT_EVENTS: number[] | null = (() => {
 // --full-seed: seed chats with the mock's full load turns (tool calls, diffs, long replies) instead of light ones. The
 // fidelity mode always does: at the 13:03Z NIGHTLY profile light seeds drew frames at 100 ms p95, full ones at 66.6
 // against the app's 66.3.
+// --seed-turns-max N: the most turns one seeded chat gets. The mock daemon keeps a chat's whole log inside the page
+// (the app's daemon is its own process, and the pane holds only the paged window it attaches), so a profile's full log
+// is the sim's cost alone: Leo's 1.64M-event chat (11-26 00:37Z, 251,762 turns) crashed the page while it seeded
+// ("evaluate: Target crashed"). The default, 33,334 turns (100k rows), is the largest chat the repo's benches open
+// (chat-100k-flat); at the cap the scene read renderer RSS 2028 MB against the app's 1600. A capped seed is reported as
+// seed_capped with the turns the profile asked for.
+const SEED_TURNS_MAX = Number(flag("--seed-turns-max") ?? 33_334);
 const FULL_SEED = argv.includes("--full-seed") || PROFILE !== undefined;
 const WINDOW_MS = Number(flag("--window") ?? 5000);
 const changesPerMin = fromProfile("sessions_changed_per_min");
@@ -640,7 +647,9 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // transcript_events; a hidden chat takes the last one listed (the sensor reads only shown chats). Without
     // the field every chat keeps ROWS / 2 turns.
     const seed = async (page: Page, slot = Number.MAX_SAFE_INTEGER) => {
-      const turns = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
+      const wanted = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
+      const turns = Math.min(wanted, SEED_TURNS_MAX);
+      if (turns < wanted) report.seed_capped = { wanted, seeded: turns };
       const seeded = (await page.evaluate(
         ([count, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light }),
         [turns, !FULL_SEED] as const,
