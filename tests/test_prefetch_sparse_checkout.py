@@ -116,6 +116,23 @@ exec {real} "$@"
         self.assertEqual(run.stderr.count("failed (try 1)"), 3)
         self.assertNotIn("::warning::", run.stdout)
 
+    def test_a_full_clone_only_applies_the_patterns(self):
+        """A pool VM's checkout borrows its mirror unfiltered: `fetch --filter` there is an error, so none runs."""
+        want = self.tree(self.clone("plain", PATTERNS.read_text(encoding="utf-8")))
+        work = self.tmp / "full"
+        work.mkdir()
+        git(work, "init", "-q")
+        git(work, "remote", "add", "origin", self.url)
+        git(work, "config", "core.sparseCheckout", "true")
+        (work / ".git/info/sparse-checkout").write_text("/scripts/ci/prefetch-sparse-checkout.sh\n", encoding="utf-8")
+        git(work, "fetch", "-q", "--no-tags", "--depth=1", "origin", "main")
+        git(work, "checkout", "-q", "--force", "FETCH_HEAD")
+        with PATTERNS.open(encoding="utf-8") as stdin:
+            out = subprocess.run(["bash", str(SCRIPT)], cwd=work, stdin=stdin, check=True, capture_output=True,
+                                 text=True, env={**os.environ, "GH_TOKEN": ""}).stdout
+        self.assertIn("not a partial clone", out)
+        self.assertEqual(self.tree(work), want)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,7 +41,7 @@ git ls-files -s -- "${specs[@]}" | awk '$1 != "160000" { print $2 }' | sort -u >
 count=$(wc -l < "$work/oids")
 # A full clone (a pool VM's checkout borrowing its local mirror) has every blob already, and `fetch --filter`
 # outside a partial clone is an error: only apply the patterns there.
-if [[ -z "$(git config --get extensions.partialClone || true)" ]]; then
+if [[ -z "$(git config --get extensions.partialClone || git config --get-regexp '^remote\..*\.promisor$' || true)" ]]; then
   echo "sparse prefetch: not a partial clone, nothing to fetch"
   count=0
 fi
