@@ -60,4 +60,15 @@ struct FontSmoothingSettingTests {
         #expect(written.rawValue == (mode ?? "auto"))
         #expect((defaults.object(forKey: ProcessFontSmoothing.defaultsKey) as? NSNumber)?.intValue == expected)
     }
+
+    /// The launch read asks the managed domain for this one key, not every published one: listing them
+    /// builds the whole settings schema on the main thread before the Dock stops bouncing (CMUX-631).
+    @Test func theLaunchReadAsksForOneManagedKey() throws {
+        let reader = try #require(ManagedPreferenceLocation.reader(keys: ["appearance.fontSmoothing"], environment: [:])
+            as? CFManagedPreferenceReader)
+        #expect(reader.keys == ["appearance.fontSmoothing"])
+        #expect(reader.domain == ManagedPreferences.domain)
+        #expect(ManagedPreferenceLocation.reader(keys: [], environment: [ManagedPreferences.fileOverrideKey: "/tmp/m.plist"])
+            is PlistManagedPreferenceReader)
+    }
 }
