@@ -18,7 +18,7 @@
     },
     "local-pty-output": {
       "what": "one PTY read of a terminal the daemon runs in-process (--ephemeral, Windows fallback; surface/spawn.rs reader): the read, the bytes already waiting read into the same buffer, one parse",
-      "bench": "cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
+      "bench": "cargo test --release -p cmux-tui --test it -- terminal_throughput_stages:: --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
       "owner": "terminal host"
     },
     "chats-window-query": {
@@ -214,6 +214,11 @@
     "live-wallpaper-frame": {
       "what": "one live wallpaper frame on the main thread (CmuxNextDesign BackdropLiveView tick and drawFrame, LiveWallpaperFrame.packed): ask the Rust scheduler, step the pointer, pack the 144-byte Frame uniform and hand it to the render queue; no wait, no drawable on main",
       "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each for a picture, each live wallpaper, idle, occluded, minimized and Low Power)",
+      "owner": "design"
+    },
+    "scene-evaluate": {
+      "what": "one motion scene evaluate on the main thread (CmuxNextDesign BackdropLiveView evaluateScene, LiveWallpaperScenePlayer.evaluate): step the scene's physics to now with the pointer and button, then pack the 2048-byte Scene block in Rust (cmux_wallpaper_scene_evaluate)",
+      "bench": "scripts/bench/cmux-bench run wallpaper_cost on a fleet Mac with a scene wallpaper selected (scripts/measure/wallpaper-cost.sh: CPU process seconds per second, GPU seconds per second and phys_footprint, 60 s each), plus cargo test -p cmux-wallpaper scene for the Rust evaluate alone",
       "owner": "design"
     },
     "feed-mirror-commit": {

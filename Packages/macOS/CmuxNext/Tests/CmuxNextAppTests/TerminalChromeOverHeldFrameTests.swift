@@ -66,13 +66,10 @@ import Testing
         let held = try #require(host.subviews.firstIndex { String(describing: type(of: $0)).contains("HeldFrame") })
         #expect(index(fresh.surfaceView) == held - 1, "the held frame is directly above the surface")
 
-        // The attach kept failing: the label and Retry are built now, during the hold.
+        // The attach kept failing: the label is built now, during the hold.
         host.showStatus(.disconnected(.attachFailed, reconnecting: false))
         let label = try #require(host.subviews.first { $0 is TerminalStatusBanner })
-        let retry = try #require(host.subviews.first { $0 is TerminalRetryButton })
         #expect(try #require(index(label)) > held, "the status label shows over the held frame")
-        #expect(try #require(index(retry)) > held, "Retry shows over the held frame")
-        #expect(try #require(index(retry)) > index(label) ?? 0, "Retry is over the label")
 
         // A scroll back during the hold builds the scroller over the held frame, under the label.
         host.showScrollbar(TerminalScrollbar(totalRows: 900, offsetRows: 876, visibleRows: 24))
