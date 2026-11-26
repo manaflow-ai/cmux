@@ -564,7 +564,14 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
-`usageWarnings` (`{"subagentsPerHour": 40, "autocompactCap": true}`, the defaults; with no
+A Claude Code chat runs with the autocompact its person chose (`--autocompact`,
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `autoCompactWindow` in a
+Claude settings file), else Claude Code's own. `agents.claudeAutocompactWindow` (tokens) in the
+cmux settings file names a window acpmux starts such a chat, and a terminal's `claude`, with when
+nothing of theirs decides it; unset, the default, acpmux adds none (`harness_limits.rs`).
+
+`usageWarnings` (`{"subagentsPerHour": 40}`, the default, and `"autocompactCap": true` to warn on
+a Claude chat with no autocompact cap, off by default because Claude Code ships with none; with no
 `contextTokens` each session is held to its own window: its autocompact cap, else its model's
 window, else 400000 when acpmux knows neither, and `"contextTokens": N` sets one line for every
 session; 0 or false turns a rule off): a session whose usage breaks a rule gets
@@ -1546,7 +1553,10 @@ process keeps running.
 
 ### Tuning compaction
 
-acpmux compacts an idle Claude Code chat in two places: before its prompt cache expires (warm,
+All of this is off by default (Leo, 2026-11-26: "we ought to not make jcmux/acpmux so
+opinionated with compacition. only do it for our personal fleet situation"): Claude Code's own
+autocompact is all a chat gets until you turn a knob on. Turned on, acpmux compacts an idle
+Claude Code chat in two places: before its prompt cache expires (warm,
 `hub/cache_compact.rs`) and before a batch of messages wakes a chat whose cache already lapsed
 (cold, `hub/cold_wake.rs`, which tries context surgery before `/compact`). Every knob is a
 setting in the cmux settings file (`~/.config/cmux/cmux-next.json`, or `CMUX_NEXT_CONFIG_FILE`;
@@ -1557,11 +1567,11 @@ opens, so a change applies without a restart (the variable needs the daemon rest
 
 | Knob | Setting | Environment variable | Default | Range |
 |---|---|---|---|---|
-| Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
+| Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | off | on, off |
 | Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
-| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 60000 | 10000-500000 |
-| Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
-| Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
+| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 20000 | 10000-500000 |
+| Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | off | on, off |
+| Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | off | on, off |
 | Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 100000 | 10000-500000 |
 
 The warm timer arms at the percent or the token count, whichever a chat reaches first (a
@@ -1569,8 +1579,8 @@ percent alone sat above Claude Code's autocompact on a 1M-token window). Cold co
 from about 76K tokens: it costs about the context plus 76K, a plain wake about twice the context.
 
 On/off variables take `1`, `true`, `on` or `0`, `false`, `off`. Context surgery itself (masking old
-tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off with
-`ACPMUX_HM_SURGERY=0`. The daemon logs each decision under `acpmux::hub::cold_wake` and
+tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off by default and
+always off with `ACPMUX_HM_SURGERY=0`. The daemon logs each decision under `acpmux::hub::cold_wake` and
 `acpmux::hub::idle::cache_compact`.
 
 ### cmux tools in every session
@@ -1752,6 +1762,7 @@ Extensions:
 | `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, sinceSeen?, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. Pass `sinceSeen: true` for the first recap page, then `afterSeq: pageThrough` for subsequent pages. The first reply returns `seenSeq: null` and an empty page for a reader without a cursor. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
+| `session/signature {sessionIds}` | Each id's dot glyph, at most 512 ids: `{signatures: {<id>: {seed, variant, accent, drift, dots: [{x, y, r, phase}]}}}`. A pure function of the id (cmux-wallpaper `signature.rs`, the particles wallpaper's variants), so an unknown id gets one too; read-only, never forwarded. |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
