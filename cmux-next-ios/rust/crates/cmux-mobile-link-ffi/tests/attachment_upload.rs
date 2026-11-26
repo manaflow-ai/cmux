@@ -31,6 +31,7 @@ struct UploadRig {
     root: std::path::PathBuf,
     handle: Arc<LinkHandle>,
     mac_id: String,
+    phone_id: String,
     base_url: String,
 }
 
@@ -67,17 +68,26 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             session_exposure: None,
         },
     ));
-    let handle = connect(&server.base_url, &mac_id, transport).await;
-    UploadRig { base_url: server.base_url.clone(), _server: server, _dirs: dirs, root, handle, mac_id }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let handle = connect(&server.base_url, &mac_id, &phone_id, transport).await;
+    UploadRig {
+        base_url: server.base_url.clone(),
+        _server: server,
+        _dirs: dirs,
+        root,
+        handle,
+        mac_id,
+        phone_id,
+    }
 }
 
-async fn connect(base_url: &str, mac_id: &str, transport: Transport) -> Arc<LinkHandle> {
+async fn connect(base_url: &str, mac_id: &str, phone_id: &str, transport: Transport) -> Arc<LinkHandle> {
     connect_inner(
         ConnectRequest {
             base_url: base_url.into(),
             token: "user:alice".into(),
             team_id: "team".into(),
-            device_id: uuid::Uuid::new_v4().to_string(),
+            device_id: phone_id.into(),
             mac_device_id: mac_id.into(),
             transport,
             include_loopback: true,
@@ -251,7 +261,8 @@ async fn a_replaced_link_resumes_the_upload() {
         .start(spec_for_mac(&rig, upload_mac_id.clone(), "resume.bin"), source.to_str().unwrap().into());
     until("60% of the file", || uploads.progress(id.clone()).is_some_and(|p| p.acked_bytes > 60 * MIB)).await;
     uploads.set_link(upload_mac_id.clone(), None);
-    let second = connect(&rig.base_url, &rig.mac_id, Transport::WireGuard).await;
+    // A redial changes the link session, not the authenticated phone owning the staged bytes.
+    let second = connect(&rig.base_url, &rig.mac_id, &rig.phone_id, Transport::WireGuard).await;
     uploads.set_link(upload_mac_id, Some(second));
     let path = uploads.wait(id.clone()).await.expect("uploaded");
     assert_eq!(sha256(Path::new(&path)), sha256(&source));
