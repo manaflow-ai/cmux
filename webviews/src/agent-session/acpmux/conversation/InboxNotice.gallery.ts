@@ -317,8 +317,9 @@ const openGroup =
   (lines: number): Play =>
   async (ctx) => {
     await ctx.waitFor(() => ctx.document.querySelector(`.cv-lane-batch__toggle, ${NOTICE_LINE}`));
-    const head = ctx.document.querySelector<HTMLButtonElement>(".cv-lane-batch__toggle");
-    if (head && head.getAttribute("aria-expanded") !== "true") head.click();
+    // ctx.click, not element.click(): the press declares the batch's expand (playRunner stepDeclarations).
+    if (ctx.document.querySelector(".cv-lane-batch__toggle[aria-expanded=false]"))
+      await ctx.click({ selector: ".cv-lane-batch__toggle[aria-expanded=false]" });
     await ctx.waitFor(() => ctx.document.querySelectorAll(NOTICE_LINE).length >= lines);
   };
 /// The same, then the first notice line opened: its newest message's words under it.
@@ -326,7 +327,7 @@ const openNotices =
   (lines: number): Play =>
   async (ctx) => {
     await openGroup(lines)(ctx);
-    ctx.document.querySelector<HTMLButtonElement>(`${NOTICE_LINE} .cv-disclosure__toggle`)?.click();
+    await ctx.click({ selector: `${NOTICE_LINE} .cv-disclosure__toggle` });
     await ctx.waitFor(() => ctx.document.querySelector(`${NOTICE_LINE} .cv-received__text`));
   };
 /// A running turn draws its work under a closed "Working for" (liveTurnWork.experiment.ts `folded`,
@@ -426,8 +427,9 @@ export default agentPaneEntry({
       snapshot: amongTools(),
       play: async (ctx) => {
         await openWorking(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-message-group__head").length >= 2);
-        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-message-group__head")[1]?.click();
+        // The flat lane-notice projection (#56260) draws the group as a lane batch, not a message-group head.
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle[aria-expanded=false]"));
+        await ctx.click({ selector: ".cv-lane-batch__toggle[aria-expanded=false]" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
       },
     },
