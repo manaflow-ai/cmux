@@ -77,6 +77,7 @@ test("the App connection leads and the personal CLI login stays an explicit opti
   expect(cli.disabled).toBe(false);
   await act(async () => cli.click());
   await settle();
+  expect(page.provider.accountRuns.some((run) => run.action === "githubCliSignIn")).toBe(true);
   expect(page.provider.accountRuns.at(-1)).toMatchObject({ action: "signInFinish" });
   expect(page.container.querySelectorAll(".signin").length).toBe(1);
   expect(appCard.querySelector(".signin")).toBeNull();
@@ -96,6 +97,7 @@ test("the personal CLI login falls back to a terminal on an older host", async (
   const appCard = page.container.querySelector<HTMLElement>('[data-card="github-connection"]')!;
   await act(async () => appCard.querySelector<HTMLButtonElement>('[data-github-action="cli-sign-in"]')!.click());
   await settle();
+  expect(page.provider.accountRuns.some((run) => run.action === "githubCliSignIn")).toBe(true);
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountAdd", family: "github", way: "new" });
   expect(page.container.querySelector(".signin")).toBeNull();
   page.unmount();

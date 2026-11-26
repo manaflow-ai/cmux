@@ -2,10 +2,13 @@ public import CmuxNextActions
 import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
+import os
 
 /// The App's entry points into the GitHub connection: the `accounts.githubConnect` action and the
 /// Accounts part of the Settings page. The App only binds them (code-quality.md SW14).
 extension GitHubConnections {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "github")
+
     /// The `accounts.githubConnect` result: connect, then report the page's outcome and detail.
     /// A chat's Connect GitHub card (webviews githubConnect.ts) names the failed call's `repo` and
     /// the chat's link (`returnTo`), both checked by the pane (AgentPaneRequest+Decoding.swift): the
@@ -57,6 +60,10 @@ extension GitHubConnections {
             return .object([:])
         }
         if gesture.hasPrefix("github") {
+            if gesture == "githubCliSignIn" {
+                Self.logger.info("github_cli_sign_in_selected")
+                return .object([:])
+            }
             guard ["githubConnect", "githubDisconnect", "githubReconfigure", "githubRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown GitHub action") }
             if gesture == "githubConnect" { await connect() }
             else { await perform(gesture, connection: params["account"]?.stringValue) }

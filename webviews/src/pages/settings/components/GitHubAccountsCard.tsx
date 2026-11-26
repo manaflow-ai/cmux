@@ -69,6 +69,8 @@ export function GitHubAccountsCard({ signIn }: { signIn: SettingsSignIn }) {
                 data-github-action="cli-sign-in"
                 disabled={Boolean(signIn.running)}
                 onClick={() => {
+                  // Keep the App as the default while measuring when people choose the personal-login escape hatch.
+                  void store.runAccounts({ action: "githubCliSignIn" });
                   if (!signIn.inPlace) {
                     void store.runHarnesses(terminalSignIn("github", null));
                     return;
