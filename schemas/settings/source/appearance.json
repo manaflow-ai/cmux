@@ -4551,6 +4551,41 @@
           "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
         }
       ]
+    },
+    {
+      "name": "agentSignature",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.agentSignature",
+        "text": "Agent Signatures"
+      },
+      "rows": [
+        {
+          "key": "appearance.agentSignature",
+          "note": "Off by default: it changes the default look. On, sidebar agent rows and the chat's running line draw a dot glyph acpmux makes from the session id (session/signature); off, no glyph and no request.",
+          "title": {
+            "key": "settings.appearance.agentSignature",
+            "text": "Agent Dot Signatures"
+          },
+          "help": {
+            "key": "settings.appearance.agentSignature.help",
+            "text": "Give each agent a small dot glyph made from its session, on sidebar rows and the running line."
+          },
+          "kind": "toggle",
+          "swift_owner": "AgentSignatureSetting",
+          "default": false,
+          "keywords": [
+            "agent",
+            "signature",
+            "glyph",
+            "dots",
+            "particles",
+            "session",
+            "sidebar",
+            "identity"
+          ]
+        }
+      ]
     }
   ]
 }
