@@ -244,7 +244,13 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         {(retry || session.state === "working") && <Spinner size={12} loading />}
         {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). A retry
             inside the shared bound reads as working too. */}
-        {retry ? (retryLasting ? retryLabel(t, retry) : null) : session.state === "working" ? null : t(SUBSESSION_STATE_LABEL[session.state])}
+        {retry
+          ? retryLasting
+            ? retryLabel(t, retry)
+            : null
+          : session.state === "working"
+            ? null
+            : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );
