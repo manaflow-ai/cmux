@@ -217,7 +217,7 @@ pub fn is_screen_link(link: &Link) -> bool {
     }
     let mut path = link.path.as_str();
     while path.chars().count() > 1 && path.ends_with('/') {
-        path = &path[..path.len() - 1];
+        path = path.strip_suffix('/').unwrap_or(path);
     }
     path == "/deeplink/screen"
 }
@@ -229,10 +229,10 @@ pub fn is_share_page_path(path: &str) -> bool {
     if parts.last() == Some(&"") && parts.len() == 4 {
         parts.pop();
     }
-    if parts.len() != 3 || !parts[0].is_empty() || !(parts[1] == "g" || parts[1] == "i") {
+    let [first, kind, id] = parts.as_slice() else { return false };
+    if !first.is_empty() || !(*kind == "g" || *kind == "i") {
         return false;
     }
-    let id = parts[2];
     (16..=128).contains(&id.chars().count())
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
@@ -316,13 +316,13 @@ fn port_is_well_formed(link: &Link) -> bool {
         return true;
     }
     let Some(mut authority) = link.absolute.split('/').nth(2) else { return true };
-    if let Some(at) = authority.rfind('@') {
-        authority = &authority[at + 1..];
+    if let Some((_, host)) = authority.rsplit_once('@') {
+        authority = host;
     }
     if authority.starts_with('[')
-        && let Some(close) = authority.find(']')
+        && let Some((_, rest)) = authority.split_once(']')
     {
-        authority = &authority[close + 1..];
+        authority = rest;
     }
     !authority.contains(':')
 }
