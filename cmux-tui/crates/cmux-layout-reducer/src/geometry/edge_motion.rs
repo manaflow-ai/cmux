@@ -731,7 +731,7 @@ pub fn notch_route(dx: f64, dy: f64, facts: ScrollFacts) -> ScrollRoute {
 
 /// What an undecided gesture's event decides (Swift `ScrollLock` after `.undecided`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum GestureLock {
     /// Still undecided: the event moved nothing. `forwards`: the pane sees it (false for a
     /// gesture the layout claims whole).
