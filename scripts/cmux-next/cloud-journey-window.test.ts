@@ -163,3 +163,15 @@ describe("the cold create cell reads a person's own create at its asked size (cm
     expect(steps.find((s) => s.step === "machine facts")?.status).not.toBe("fail");
   });
 });
+
+test("a red platform-record step is recorded and the journey goes on (run 45896711769)", async () => {
+  const { RECORD_ONLY_STEPS } = await import("./cloud-journey");
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./cloud-journey.ts", import.meta.url), "utf8");
+  for (const name of RECORD_ONLY_STEPS) {
+    const at = src.indexOf(name === "listed" ? 'await J.step("listed", async' : "await J.step(DEFAULT_SIZE_STEP, async");
+    expect(at).toBeGreaterThan(0);
+    const end = src.indexOf("\n      })", at);
+    expect(src.slice(end, end + 40)).toStartWith("\n      }).catch(() => undefined);");
+  }
+});

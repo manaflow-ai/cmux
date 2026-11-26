@@ -350,7 +350,9 @@ PARTS = [
     # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
     # goal: the rows behind goal god-chat-ratios in cmuxterm-hq's NOW (god_chat_replay_ratio_max reads
     # webui.god_ratio.transcript_replay.long.*), so a due run of it goes first (part_order); they went 4 days unread.
-    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios"},
+    # goal_rows: those rows; a run that stored none of them leaves the part due (goal_rows_missing).
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios",
+     "goal_rows": r"webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)@"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
     # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
@@ -1658,7 +1660,7 @@ def part_order(state, todo, t):
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
         if not at:
             never.append(name)
-        elif hours_between(at, t) > PART_STALE_HOURS:
+        elif hours_between(at, t) > PART_STALE_HOURS or goal_rows_missing(state, name, e):
             stale.append((at, i, name))
     # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
     # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
@@ -1684,6 +1686,21 @@ def part_order(state, todo, t):
     goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
     first = lead + goal + [n for n in first if n not in lead and n not in goal]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+
+
+def goal_rows_missing(state, name, stored):
+    """Whether a part's newest store (state['part_stored'] entry) carried none of its goal's rows (PARTS "goal_rows"),
+    so the part stays due (pure). store_part_rows moves the date of an incomplete part, so that a part failing one
+    bench does not take every Linux turn; but when the failed bench is the one behind the goal, the goal's row goes
+    unread while the part reads fresh: on 2026-11-26 web-ui-god stored 58 rows at 17:22Z without one
+    webui.god_ratio.transcript_replay.long row (transcript-replay-god timed out after 420 s), so NOW's
+    god_chat_replay_ratio_max kept its 5-day-old value and the part sat sixth among the next tip's Linux parts."""
+    pat = PART_BY_NAME.get(name, {}).get("goal_rows")
+    if not pat or not isinstance(stored, dict):
+        return False
+    rows = state.get("part_rows") if isinstance(state.get("part_rows"), dict) else {}
+    return not any(re.match(pat, n) and isinstance(r, dict) and r.get("at") == stored.get("at")
+                   for n, r in rows.items())
 
 
 # A failed_why of a history entry from before ran_failed: run-linux-part's own failure ("NAME: exit N", "NAME: timed
