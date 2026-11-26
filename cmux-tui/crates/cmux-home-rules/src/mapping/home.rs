@@ -302,11 +302,12 @@ pub fn read_pairs<'de, D: Deserializer<'de>, V: serde::de::DeserializeOwned>(
             items
                 .chunks(2)
                 .map(|pair| {
-                    let key = pair[0]
-                        .as_str()
-                        .ok_or_else(|| D::Error::custom("a key that is not text"))?;
-                    let value =
-                        serde_json::from_value(pair[1].clone()).map_err(D::Error::custom)?;
+                    let [key, value] = pair else {
+                        return Err(D::Error::custom("an odd key-value array"));
+                    };
+                    let key =
+                        key.as_str().ok_or_else(|| D::Error::custom("a key that is not text"))?;
+                    let value = serde_json::from_value(value.clone()).map_err(D::Error::custom)?;
                     Ok((key.to_string(), value))
                 })
                 .collect()

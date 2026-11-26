@@ -329,8 +329,8 @@ pub fn time_key(time: &str) -> String {
     let mut start = 0;
     for (index, ch) in plain.char_indices() {
         if ch == '.' {
-            if index > start {
-                parts.push(&plain[start..index]);
+            if let Some(piece) = plain.get(start..index).filter(|piece| !piece.is_empty()) {
+                parts.push(piece);
             }
             start = index + 1;
             if parts.len() == 1 {
@@ -338,8 +338,8 @@ pub fn time_key(time: &str) -> String {
             }
         }
     }
-    if start < plain.len() {
-        parts.push(&plain[start..]);
+    if let Some(piece) = plain.get(start..).filter(|piece| !piece.is_empty()) {
+        parts.push(piece);
     }
     let fraction: String = parts.get(1).map(|f| f.chars().take(3).collect()).unwrap_or_default();
     let padded: String = fraction.chars().chain(std::iter::repeat('0')).take(3).collect();
@@ -401,10 +401,10 @@ pub struct Accepted {
 /// not answer keeps the last rows.
 pub fn accept(current: Option<&Response>, next: Response, pending_writes: u64) -> Accepted {
     let mut next = next;
-    if next.cloud.as_deref() == Some("unavailable") {
-        if let Some(last) = current {
-            next.rows = last.rows.clone();
-        }
+    if next.cloud.as_deref() == Some("unavailable")
+        && let Some(last) = current
+    {
+        next.rows = last.rows.clone();
     }
     if pending_writes > 0 {
         return Accepted { kept: false, reply: None, changed: false };
@@ -517,14 +517,13 @@ pub fn edit(reply: Option<Response>, is_cloud: bool, now: u64, edit: &Edit) -> E
                     row.pinned = *on;
                     row.pin_position = on.then_some(now);
                 });
-                if *on {
-                    if let Some(reply) = reply.as_mut() {
-                        if let Some(index) = reply.rows.iter().position(|row| row.id == *id) {
-                            let moved = reply.rows.remove(index);
-                            let at = first_unpinned(&reply.rows);
-                            reply.rows.insert(at, moved);
-                        }
-                    }
+                if *on
+                    && let Some(reply) = reply.as_mut()
+                    && let Some(index) = reply.rows.iter().position(|row| row.id == *id)
+                {
+                    let moved = reply.rows.remove(index);
+                    let at = first_unpinned(&reply.rows);
+                    reply.rows.insert(at, moved);
                 }
                 vec![Write { conversation: id.clone(), op: InboxOp::pin(*on, on.then_some(now)) }]
             }

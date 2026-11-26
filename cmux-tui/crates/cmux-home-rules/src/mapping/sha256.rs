@@ -25,20 +25,21 @@ pub fn digest(data: &[u8]) -> [u8; 32] {
     }
     message.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_be_bytes());
     for block in message.chunks_exact(64) {
-        let mut w = [0u32; 64];
-        for (i, word) in block.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
-        }
+        let mut w: Vec<u32> = block
+            .chunks_exact(4)
+            .map(|word| <[u8; 4]>::try_from(word).map_or(0, u32::from_be_bytes))
+            .collect();
         for i in 16..64 {
-            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            let at = |back: usize| w.get(i - back).copied().unwrap_or(0);
+            let s0 = at(15).rotate_right(7) ^ at(15).rotate_right(18) ^ (at(15) >> 3);
+            let s1 = at(2).rotate_right(17) ^ at(2).rotate_right(19) ^ (at(2) >> 10);
+            w.push(at(16).wrapping_add(s0).wrapping_add(at(7)).wrapping_add(s1));
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
-        for i in 0..64 {
+        for (k, word) in K.iter().zip(&w) {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ (!e & g);
-            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(*k).wrapping_add(*word);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let t2 = s0.wrapping_add(maj);

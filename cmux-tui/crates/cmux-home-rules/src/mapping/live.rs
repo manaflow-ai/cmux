@@ -558,12 +558,12 @@ pub fn agent_run(
                     return message(id.clone(), body, true, sender, queued);
                 }
             }
-            if step.kind == "note" && step.id.starts_with("report:") {
-                if let Some(rest) = step.text.as_deref().and_then(|body| body.strip_prefix('[')) {
-                    if let Some((peer, text)) = rest.split_once("] ") {
-                        return message(peer.to_string(), text.to_string(), false, None, false);
-                    }
-                }
+            if step.kind == "note"
+                && step.id.starts_with("report:")
+                && let Some(rest) = step.text.as_deref().and_then(|body| body.strip_prefix('['))
+                && let Some((peer, text)) = rest.split_once("] ")
+            {
+                return message(peer.to_string(), text.to_string(), false, None, false);
             }
             Vec::new()
         })
@@ -595,16 +595,13 @@ fn spawned(step: &Step) -> Option<Vec<(String, String, bool)>> {
     let ids: Vec<(String, bool)> = swift_lines(output)
         .into_iter()
         .filter_map(|line| {
-            if !line.starts_with("- a") {
+            let (head, outcome) = line.strip_prefix("- ")?.split_once(':')?;
+            let digits = head.strip_prefix('a')?;
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
                 return None;
             }
-            let colon = line.find(':')?;
-            let id = &line[2..colon];
-            let digits = &id[1..];
-            if id.chars().count() <= 1 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            let outcome = line[colon + 1..].trim_start_matches(' ');
+            let id = head;
+            let outcome = outcome.trim_start_matches(' ');
             let queued = outcome == "queued"
                 || outcome.starts_with("queued ")
                 || outcome.starts_with("queued(");
@@ -622,19 +619,20 @@ fn spawned(step: &Step) -> Option<Vec<(String, String, bool)>> {
 /// Swift's `split(separator: "\n")` over Characters: empty pieces dropped, and `\r\n` is one
 /// Character, so it never splits there.
 fn swift_lines(text: &str) -> Vec<&str> {
-    let bytes = text.as_bytes();
     let mut lines = Vec::new();
     let mut start = 0;
-    for (i, b) in bytes.iter().enumerate() {
-        if *b == b'\n' && (i == 0 || bytes[i - 1] != b'\r') {
-            if i > start {
-                lines.push(&text[start..i]);
+    let mut previous = None;
+    for (i, ch) in text.char_indices() {
+        if ch == '\n' && previous != Some('\r') {
+            if let Some(line) = text.get(start..i).filter(|line| !line.is_empty()) {
+                lines.push(line);
             }
             start = i + 1;
         }
+        previous = Some(ch);
     }
-    if start < text.len() {
-        lines.push(&text[start..]);
+    if let Some(line) = text.get(start..).filter(|line| !line.is_empty()) {
+        lines.push(line);
     }
     lines
 }
