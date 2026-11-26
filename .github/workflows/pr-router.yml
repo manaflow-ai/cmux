@@ -104,6 +104,9 @@ jobs:
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # Once earlier heads of a PR ran the full tier this many times, a push that is not landing runs the cheap
+          # tier (head_tier.py's full-tier cap, counted on cmux/land-tier); 0 turns that off.
+          CI_FULL_TIER_CAP: ${{ vars.CI_FULL_TIER_CAP || '2' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/pr_router.py route
@@ -136,6 +139,8 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           STATE: ${{ steps.route.outputs.land_status }}
+          # head_tier.py's full-tier cap reads this count back from the next head's previous status.
+          FULL_COUNT: ${{ steps.route.outputs.full_count }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LAND_STATUS_RETRY_S: '20'
         run: |
@@ -144,6 +149,9 @@ jobs:
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
+          # A commit status description holds 140 characters; the count goes first so it always survives the cut.
+          if [ -n "$FULL_COUNT" ]; then desc="full-tier heads: $FULL_COUNT. $desc"; fi
+          desc="${desc:0:140}"
           # Each token in turn, three rounds: a spent budget or a 5xx on one is retried on the other, then again.
           for round in 1 2 3; do
             for token in "$APP_TOKEN" "$JOB_TOKEN"; do
