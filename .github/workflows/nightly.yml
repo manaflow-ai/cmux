@@ -2156,9 +2156,7 @@ jobs:
         if: needs.decide.outputs.fast_build != 'true'
         env:
           # install-cmux-tui-client.sh verifies the manifest's build-provenance
-          # attestation with gh before trusting it: offline from the published
-          # or host-cached Sigstore bundle, so concurrent nightlies spend no
-          # API quota; the token is only for a commit with neither.
+          # attestation with gh before trusting it.
           GH_TOKEN: ${{ github.token }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
           # Per-job cache, so legs sharing a host never race on one download.
