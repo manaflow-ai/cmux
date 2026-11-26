@@ -324,14 +324,23 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIs(job.get("continue-on-error"), True)
         self.assertNotIn("concurrency", job, "never cancelled")
         self.assertIn("'glaeda-trusted-next-signing'", str(job.get("runs-on")))
+        env = job.get("env") or {}
+        self.assertEqual(env.get("CMUX_CI_XCODE_APP"), "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
+        self.assertEqual(env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"), "26")
         self.assertNotIn("nightly-next-deltas", str(jobs["published-build"].get("needs")))
         steps = job.get("steps") or []
         names = [s.get("name") for s in steps]
         blobs = [yaml.safe_dump(s) for s in steps]
+        select = names.index("Select Xcode for nightly-next deltas")
+        sdk = names.index("Select the SDK of the selected Xcode")
         stray = names.index("Refuse stray processes before secrets (deltas)")
         build = names.index("Build the nightly-next deltas after the feed")
         upload = names.index("Upload the deltas and give the live item its deltas")
         self.assertEqual(names[0], "Hold the whole Mac before any credential")
+        self.assertEqual(steps[select].get("working-directory"), ".nightly-next-deltas")
+        self.assertIn("select-ci-xcode.sh", steps[select].get("run", ""))
+        self.assertLess(select, sdk)
+        self.assertLess(sdk, stray)
         self.assertIn("refuse_stray_processes.py", steps[stray].get("run", ""))
         secrets = [i for i, b in enumerate(blobs) if "secrets." in b]
         self.assertEqual(secrets, [build, upload])
