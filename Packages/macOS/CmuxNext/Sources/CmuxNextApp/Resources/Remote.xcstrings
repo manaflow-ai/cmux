@@ -1893,6 +1893,78 @@
             "state": "translated",
             "value": "%2$@ のポート %1$d を %3$@ に転送しました"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d s %2$@ preusmjeren na %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d fra %2$@ er videresendt til %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porta %1$d di %2$@ inoltrata a %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ជូនបន្តច្រក %1$d របស់ %2$@ ទៅ %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d fra %2$@ er videresendt til %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przekierowano port %1$d z %2$@ do %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porta %1$d de %2$@ encaminhada para %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порт %1$d на %2$@ перенаправлен на %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งต่อพอร์ต %1$d ของ %2$@ ไปยัง %3$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ üzerindeki %1$d numaralı bağlantı noktası %3$@ adresine yönlendirildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порт %1$d на %2$@ переспрямовано на %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã chuyển tiếp cổng %1$d của %2$@ tới %3$@"
+          }
         }
       }
     },
@@ -1951,6 +2023,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ から転送中のポートはありません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan port nije preusmjeren s %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen porte videresendes fra %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna porta è inoltrata da %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានច្រកណាត្រូវបានបញ្ជូនបន្តពី %@ ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen porter videresendes fra %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Z %@ nie są przekierowywane żadne porty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma porta está sendo encaminhada de %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "С %@ не перенаправляется ни один порт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีพอร์ตที่ส่งต่อจาก %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinden yönlendirilen bağlantı noktası yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З %@ не переспрямовано жодного порту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có cổng nào được chuyển tiếp từ %@."
           }
         }
       }
@@ -2011,6 +2155,78 @@
             "state": "translated",
             "value": "%2$@ のポート %1$d は転送されていません。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d s %2$@ nije preusmjeren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d fra %2$@ videresendes ikke."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La porta %1$d di %2$@ non è inoltrata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្រក %1$d របស់ %2$@ មិនត្រូវបានបញ្ជូនបន្តទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d fra %2$@ videresendes ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Port %1$d z %2$@ nie jest przekierowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A porta %1$d de %2$@ não está encaminhada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порт %1$d на %2$@ не перенаправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พอร์ต %1$d ของ %2$@ ไม่ได้ถูกส่งต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ üzerindeki %1$d numaralı bağlantı noktası yönlendirilmiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Порт %1$d на %2$@ не переспрямовано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cổng %1$d của %2$@ không được chuyển tiếp."
+          }
         }
       }
     },
@@ -2069,6 +2285,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$@ のポート %1$d の転送を停止しました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavljeno preusmjeravanje porta %1$d s %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppede videresendelse af port %1$d fra %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inoltro della porta %1$d di %2$@ interrotto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានឈប់បញ្ជូនបន្តច្រក %1$d របស់ %2$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sluttet å videresende port %1$d fra %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymano przekierowywanie portu %1$d z %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encaminhamento da porta %1$d de %2$@ interrompido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенаправление порта %1$d на %2$@ остановлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดส่งต่อพอร์ต %1$d ของ %2$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ üzerindeki %1$d numaralı bağlantı noktasının yönlendirmesi durduruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переспрямування порту %1$d на %2$@ зупинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã dừng chuyển tiếp cổng %1$d của %2$@."
           }
         }
       }
@@ -2129,6 +2417,78 @@
             "state": "translated",
             "value": "--port N に 1 から 65535 のポートを指定してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proslijedite --port N, port od 1 do 65535."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv --port N, en port fra 1 til 65535."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passa --port N, una porta da 1 a 65535."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមផ្តល់ --port N ដែលជាច្រកពី 1 ដល់ 65535។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send --port N, en port fra 1 til 65535."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj --port N, czyli port od 1 do 65535."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passe --port N, uma porta de 1 a 65535."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Передайте --port N — порт от 1 до 65535."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุ --port N ซึ่งเป็นพอร์ตตั้งแต่ 1 ถึง 65535"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--port N verin; 1 ile 65535 arasında bir bağlantı noktası."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Передайте --port N — порт від 1 до 65535."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy truyền --port N, một cổng từ 1 đến 65535."
+          }
         }
       }
     },
@@ -2188,6 +2548,78 @@
             "state": "translated",
             "value": "%@ へのリンクが応答しませんでした。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veza s %@ nije odgovorila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til %@ svarede ikke."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il collegamento con %@ non ha risposto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណភ្ជាប់ទៅ %@ មិនបានឆ្លើយតបទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til %@ svarte ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączenie z %@ nie odpowiedziało."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O link com %@ não respondeu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Связь с %@ не ответила."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเชื่อมต่อกับ %@ ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ile bağlantı yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зв’язок із %@ не відповів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết tới %@ không phản hồi."
+          }
         }
       }
     },
@@ -2246,6 +2678,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "ホストが選択されていません。--target machine:<id> を指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije odabran nijedan host. Proslijedite --target machine:<id>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen vært er valgt. Angiv --target machine:<id>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun host selezionato. Passa --target machine:<id>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានជ្រើសរើសម៉ាស៊ីនម្ចាស់ទេ។ សូមផ្តល់ --target machine:<id>។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen vert er valgt. Send --target machine:<id>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie wybrano hosta. Podaj --target machine:<id>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum host foi escolhido. Passe --target machine:<id>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост не выбран. Передайте --target machine:<id>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้เลือกโฮสต์ ระบุ --target machine:<id>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi bir ana makine seçilmedi. --target machine:<id> verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост не вибрано. Передайте --target machine:<id>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa chọn máy chủ nào. Hãy truyền --target machine:<id>."
           }
         }
       }
