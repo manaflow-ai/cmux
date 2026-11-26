@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { isFreestyleOverload, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { isFreestyleOverload, isFreestyleTransient, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -169,7 +169,8 @@ async function deriveSize(name: VmImageSizeName, startBudgetMs?: number): Promis
       try {
         const clock = await sh(vm, devboxSnapshotClockCommand);
         if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
-        await vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb });
+        // Grow-only to a fixed target, so asking again is safe; see isFreestyleTransient.
+        await retryFreestyleOverload(`${name} resize`, () => vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb }), 5 * 60_000, 10_000, isFreestyleTransient);
         // The disk grows in place while the guest runs; wait for the root fs to
         // reflect it, then let the daemon units settle before the snapshot.
         let grown: Awaited<ReturnType<typeof measure>> | null = null;
