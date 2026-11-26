@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixtures.
-// A received message's unverified mark (UnverifiedMark.tsx): "Claimed to be NAME, not proven" for a
-// sender that only named itself, none for one the host's sender token verified, and for a program
-// acpmux saw send it (incomingMessage.ts `senderProgram`), what acpmux checked: the program, the
-// machine its send named, that no agent was proven, and the program's path.
+// A received message's sender mark (UnverifiedMark.tsx): none for a sender that only named itself
+// (the question bubble is gone, Leo 2026-11-25), none for one the host's sender token verified, and
+// for a program acpmux saw send it (incomingMessage.ts `senderProgram`), what acpmux checked: the
+// program, the machine its send named, that no agent was proven, and the program's path.
 import { afterEach, expect, test } from "bun:test";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
@@ -61,18 +61,9 @@ const decode = (html: string) =>
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&");
 
-test("a sender that only named itself keeps the plain mark", () => {
-  const markup = renderToStaticMarkup(<UnverifiedMark />);
-  expect(markup).toContain('aria-label="Sender not verified"');
-  expect(markup).not.toContain("is-program");
-});
-
-test("a sender's own name is its claim, not proven", () => {
-  const markup = decode(renderToStaticMarkup(<UnverifiedMark claimed="ci-watch" />));
-  expect(markup).toContain('aria-label="Claimed to be ci-watch, not proven"');
-  expect(markup).toContain('title="Claimed to be ci-watch, not proven"');
-  // A blank claim is none.
-  expect(renderToStaticMarkup(<UnverifiedMark claimed="  " />)).toContain('aria-label="Sender not verified"');
+// Leo, 2026-11-25: "get rid of this tiny icon it's been bugging me for a while".
+test("a sender that only named itself draws no mark", () => {
+  expect(renderToStaticMarkup(<UnverifiedMark />)).toBe("");
 });
 
 const readMessage = (provenance: Record<string, unknown>) => {
@@ -104,7 +95,7 @@ test("a named sender verified by the host token draws no mark", async () => {
   expect(recorded.unverified).not.toBe(true);
 });
 
-test("the same name with no token, or a label no daemon gave, is a claim", async () => {
+test("the same name with no token, or a label no daemon gave, is unverified and draws no mark", async () => {
   for (const provenance of [
     { ...namedSender, verifiedBy: "host-token" },
     { ...namedSender, verified: true, verifiedBy: "elsewhere" },
@@ -112,9 +103,8 @@ test("the same name with no token, or a label no daemon gave, is a claim", async
     expect(readMessage(provenance).unverified).toBe(true);
   }
   const line = await renderLine(readMessage(namedSender));
-  expect(line.querySelector(".cv-unverified")?.getAttribute("aria-label")).toBe(
-    "Claimed to be outbox-relay, not proven",
-  );
+  expect(line.querySelector(".cv-received__from")?.textContent).toBe("outbox-relay");
+  expect(line.querySelector(".cv-unverified")).toBeNull();
 });
 
 test("a program's mark says acpmux checked it, and no agent was proven", () => {
@@ -163,6 +153,6 @@ test("a malformed program is none: the line is an unverified sender's", async ()
   if (prompt?.kind !== "message") throw new Error("not a message");
   const line = await renderLine(prompt.message);
   expect(line.querySelector(".cv-received__from")?.textContent).toBe("Unverified sender");
-  expect(line.querySelector(".cv-unverified")?.getAttribute("aria-label")).toBe("Sender not verified");
+  expect(line.querySelector(".cv-unverified")).toBeNull();
   expect(line.querySelector(".is-program")).toBeNull();
 });

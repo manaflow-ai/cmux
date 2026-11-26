@@ -36,7 +36,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { A11Y_TEMPLATE_UNIT, A11Y_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, CUA_REFUSE_DIR, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, DESKTOP_STARTER, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, NO_NEW_PRIVS_ENV, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, LIVE_FAILING_FILE, liveBootImage, liveFailingLines, pickerHarnesses, regressionGate } from "./harness-gate";
