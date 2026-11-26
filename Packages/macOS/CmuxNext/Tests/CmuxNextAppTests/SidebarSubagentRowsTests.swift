@@ -1,5 +1,6 @@
 @testable import CmuxNextBridge
 @testable import CmuxNextSidebar
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -99,6 +100,22 @@ import Testing
         #expect(SidebarSubagentStrip.make(Self.subagents([.running]), tree: false, folded: false) == nil)
     }
 
+    /// Leo, 2026-11-24 (screenshot): "8 running" was cut off by its row's bottom edge. The stacked line's view took a
+    /// subagent row's 24 pt while the row reserved 18, so its frame hung past the strip and its text sat low.
+    @Test func theStackedLineFitsTheHeightTheRowReservesForIt() throws {
+        let tree = SidebarSessionTreeState(collapsed: [Self.chat])
+        let strip = try #require(Self.layout(Self.subagents([.running, .running, .failed, .done, .done]), tree: tree)?.content?.subagents)
+        let reserved = SidebarLayoutMetrics.standard.subagentStackHeight
+        let view = SidebarSubagentsView(frame: NSRect(x: 0, y: 0, width: 260, height: reserved))
+        view.textX = 36
+        view.trailingInset = 6
+        view.configure(strip)
+        view.layoutSubtreeIfNeeded()
+        let line = try #require(view.pressable.first)
+        #expect(line.frame.height == reserved)
+        #expect(view.bounds.contains(line.frame), "the line stays inside the strip the row reserved")
+    }
+
     @Test func theThreeLooks() throws {
         let tree = SidebarSessionTreeState()
         #expect(Self.layout(Self.subagents([.running]), tree: tree, look: .rows)?.content?.subagents?.mode == .rows)
@@ -115,7 +132,7 @@ import Testing
 
     @Test func aFoldOnAChatWithOnlySubagentsSurvivesTheSave() {
         let defaults = UserDefaults(suiteName: "SidebarSubagentRowsTests-\(UUID().uuidString)")!
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("lane"): WorkspaceID("chief")])
         tree.toggle(Self.chat, keeping: [Self.chat])
         #expect(tree.collapsed.contains(Self.chat))

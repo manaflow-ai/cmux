@@ -303,6 +303,12 @@ def example_keys(items):
         value = property_list(e["default"])
         if value is not None:
             keys[e["name"]] = value
+    # ManagedPreferencesManifest.exampleKeys also sets the App Store toggle at its default.
+    app_store = next((e for e in items if e["name"] == "labs.appStore"), None)
+    if app_store is not None:
+        value = property_list(app_store["default"])
+        if value is not None:
+            keys[app_store["name"]] = value
     keys["DisabledFeatures"] = []
     return keys
 
@@ -392,10 +398,13 @@ def files(root, document):
     """{repo path: text} of the five docs/mdm exports."""
     constants = Constants(root)
     items = entries(document, constants)
-    return {
-        "docs/mdm/com.manaflow.cmux.plist": profile_manifest(items, constants),
-        "docs/mdm/com.manaflow.cmux.json": jamf_schema(items, constants),
-        "docs/mdm/cmux-example.mobileconfig": example_mobileconfig(items, constants),
-        "docs/mdm/com.manaflow.cmux.intune.plist": intune_preference_file(items),
-        "docs/mdm/managed-preferences.md": markdown(items, constants),
+    # Keyed by file name under docs/mdm: the settings export list (scripts/cmux-next/) is the one list of the
+    # exports' paths (tests/test_settings_stamp_not_committed.py), and export.py checks against it.
+    names = {
+        "com.manaflow.cmux.plist": profile_manifest(items, constants),
+        "com.manaflow.cmux.json": jamf_schema(items, constants),
+        "cmux-example.mobileconfig": example_mobileconfig(items, constants),
+        "com.manaflow.cmux.intune.plist": intune_preference_file(items),
+        "managed-preferences.md": markdown(items, constants),
     }
+    return {"docs/mdm/" + name: text for name, text in names.items()}

@@ -137,12 +137,12 @@ import Testing
         #expect(source.applied.isEmpty, "nothing picked, nothing written")
         step.setWorkStyle(.gui)
         #expect(step.setDensity("comfortable"))
-        #expect(step.setBackground("hogai-nio"))
+        #expect(step.setBackground("hokusai-great-wave"))
         step.revert()
         #expect(source.current == opening)
         #expect(step.choices == opening)
         #expect(source.applied.count == 4, "three picks and one write back")
-        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hogai-nio"))
+        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hokusai-great-wave"))
     }
 
     @Test func skippingTheStepPutsBackTheOpeningChoices() async {
@@ -320,6 +320,49 @@ import Testing
         source.apply(FirstRunChoices(workStyle: .gui, density: "cozy", background: nil, opacity: 0.7, material: .frosted), from: model.makeItYours.choices)
         await source.settled()
         #expect(writer.publishes == 6)
+    }
+
+    /// The intro walk's screens (a look bundle, the trust and noise rows, Tidy) write their settings in
+    /// one publish per click, refuse a path the walk does not own, and Skip puts them back with the picks.
+    @Test func walkWritesAreOnePublishAndSkipPutsThemBack() async throws {
+        let (settings, writer, url) = try await countedSettings(Self.ownSettings)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
+        let provider = OnboardingPageProvider(model: model)
+        model.stepDidAppear()
+        await Self.until { model.makeItYours.loaded }
+        await source.settled()
+
+        let bundle: JSONValue = ["writes": .array([
+            ["path": "appearance.twoTone", "value": "auto"],
+            ["path": "ui.calm", "value": "calm"],
+            ["path": "appearance.density", "value": "ultraCompact"],
+            ["path": "agents.defaultPermissionMode", "value": "ask"],
+            ["path": "notifications.sound", "value": .null],
+        ])]
+        _ = try await provider.call("cmux.onboarding.makeItYours.walk", params: bundle, context: clicked(650))
+        await source.settled()
+        #expect(writer.publishes == 1, "a bundle is one publish")
+        let file = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        #expect(file.value(at: ["appearance", "twoTone"])?.stringValue == "auto")
+        #expect(file.value(at: ["ui", "calm"])?.stringValue == "calm")
+        #expect(file.value(at: ["agents", "defaultPermissionMode"])?.stringValue == "ask")
+        #expect(file.value(at: ["appearance", "customDensity"]) == nil, "a bundle's density carries its linked edit")
+        await Self.until { model.makeItYours.choices.density == "ultraCompact" }
+        #expect(model.makeItYours.walk["appearance.twoTone"]?.stringValue == "auto")
+
+        await #expect(throws: (any Error).self) {
+            _ = try await provider.call("cmux.onboarding.makeItYours.walk",
+                                        params: ["writes": .array([["path": "terminal.fontSize", "value": 20]])], context: clicked(651))
+        }
+        await source.settled()
+        #expect(writer.publishes == 1, "a path the walk does not own writes nothing")
+
+        _ = try await provider.call("cmux.onboarding.skip", params: [:], context: clicked(652))
+        await source.settled()
+        #expect(writer.publishes == 2, "Skip is one publish")
+        #expect(try String(contentsOf: url, encoding: .utf8) == Self.ownSettings)
     }
 
     /// A reopen from the palette right after Skip (its restore still queued behind a pick's write)

@@ -364,12 +364,10 @@ enum CloudHandlers {
         if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
-    /// ``requireAttachableState(_:)`` once the machine settles (Rust's `cloud_move_settle`): a resume (prod, 2026-11-05)
-    /// or a pause in flight (ask-259986a6c4: a leased machine idled out before Send) is waited out up to `limit`, and a
-    /// paused one goes on to the attach, which resumes it. A delete, a change still running at `limit`, or
-    /// `CMUX_CLOUD_SETTLE=0` refuses at once.
+    /// ``requireAttachableState(_:)`` once the machine settles (Rust's `cloud_move_settle`): a resume or pause in flight is waited out
+    /// up to `limit` (ask-259986a6c4), its card told it wakes (`waking`); a paused one goes on to the attach; a delete, the deadline or `CMUX_CLOUD_SETTLE=0` refuses.
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
-        let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
+        let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit, waking: { [weak session] in session?.waking?($0) }) { await session.refresher?(false) }
         if settled != .proceed { try requireAttachableState(session) }
     }
 }
