@@ -57,7 +57,7 @@ function storedOverrides(): Readonly<TunableOverrides> {
     // No storage (a sandboxed page): no override.
     return {};
   }
-  if (stored?.text === text) return stored.overrides;
+  if (stored !== undefined && stored.text === text) return stored.overrides;
   let overrides: TunableOverrides = {};
   try {
     const parsed: unknown = text ? JSON.parse(text) : undefined;

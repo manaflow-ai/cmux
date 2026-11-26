@@ -86,3 +86,17 @@ describe("Settings switches pick experiment arms", () => {
     expect(switchFor("glass-toolbar")).toBeUndefined();
   });
 });
+
+test("an arm reads its default with no localStorage at all, on the first lookup", async () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { value: undefined, configurable: true, writable: true });
+  try {
+    const { experimentArm } = await import(`./experiment?fresh=${Date.now()}`);
+    const { tunableValue } = await import(`./tunable?fresh=${Date.now()}`);
+    expect(() => experimentArm(menuStyleV2)).not.toThrow();
+    expect(typeof tunableValue).toBe("function");
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "localStorage", saved);
+    else delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+});

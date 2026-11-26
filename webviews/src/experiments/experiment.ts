@@ -65,7 +65,7 @@ function storedOverrides(): Readonly<ArmOverrides> {
     // No storage (a sandboxed page): no override.
     return {};
   }
-  if (stored?.text === text) return stored.overrides;
+  if (stored !== undefined && stored.text === text) return stored.overrides;
   let overrides: ArmOverrides = {};
   try {
     const parsed: unknown = text ? JSON.parse(text) : undefined;
