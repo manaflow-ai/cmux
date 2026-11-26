@@ -5,6 +5,117 @@
 use super::*;
 
 wire_op! {
+    /// Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds.
+    AppkvDeleteOp {
+        name: "appkv.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: AppkvDeleteParams,
+        result: AppkvDeleteResult,
+        error: AppkvDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvDeleteParams {
+    pub app: AppKvApp,
+    pub key: AppKvKey,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvDeleteResult {
+    pub app: String,
+    pub key: String,
+    pub existed: bool,
+}
+
+wire_errors! {
+    /// The error codes appkv.delete declares.
+    AppkvDeleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000).
+    AppkvListOp {
+        name: "appkv.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: AppkvListParams,
+        result: AppkvListResult,
+        error: AppkvListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_revision: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvListResult {
+    pub rows: Vec<AppKvRow>,
+    pub next_after_revision: Option<WireNumber>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes appkv.list declares.
+    AppkvListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins.
+    AppkvSetOp {
+        name: "appkv.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: AppkvSetParams,
+        result: AppKvRow,
+        error: AppkvSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvSetParams {
+    pub app: AppKvApp,
+    pub key: AppKvKey,
+    pub value: Value,
+}
+
+wire_errors! {
+    /// The error codes appkv.set declares.
+    AppkvSetError {
+        AppLimit = "app.limit",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret.
     AutomationAuditListOp {
         name: "automation.audit.list",
@@ -783,120 +894,5 @@ wire_errors! {
         PolicyDenied = "policy.denied",
         ProviderError = "provider.error",
         SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Create a Google Calendar event; attendees get Google's invitation email.
-    CalendarEventCreateOp {
-        name: "calendar.event.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: CalendarEventCreateParams,
-        result: Value,
-        error: CalendarEventCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParamsStart {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_zone: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParamsEnd {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_zone: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventCreateParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    pub summary: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub location: Option<String>,
-    pub start: CalendarEventCreateParamsStart,
-    pub end: CalendarEventCreateParamsEnd,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attendees: Option<Vec<EmailAddress>>,
-}
-
-wire_errors! {
-    /// The error codes calendar.event.create declares.
-    CalendarEventCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Answer a Google Calendar invitation as the connected account; the organizer is notified.
-    CalendarEventRespondOp {
-        name: "calendar.event.respond",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: CalendarEventRespondParams,
-        result: Value,
-        error: CalendarEventRespondError,
-    }
-}
-
-wire_enum! {
-    CalendarEventRespondParamsResponse {
-        Accepted = "accepted",
-        Declined = "declined",
-        Tentative = "tentative",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventRespondParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    pub event_id: String,
-    pub response: CalendarEventRespondParamsResponse,
-}
-
-wire_errors! {
-    /// The error codes calendar.event.respond declares.
-    CalendarEventRespondError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
     }
 }

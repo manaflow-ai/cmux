@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextAccounts
 @testable import CmuxNextApp
 import CmuxNextSidebar
 import Testing
