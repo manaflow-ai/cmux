@@ -120,10 +120,10 @@ impl Brain {
             if told {
                 self.save();
             }
-            if let Some(note) = host_spawn_note {
-                if let Err(e) = self.chat.append(Kind::Note, note) {
-                    (self.log)(&format!("logging host subagent start failed: {e}"));
-                }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
             }
             return;
         }
@@ -138,10 +138,10 @@ impl Brain {
                     (self.log)(&format!("logging host outcome {id} failed: {e}"));
                 }
             }
-            if let Some(note) = host_spawn_note {
-                if let Err(e) = self.chat.append(Kind::Note, note) {
-                    (self.log)(&format!("logging host subagent start failed: {e}"));
-                }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
             }
             self.save();
         }
