@@ -68,6 +68,27 @@ pub const BUDGETS: &[Budget] = &[
         source: "perf.ts agentLatency first_token_ms on a warm local Claude chat (warm-chat capture)",
     },
     Budget {
+        key: "chat.send_paint",
+        limit: 16.0,
+        unit: "ms",
+        what: "Enter to the frame that paints the sent message and the reserved assistant turn",
+        source: "Leo, 2026-11-25: \"when you press enter, the stuff should just start playing. we dont need to wait/get blocked by anything on rendering.\" One frame at 60 Hz (perfReporter.ts sendSpan)",
+    },
+    Budget {
+        key: "chat.send_first_token",
+        limit: 3_000.0,
+        unit: "ms",
+        what: "Enter to first token",
+        source: "the same as chat.first_token, per send (perfReporter.ts sendSpan detail.firstTokenMs)",
+    },
+    Budget {
+        key: "chat.switch_paint",
+        limit: 16.0,
+        unit: "ms",
+        what: "chat switch to the frame that paints its transcript",
+        source: "one frame at 60 Hz (perfReporter.ts chatSwitchSpan)",
+    },
+    Budget {
         key: "workspace.switch",
         limit: 100.0,
         unit: "ms",
@@ -262,25 +283,46 @@ impl Inner {
 pub struct Watch {
     inner: Mutex<Option<Inner>>,
     notify: tokio::sync::Notify,
-    clock: fn() -> u64,
-}
-
-fn wall_ms() -> u64 {
-    crate::store::now_ms()
+    /// A test's own clock, in ms, that only it moves ([`Watch::advance`]): kept on the instance,
+    /// so no test's time reaches another's watch (cmux#41350). `None`: the wall clock.
+    #[cfg(test)]
+    test_now: Option<std::sync::atomic::AtomicU64>,
 }
 
 impl Watch {
     pub const fn new() -> Self {
-        Self { inner: Mutex::new(None), notify: tokio::sync::Notify::const_new(), clock: wall_ms }
+        Self {
+            inner: Mutex::new(None),
+            notify: tokio::sync::Notify::const_new(),
+            #[cfg(test)]
+            test_now: None,
+        }
     }
 
+    /// A watch whose clock reads `start_ms` until [`Watch::advance`] moves it.
     #[cfg(test)]
-    pub(crate) const fn with_clock(clock: fn() -> u64) -> Self {
-        Self { inner: Mutex::new(None), notify: tokio::sync::Notify::const_new(), clock }
+    pub(crate) const fn with_clock(start_ms: u64) -> Self {
+        Self {
+            inner: Mutex::new(None),
+            notify: tokio::sync::Notify::const_new(),
+            test_now: Some(std::sync::atomic::AtomicU64::new(start_ms)),
+        }
+    }
+
+    /// Moves a [`Watch::with_clock`] watch's clock on by `ms`.
+    #[cfg(test)]
+    pub(crate) fn advance(&self, ms: u64) {
+        if let Some(now) = &self.test_now {
+            now.fetch_add(ms, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     fn now(&self) -> u64 {
-        (self.clock)()
+        #[cfg(test)]
+        if let Some(now) = &self.test_now {
+            return now.load(std::sync::atomic::Ordering::Relaxed);
+        }
+        crate::store::now_ms()
     }
 
     /// Turns the watch on (fresh: no earlier events) with its tail file at `file`, or off.
@@ -424,6 +466,54 @@ impl Watch {
         self.meter_event(inner, now);
     }
 
+    /// A page's "send" span: a note (subject "send") when its first token came later than
+    /// `chat.send_first_token`, or the transcript shifted under the reader over it.
+    fn send_note(&self, page: &str, detail: &Value) {
+        let first = detail.get("firstTokenMs").and_then(Value::as_f64);
+        let shifts = detail.get("shifts").and_then(Value::as_u64).unwrap_or(0);
+        let limit = budget("chat.send_first_token");
+        let slow = first.filter(|ms| limit > 0.0 && *ms > limit);
+        if slow.is_none() && shifts == 0 {
+            return;
+        }
+        let transport = detail.get("transport").and_then(Value::as_str).unwrap_or("local");
+        let mut said = Vec::new();
+        if let Some(first) = slow {
+            said.push(format!(
+                "its first token came {} after Enter (under {})",
+                ms(first),
+                ms(limit)
+            ));
+        }
+        if shifts > 0 {
+            let what: Vec<&str> = detail
+                .get("shiftWhat")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .take(3)
+                .collect();
+            let on =
+                if what.is_empty() { String::new() } else { format!(" ({})", what.join(", ")) };
+            said.push(format!("the transcript shifted {shifts} time(s) under it{on}"));
+        }
+        let text = format!("A {transport} send: {}", said.join("; "));
+        let now = self.now();
+        let mut guard = self.inner.lock_or_recover();
+        let Some(inner) = guard.as_mut() else { return };
+        self.say(
+            inner,
+            now,
+            "send",
+            text,
+            json!({
+                "subject": "send", "page": page, "firstTokenMs": first, "budgetMs": limit,
+                "shifts": shifts, "transport": transport,
+            }),
+        );
+    }
+
     /// One daemon request, `method`, answered `elapsed` after it arrived.
     pub fn request(&self, method: &str, origin: &str, elapsed: Duration, cheap_read: bool) {
         let total = elapsed.as_secs_f64() * 1000.0;
@@ -544,8 +634,11 @@ impl Watch {
             let budget_key =
                 span.get("budget").and_then(Value::as_str).filter(|key| budget(key) > 0.0);
             let name: String = name.chars().take(80).collect();
-            let detail =
-                json!({"page": page, "detail": span.get("detail").cloned().unwrap_or(Value::Null)});
+            let inner_detail = span.get("detail").cloned().unwrap_or(Value::Null);
+            if name == "send" {
+                self.send_note(page, &inner_detail);
+            }
+            let detail = json!({"page": page, "detail": inner_detail});
             self.span(&name, budget_key, total, &parts, detail);
         }
         let window = report.get("windowMs").and_then(Value::as_f64).unwrap_or(200.0).max(1.0);
@@ -825,11 +918,13 @@ fn is_long_by_design(method: &str) -> bool {
 
 /// The tail file, readable by its owner only: it names chats and clients.
 fn open_private(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)
+    // Through `home_fs`: the tail file is under the home the daemon holds.
+    crate::home_fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
 }
 
 fn round(value: f64) -> f64 {
@@ -954,7 +1049,7 @@ impl Drop for LogPass {
     }
 }
 
-/// `_acpmux/perf`: `{op: "on"|"off"|"status"|"read"|"snapshot"|"report"|"budgets", ...}`.
+/// `_acpmux/perf`: `{op: "on"|"off"|"status"|"read"|"snapshot"|"report"|"budgets"|"frames"|"tally", ...}`.
 pub const METHOD: &str = crate::rpc::method::MUX_PERF;
 
 /// Serves [`METHOD`].
@@ -986,8 +1081,13 @@ pub async fn handle(params: &Value) -> Result<Value, crate::rpc::RpcError> {
             Ok(json!({"on": true}))
         }
         "budgets" => Ok(watch.snapshot().get("budgets").cloned().unwrap_or(Value::Null)),
+        // The always-on frame tally (`frame_tally.rs`): on or off, the watch has no say in it.
+        "frames" => Ok(crate::frame_tally::read()),
+        "tally" => crate::frame_tally::report(params).map_err(|error| {
+            crate::rpc::RpcError::invalid_params(format!("_acpmux/perf tally: {error}"))
+        }),
         other => Err(crate::rpc::RpcError::invalid_params(format!(
-            "_acpmux/perf: unknown op {other:?} (on, off, status, read, snapshot, report, budgets)"
+            "_acpmux/perf: unknown op {other:?} (on, off, status, read, snapshot, report, budgets, frames, tally)"
         ))),
     }
 }

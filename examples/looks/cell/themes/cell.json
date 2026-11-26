@@ -14,7 +14,7 @@
   "colors": {
     "background": "#15171b",
     "foreground": "#d7dbe2",
-    "selection": "#24344f",
+    "selection": "#637594",
     "accent": "#7aa8f2",
     "0": "#262a31",
     "1": "#e8727b",
@@ -124,7 +124,7 @@
   "appearance.surfaces.newTabPage.opacity": 1,
   "appearance.surfaces.home.color": "#15171b",
   "appearance.surfaces.home.opacity": 1,
-  "appearance.surfaces.sidebar.color": "#1d1f23",
+  "appearance.surfaces.sidebar.color": "#15171b",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#1d1f23",
   "appearance.surfaces.tabBar.opacity": 1,

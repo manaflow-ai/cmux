@@ -63,13 +63,15 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (listed, mut cut) = listed(repository, directory, OPERATION)?;
+    // The repository's cached listing: one `ls-files` answers every query.
+    let listed = super::read_cache::listed(repository, directory, &below, OPERATION)?;
+    let mut cut = listed.truncated();
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
     // Only a match is looked at: a keystroke's looks grow with its matches,
     // not with every path in the folder (`files_stress_tests`).
     let mut reached = Folders::of(repository, &below);
-    for path in &listed {
+    for path in listed.iter() {
         match scorer.score(path) {
             Scored::Match(score, matches) => {
                 if reached.kind(path).is_some() {
@@ -227,7 +229,16 @@ pub(super) fn listed(
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
-    let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
+    #[cfg(test)]
+    super::read_probe::ran(super::read_probe::Read::Listing, &repository.root);
+    let mut listing =
+        vec!["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
+    // In the home folder itself, the home folder's repository lists what it
+    // tracks only: its untracked files are every file the person has
+    // (`cmux_git::home`). A folder below it lists the files below that folder.
+    if !repository.lists_untracked() && is_top(repository, directory) {
+        listing.retain(|argument| !matches!(*argument, "--others" | "--exclude-standard"));
+    }
     let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
         .map_err(|failure| git_failed(operation, &failure))?;
     let mut bytes = listed.stdout;
@@ -243,6 +254,13 @@ pub(super) fn listed(
     files.dedup();
     files.retain(|path| !path.contains('\u{FFFD}'));
     Ok((files, listed.truncated))
+}
+
+/// Whether `directory` is the repository's top folder, as spelled or with its
+/// symlinks resolved (git names the top folder resolved).
+fn is_top(repository: &Repository, directory: &Path) -> bool {
+    directory == repository.root
+        || std::fs::canonicalize(directory).is_ok_and(|resolved| resolved == repository.root)
 }
 
 /// What scoring one path found.

@@ -57,6 +57,8 @@ extension AgentPaneView {
         // No clear of the New Tab context's mark here (``AgentPaneModel/newTabSharedGeneration``): on this host each
         // new document asks `newTab.context` early, and that answer always carries the shared text.
         page.onDocumentLoaded = { [weak self] in self?.pageLoadedAgain() }
+        // Every later document: the chat's last frame stays until it paints (``AgentPaneDocumentCover``).
+        page.onDocumentWillChange = { [weak self] change in self?.documentWillChange(change) }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }

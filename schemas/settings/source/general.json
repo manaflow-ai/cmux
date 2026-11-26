@@ -716,6 +716,33 @@
             "type": "CmuxConfigSnapshot",
             "prefixed": true
           }
+        },
+        {
+          "key": "app.warnBeforeQuitShortcut",
+          "note": "https://github.com/manaflow-ai/cmux/issues/48621: an accidental Cmd-Q quit at once. The first Cmd-Q asks \"Quit cmux?\" (Quit, Cancel, Don't ask again); pressing or holding it again quits. The Quit menu, the Dock and scripts quit at once.",
+          "title": {
+            "key": "settings.app.warnBeforeQuitShortcut",
+            "text": "Warn Before Quitting with ⌘Q"
+          },
+          "help": {
+            "key": "settings.app.warnBeforeQuitShortcut.help",
+            "text": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "quit",
+            "cmd-q",
+            "warn",
+            "hold",
+            "accidental",
+            "confirm",
+            "exit"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
         }
       ]
     },
@@ -1195,6 +1222,38 @@
             "follows mouse",
             "hover",
             "pointer"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.fadeInactivePanes",
+          "note": "Off: panes keep full strength whatever has focus. On: each pane without the focus fades under the pane fill (panes.inactiveDimming) and fades back when it takes focus (Leo, 2026-11-12, ask-cb90cb267d). A Ghostty unfocused-split-opacity, when it dims, still wins.",
+          "title": {
+            "key": "settings.layout.fadeInactivePanes",
+            "text": "Fade Inactive Panes"
+          },
+          "help": {
+            "key": "settings.layout.fadeInactivePanes.help",
+            "text": "Panes without the focus fade, and come back when you focus them."
+          },
+          "summary": {
+            "key": "settings.layout.fadeInactivePanes.summary",
+            "text": "Unfocused panes fade until you focus them"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "fade",
+            "dim",
+            "inactive",
+            "unfocused",
+            "pane",
+            "split",
+            "focus",
+            "opacity"
           ],
           "swift_owner": {
             "type": "ColumnLayoutSettings",

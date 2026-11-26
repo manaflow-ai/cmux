@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -63,7 +63,13 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
   // window.addEventListener, so the pane strings' languagechange listener threw as the bundle
   // loaded and `mount` was never defined. The app loads its bundle as a module, which has no such
   // leak.
-  const built = await Bun.build({ entrypoints: [entry], target: "browser", format: "iife" });
+  const built = await Bun.build({
+    entrypoints: [entry],
+    target: "browser",
+    format: "iife",
+    // A classic script has no import.meta: modules the card reaches (toolMentions.ts, #53425) read import.meta.url.
+    define: { "import.meta.url": JSON.stringify("http://127.0.0.1/") },
+  });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
   // The chips also import stylesheets, which the build emits beside the script: take the script.
@@ -101,7 +107,10 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
 
   const engines: [string, BrowserType][] = [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("whats-new-text-selection webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ];
   for (const [name, engine] of engines) {
     describe(name, () => {

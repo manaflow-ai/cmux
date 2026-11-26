@@ -1,6 +1,9 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { act } from "react";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { configureKeyStyle } from "../../ui/keyStyle";
+import exported from "../../../../schemas/settings/settings-schema.json";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -8,6 +11,7 @@ const { changeValue, click, fire, ops, renderPage, rowElement, run } = await imp
 
 let page: Rendered | null = null;
 afterEach(() => {
+  configureKeyStyle({});
   page?.unmount();
   page = null;
 });
@@ -37,6 +41,18 @@ test("search finds rows by keyword across sections, highlighted and editable", a
   expect(
     page.container.querySelector('[data-search-results] [data-row-key="terminal.fontSize"] input.number'),
   ).not.toBeNull();
+});
+
+// Findings G6 (six pages): a result's header says where it lives, its page then its category; a
+// page's own category is just its name.
+test("a result's header is its page then its category", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  await changeValue(search(page), "font");
+  const title = (id: string) =>
+    page!.container.querySelector(`[data-search-results] [data-section="${id}"] .result-section-title`)?.textContent;
+  expect(title("terminal")).toBe("Advanced › Terminal");
+  await changeValue(search(page), "transparency");
+  expect(title("appearance")).toBe("Appearance");
 });
 
 test("search finds Keep Mac Awake under the words people use for it", async () => {
@@ -150,4 +166,112 @@ test("a focused route reveals its row once values arrive and focuses its visible
   } finally {
     window.HTMLElement.prototype.scrollIntoView = original;
   }
+});
+
+// `app.keyStyle` is the page's own row (SettingsApp feeds it to the key layer): Vim's Esc in the
+// search field gives the keyboard to the rows, j/k step them and G and gg reach the ends, / goes
+// back; Emacs' Ctrl-N steps from the field. Standard keeps today's keys (Esc focuses the list).
+// The row until settings-schema.json is regenerated with it, then the page's own value: both say the style.
+function styledPage(style: string) {
+  configureKeyStyle({ "app.keyStyle": style });
+  return renderPage({ path: "/settings/privacy", mock: { values: { "app.keyStyle": style } } });
+}
+
+test("Vim and Emacs move through the rows as Up and Down do; Standard keeps today's keys", async () => {
+  page = await styledPage("vim");
+  const rows = [...page.container.querySelectorAll(".content [data-row-key], .content [data-action-row]")].filter(
+    (row) => !row.matches("[data-filtered]") && !row.closest("[data-filtered], [inert]"),
+  );
+  await fire(search(page), "keydown", { key: "Escape", code: "Escape" });
+  expect(document.activeElement).toBe(rows[0]!);
+  await fire(document.activeElement!, "keydown", { key: "j", code: "KeyJ" });
+  expect(document.activeElement).toBe(rows[1]!);
+  await fire(document.activeElement!, "keydown", { key: "G", code: "KeyG", shiftKey: true });
+  expect(document.activeElement).toBe(rows.at(-1)!);
+  await fire(document.activeElement!, "keydown", { key: "g", code: "KeyG" });
+  await fire(document.activeElement!, "keydown", { key: "g", code: "KeyG" });
+  expect(document.activeElement).toBe(rows[0]!);
+  await fire(document.activeElement!, "keydown", { key: "k", code: "KeyK" });
+  expect(document.activeElement).toBe(search(page));
+  await fire(rows[1]!, "keydown", { key: "/", code: "Slash" });
+  expect(document.activeElement).toBe(search(page));
+  page.unmount();
+
+  page = await styledPage("emacs");
+  await fire(search(page), "keydown", { key: "n", code: "KeyN", ctrlKey: true });
+  const first = document.activeElement as HTMLElement;
+  expect(first.matches("[data-row-key], [data-action-row]")).toBe(true);
+  await fire(first, "keydown", { key: "n", code: "KeyN", ctrlKey: true });
+  expect(document.activeElement).not.toBe(first);
+  page.unmount();
+
+  page = await styledPage("standard");
+  const row = page.container.querySelector<HTMLElement>(".content [data-row-key]")!;
+  row.focus();
+  await fire(row, "keydown", { key: "j", code: "KeyJ" });
+  expect(document.activeElement).toBe(row);
+  await fire(search(page), "keydown", { key: "Escape", code: "Escape" });
+  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("privacy");
+});
+
+// Leo, 2026-11-15: "I want people to not accidentally soft lock themselves and like have good
+// recovery options". From Vim or Emacs, the Settings page gets back to Standard with keys alone:
+// the search field still types (no letter is taken as a list key), Return opens the Key Style
+// row on its menu button, and the menu picks Standard by keys.
+// The Key Style row reaches the page through settings-schema.json, which only the Mac autofix exports
+// from the Swift descriptors (schemas/settings/source/keyboard-style.json has it); until that export
+// carries `app.keyStyle` the search has no row to find, so these run from the first export with it.
+const exportsKeyStyle = (exported.rows as { key: string }[]).some((row) => row.key === "app.keyStyle");
+const keyStyleTest = test.skipIf(!exportsKeyStyle);
+for (const style of ["vim", "emacs"]) {
+  keyStyleTest(`${style}: keys alone set Key Style back to Standard from the Settings search`, async () => {
+    page = await styledPage(style);
+    const field = search(page);
+    for (const key of "key style") {
+      const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      field.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    await changeValue(field, "key style");
+    expect(resultKeys(page)).toContain("app.keyStyle");
+    await fire(field, "keydown", { key: "Enter" });
+    const button = document.activeElement as HTMLElement;
+    expect(button.closest("[data-row-key]")?.getAttribute("data-row-key")).toBe("app.keyStyle");
+    // Return on a focused button: the browser sends the keydown, then a keyboard click (detail 0).
+    const pressReturn = async (element: HTMLElement) => {
+      await fire(element, "keydown", { key: "Enter" });
+      await act(async () => {
+        element.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }));
+      });
+    };
+    await pressReturn(button);
+    const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    expect(items().length).toBe(3);
+    const standard = items().find((item) => /standard/i.test(item.textContent ?? ""))!;
+    // The menu's own keys (Home, then Return), which no key style changes.
+    await fire(document.activeElement ?? button, "keydown", { key: "Home" });
+    expect(document.activeElement === standard || standard.hasAttribute("data-highlighted")).toBe(true);
+    await pressReturn(standard);
+    expect(ops(page.provider, "cmux.settings.set")).toContainEqual({ key: "app.keyStyle", value: "standard" });
+  });
+}
+
+test("search finds the Devices page by the words of its switches; a click opens it", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  const hits = () =>
+    [...page!.container.querySelectorAll("[data-search-results] [data-page-hit]")].map((hit) =>
+      hit.getAttribute("data-page-hit"),
+    );
+  for (const query of ["devices", "control", "screen sharing", "mac screen", "remote control", "Devices"]) {
+    await changeValue(search(page), query);
+    expect(hits()).toContain("devices");
+    expect(page.container.querySelector(".empty[data-open]")).toBeNull();
+  }
+  await changeValue(search(page), "zzzz-no-match");
+  expect(hits()).toEqual([]);
+  await changeValue(search(page), "screen sharing");
+  await click(page.container.querySelector('[data-page-hit="devices"]')!);
+  expect(page.history.location.pathname).toBe("/settings/devices");
+  expect(search(page).value).toBe("");
+  expect(page.container.querySelector('[data-section="devices"]')).not.toBeNull();
 });

@@ -1,13 +1,11 @@
 // l10n-allow-file: test fixture prompts and the host line's stand-in text, not shipped UI.
 // A chat followed at its bottom holds still while nothing new arrives, whatever ticks (Leo, 2026-11-18,
 // with a recording of his NIGHTLY: "did we fix this scroll bounce at the bottom yet?"). His chat sat at
-// the bottom with a running command ("cmux-ci submit … 8m 3s") and "Waiting for the agent service
-// (1:48)… Restart agent service" over the composer, both counting up each second while acpmux took
-// 5–12 s to answer, and the transcript jumped 30–70 px up and down every second or so while he did
+// the bottom with a running command ("cmux-ci submit … 8m 3s") and a host line over the composer,
+// both counting up each second while acpmux took 5–12 s to answer, and the transcript jumped 30–70 px up and down every second or so while he did
 // not scroll.
 // Here: the stand-in acpmux's chat ends in a running turn with two commands (their clocks tick), the
-// host's waiting line sits in the stack over the composer as App.tsx draws it, and its clock ticks
-// each second. For 10 s every row in view must hold its place to the pixel, and the view must keep
+// host's Reconnecting… chip sits in the dock's host slot over the composer as App.tsx draws it. For 10 s every row in view must hold its place to the pixel, and the view must keep
 // following (no Jump to latest). The second case makes the stand-in slow (every reply 8 s late) and
 // has it send the running command's unchanged update every 1.2 s, as a busy acpmux does. Real
 // Chromium against the pane's dev entry (support/papercutChat.ts); CI fails the file when it cannot
@@ -17,7 +15,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
-import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
+import { TRANSCRIPT_ROW, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Held = {
   rows: number;
@@ -32,29 +30,24 @@ type Held = {
 await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => {
   setDefaultTimeout(300_000);
 
-  /// Puts the ticking waiting line in the stack, then reads every painted frame for `ms`: how far each
+  /// Puts the Reconnecting… chip in the host slot, then reads every painted frame for `ms`: how far each
   /// row in view at the start moved, and whether Jump to latest showed.
   const hold = (page: Page, ms: number): Promise<Held> =>
     page.evaluate(
-      async ({ rowSelector, ms }) => {
+      async ({ rowSelector, jumpShown, ms }) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
         const fromEnd = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
         const startGap = fromEnd();
-        // HostWaitingLine's markup: the group, its line, the message with its clock and the quiet
-        // Restart agent service after it.
+        // ConnectionChip's markup (HostError.tsx), in the dock's HostLineSlot.
         const group = document.createElement("output");
-        group.className = "acpmux-host-line-group";
+        group.className = "acpmux-host-chip";
+        group.dataset.hostRecovering = "reconnecting";
+        group.dataset.chip = "chip";
         group.dataset.testHostLine = "";
         group.innerHTML =
-          '<div class="acpmux-host-line"><p class="acpmux-host-line-message">Waiting for the agent service (1:48)</p><button type="button" class="acpmux-host-line-quiet">Restart agent service</button></div>';
-        dock.insertBefore(group, dock.querySelector(":scope > .acpmux-composer"));
-        const message = group.querySelector("p")!;
-        let seconds = 108;
-        const tick = setInterval(() => {
-          seconds += 1;
-          message.textContent = `Waiting for the agent service (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")})`;
-        }, 1000);
+          '<span class="acpmux-host-chip-dot" aria-hidden="true"></span><span class="acpmux-host-chip-words">Reconnecting…</span>';
+        dock.querySelector("[data-host-slot]")!.append(group);
         const painted = () =>
           new Promise<void>((resolve) =>
             requestAnimationFrame(() => {
@@ -83,7 +76,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
         while (performance.now() - start < ms) {
           await painted();
           const now = tops();
-          const shown = !!document.querySelector(".acpmux-jump-latest[data-shown]");
+          const shown = !!document.querySelector(jumpShown);
           jump ||= shown;
           let frameMost = 0;
           let frameId = "";
@@ -107,10 +100,9 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
             });
           worstGap = Math.max(worstGap, fromEnd());
         }
-        clearInterval(tick);
         return { rows: before.size, most, moves, jump, startGap, worstGap, line: group.getBoundingClientRect().height };
       },
-      { rowSelector: TRANSCRIPT_ROW, ms },
+      { rowSelector: TRANSCRIPT_ROW, jumpShown: JUMP_LATEST_SHOWN, ms },
     );
 
   const expectStill = (result: Held) => {
@@ -179,7 +171,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
     }
   });
 
-  // Leo's line read "Restart agent service" too: the pane was reconnecting (App.tsx `connectHost`).
+  // Leo's pane was reconnecting too (App.tsx `connectHost`).
   // A reconnect whose hole is wider than one read (the running command's updates piled up while it
   // was away) read it forward a page at a time, 1.2 s a read here, and drew each page.
   test("a reconnect that bridges a wide hole holds the followed chat still", async () => {

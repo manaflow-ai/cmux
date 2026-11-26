@@ -182,7 +182,17 @@ pub(super) async fn peer_status(
 async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     let name = listed["name"].as_str().unwrap_or_default().to_owned();
     let mut row = json!({"name": name, "self": false, "reachable": false});
-    for key in ["state", "via", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
+    for key in [
+        "state",
+        "via",
+        "lastSeen",
+        "downSince",
+        "remoteBuild",
+        "outdated",
+        "sessions",
+        "group",
+        "liveSessions",
+    ] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
             row[key] = v.clone();
         }
@@ -214,7 +224,14 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
+            row.set(
+                "outdated",
+                json!(
+                    health["build"]
+                        .as_str()
+                        .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
+                ),
+            );
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {

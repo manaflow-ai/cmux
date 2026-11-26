@@ -1011,7 +1011,7 @@ class NothingAfterTheBound(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the bound is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -1024,7 +1024,7 @@ class NothingAfterTheBound(unittest.TestCase):
         def start(thread):
             real(thread)
             if thread.name == "github-request":
-                time.sleep(seconds)
+                time.sleep(seconds)  # sleep-ok: a simulated loaded caller, held after it starts the request
 
         threading.Thread.start = start
         self.addCleanup(setattr, threading.Thread, "start", real)
@@ -1273,6 +1273,10 @@ class Workflows(unittest.TestCase):
     def test_push_attribution_runs_for_a_red_base_tier(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertIn("inputs.base_tier == true", jobs["push-attribution"]["if"])
+        # The tip suite dispatches (swift test, the daemon tests) are the after-merge runs of jobs a pull request
+        # into feat-cmux-next no longer runs (2026-11-26): their red names the merges in range and pages the culprit.
+        self.assertIn("inputs.tip_swift_suite == true", jobs["push-attribution"]["if"])
+        self.assertIn("inputs.tip_daemon_suite == true", jobs["push-attribution"]["if"])
 
     def test_a_red_crash_gate_alone_starts_push_attribution(self):
         # failure() reads only the needed jobs: the crash gate is one of the base tier's jobs.
@@ -1321,8 +1325,8 @@ class Workflows(unittest.TestCase):
         checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
         self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 
-    def test_sleeping_dispatcher_reads_the_linux_pool(self):
-        # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
+    def test_sleeping_dispatcher_takes_the_one_linux_label(self):
+        # A pure Python timer/API call takes the one Linux label, cmux-linux, never a fixed
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(KICK)["kick"])
         self.assertIsNotNone(cells, "kick runs-on reads a matrix value nothing resolves")
@@ -1330,8 +1334,8 @@ class Workflows(unittest.TestCase):
         expression = cells[0]
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
-        self.assertNotIn("vars.LINUX_RUNNER", expression)
-        self.assertTrue(expression.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), expression)
+        self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])|RUNNER_POOLS\)\.linux", expression), expression)
+        self.assertTrue(expression.rstrip().endswith("|| 'cmux-linux' }}"), expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]

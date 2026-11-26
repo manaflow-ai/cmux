@@ -117,6 +117,26 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "terminal paste-last-screenshot",
         ..Action::DEFAULT
     },
+    // Insert Path: a file panel, then the chosen files' and folders' paths, shell-quoted and
+    // space-separated, pasted into the terminal's input, as a drop of those files does. A `path`
+    // argument (action.run, MCP) inserts that path without the panel. Ctrl-Cmd-I in a terminal
+    // only: the browser's View Site Information keeps it there.
+    Action {
+        id: "insertPath",
+        group: GROUP,
+        title: t("ActionCatalog", "action.insertPath", "Insert Path…"),
+        keywords: &["file", "folder", "path", "choose", "browse", "paste"],
+        default_shortcut: Some(Shortcut { key: "i", modifiers: CTRL | CMD }),
+        category: "terminal",
+        symbol: "text.insert",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH.optional()],
+        requires: &["terminalFocused"],
+        targets: &["pane"],
+        cli_name: "terminal insert-path",
+        ..Action::DEFAULT
+    },
     Action {
         id: "terminal.keep",
         group: GROUP,
@@ -128,6 +148,23 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::ON.optional()],
         targets: &["tab"],
         cli_name: "terminal keep",
+        ..Action::DEFAULT
+    },
+    // Show Last Line in Sidebar: the tab's terminal's last output line under its workspace in the
+    // sidebar (`terminal-tail-pin-v1`), as `cmux terminal <term> pin-tail on|off`; off clears it.
+    // In the workspace category, where the line shows: a row in a terminal category needs its App
+    // handler before it lands (HandlerCoverage), and this one's follows the re-pin.
+    Action {
+        id: "terminal.pinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.pinTail", "Show Last Line in Sidebar"),
+        keywords: &["pin", "tail", "last line", "output", "status", "sidebar"],
+        category: "workspace",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ON.optional()],
+        targets: &["tab"],
+        cli_name: "terminal pin-tail",
         ..Action::DEFAULT
     },
     // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
@@ -192,6 +229,25 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "terminal find-in-directory",
         main_menu: Some("edit"),
+        ..Action::DEFAULT
+    },
+    // Go to Directory: the focused terminal's shell changes to a typed directory (`cd`), as
+    // Finder's Go to Folder (Shift-Cmd-G). Shift-Cmd-G's other owners (Group Selected Workspaces,
+    // the browser's Find Previous) keep it outside a focused terminal.
+    Action {
+        id: "terminal.goToDirectory",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.goToDirectory", "Go to Directory…"),
+        keywords: &["cd", "folder", "path", "change directory", "jump"],
+        default_shortcut: Some(Shortcut { key: "g", modifiers: SHIFT | CMD }),
+        category: "terminal",
+        symbol: "arrow.right.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH],
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal go-to-directory",
         ..Action::DEFAULT
     },
     Action {

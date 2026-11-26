@@ -61,10 +61,8 @@ extension AgentTabStore {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
-        // A new chat in a pane of another machine runs on that machine: the tab records that
-        // machine's store as its host and its session daemon starts the chat there
-        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). A session, an outside chat or
-        // a past chat of this Mac was refused above.
+        // A new chat in a pane of another machine runs on that machine: the tab records that machine's store as its host and its
+        // session daemon starts the chat there (``startRemoteChat``), never this Mac's acpmux (cx-k21v); this Mac's chats were refused above.
         let remote = !daemon.isLocal && host == nil
         var seed = seed, spare = spare
         if remote {
@@ -177,8 +175,7 @@ extension AgentTabStore {
                 let created = try await pending.value()
                 content?.expectFocus(on: created.surface, generation: intent)
                 if hidden { pane.pendingDock.created(pending.key, as: created.key) }
-                // A remote store can answer before its tree lists the provisional tab, so the
-                // provisional selection never took: the store's tab is selected now (cx-k21v).
+                // A remote store can answer before its tree lists the provisional tab (no selection took): select the store's now (cx-k21v).
                 if select, !hidden, !daemon.isLocal, pane.stripModel.selectedID?.rawValue != created.key {
                     pane.selectWhenReported(surface: created.surface)
                 }
@@ -203,8 +200,7 @@ extension AgentTabStore {
         moveSelection(key, created.surface)
     }
 
-    /// The store answered the creation: view state under provisional `key` moves to `real`, and
-    /// `key` keeps resolving to it until the provisional tab is gone.
+    /// The store answered the creation: view state under provisional `key` moves to `real`, and `key` keeps resolving to it until the provisional tab is gone.
     func rekey(_ key: String, to real: String, machine: String? = nil) {
         guard key != real else { return }
         let scoped = tabKey(key, machine: machine)
@@ -231,7 +227,7 @@ extension AgentTabStore {
         if let store = tabStores.removeValue(forKey: scoped) { tabStores[realKey] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
         // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
-        if let view = views[realKey] { wire(view.model, key: real, machine: scoped.machine) }
+        if let view = views[realKey] { wire(view.model, key: real, machine: scoped.machine); followBound(realKey) }
         seenLive.remove(scoped)
     }
 
@@ -404,6 +400,8 @@ extension AgentTabStore {
         seenLive.remove(scoped)
         forgetUnusedStores()
         stopCustomizationWhenUnused(); if !frontedChats.isEmpty, record(for: scoped) == nil { frontedChats.gone(scoped) } // a gone tab ends its Cloud chat shown in place, or its Mac tab shows its own page (CloudFrontedChats)
+        // A page this release left with no owner (the pool's wait ended, a view a rekey replaced) closes now.
+        scheduleOrphanSweep()
     }
 
     /// Lets go of the view state of tabs `store` listed and no longer lists, once it is connected
@@ -424,9 +422,13 @@ extension AgentTabStore {
         }
     }
 
+    /// Tab `scoped`'s page with no chat takes one another device binds to the tab (a phone's first send; AgentPaneView.adoptWhenBound).
+    func followBound(_ scoped: AgentTabKey) { if sessions[scoped] == nil { views[scoped]?.adoptWhenBound({ [weak self] in self?.record(for: scoped)?.record.session }, tab: scoped.key) { [weak self] in self?.sessions[scoped] = $0 } } }
+
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore, machine: String? = nil) {
         let scoped = tabKey(key, machine: machine)
+        if tabStores[scoped] == nil { followBound(scoped) }
         tabStores[scoped] = store
         if store.liveTreeLists(tab: key) == true { seenLive.insert(scoped) }
         let id = ObjectIdentifier(store)
@@ -470,4 +472,29 @@ final class AgentTabPending {
 /// A refusal to open an agent chat tab, with its localized reason.
 struct AgentTabRefusal: Error {
     let message: String
+}
+
+/// One owner of agent page liveness, keyed by tab (``AgentPageLiveness``): every live page is a tab's page or is
+/// held by an owner that bounds it (the New Tab pool, the retirer, a standalone caller); a page none holds is an
+/// orphan, closed by the sweep after a tab's release once it is out of sight.
+extension AgentTabStore {
+    /// How long after a tab's release the sweep runs: the release's own moves (the pool's recycle, the retirer's keep) are done.
+    static let orphanSweepDelay: Duration = .seconds(1)
+
+    /// The owner of each live page; nil: none (an orphan).
+    func pageOwner() -> (AgentPaneView) -> AgentPageRole? {
+        let tabPages = Set(views.values.map(ObjectIdentifier.init)), standalone = Set(standaloneViews.allObjects.map(ObjectIdentifier.init))
+        return { [retirer = self.retirer, poolRole = self.poolRole] view in
+            if tabPages.contains(ObjectIdentifier(view)) { return .tab }
+            return retirer.role(of: view) ?? poolRole?(view) ?? (standalone.contains(ObjectIdentifier(view)) ? .standalone : nil)
+        }
+    }
+
+    @discardableResult
+    func sweepOrphans() -> Int { livePages.sweep(owner: pageOwner()) { [retirer = self.retirer] in retirer.retire($0) } }
+
+    func scheduleOrphanSweep() {
+        // wakeup-allow: one sweep per burst of tab releases; none while no tab closes.
+        orphanSweep.schedule(after: Self.orphanSweepDelay) { @MainActor [weak self] in self?.sweepOrphans() }
+    }
 }

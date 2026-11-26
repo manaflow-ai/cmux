@@ -36,8 +36,12 @@ public final class MacScreenPaneModel {
     public internal(set) var relayOnly = false
     /// Send System Shortcuts to the Remote Mac (the toolbar's Send Keys menu).
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
+    /// Set up cmux and Start cmux (the offline card's Start cmux on NAME).
+    public internal(set) var deviceSetup: MacScreenDeviceSetup?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// The agent that started this tab's view without a person's click; nil for a person's.
+    public internal(set) var startedBy: MacScreenStarter?
     /// Holds the card's in-between states back (``MacScreenCardQuiet``); tests give it a manual clock.
     @ObservationIgnored var quiet = MacScreenCardQuiet()
     /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
@@ -110,6 +114,8 @@ public final class MacScreenPane {
     private var decodeTask: Task<Void, Never>?
     /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
     private var cursorTask: Task<Void, Never>?
+    /// The current transport's clipboard sync (cap `clipboard.text`); nil until a session offers it.
+    private var clipboardBridge: RemoteClipboardBridge?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -171,6 +177,7 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
+            if focused { clipboardBridge?.checkNow() }
             model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
             handlers.keyboardChanged()
         }
@@ -221,13 +228,21 @@ public final class MacScreenPane {
         decodeTask?.cancel()
         model.hasFrame = false
         model.recording.attach(transport)
+        clipboardBridge?.stop()
+        clipboardBridge = nil
+        if session?.offersClipboard == true {
+            let bridge = RemoteClipboardBridge(channel: transport) { [weak self] in self?.model.viewOnly == false }
+            bridge.start()
+            clipboardBridge = bridge
+        }
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            guard counter.tick(frame: frame.frame, releasedAtNanos: frame.releasedAtNanos,
+                                     decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })

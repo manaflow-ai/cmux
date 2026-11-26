@@ -99,6 +99,8 @@ impl Brain {
                     if key.starts_with("send-")
                         || key.starts_with("reply-")
                         || key.starts_with("turn:optchat:")
+                        || key.starts_with(super::outcome_ledger::HOST_OUTCOME_KEY)
+                        || key.starts_with(super::outcome_ledger::HOST_SPAWN_KEY)
                     {
                         self.outcome_posted(&op);
                         // The guard took the Chief's own words (budget_hold.rs).
@@ -108,6 +110,9 @@ impl Brain {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        if self.state.conversation.as_deref() == Some(conversation.as_str()) {
+                            self.guard_row(&message);
+                        }
                         self.home_approval_posted(&conversation, &key, &op, &message);
                         self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);
@@ -218,7 +223,12 @@ impl Brain {
                 }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"));
+                    // The refusal is noted first: a loop-guard refusal holds
+                    // a host post's news for the person instead of a turn.
                     self.note_refused(&conversation, &key, &op, &reason);
+                    if self.host_post_refused(&key) || self.host_spawn_refused(&key) {
+                        self.save();
+                    }
                 }
                 Err(OpError::Transport(e)) => {
                     // Kept: retried on the next connect (the owner dedupes by key).

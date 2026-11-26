@@ -6,11 +6,11 @@ import CmuxTheme
 @testable import MessagesLabSidebar
 import Testing
 
-/// The user, 2026-10-28: "make search look like imessage ui liquid glass too", then the filter
-/// button as well (their Messages reference: the filter and compose buttons are round glass
-/// circles with a white glyph, Search is a full-width glass capsule with a magnifier and a grey
-/// "Search" placeholder). The search field sits on a glass capsule, the Unread filter on a glass
-/// circle (Liquid Glass on macOS 26 and later, the frosted material before it), in light and dark.
+/// Messages' search field and filter (macOS 26; the user, 2026-11-23: "the search bar lost its
+/// outline", "how the search input should look like when the window has less width"): on an opaque
+/// Home fill the field is a capsule with a faint fill and a one-pixel outline, no glass; the filter
+/// is a bare glyph; the avatar-only list's search and filter circles take the field's look. Over a
+/// see-through fill the capsule keeps its glass (`searchCapsuleTintInScope`).
 @Suite(.closesItsWindows)
 @MainActor
 struct HomeSearchGlassTests {
@@ -22,62 +22,37 @@ struct HomeSearchGlassTests {
         return home
     }
 
-    @Test(arguments: [180, 260, 320, 480] as [CGFloat])
-    func theSearchFieldSitsOnAGlassCapsule(_ width: CGFloat) throws {
+    @Test(arguments: [196, 260, 320, 480] as [CGFloat])
+    func theSearchFieldIsAnOutlinedCapsule(_ width: CGFloat) throws {
         let home = Self.home(width: width)
+        home.applyColors()
         let capsule = home.searchCapsule
-        let glass = capsule.glass
-        #expect(glass.superview === capsule)
-        #expect(glass.frame == capsule.bounds)
-        #expect(glass.isLiquidGlass == Glass.isLiquidGlassAvailable)
-        #expect(glass.cornerRadius == capsule.bounds.height / 2, "the glass is not a capsule at \(width)")
-        // No flat fill or rim over the glass at rest: the glass is the field's whole look.
-        #expect((capsule.layer?.backgroundColor?.alpha ?? 0) == 0)
-        #expect((capsule.layer?.borderWidth ?? 0) == 0 || (capsule.layer?.borderColor?.alpha ?? 0) == 0)
-        // Messages' row: the field as tall as the filter circle, centred on it.
-        #expect(capsule.frame.height == home.unreadToggle.frame.height)
+        let layer = try #require(capsule.layer)
+        #expect(capsule.glass.isHidden, "glass over an opaque fill at \(width)")
+        #expect(layer.cornerRadius == capsule.bounds.height / 2, "the field is not a capsule at \(width)")
+        #expect((layer.backgroundColor?.alpha ?? 0) > 0, "the field has no fill at \(width)")
+        #expect(layer.borderWidth > 0 && (layer.borderColor?.alpha ?? 0) > 0, "the field has no outline at \(width)")
+        #expect(capsule.frame.height == HomeSidebarHeaderMetrics.standard.searchHeight)
         #expect(capsule.frame.midY == home.unreadToggle.frame.midY)
     }
 
-    @Test(arguments: [180, 260, 320, 480] as [CGFloat])
-    func theFilterIsAGlassCircle(_ width: CGFloat) throws {
+    /// The filter is Messages' bare glyph beside a full list: no circle under it.
+    @Test(arguments: [196, 260, 320, 480] as [CGFloat])
+    func theFilterIsABareGlyph(_ width: CGFloat) {
         let home = Self.home(width: width)
-        let toggle = home.unreadToggle
-        let glass = home.filterGlass
-        #expect(glass.superview === toggle.superview)
-        #expect(glass.frame == toggle.frame)
-        #expect(toggle.frame.width == toggle.frame.height, "the filter is not round at \(width)")
-        #expect(glass.cornerRadius == toggle.frame.height / 2)
-        #expect(glass.isLiquidGlass == Glass.isLiquidGlassAvailable)
-        #expect(glass.isHidden == toggle.isHidden)
-        // Below the button, so the glyph draws on the glass.
-        let siblings = try #require(toggle.superview?.subviews)
-        let below = try #require(siblings.firstIndex(of: glass))
-        let above = try #require(siblings.firstIndex(of: toggle))
-        #expect(below < above)
+        #expect(!home.unreadToggle.isHidden)
+        #expect(home.unreadToggle.frame.width == home.unreadToggle.frame.height, "the filter is not square at \(width)")
+        #expect(home.filterGlass.isHidden && home.filterDisc.isHidden, "the filter sits on a circle at \(width)")
     }
 
-    /// The avatar-only list keeps the filter on its glass, and the search as a glass circle.
-    @Test func theAvatarListKeepsTheFilterGlassAndASearchCircle() {
+    /// The avatar-only list is Messages' strip: no search or filter circle (the user's recording, 2026-11-24:
+    /// "lets jus copy how apple does it").
+    @Test func theAvatarListShowsNoCircles() {
         let home = Self.home(width: 90)
-        #expect(!home.unreadToggle.isHidden && !home.filterGlass.isHidden)
-        #expect(home.filterGlass.frame == home.unreadToggle.frame)
-        #expect(!home.searchButton.isHidden && !home.searchGlass.isHidden)
-        #expect(home.searchGlass.frame == home.searchButton.frame)
-        #expect(home.searchGlass.cornerRadius == home.searchButton.frame.height / 2)
-    }
-
-    /// The search circle opens the search, which then takes the band.
-    @Test func theSearchCircleOpensTheSearch() {
-        let home = Self.home(width: 90)
-        let window = NSWindow(contentRect: home.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = home
-        home.searchButton.performClick(nil)
-        home.list.headerView.layoutSubtreeIfNeeded()
-        #expect(home.list.searchField.isEditing)
-        #expect(home.header.buttonsCovered && home.searchButton.isHidden && home.unreadToggle.isHidden)
+        home.applyColors()
+        #expect(home.unreadToggle.isHidden && home.searchButton.isHidden)
+        #expect(home.filterDisc.isHidden && home.searchDisc.isHidden && home.filterGlass.isHidden && home.searchGlass.isHidden)
+        #expect(home.searchCapsule.isHidden || home.searchCapsule.frame.width == 0)
     }
 
     /// Messages' filter glyph: three lines, no ring, in the text colour (white on dark), in light
@@ -114,7 +89,7 @@ struct HomeSearchGlassTests {
         #expect(h.filter.width == h.filter.height)
         #expect(h.filter.minY >= 0, "the filter circle runs off the window's top at \(width)")
         #expect(h.filter.midY == lights.midY)
-        #expect(h.search.height == HomeSidebarHeaderMetrics.standard.side)
+        #expect(h.search.height == HomeSidebarHeaderMetrics.standard.searchHeight)
         #expect(h.search.minY >= h.filter.maxY, "the search capsule overlaps the filter's row at \(width)")
     }
 
@@ -122,7 +97,7 @@ struct HomeSearchGlassTests {
     /// 3 pt above the magnifier and the capsule's middle (AppKit draws an unbezeled field's text at
     /// its frame's top). As in Messages, the magnifier's ink and the placeholder's ink are centred on
     /// the capsule, at every width, and the text being typed sits on the same line.
-    @Test(arguments: [180, 320, 480] as [CGFloat])
+    @Test(arguments: [196, 320, 480] as [CGFloat])
     func theMagnifierAndPlaceholderAreCentredInTheCapsule(_ width: CGFloat) throws {
         let home = Self.home(width: width)
         let field = home.list.searchField
@@ -163,7 +138,7 @@ struct HomeSearchGlassTests {
     /// and the caret slid left over the magnifier (AppKit puts an unbezeled field's editor in the
     /// frame the cell is handed, the field's whole width). The field editor starts where the
     /// placeholder does at rest, right of the magnifier, at every width.
-    @Test(arguments: [180, 320, 480] as [CGFloat])
+    @Test(arguments: [196, 320, 480] as [CGFloat])
     func theTypedTextStaysRightOfTheMagnifier(_ width: CGFloat) throws {
         let home = Self.home(width: width)
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)

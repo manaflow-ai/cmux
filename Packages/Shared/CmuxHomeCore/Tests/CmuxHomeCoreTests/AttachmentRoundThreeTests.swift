@@ -1,14 +1,23 @@
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 // Regression tests for the third attachment review (minor findings 1-6).
 
+#if canImport(ImageIO) && canImport(AVFoundation)
 /// A `width` x `height` PNG with an alpha channel and every pixel opaque.
 func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -22,8 +31,10 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
     #expect(CGImageDestinationFinalize(destination))
     return data as Data
 }
+#endif
 
 @Suite(.timeLimit(.minutes(3))) struct AttachmentRoundThreePreparationTests {
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Minor 1: a timed metadata track whose format names no location (an
     /// iPhone's orientation or still-image-time track) is not location, so
     /// the file is sent as it is, with no export.
@@ -37,7 +48,9 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         let prepared = try await store.prepareAttachment(fileURL: movie)
         #expect(prepared.ref.hash == sha256Hex(try Data(contentsOf: movie)))
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Minor 1: a text track can hold positions (a drone writes GPS as
     /// subtitles): it is dropped unless the user keeps location.
     @MainActor @Test func aTextTrackIsDroppedUnlessLocationIsKept() async throws {
@@ -57,7 +70,9 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         let kept = try await store.prepareAttachment(fileURL: movie, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: movie)))
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Minor 2 (Lawrence's rule: transparent images get no preview): an
     /// opaque PNG that only has an alpha channel gets its JPEG preview, so
     /// readers do not download the original.
@@ -74,7 +89,9 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         #expect(preview.mimeType == "image/jpeg")
         #expect(prepared.previewURL != nil)
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Minor 6: a WebP whose location is in its EXIF chunk (orientation 1)
     /// keeps its own bytes minus that chunk: still a WebP, every frame and
     /// the animation kept, no larger than before.
@@ -94,7 +111,9 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         #expect(stripped.ref.hash == sha256Hex(bytes))
         #expect(bytes.count < webp.count)
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Minor 6: a thumbnail an earlier build cached as `thumb-N.jpg` (a
     /// transparent image drawn on black) is not reused.
     @MainActor @Test func aThumbnailFromAnEarlierBuildIsReplaced() async throws {
@@ -112,6 +131,7 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         #expect(try minimumAlpha(thumb) == 0)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
     }
+#endif
 }
 
 @MainActor

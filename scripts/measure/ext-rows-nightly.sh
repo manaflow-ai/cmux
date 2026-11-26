@@ -4,7 +4,9 @@
 # id, data, daemon and customize folder; the Mac's own apps are untouched) and launched, then
 # scripts/measure/ext-rows-nightly.py runs one function per row through the copy's own CLI and daemon ops,
 # no clicks: web panes, background activation, link openers, the New Tab page, `ext new` for every kind,
-# composer slash commands and mentions, status items, background event workers, chat-widget routing.
+# composer slash commands and mentions, status items, background event workers, chat-widget routing,
+# context-menu rows, agent (MCP) tools, plugin CLI subcommands, a forked first-party app, extension
+# settings, installs from a folder and the https-only git references, toolbar items and overlays.
 #   cmux-ci run --class exclusive --label measure --display \
 #     --script scripts/measure/ext-rows-nightly.sh --ref <sha> [--arg=dmg=URL] [--arg=rows=a,b] \
 #     --artifact .build/ext-rows-nightly/report.tgz --timeout 1200
@@ -55,9 +57,13 @@ ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$work/app/cmux NIGHT
 hdiutil detach "$mnt" >/dev/null; mnt=""
 "$side" make "$name" --from "$work/app/cmux NIGHTLY.app" --label "cmux ext rows" --customize >&2 || exit 3
 app="$("$side" path "$name")"
+config="$CMUX_SIDE_ROOT/$name/config/cmux-next.json"
+if [[ ",${rows:-mcp_tools}," == *,mcp_tools,* ]]; then
+  echo '{"agents":{"cmuxMcp":"on"}}' > "$config" || exit 3
+fi
 "$side" launch "$name" >&2 || exit 3
 python3 scripts/measure/ext-rows-nightly.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
-  --control-socket "$("$side" socket "$name")" \
+  --control-socket "$("$side" socket "$name")" --mcp-config "$config" \
   --customize "$CMUX_SIDE_ROOT/$name/customize" --out "$out" ${rows:+--rows "$rows"} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true

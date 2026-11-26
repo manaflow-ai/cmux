@@ -20,7 +20,7 @@ source of truth for all the others:
 - CodeRouter's account selection, request IDs, cooldowns, and route telemetry
   in [`web/services/coderouter/README.md`](../../web/services/coderouter/README.md);
 - the sticky, load-aware machine routing model in
-  [`docs/internal/machine-router.md`](../internal/machine-router.md).
+  the maintainers' machine-router notes.
 
 ## User outcome
 

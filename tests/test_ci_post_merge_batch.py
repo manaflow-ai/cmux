@@ -61,6 +61,86 @@ class TickTest(unittest.TestCase):
         runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
 
+    def test_a_batch_with_no_verdict_on_an_older_tip_opens_no_window(self) -> None:
+        # Run 45105503067 (2026-11-23): its plan failed on 4ec58f90a4 and the tip moved on; the window held the
+        # next batch back two hours.
+        runs = [run(1, "b" * 40, "2026-11-21T11:30:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+
+    def test_dispatches_inside_the_window_once_ten_merges_pile_up(self) -> None:
+        # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A batch every ~10 merges.
+        runs = [run(1, "b" * 40, "2026-11-21T11:50:00Z")]
+        asked = []
+
+        def ahead(base):
+            asked.append(base)
+            return 10
+
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=ahead)[0], "dispatch")
+        self.assertEqual(asked, ["b" * 40])
+        action, reason = pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=lambda base: 9)
+        self.assertEqual(action, "skip")
+        self.assertIn("9 of 10 merges", reason)
+        # An unknown count (the compare call failed) and a count of 0 (off) leave the window alone in charge.
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=lambda base: None)[0], "skip")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=0, ahead=lambda base: 50)[0], "skip")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 5, every_merges=10, ahead=lambda base: 1)[0], "dispatch")
+
+    def test_the_count_never_overrides_a_batch_in_flight_or_a_tested_tip(self) -> None:
+        def ahead(base):
+            raise AssertionError("no compare call needed")
+
+        live = [run(2, "b" * 40, "2026-11-21T11:55:00Z", status="in_progress")]
+        self.assertEqual(pmb.tick_decision("a" * 40, live, NOW, 120, every_merges=10, ahead=ahead)[0], "skip")
+        tested = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, tested, NOW, 120, every_merges=10, ahead=ahead)[0], "skip")
+
+    def test_a_finishing_batch_starts_the_next(self) -> None:
+        # The judge's last step ticks with its own run id: that run is in progress and its judge job has not
+        # concluded yet, but it is neither in flight nor unjudged for the tick.
+        own = [run(7, "b" * 40, "2026-11-21T11:40:00Z", status="in_progress"), run(6, "c" * 40, "2026-11-21T11:20:00Z")]
+        unjudged = lambda rid: rid != 7  # noqa: E731
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12, self_run_id=7)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 3, self_run_id=7)[0], "skip")
+        self.assertEqual(pmb.tick_decision("b" * 40, own, NOW, 120, unjudged, 10, lambda base: 0, self_run_id=7)[0], "skip")
+        # Another batch already queued behind it still holds the next one back.
+        queued = [run(8, "d" * 40, "2026-11-21T11:58:00Z", status="queued"), *own]
+        self.assertEqual(pmb.tick_decision("a" * 40, queued, NOW, 120, unjudged, 10, lambda base: 12, self_run_id=7)[0], "skip")
+        # Without its id the same run reads as in flight.
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12)[0], "skip")
+
+    def test_every_merges_value(self) -> None:
+        self.assertEqual(pmb.every_merges(None), 10)
+        self.assertEqual(pmb.every_merges("bad"), 10)
+        self.assertEqual(pmb.every_merges("0"), 0)
+        self.assertEqual(pmb.every_merges("25"), 25)
+
+    def test_ahead_by_reads_one_compare(self) -> None:
+        calls = []
+
+        def api(path, **_):
+            calls.append(path)
+            return {"ahead_by": 11}
+
+        self.assertEqual(pmb.ahead_by("o/r", "b" * 40, "a" * 40, api=api), 11)
+        self.assertEqual(calls, [f"repos/o/r/compare/{'b' * 40}...{'a' * 40}?per_page=1"])
+
+        def broken(path, **_):
+            raise RuntimeError("HTTP 404")
+
+        with unittest.mock.patch("sys.stdout"):
+            self.assertIsNone(pmb.ahead_by("o/r", "b" * 40, "a" * 40, api=broken))
+        self.assertIsNone(pmb.ahead_by("o/r", "", "a" * 40, api=api))
+
+    def test_the_judge_ticks_the_next_batch_and_never_fails_for_it(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]["steps"]
+        last = steps[-1]
+        self.assertIn("tick", last["run"])
+        self.assertIn('--self-run-id "$GITHUB_RUN_ID"', last["run"])
+        self.assertTrue(last["continue-on-error"])
+        self.assertIn("inputs.mode != 'probe'", last["if"])
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
@@ -129,6 +209,56 @@ class PlanAndJudgeTest(unittest.TestCase):
         found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
+
+    def stuck_setup(self):
+        verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        red = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
+        older = {3: (red, True), 2: (red, True), 1: ({k: ("rust", "success") for k in red}, True)}
+        return verdicts, runs, older
+
+    def test_a_known_red_is_bisected_between_its_last_green_and_first_red(self) -> None:
+        # Batch run 45768539377 (2026-11-26) skipped 43 of 48 reds as known: they get a bisect, legs collapsed.
+        verdicts, runs, older = self.stuck_setup()
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
+        self.assertEqual(found, [])
+        stuck = pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites)
+        self.assertEqual(stuck, [("rust / test (linux, 1)", "rust", "d" * 40, "c" * 40)])
+
+    def test_a_stuck_red_waits_for_its_running_bisect_and_stops_after_rebisects(self) -> None:
+        verdicts, runs, older = self.stuck_setup()
+        probe = run(4, "c" * 40, "2026-11-21T08:30:00Z", status="in_progress", title=f"probe rust test at {'c' * 40}")
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites), [])
+        probe["status"] = "completed"
+        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites)), 1)
+        red = older[3][0]
+        more = [run(10 + i, f"{i:x}" * 40, f"2026-11-21T0{i}:30:00Z") for i in range(5, 5 + pmb.MAX_REBISECTS)]
+        for r in more:
+            older[r["id"]] = (red, True)
+        # More red batch runs since the first red one than MAX_REBISECTS, with a bisect done: named only.
+        runs2 = [run(3, "b" * 40, "2026-11-21T10:00:00Z")] + more[::-1] + runs[1:]
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs2, lambda rid: older[rid], self.suites), [])
+
+    def test_a_stuck_red_needs_a_green_in_reach(self) -> None:
+        verdicts, runs, older = self.stuck_setup()
+        older[1] = (older[2][0], True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites), [])
+
+    def test_a_stuck_probe_starts_mid_range_and_its_judge_accepts_it(self) -> None:
+        commits = ["c1", "c2", "c3", "c4", "c5"]
+        probe = pmb.stuck_probe("rust / test", "rust", "test", "g", "c5", "9", commits)
+        self.assertEqual((probe.sha, probe.good, probe.bad), ("c3", "g", "c5"))
+        self.assertEqual(pmb.stuck_probe("rust / test", "rust", "test", "c4", "c5", "9", commits).sha, "c5")
+        origin = {"id": 9, "head_sha": "c7", "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "main",
+                  "display_title": "batch tick"}
+        covered = lambda good, head: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
+        self.assertEqual(pmb.probe_refusal(probe, "main", origin, [("rust / test", "rust", "g")], covered), "")
+
+    def test_a_one_commit_stuck_range_that_passes_is_a_flake(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c5", "c4", "c5", "1")
+        self.assertEqual(pmb.next_step(probe, "success", ["c5"])[0], "flake")
+        self.assertEqual(pmb.next_step(probe, "failure", ["c5"]), ("culprit", "c5"))
 
 
 class RateLimitTest(unittest.TestCase):
@@ -286,6 +416,29 @@ class WiringTest(unittest.TestCase):
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
 
+    def test_a_hung_checkout_is_bounded_and_tried_once_more(self) -> None:
+        """A fetch that hangs must not take the job's whole budget and its verdict with it (plan job
+        137288423007 and judge job 137302455752, 2026-11-22: cancelled in "Fetching the repository")."""
+        for key in ("plan", "judge", "revert"):
+            job = self.workflow["jobs"][key]
+            steps = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")]
+            self.assertEqual(len(steps), 2, f"{key}: one checkout and one retry")
+            first, again = steps
+            self.assertTrue(first.get("continue-on-error"), key)
+            self.assertEqual(again.get("if"), f"steps.{first.get('id')}.outcome != 'success'", key)
+            self.assertEqual(first["with"], again["with"], key)
+            self.assertEqual(first["uses"], again["uses"], key)
+            bound = first.get("timeout-minutes", 0) + again.get("timeout-minutes", 0)
+            self.assertTrue(0 < first.get("timeout-minutes", 0) and 0 < again.get("timeout-minutes", 0), key)
+            history = next(s for s in job["steps"] if s.get("name") == "Fetch this ref's history")
+            self.assertGreater(job["steps"].index(history), job["steps"].index(again), key)
+            bound += history["timeout-minutes"]
+            self.assertLess(bound, job["timeout-minutes"], f"{key}: every try fits inside the job's budget")
+            # Only this ref: fetch-depth 0 fetches every branch of the repository, which is what hung.
+            self.assertNotIn("fetch-depth", first["with"], key)
+            self.assertIn('origin "$(git rev-parse HEAD)"', history["run"], key)
+            self.assertIn("--unshallow", history["run"], key)
+
 
 class GuardTest(unittest.TestCase):
     """A probe's inputs are checked against the batch run that found the red; a teammate's culprit gets a held revert."""
@@ -329,6 +482,21 @@ class GuardTest(unittest.TestCase):
 
         self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
+
+    def test_an_agents_revert_is_handed_to_autoland_and_a_teammates_is_not(self) -> None:
+        # Goal base-batch-reverts-culprit: "reverts it with no person". The label is next_autoland's hand-off.
+        calls = []
+        line = pmb.hand_off("o/r", 12, "", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/issues/12/labels", {"method": "POST", "fields": {"labels": ["ready-to-land"]}})])
+        self.assertIn("ready-to-land", line)
+        calls.clear()
+        self.assertIn("Held for lucasr1b", pmb.hand_off("o/r", 12, "lucasr1b", api=lambda path, **kw: calls.append(path)))
+        self.assertEqual(calls, [])
+
+        def refused(path, **kw):
+            raise RuntimeError("gh api: 403")
+
+        self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
 
 
 class PushTest(unittest.TestCase):
@@ -402,6 +570,63 @@ class StartBranchTest(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             pmb.start_branch("o/r", "revert/x", "abc", api=down, sleep=lambda s: None)
+
+
+class PushTokenTest(unittest.TestCase):
+    """The swap-out, probe or revert branch is created and pushed with the workflows-write token when the job has one
+    (a ref at a feat-cmux-next commit needs it, drill 9); else with the contents-write token, and a diff that
+    touches .github/workflows/** then stops with the command and the issue to fix it, never a skip.
+    The routing App had no Workflows permission, so a combined contents+workflows mint failed every revert job
+    (run 45021631601, hq#18499)."""
+
+    ENV = {"PUSH_TOKEN": "contents", "WORKFLOWS_TOKEN": "workflows", "GH_TOKEN": "job"}
+
+    def test_any_diff_takes_the_workflows_token_when_minted(self) -> None:
+        # A ref at a feat-cmux-next commit needs workflows write whatever the diff: drill 9 run 45096141472 got
+        # HTTP 403 creating its piece probe branch with the contents token.
+        with mock.patch.dict(os.environ, self.ENV):
+            self.assertEqual(pmb.push_token([".github/post-merge-drill-red", "webviews/src/pages/a.tsx"]), "workflows")
+            self.assertEqual(pmb.push_token([]), "workflows")
+
+    def test_a_diff_with_no_workflow_file_falls_back_to_the_contents_token(self) -> None:
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "contents", "GH_TOKEN": "job"}, clear=True):
+            self.assertEqual(pmb.push_token([".github/post-merge-drill-red", "webviews/src/pages/a.tsx"]), "contents")
+            self.assertEqual(pmb.push_token([]), "contents")
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "job"}, clear=True):
+            self.assertEqual(pmb.push_token(["a.txt"]), "job")
+
+    def test_a_workflow_file_takes_the_workflows_token(self) -> None:
+        with mock.patch.dict(os.environ, self.ENV):
+            self.assertEqual(pmb.push_token(["a.txt", ".github/workflows/x.yml"]), "workflows")
+
+    def test_a_workflow_file_with_no_workflows_token_stops_with_the_fix(self) -> None:
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "contents", "GH_TOKEN": "job"}, clear=True):
+            with self.assertRaises(pmb.WorkflowsTokenMissing) as caught:
+                pmb.push_token([".github/workflows/x.yml"], command="git push origin abc:refs/heads/swapout/x")
+        text = str(caught.exception)
+        self.assertIn("hq#18499", text)
+        self.assertIn(".github/workflows/x.yml", text)
+        self.assertIn("git push origin abc:refs/heads/swapout/x", text)
+
+    def test_the_push_url_takes_the_chosen_token(self) -> None:
+        self.assertEqual(pmb.push_url("https://x-access-token:{token}@github.com/o/r.git", "t"), "https://x-access-token:t@github.com/o/r.git")
+        self.assertEqual(pmb.push_url("origin", "t"), "origin")
+
+    def test_start_branch_uses_the_token_it_is_given(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "swapout/x", "abc", api=lambda path, **kw: calls.append(kw), token="contents")
+        self.assertEqual(calls[0]["tokens"], ["contents"])
+
+    def test_the_workflow_mints_contents_and_workflows_tokens_apart(self) -> None:
+        steps = {s.get("id"): s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["revert"]["steps"] if s.get("id")}
+        push, wf = steps["push-token"], steps["workflows-token"]
+        self.assertEqual(push["with"].get("permission-contents"), "write")
+        self.assertNotIn("permission-workflows", push["with"])
+        self.assertEqual(wf["with"].get("permission-workflows"), "write")
+        self.assertTrue(wf.get("continue-on-error"))
+        run = next(s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["revert"]["steps"] if "post_merge_batch.py revert" in str(s.get("run")))
+        self.assertIn("steps.workflows-token.outputs.token", run["env"]["WORKFLOWS_TOKEN"])
+        self.assertIn("{token}", run["run"])
 
 
 if __name__ == "__main__":

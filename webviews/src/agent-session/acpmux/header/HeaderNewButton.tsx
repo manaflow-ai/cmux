@@ -11,7 +11,10 @@ import { HEADER_ACTIONS } from "./headerActions";
 import { menuKeycap } from "./chatHeaderToolsModel";
 import { readLastKind, repeatKind, writeLastKind, type NewKind } from "./headerTrio";
 import { tooltipProps, useShortcut } from "../shortcuts";
+import { ShortcutKeycaps, useShortcutKeycapsOn } from "../ButtonKeycaps";
+import { ariaKeyshortcuts } from "../shortcutKeycaps";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { KeyHint } from "../../../ui/KeyHint";
 
 const KIND_LABELS: Record<NewKind, StringKey> = {
   terminal: "chatMenu.newTerminal",
@@ -64,16 +67,22 @@ export function HeaderNewButton({
     make(kind);
   };
   const label = (kind: NewKind) => t(KIND_LABELS[kind]);
+  const faceKey = KIND_ACTIONS[again] ? keys[again] : undefined;
+  // The shortcut-keycaps experiment (off by default) draws the face's key inside it.
+  const faceKeycaps = useShortcutKeycapsOn(faceKey);
   return (
     <div className="acpmux-header-new" data-header-new={again}>
       <button
         type="button"
         className="acpmux-header-tool acpmux-header-new-face"
         aria-label={label(again)}
-        {...tooltipProps(label(again), KIND_ACTIONS[again] ? keys[again] : undefined)}
+        aria-keyshortcuts={faceKeycaps ? ariaKeyshortcuts(faceKey) : undefined}
+        data-keycaps={faceKeycaps ? "" : undefined}
+        {...tooltipProps(label(again), faceKey)}
         onClick={() => run(again)}
       >
         <HeaderIcon name="action.add" size={16} />
+        <ShortcutKeycaps shortcut={faceKey} />
       </button>
       <Menu
         open={open}
@@ -103,7 +112,7 @@ export function HeaderNewButton({
             >
               <Icon name={KIND_ICONS[kind]} size={14} />
               <span className="acpmux-chat-menu-label">{label(kind)}</span>
-              {keys[kind] && <kbd className="acpmux-chat-menu-key">{keys[kind]}</kbd>}
+              {keys[kind] && <KeyHint keys={keys[kind]!} className="acpmux-chat-menu-key" />}
             </MenuItem>
           ))}
         </MenuPopup>
@@ -128,7 +137,7 @@ function NewPreview({ kind, label, keycap }: { kind: NewKind; label: string; key
       </div>
       <div className="acpmux-header-new-preview-text">
         <span className="acpmux-header-new-preview-name">{label}</span>
-        {keycap && <kbd className="acpmux-chat-menu-key">{keycap}</kbd>}
+        {keycap && <KeyHint keys={keycap} className="acpmux-chat-menu-key" />}
       </div>
       {/* Both texts share one cell, the other one hidden, so the preview keeps the taller one's height and
           the rows under it never move as the pointer goes from row to row. */}

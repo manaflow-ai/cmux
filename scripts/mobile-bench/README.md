@@ -16,11 +16,13 @@ and prints a table per flow with the competitors' rows from cmux-design-referenc
 
 | File | What it does |
 |---|---|
-| `flows.json` | The 15 flows: stimulus, what counts as the response, when it has settled, the screen region, the moving edge |
+| `flows.json` | The 16 flows: stimulus, what counts as the response, when it has settled, the screen region, the moving edge |
 | `measure.py CLIP_DIR` | Measures one clip: response, settle and motion times, dropped frames, worst frame gap, layout jumps, pop-in bursts, the fitted spring |
 | `cut.py REC MARKERS OUT --app A` | Cuts one long recording into per-flow clips by its `MOBILEBENCH` marker lines |
 | `table.py DIR...` | Side-by-side Markdown tables from measured clips |
 | `compare-mobile FLOW` | All of the above, with the capture |
+| `../measure/ios_rotate.py` | The `rotate` flow from the app's own frames: RotateBenchUITests' trace, marks and main-thread log, per surface and duress run (response, settle, our main thread's longest iteration per turn) |
+| `../measure/ios_snappy.py` | snappy-bench/v1 from the app's own frames (SnappySendBenchUITests, `CMUX_MOBILE_SEND_TRACE`): send to the user row's paint, reserved row in the same frame, send to first token, layout shifts per send, chat switch to paint; local, mock-link cloud and a 1000-turn chat |
 | `test_measure.py` | Synthetic clips with known springs, delays and drops; `python3 scripts/mobile-bench/test_measure.py` |
 
 Only Python's standard library and ffmpeg are needed (PATH, `$MOBILE_BENCH_FFMPEG`, or
@@ -45,8 +47,9 @@ A clip is a folder with `clip.mp4` and `meta.json`:
 ## What the numbers mean
 
 - **Response**: stimulus to the first frame that changes in the flow's region. On the simulator
-  this includes XCUITest's input latency (about one frame); on a Mac-hosted iPhone app, the
-  synthesized event's. Compare like with like: the table's `Source` column says which.
+  the clock starts before the XCTest action call. XCTest may wait for the app to become idle
+  before delivering a touch. A Mac-hosted recording starts at the synthesized input event.
+  Keep the input method with the result when comparing recordings.
 - **Settle**: stimulus to the last change before 300 ms of stillness. **Motion** is settle minus response.
 - **Dropped**: frame slots missed while moving, counted only where the next frame catches up
   (a slow spring tail moving less than a pixel a frame leaves gaps that are not drops).

@@ -5,26 +5,46 @@
 // title tooltip, ui/titleTooltips.ts) runs this once as it shows, before it is placed and painted:
 // it appears at its final size, and nothing keeps watching it.
 
-/** The union of `tip`'s text lines, left to right: each text node's line boxes, never a block
- * child's box (a `.ui-tooltip-detail` line is as wide as the tooltip). */
+/** The width of `tip`'s widest text line: each text node's line boxes, never a block child's box (a
+ * `.ui-tooltip-detail` line is as wide as the tooltip). The shortcut's keycap (`.ui-tooltip-hint`)
+ * floats to the end of the box, so where it lands says nothing about the text: it counts as its
+ * margin box beside the lines it sits next to, never as the span from the text to the box's far
+ * edge (https://github.com/manaflow-ai/cmux/issues/49650: "Opus 5.5 ⌃⌘M" drew at the whole max width, wider than the model chip). */
 function linesWidth(tip: HTMLElement): number {
   const doc = tip.ownerDocument;
   const range = doc.createRange?.();
   if (!range || typeof range.getClientRects !== "function") return 0;
+  const hint = tip.querySelector<HTMLElement>(".ui-tooltip-hint");
   const walker = doc.createTreeWalker(tip, 4 /* NodeFilter.SHOW_TEXT */);
-  let left = Infinity;
-  let right = -Infinity;
+  const lines: { left: number; right: number; top: number; bottom: number }[] = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!node.textContent?.trim()) continue;
+    if (!node.textContent?.trim() || hint?.contains(node)) continue;
     range.selectNodeContents(node);
     for (const rect of range.getClientRects()) {
       if (!(rect.width > 0)) continue;
-      left = Math.min(left, rect.left);
-      right = Math.max(right, rect.right);
+      lines.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom ?? rect.top });
     }
   }
   range.detach?.();
-  return right > left ? right - left : 0;
+  let keycap: { width: number; top: number; bottom: number } | undefined;
+  if (hint) {
+    const box = hint.getBoundingClientRect();
+    const style = doc.defaultView?.getComputedStyle(hint);
+    const margins = style ? (parseFloat(style.marginLeft) || 0) + (parseFloat(style.marginRight) || 0) : 0;
+    if (box.width > 0) keycap = { width: Math.max(0, box.width + margins), top: box.top, bottom: box.bottom };
+  }
+  if (!lines.length) return keycap?.width ?? 0;
+  // Each line from its own start (right-aligned in a right-to-left page, the keycap then on its left);
+  // lines beside the keycap (its first line, and any other it reaches down to) make room for it.
+  // With none measured beside it, it floats beside the first line.
+  const first = Math.min(...lines.map((line) => line.top));
+  const overlaps = (line: { top: number; bottom: number }) =>
+    !!keycap && line.top < keycap.bottom && Math.max(line.bottom, line.top + 1) > keycap.top;
+  const anyBeside = lines.some(overlaps);
+  const beside = (line: { top: number; bottom: number }) =>
+    !!keycap && (anyBeside ? overlaps(line) : line.top === first);
+  const widest = Math.max(...lines.map((line) => line.right - line.left + (beside(line) ? keycap!.width : 0)));
+  return widest > 0 ? widest : 0;
 }
 
 /**

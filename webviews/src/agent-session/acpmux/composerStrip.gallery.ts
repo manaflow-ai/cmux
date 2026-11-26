@@ -92,7 +92,7 @@ export default agentPaneEntry({
       },
     },
     "existing-waiting": {
-      note: 'An existing tab opening while the agent service has not answered ("Waiting for the agent service"): its snapshot is still empty, and no new chat\'s folder and environment strip draws over the composer.',
+      note: "An existing tab opening while the agent service has not answered: its snapshot is still empty, and no new chat's folder and environment strip draws over the composer.",
       nativeDelayMs: { ready: 3_600_000 },
       snapshot: noChat([]),
       play: async (ctx) => {

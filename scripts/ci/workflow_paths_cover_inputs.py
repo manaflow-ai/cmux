@@ -227,6 +227,9 @@ class PyFacts:
     sys_path: list[str]  # absolute directories the file puts on sys.path
     globs: list[str]  # absolute glob patterns (a directory's glob / rglob)
     runs: list[str]  # the paths among `paths` the file runs or loads (a subprocess, spec_from_file_location, runpy)
+    # glob patterns of a listing whose base the walker could not evaluate (`root / rel`, `root` a parameter or
+    # `--root`'s value), relative to that unknown root; the walker keeps the ones naming a repository directory
+    rooted_globs: list[str] = field(default_factory=list)
 
 
 class PathEval:
@@ -250,6 +253,12 @@ class PathEval:
             elif isinstance(node, (ast.For, ast.comprehension)) and isinstance(node.target, ast.Name) \
                     and isinstance(node.iter, (ast.Tuple, ast.List)):
                 self.env.setdefault(node.target.id, []).extend(node.iter.elts)
+        for node in nodes:  # `for rel in SOURCE_DIRS:` over a name bound to a tuple or list literal
+            if isinstance(node, (ast.For, ast.comprehension)) and isinstance(node.target, ast.Name) \
+                    and isinstance(node.iter, ast.Name):
+                for value in self.env.get(node.iter.id, []):
+                    if isinstance(value, (ast.Tuple, ast.List)):
+                        self.env.setdefault(node.target.id, []).extend(value.elts)
         self.stack: set[int] = set()
         self.memo: dict[int, list] = {}
 
@@ -343,18 +352,61 @@ class PathEval:
                             for k, v in self.eval(node.func.value) if k == "p" for ks, s in self.eval(args[0]) if ks == "s"]
         return []
 
+    def rooted(self, node, depth: int = 0) -> list[str]:
+        """A directory expression whose root eval cannot resolve, as paths under that unknown root: `root / "a"`
+        gives "a", `(root / rel)` with `rel` from `SOURCE_DIRS` gives each of them, a bare unknown root gives ""."""
+        if depth > 8:
+            return []
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if any(k == "p" for k, _ in self.eval(node.left)):
+                return []  # resolved from __file__: eval already has it
+            rights = [v for k, v in self.eval(node.right) if k == "s"]
+            return [os.path.normpath(os.path.join(left, right)) for left in self.rooted(node.left, depth + 1)
+                    for right in rights][:32]
+        if isinstance(node, ast.Name):
+            values = self.env.get(node.id, [])
+            if not values:
+                return [""]  # a parameter
+            out = []
+            for value in values[:8]:
+                out.extend(self.rooted(value, depth + 1))
+            return out or [""]
+        if isinstance(node, ast.Attribute):
+            return [""]  # `self.root`, `repo.root`
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr in self.IDENTITY:
+                return self.rooted(node.func.value, depth + 1)
+            return [""]  # `Path(args.root)`
+        return []
+
 
 def python_facts(file_abs: str) -> PyFacts | None:
+    """What FILE_ABS imports, builds as paths, puts on sys.path, globs and runs, or None when it does not parse.
+    Cached on the path and its text: tooling_steps.py's router asks again for every step whose closure holds the file
+    (611 parses of a few hundred files, about half its 10 s), and a file edited in between is parsed afresh."""
     try:
         source = Path(file_abs).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    key = (file_abs, source)
+    if key not in _PY_FACTS:
+        _PY_FACTS[key] = _python_facts(file_abs, source)
+    return _PY_FACTS[key]
+
+
+_PY_FACTS: dict[tuple[str, str], "PyFacts | None"] = {}
+
+
+def _python_facts(file_abs: str, source: str) -> PyFacts | None:
+    try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tree = ast.parse(source, file_abs)
-    except (OSError, UnicodeError, SyntaxError, ValueError):
+    except (SyntaxError, ValueError):
         return None
     nodes = list(ast.walk(tree))
     evaluator = PathEval(file_abs, nodes)
-    imports, paths, sys_path, globs, runs = [], [], [], [], []
+    imports, paths, sys_path, globs, runs, rooted_globs = [], [], [], [], [], []
     for node in nodes:
         if isinstance(node, ast.Import):
             imports.extend((alias.name, 0, ()) for alias in node.names)
@@ -374,11 +426,25 @@ def python_facts(file_abs: str) -> PyFacts | None:
                 for element in node.args[0].elts:
                     sys_path.extend(v for k, v in evaluator.eval(element) if k == "p")
             if isinstance(node.func, ast.Attribute) and node.func.attr in ("glob", "rglob") and node.args:
-                for kind, base in evaluator.eval(node.func.value):
-                    for ks, pattern in evaluator.eval(node.args[0]):
-                        if kind == "p" and ks == "s":
-                            prefix = "**/" if node.func.attr == "rglob" else ""
-                            globs.append(os.path.join(base, prefix + pattern))
+                listed = 0
+                if name in ("glob.glob", "glob.iglob"):  # the module's glob: the pattern is the path
+                    for kind, pattern in evaluator.eval(node.args[0]):
+                        if kind == "p":
+                            globs.append(pattern)
+                            listed += 1
+                else:
+                    for kind, base in evaluator.eval(node.func.value):
+                        for ks, pattern in evaluator.eval(node.args[0]):
+                            if kind == "p" and ks == "s":
+                                prefix = "**/" if node.func.attr == "rglob" else ""
+                                globs.append(os.path.join(base, prefix + pattern))
+                                listed += 1
+                if not listed and name not in ("glob.glob", "glob.iglob"):
+                    prefix = "**/" if node.func.attr == "rglob" else ""
+                    for directory in evaluator.rooted(node.func.value):
+                        for ks, pattern in evaluator.eval(node.args[0]):
+                            if directory and ks == "s":
+                                rooted_globs.append(f"{directory}/{prefix}{pattern}")
         elif isinstance(node, ast.Assign) and any(PathEval.dotted(t) == "sys.path" or (
                 isinstance(t, ast.Subscript) and PathEval.dotted(t.value) == "sys.path") for t in node.targets):
             if isinstance(node.value, (ast.List, ast.Tuple)):
@@ -390,18 +456,109 @@ def python_facts(file_abs: str) -> PyFacts | None:
             for arg in [*node.args, *(k.value for k in node.keywords if k.arg in (None, "args", "location", "path"))]:
                 for inner in ast.walk(arg):
                     runs.extend(v for k, v in evaluator.eval(inner) if k == "p")
-    return PyFacts(imports, sorted(set(paths)), sys_path, globs, sorted(set(runs)))
+    return PyFacts(imports, sorted(set(paths)), sys_path, globs, sorted(set(runs)), sorted(set(rooted_globs)))
 
 
 # --------------------------------------------------------------------------------------------- shell
-def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown: list[str]):
-    """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped."""
-    variables = dict(env)
-    logical = re.sub(r"\\\n", " ", text)
-    for raw in logical.split("\n"):
-        line = raw.strip()
+# `<<EOF`, `<<-'EOF'`, `<< "EOF"`; not a here-string (`<<<`).
+HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+HEREDOC_SHELL = re.compile(r"(?:^|[\s;&|(])(?:bash|sh|zsh|dash)(?:\s+-\w+)*\s*(?:-\s*)?<<")
+QUOTED_LINES_MAX = 400
+
+
+@functools.lru_cache(maxsize=None)  # pure; the router lexes the same script lines once per step that reaches them
+def _quotes_close(line: str) -> bool:
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        for _ in lexer:
+            pass
+    except ValueError:
+        return False
+    return True
+
+
+def shell_lines(logical: str):
+    """The script's command lines, comments dropped. A quoted string that goes on over several lines (`perl -e '`
+    with a program after it, a long message) is one line, not a command per line of its text. A here-document's
+    body is data, not commands: it is left out unless a shell reads it (`bash <<EOF`) or a line of it holds a command
+    substitution (`$(` in an unquoted one), and then its lines are read as before."""
+    lines = logical.split("\n")
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
         if not line or line.startswith("#"):
             continue
+        if not _quotes_close(line):
+            joined, extra = line, 0
+            while index + extra < len(lines) and extra < QUOTED_LINES_MAX:
+                joined += "\n" + lines[index + extra]
+                extra += 1
+                if _quotes_close(joined):
+                    line, index = joined, index + extra
+                    break
+        yield line
+        for match in HEREDOC.finditer(line):
+            quoted, delimiter = bool(match.group(1)), match.group(2)
+            if HEREDOC_SHELL.search(line[:match.end()]):
+                continue
+            while index < len(lines) and lines[index].strip() != delimiter:
+                if not quoted and "$(" in lines[index]:
+                    yield lines[index].strip()
+                index += 1
+            index += 1
+
+
+# `$ROOT/scripts/x.sh`, `"${base}/tools/y.py"`: a variable then a literal path. It runs the tracked file at that path
+# below the checkout (a script finds its siblings from the repository root or a copy of the tree).
+ROOTED_RUN = re.compile(r"^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/([^$`*?\[\s]+)$")
+# `# tooling-steps runs: scripts/measure/tests/*.test.sh ...` or `# tooling-steps runs: nothing tracked`: what every
+# command this script runs from a variable (`bash "$t"`, `"$candidate" "$@"`) can be. The named tracked files are
+# its inputs, walked as code; with `nothing tracked` those commands are tools from the system (timeout, a Python).
+RUNS_DECLARED = re.compile(r"(?m)^\s*#\s*tooling-steps runs:\s*(.+?)\s*$")
+
+
+def declared_runs(repo: "Repo", text: str) -> list[str] | None:
+    """The tracked files a script declares its variable commands run (`# tooling-steps runs:`), or None."""
+    found = RUNS_DECLARED.findall(text)
+    if not found:
+        return None
+    out: list[str] = []
+    for value in found:
+        value = re.sub(r"\s*\(.*\)$", "", value)  # a closing note in parentheses says why
+        if value == "nothing tracked":
+            continue
+        for pattern in value.split():
+            out.extend(repo.glob(pattern) if any(c in pattern for c in "*?[") else
+                       [pattern] if repo.is_file(pattern) else [])
+    return sorted(set(out))
+
+
+def rooted_run(repo: "Repo", target: str) -> str | None:
+    """The tracked file `$VAR/literal/path` runs, or None."""
+    match = ROOTED_RUN.match(target)
+    return match.group(1) if match and repo.is_file(match.group(1)) else None
+
+
+def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown: list[str]):
+    """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped. Cached on
+    its arguments (the words depend on nothing else): the router lexes a script once per step whose closure holds it."""
+    key = (text, script_dir, tuple(sorted(env.items())))
+    if key not in _SHELL_WORDS:
+        _SHELL_WORDS[key] = tuple(_shell_words(text, script_dir, env))
+    for command in _SHELL_WORDS[key]:
+        yield list(command)
+
+
+_SHELL_WORDS: dict[tuple, tuple[list[str], ...]] = {}
+
+
+def _shell_words(text: str, script_dir: str | None, env: dict[str, str]):
+    variables = dict(env)
+    logical = re.sub(r"\\\n", " ", text)
+    for line in shell_lines(logical):
         if script_dir:
             line = SCRIPT_DIR_EXPR.sub(lambda _: script_dir, line)
         line = TOPLEVEL.sub(lambda _: env.get("GITHUB_WORKSPACE", "$__TOPLEVEL"), line)
@@ -437,8 +594,20 @@ def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown:
         except ValueError:
             continue
         command: list[str] = []
+        closer = None  # inside `[[ ... ]]` or an array value `x=( ... )`: `&&`, `||` and parentheses split nothing
         for word in words + [";"]:
-            if word and set(word) <= set(";&|()<>") and not set(word) & set("<>"):
+            if closer:
+                if word == closer:
+                    closer = None
+                command.append(word)
+                continue
+            if word == "[[":
+                closer = "]]"
+                command.append(word)
+            elif word == "(" and command and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?\+?=", command[-1]):
+                closer = ")"
+                command.append(word)
+            elif word and set(word) <= set(";&|()<>") and not set(word) & set("<>"):
                 if command:
                     yield command
                 command = []
@@ -467,13 +636,17 @@ def run_targets(words: list[str]) -> list[str]:
         words = words[1:]
     if not words:
         return []
+    if words[0] in ("[[", "[", "test"):  # a condition runs nothing
+        return []
     if words[0] == "for" and "in" in words:
         items = words[words.index("in") + 1:]
         return items[:items.index("do")] if "do" in items else items
+    if "\n" in words[0]:  # a quoted string over several lines is text, not a path
+        return []
     if INTERPRETERS.match(words[0].rsplit("/", 1)[-1]):
         index = 1
         while index < len(words) and words[index].startswith("-"):
-            if words[index] in ("-m", "-c"):
+            if words[index] in ("-m", "-c", "-e", "-E", "-s"):  # a module, a program in the argument or on stdin
                 return []
             index += 2 if words[index] in ("-o", "-O", "-W", "-X") else 1
         return words[index:index + 1]
@@ -687,6 +860,10 @@ class Walker:
             prel = repo.rel(pattern)
             if prel is not None:
                 self.note_unknown(rel, f"lists {prel}", sink)
+        for pattern in facts.rooted_globs:  # a listing under `--root` (the repository when CI runs it)
+            directory = pattern.split("/**/")[0] if "/**/" in pattern else pattern.rsplit("/", 1)[0]
+            if repo.is_dir(directory):
+                self.note_unknown(rel, f"lists {pattern}", sink)
         here = os.path.dirname(absolute)
         search = [here] + sys_path + [cwd]
         for module, level, names in facts.imports:
@@ -751,7 +928,8 @@ class Walker:
         except (OSError, UnicodeError):
             return []
         script_dir = os.path.dirname(repo.abs(rel))
-        out: list[str] = []
+        declared = declared_runs(repo, text)
+        out: list[str] = list(declared or [])
         env = {"GITHUB_WORKSPACE": str(repo.root)}
         for words in shell_words(text, script_dir, env, []):
             while words and (words[0] in PREFIXES or (ASSIGN.match(words[0]) and "=" in words[0])):
@@ -771,7 +949,9 @@ class Walker:
                 out.extend(found)
                 continue
             for run in run_targets(words):
-                if "$" in run and re.search(r"\.(sh|py|bash)$", run):
+                if "$" in run and rooted_run(repo, run):
+                    out.append(rooted_run(repo, run))
+                elif "$" in run and declared is None and re.search(r"\.(sh|py|bash)$", run):
                     self.note_unknown(rel, f"runs {run}", sink)
                 elif not any(c in run for c in "*?["):  # a script's glob is a listing, not a run list
                     out.extend(self.word_paths(run, cwd))

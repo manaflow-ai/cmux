@@ -90,6 +90,15 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             command.env_remove(key);
         }
     });
+    // The autocompact the person's agent chats start with, over a launcher's draw (`sr2 claude`);
+    // the person's own choice wins (`acpmux::terminal_autocompact`).
+    let args = &with_chat_autocompact(args);
+    // The knobs an agent chat's Claude starts with, and the in-place 529 wait a terminal needs
+    // for want of acpmux's continuation (`acpmux::harness_limits::terminal_claude_env`). The
+    // person's own env wins.
+    for (key, value) in terminal_env(args) {
+        command.env(key, value);
+    }
     let mut launch_args = args.to_vec();
     if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
         drop_cmux_plugin(&mut command);
@@ -100,7 +109,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         command.env(
             acpmux::agent_tools::TOOLS_ANSWER_ENV,
             crate::agent_mcp_choice::tools_answer(
-                cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+                cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("claude"),
             ),
         );
         match prepare_hooks(args) {
@@ -120,6 +129,50 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let _error = command.args(&launch_args).exec();
     eprintln!("{}", messages.agent_start_failed);
     126
+}
+
+/// `args` with the `--autocompact` of the person's default Claude chat profile
+/// (`acpmux::terminal_autocompact`), read from this process's env and folder.
+fn with_chat_autocompact(args: &[OsString]) -> Vec<OsString> {
+    let chat = acpmux::terminal_autocompact::chat_claude_autocompact();
+    let text: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let edit = acpmux::terminal_autocompact::terminal_autocompact(
+        &text,
+        &cwd,
+        |name| std::env::var(name).ok(),
+        chat.as_deref(),
+    );
+    apply_autocompact(args, edit)
+}
+
+/// Applies one [`acpmux::terminal_autocompact::AutocompactEdit`] to `args`.
+fn apply_autocompact(
+    args: &[OsString],
+    edit: acpmux::terminal_autocompact::AutocompactEdit,
+) -> Vec<OsString> {
+    use acpmux::terminal_autocompact::AutocompactEdit;
+    let mut out = args.to_vec();
+    match edit {
+        AutocompactEdit::Keep => {}
+        AutocompactEdit::Prepend(value) => {
+            out.splice(0..0, [OsString::from("--autocompact"), OsString::from(value)]);
+        }
+        AutocompactEdit::Replace(index, value) => {
+            if let Some(slot) = out.get_mut(index) {
+                *slot = OsString::from(value);
+            }
+        }
+    }
+    out
+}
+
+/// The environment this launch adds for Claude (`acpmux::harness_limits::terminal_claude_env`),
+/// read from this process's env and folder.
+fn terminal_env(args: &[OsString]) -> Vec<(&'static str, String)> {
+    let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    acpmux::harness_limits::terminal_claude_env(&args, &cwd, |name| std::env::var(name).ok())
 }
 
 /// Removes cmux-tui's Claude Code plugin from the `CLAUDE_CODE_PLUGIN_DIRS`
@@ -183,7 +236,7 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
     // variadic `--mcp-config`, so a prompt is never read as a config.
     if let Some(socket) = std::env::var_os("CMUX_TUI_SOCKET").filter(|s| !s.is_empty())
         && let Some(config) = crate::agent_mcp_choice::claude_mcp_config(
-            cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("claude"),
             &executable,
             Path::new(&socket),
         )

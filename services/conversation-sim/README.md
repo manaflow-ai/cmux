@@ -46,8 +46,26 @@ bun services/conversation-sim/pressure.ts knobs latencyScale=3 failRate=0.2
 bun services/conversation-sim/pressure.ts state
 bun services/conversation-sim/pressure.ts client group 5    # second "me" client: sends, retries, reacts, edits, resumes
 bun services/conversation-sim/pressure.ts flood direct 30   # 30 concurrent sends from me
+bun services/conversation-sim/connection-bench.ts --drops 5 --output artifacts/connection-bench.jsonl
 ```
 
 Extra admin endpoints beyond the protocol: `GET /admin/state` (heads, event-log
 window, open sockets) and `intervalMs` on `/admin/burst` (`0` creates all
 messages before the response returns).
+
+## Connection benchmark
+
+`connection-bench.ts` owns a simulator on a random local port, sends one
+idempotent message, forces bounded `/admin/disconnect` drops, and reconnects
+with `resumeAfterEventSeq`. It emits one `cmux.connection-bench.v1` JSON line
+with end-to-end forced-drop, burst, reconnect, and replay-completion latency
+(p50/p95/max), replayed and duplicate events, lagged reconnects, retry recovery
+for history and sends, and four goals.
+
+The default goals are every requested drop observed, reconnect p95 under 3 s,
+no lagged replay, idempotent retry of the same `clientMessageId`, and a history
+read that recovers under the configured failure rate. Adjust
+the simulator pressure with `--latency-scale`, `--fail-rate`,
+`--history-fail-rate`, and `--duplicate-rate`. A non-zero exit means a goal
+failed. The checked-in findings note records the offline command and the
+measured receipt.

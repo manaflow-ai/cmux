@@ -230,7 +230,7 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
         <div className="stash-title-row">
           <h1 className="stash-title">{t("stash.title")}</h1>
           {!snap.importOpen && (
-            <button type="button" className="stash-text-button" disabled={off} onClick={() => store.openImport()}>
+            <button type="button" className="stash-text-button" onClick={() => store.openImport()}>
               {t("stash.import.button")}
             </button>
           )}
@@ -258,7 +258,7 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
               className="stash-import-text"
               aria-label={t("stash.import.button")}
               value={snap.importText}
-              disabled={off}
+              disabled={snap.busy}
               // oxlint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               onChange={(event) => store.setImportText(event.target.value)}

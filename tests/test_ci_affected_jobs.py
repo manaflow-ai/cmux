@@ -194,6 +194,21 @@ class Routes(unittest.TestCase):
         self.assertTrue(all(result.run.values()))
         self.assertIn("could not be read", result.everything)
 
+    def test_check_reports_an_unreadable_graph_and_still_checks_the_other_jobs(self):
+        # #53846: a base whose Cargo.toml did not parse crashed the whole check, which hid the PR's own missing path.
+        import tempfile
+        broken = {**FILES, "cmux-tui/crates/app/Cargo.toml": "[package\n"}
+        with tempfile.TemporaryDirectory() as tmp, fake_tree(broken) as tree:
+            root = Path(tmp)
+            (root / jobs.MAP).parent.mkdir(parents=True, exist_ok=True)
+            (root / jobs.MAP).write_text(MAP)
+            (root / ".github/workflows").mkdir(parents=True, exist_ok=True)
+            (root / ".github/workflows/w.yml").write_text("on:\n  pull_request:\n    paths:\n      - cmux-tui/**\njobs:\n")
+            problems = jobs.check(root, tree)
+        text = "\n".join(problems)
+        self.assertIn("cmux-tui/crates/app/Cargo.toml does not parse", text)
+        self.assertIn('the pull_request paths miss "schemas/core.json"', text)
+
     def test_the_root_package_is_its_targets_not_the_workspace(self):
         files = {**FILES, "cmux-tui/Cargo.toml": '[package]\nname = "watch"\nbuild = "build-support/b.rs"\n'
                                                  '[lib]\npath = "build-support/lib.rs"\n' + WORKSPACE_TOML,
@@ -506,10 +521,16 @@ class PullRequestSkip(unittest.TestCase):
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
         self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
         # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
-        self.assertIn("github.event.pull_request.base.ref != '" + jobs.SKIP_BASE + "'", jobs.PR_SKIP_IF)
-        clause = "${{ github.event.pull_request.base.ref != 'feat-cmux-next' }}"
-        self.assertIs(pr_test_lanes.evaluate(clause, pr_test_lanes.event_context("main")), True)
-        self.assertIs(pr_test_lanes.evaluate(clause, context), False)
+        self.assertIn("!startsWith(github.event.pull_request.base.ref, '" + jobs.SKIP_BASE + "')", jobs.PR_SKIP_IF)
+        # A pull request into a branch stacked on feat-cmux-next (feat-cmux-next-ios-infinite-scroll) skips the same
+        # jobs: that branch reaches feat-cmux-next through a PR that skips them too, and the feat-cmux-next push runs
+        # them (Aziz's App Review gate walked 26-30 min on every push into it, 2026-11-22).
+        stacked = pr_test_lanes.event_context("feat-cmux-next-ios-infinite-scroll")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", stacked), True)
+        tier = "${{ !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}"
+        self.assertIs(pr_test_lanes.evaluate(tier, stacked), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, context), False)
+        self.assertIs(pr_test_lanes.evaluate(tier, pr_test_lanes.event_context("main")), True)
 
     def follows(self, gate_line: str, followed: str = ".github/workflows/s.yml heavy") -> list[str]:
         import tempfile
@@ -673,10 +694,77 @@ class TheRepository(unittest.TestCase):
         self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-app-ffi/src/lib.rs"))  # the app links its pinned release
         self.assertEqual(set(router.DAEMON_PATHS) - set(router._daemon_map_inputs(ROOT)), set())
 
+    def test_the_gate_passes_over_only_changes_no_routed_job_reads(self):
+        """`gate` lets the changes job skip the graph: every input of each of cmux-tui-spec.yml's routed jobs, a Rust
+        source or manifest anywhere, the map and the router need it; a web or Swift change does not, and `route` on
+        such a change runs none of the workflow's jobs, so skipping it changes no answer."""
+        workflow = ".github/workflows/cmux-tui-spec.yml"
+        map_text = (ROOT / jobs.MAP).read_text()
+        workspace_inputs, all_jobs = jobs.load_map(map_text)
+        with git_tree.GitTree(ROOT) as tree:
+            graph = jobs.Graph(tree, workspace_inputs, all_jobs)
+            inputs = sorted({entry for job in all_jobs if job.workflow == workflow for entry in graph.inputs(job)})
+            for entry in inputs:
+                probe = entry.rstrip("/") + "/x" if jobs.is_directory(tree, entry) else entry
+                with self.subTest(input=probe):
+                    self.assertTrue(jobs.gate(ROOT, [probe], workflow, map_text=map_text)[0], probe)
+            for path in ("Native/x/src/lib.rs", "cmux-next-ios/rust/Cargo.toml", jobs.MAP, *jobs.SELF, workflow,
+                         ".github/post-merge-batch.json", "scripts/ci/pr_router.json", "cmux-tui/README.md"):
+                with self.subTest(path=path):
+                    self.assertTrue(jobs.gate(ROOT, [path], workflow, map_text=map_text)[0], path)
+            outside = ["webviews/src/App.tsx", "Packages/macOS/CmuxNext/Sources/X/Y.swift", "docs/x.md"]
+            self.assertFalse(jobs.gate(ROOT, outside, workflow, map_text=map_text)[0])
+            result = jobs.route(tree, outside, map_text=map_text, workflow=workflow)
+            self.assertFalse(any(result.run.values()), result.lines())
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
+
+    def test_fix_writes_a_missing_path_in_the_entry_style(self):
+        text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - "b.txt"\n  pull_request:\n    paths:\n      - a/**\njobs:\n  x:\n'
+        pushed = jobs.add_workflow_paths(text, "push", ["skills/x/SKILL.md"])
+        self.assertEqual(jobs.workflow_paths(pushed, "push"), ["a/**", "b.txt", "skills/x/SKILL.md"])
+        self.assertIn('      - "skills/x/SKILL.md"\n', pushed)
+        pulled = jobs.add_workflow_paths(pushed, "pull_request", ["c.txt"])
+        self.assertEqual(jobs.workflow_paths(pulled, "pull_request"), ["a/**", "c.txt"])
+        self.assertIn("      - c.txt\n", pulled)
+        batch = '{"suites": [{"paths": [\n  "a/**"\n]}, {"paths": [\n  "a/**",\n  "b.txt"\n]}]}'
+        added = json.loads(jobs.add_batch_paths(batch, ["a/**", "b.txt"], ["c.txt"]))
+        self.assertEqual([suite["paths"] for suite in added["suites"]], [["a/**"], ["a/**", "b.txt", "c.txt"]])
+
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'
         self.assertEqual(jobs.workflow_paths(text, "push"), ["a/**", "b.txt"])
         self.assertIsNone(jobs.workflow_paths(text, "pull_request"))
+
+
+class ReplayOwnCrateTests(unittest.TestCase):
+    """affected_jobs_replay.py fails a skip of a job whose own crate changed; a binaries_only job (daemon-test runs the
+    published binaries) owns its crates' sources, not their tests/, benches/ or examples/ (cmux#50031)."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("affected_jobs_replay", ROOT / "scripts/ci/affected_jobs_replay.py")
+        cls.replay = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.replay)
+
+    def job(self, binaries_only: bool):
+        return jobs.Job(".github/workflows/x.yml", "j", "j", ["cmux-tui/crates/cmux-tui"], [], [],
+                        binaries_only=binaries_only)
+
+    def test_binaries_only_job_does_not_own_its_crates_tests(self):
+        changed = ["cmux-tui/crates/cmux-tui/tests/terminal_throughput_stages.rs",
+                   "cmux-tui/crates/cmux-tui/benches/b.rs", "cmux-tui/crates/cmux-tui/examples/e.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(True), changed), [])
+
+    def test_binaries_only_job_still_owns_its_sources_and_manifest(self):
+        changed = ["cmux-tui/crates/cmux-tui/src/main.rs", "cmux-tui/crates/cmux-tui/Cargo.toml",
+                   "cmux-tui/crates/cmux-tui/src/tests/mod.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(True), changed), changed)
+
+    def test_a_test_running_job_owns_its_crates_tests(self):
+        changed = ["cmux-tui/crates/cmux-tui/tests/terminal_throughput_stages.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(False), changed), changed)
 
 
 if __name__ == "__main__":

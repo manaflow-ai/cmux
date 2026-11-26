@@ -3,23 +3,28 @@
 // each model family), the family's models, then the shown model's settings (its effort levels and
 // Fast mode). The account is an avatar above the rail, as a browser's profile button: it shows the
 // family's account with the family's mark at its corner, and a click opens a card that switches it.
-// A pick of a model, a level or a provider applies at once and closes the menu, by click or by Return,
-// as the list menu's does (David Beyer 2026-11-20: "the model menu should close after switching").
-// The Fast switch flips in place and keeps it open. Left and Right move between the columns, Up and
-// Down within one: the arrows only move the highlight, so Down, Right and a level's click land
-// another model at that level in one go.
+// A click on a model, a level, a provider or an account applies at once and the menu stays open, as
+// the Fast switch, a star, the search and the rail do: a press outside it or Escape closes it
+// (https://github.com/manaflow-ai/cmux/issues/50998: "the model picker should not disappear until i
+// click outside of it"). Return and a digit are the keyboard's commit: they land the highlighted row
+// and close it. A control that hands off to another surface (Add account, Sign in, Install, Add
+// harness, Update, a harness that only launches) closes it too. Left and Right move between the
+// columns, Up and Down within one: the arrows only move the highlight.
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
+import { asPlainKey, useListKeys } from "../../ui/useListKeys";
+import type { ListCommand } from "../../ui/keyStyle";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon } from "./ComposerPickers";
-import { nearestLevel, reasoningChoices, type Choice } from "./composerPickerModel";
+import { reasoningChoices, type Choice, nearestLevel } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
@@ -27,7 +32,10 @@ import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { droppedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
+import { startRailDrag } from "./railReorder";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { startPopupResize, type PopupResizeAxes } from "../../ui/popupResizeDrag";
 import {
   effortColumnWidth,
   type EffortLabel,
@@ -58,13 +66,10 @@ import {
   type QuickMenu,
   type QuickModel,
 } from "./quickModelMenuModel";
+import { RESIZE_HANDLE_PROPS } from "../../scrollers";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
-/// What a pick did: `landed` a model, level or provider (the menu closes), started setting its harness
-/// up (`setup`: an install or a sign-in, whose progress the menu shows, so it stays open), or `none`.
-type Outcome = "landed" | "setup" | "none";
-const outcome = (setsUp: boolean): Outcome => (setsUp ? "setup" : "landed");
 
 /// A row of the settings column: an effort level, a provider of a model several serve, or Fast mode.
 type TuneRow =
@@ -160,35 +165,71 @@ function markFades(list: HTMLElement) {
   list.toggleAttribute("data-fade-bottom", more && list.scrollTop + list.clientHeight < list.scrollHeight - 1);
 }
 
-/// Keeps a column's highlighted row in view as the keyboard moves it.
+/// How far a row's glide moves it (the transform its keyframe has now), in px: 0 when it does not glide.
+function glideOffset(row: HTMLElement): number {
+  const transform = row.ownerDocument.defaultView?.getComputedStyle(row).transform ?? "none";
+  const match = /^matrix\(([^)]+)\)$/.exec(transform);
+  const dy = match ? Number(match[1]!.split(",")[5]) : 0;
+  return Number.isFinite(dy) ? dy : 0;
+}
+
+/// Keeps a column's highlighted row in view as the keyboard moves it. It reads the row's own slot,
+/// not where a glide draws it this frame: a row that glides up from far below would scroll the list
+/// down to its old place, and the list stayed there (Lucas 2026-11-25, a search for "pi").
 function useRowInView(list: React.RefObject<HTMLDivElement | null>, key: unknown) {
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` names the highlighted row; the effect reads the DOM
-  useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>("[data-hl]")?.scrollIntoView?.({ block: "nearest" });
-  }, [list, key]);
+  useLayoutEffect(() => highlightInView(list.current), [list, key]);
+}
+
+/// Scrolls `scroller` the least that shows its highlighted row's own slot.
+function highlightInView(scroller: HTMLElement | null) {
+  const row = scroller?.querySelector<HTMLElement>("[data-hl]");
+  if (!scroller || !row) return;
+  if (!row.hasAttribute("data-flipping")) {
+    row.scrollIntoView?.({ block: "nearest" });
+    return;
+  }
+  const view = scroller.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  const top = box.top - glideOffset(row) - view.top;
+  const bottom = top + box.height;
+  if (top < 0) scroller.scrollTop += top;
+  else if (bottom > scroller.clientHeight) scroller.scrollTop += bottom - scroller.clientHeight;
 }
 
 type QuickSurfaceProps = React.ComponentProps<typeof QuickModelMenu>;
 
-/// The model button's menu: columns where it has a rail, else the list menu (a menu with no rail,
-/// or the Chief's, which picks its own model).
+/// The model button's menu: columns where it has a rail, else the list menu (a menu with no rail).
+/// A chat on the Chief, which picks its own model, keeps the columns: its tab says so (Lucas
+/// 2026-11-25: a click on Chief "takes you back to the other design").
 export function QuickModelColumns(props: QuickSurfaceProps) {
   const { families } = props.menu;
-  if (!families || props.menu.ownModel) return <QuickModelMenu {...props} />;
+  if (!families) return <QuickModelMenu {...props} />;
   return <Columns {...props} menu={{ ...props.menu, families }} />;
 }
 
 /// Whether `chip` sits in a row packed to its end (justify-content flex-end), where its start
 /// moves with its width. Rows drawn as display: contents, and wrappers that hug the chip, pass to
-/// their parent.
+/// their parent. A wrapper hugs the chip when its content box is the chip's width: New Tab's model
+/// chip has end padding on its wrapper, past the pill (newtab/screen.css). The computed padding is
+/// in CSS px and the rects are zoomed (the page's zoom, a density step), so the padding takes the
+/// rect's scale: the row's rect width over its computed border-box width.
 function rowPackedToEnd(chip: HTMLElement): boolean {
   const view = chip.ownerDocument.defaultView;
   let child: HTMLElement = chip;
   for (let row = chip.parentElement; row && view; row = row.parentElement) {
     const style = view.getComputedStyle(row);
     if (style.display === "contents") continue;
-    // A wrapper as wide as what it holds (the picker's own box) is no row: its parent may be.
-    if (row.getBoundingClientRect().width - child.getBoundingClientRect().width <= 1) {
+    const edges =
+      (Number.parseFloat(style.paddingLeft) || 0) +
+      (Number.parseFloat(style.paddingRight) || 0) +
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
+      (Number.parseFloat(style.borderRightWidth) || 0);
+    const drawn = row.getBoundingClientRect().width;
+    const width = Number.parseFloat(style.width);
+    const box = style.boxSizing === "border-box" ? width : width + edges;
+    const scale = box > 0 ? drawn / box : 1;
+    if (drawn - edges * scale - child.getBoundingClientRect().width <= 1) {
       child = row;
       continue;
     }
@@ -253,10 +294,21 @@ function Columns({
   // The chip's edge that stays put as its name changes: in a row packed to its end (the chat's quiet
   // row) a longer or shorter name moves the chip's start, so the menu lines up with its end and never
   // jumps as a model, a level or Fast changes the chip.
+  // A chip in the end half of its chat column lines up with its end too (the New Tab row spreads its
+  // chips, the model chip at the far end): aligned to the start, the menu overflowed past the column,
+  // the positioner shifted it back, and a resize moved it, since the drag pins the edges a start
+  // alignment has (Lucas 2026-11-25: "ensure the anchor of the menu is always the same and only size
+  // changes"). Aligned to the end, the chip's end edge stays put and the menu grows from its start.
   const [align, setAlign] = useState<"start" | "end">("start");
   useLayoutEffect(() => {
     const chip = button.current ?? trigger.current;
-    if (open && chip) setAlign(rowPackedToEnd(chip) ? "end" : "start");
+    if (!open || !chip) return;
+    const box = chip.getBoundingClientRect();
+    const column = chip.ownerDocument.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const left = column?.left ?? 0;
+    const right = column?.right ?? chip.ownerDocument.defaultView?.innerWidth ?? box.right;
+    const endHalf = box.left + box.width / 2 > (left + right) / 2;
+    setAlign(rowPackedToEnd(chip) || endHalf ? "end" : "start");
   }, [open, trigger]);
   // The menu stays where it opened while it is open: a pick lands at once and renames the chip, and a
   // longer or shorter name never moves the menu under the pointer. A resized window places it again.
@@ -297,6 +349,8 @@ function Columns({
   const [tuneHl, setTuneHl] = useState(0);
   // Return runs the settings row the arrows reached; after a click on one it only closes, so it never
   // turns a Fast just switched on off again.
+  // The last level picked in this opening, on any model: the next model clicked carries it.
+  const [chosenLevel, setChosenLevel] = useState<string>();
   const [tuneKeys, setTuneKeys] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // The running model's level or Fast shows at once, until the session reports its own.
@@ -388,37 +442,65 @@ function Columns({
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
   // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
-  // Each keeps its old place for the frame it lands and glides to the new one on one clock (a CSS
-  // keyframe, see quickModelColumns.css), so a keystroke is one continuous move, not a jump.
+  // A row that moves a short way (two rows at most) keeps its old place for the frame it lands and
+  // glides to the new one on one clock (a CSS keyframe, see quickModelColumns.css). A row that moves
+  // further would fly across the list, under headings that do not glide, and leave frames with no
+  // rows at all (Lucas 2026-11-25: "make the searching less snappy"): after a keystroke it fades in
+  // at its new slot, as a row the search just found does; after a tab it is there at once. A
+  // keystroke that only removes rows glides the rest up; one that brings rows in fades them in.
   const flipSlots = useRef<Map<string, number>>(new Map());
+  const flipQuery = useRef(query);
   useLayoutEffect(() => {
     const list = modelsList.current;
     if (!list) {
       flipSlots.current = new Map();
+      flipQuery.current = query;
       return;
     }
+    const typed = flipQuery.current !== query;
+    flipQuery.current = query;
+    // Each keystroke shows its matches from the top, the first one's heading too.
+    if (typed) list.scrollTop = 0;
     const top = list.getBoundingClientRect().top - list.scrollTop;
     const slots = new Map<string, number>();
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const rows = [...list.querySelectorAll<HTMLElement>("[data-flip]")];
     // Read every row's slot first, then write: one layout, not one per row.
-    const places = rows.map((row) => row.getBoundingClientRect().top - top);
+    const places = rows.map((row) => {
+      const box = row.getBoundingClientRect();
+      return { slot: box.top - top, height: box.height };
+    });
     const moved: [HTMLElement, number][] = [];
+    const entering: HTMLElement[] = [];
+    const before = flipSlots.current;
     rows.forEach((row, at) => {
       const key = row.dataset.flip ?? "";
-      const slot = places[at]!;
+      const { slot, height } = places[at]!;
       slots.set(key, slot);
-      const was = flipSlots.current.get(key);
-      if (was !== undefined && !reduced && Math.abs(was - slot) >= 0.5) moved.push([row, was - slot]);
+      if (reduced || before.size === 0) return;
+      const was = before.get(key);
+      const dy = was === undefined ? Number.POSITIVE_INFINITY : was - slot;
+      if (Math.abs(dy) < 0.5) return;
+      if (Math.abs(dy) <= height * 2) moved.push([row, dy]);
+      else if (typed) entering.push(row);
     });
+    // A row fading in where another glides out of draws one over the other (a heading the search
+    // just found over the first model): when a keystroke brings rows in, the others take their new
+    // slots at once.
+    if (entering.length > 0) moved.length = 0;
     for (const [row, dy] of moved) {
       row.style.setProperty("--flip-dy", `${dy}px`);
       row.removeAttribute("data-flipping");
     }
-    if (moved.length > 0) void list.offsetWidth;
+    for (const row of entering) row.removeAttribute("data-entering");
+    if (moved.length > 0 || entering.length > 0) void list.offsetWidth;
     for (const [row] of moved) {
       row.setAttribute("data-flipping", "");
       row.addEventListener("animationend", () => row.removeAttribute("data-flipping"), { once: true });
+    }
+    for (const row of entering) {
+      row.setAttribute("data-entering", "");
+      row.addEventListener("animationend", () => row.removeAttribute("data-entering"), { once: true });
     }
     flipSlots.current = slots;
   });
@@ -572,7 +654,26 @@ function Columns({
     return () => observer.disconnect();
   }, [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
-  const tabs = useMemo(() => familyTabs(list), [list]);
+  // The person's tab order (modelPickerOrder.ts): Starred first, then theirs, then the rest.
+  const order = useModelPickerOrder();
+  const tabs = useMemo(
+    () =>
+      orderTabs(
+        familyTabs(list).map((tab) => ({ ...tab, starred: tab.routes.some((route) => route.starred) })),
+        order,
+      ),
+    [list, order],
+  );
+  /// A drag dropped the tab `key` at `to` among the movable tabs: that is the order now.
+  const dropTab = (key: string, to: number) =>
+    setModelPickerOrder(
+      droppedOrder(
+        order,
+        tabs.filter((tab) => !tab.starred).map((tab) => tab.key),
+        key,
+        to,
+      ),
+    );
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groups = useMemo(
@@ -608,7 +709,13 @@ function Columns({
     setWasOpen(open);
     if (open) {
       // A held pick of another harness opens on its tab: the menu shows what the next message runs.
-      const first = heldTab(families) ?? families.current ?? list.find((family) => !family.starred)?.id;
+      // Else the chat's tab, on the route it opens on (leadRoute): a New Tab on a Gemini CLI that cannot
+      // start opens on Antigravity, as a click on the tab does.
+      const currentTab = familyTabs(list).find((tab) => tab.routes.some((route) => route.id === families.current));
+      const first =
+        heldTab(families) ??
+        (currentTab ? leadRoute(currentTab, families.current).id : families.current) ??
+        list.find((family) => !family.starred)?.id;
       setTab(first);
       setQuery("");
       setCol(1);
@@ -619,8 +726,25 @@ function Columns({
       setModelHl(-1);
       setHeld(undefined);
       setPending(undefined);
+      setChosenLevel(undefined);
       setHandPickedUnder(undefined);
       setFastOffFor(undefined);
+    }
+  }
+  // The chat's harness changing under an open menu (a New Tab's chat started on another harness, a
+  // switch landed) moves it to that harness's tab: a menu kept open across it still showed the old
+  // harness's tab and models (cmux#55750: an Antigravity chat's picker on Claude Code's). A reply
+  // streaming in keeps the harness, so the tab and the typed filter stay.
+  const [seenCurrent, setSeenCurrent] = useState(families.current);
+  if (families.current !== seenCurrent) {
+    setSeenCurrent(families.current);
+    if (open && families.current) {
+      setTab(heldTab(families) ?? families.current);
+      setCol(1);
+      setModelHl(-1);
+      setHeld(undefined);
+      setPending(undefined);
+      setChosenLevel(undefined);
     }
   }
 
@@ -681,7 +805,7 @@ function Columns({
   const carriedLevel = (model: QuickModel) => {
     const choices = levelsOf(model);
     if (!choices.length) return undefined;
-    const now = held?.effort ?? effort?.current;
+    const now = chosenLevel ?? held?.effort ?? effort?.current;
     if (now === "ultracode" && choices.some((choice) => choice.id === "xhigh")) return "xhigh";
     return nearestLevel(now, choices) ?? model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
   };
@@ -843,148 +967,96 @@ function Columns({
     observer.observe(list);
     return () => observer.disconnect();
   }, [open, modelsListElement, rowsKey, pending, current, markStarRooms]);
-  // Edge and corner drags share one frame update and pin the sides nearest the chip.
-  const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: "width" | "height" | "both") => {
+  // Edge and corner drags share one frame update and pin the sides nearest the chip (ui/popupResizeDrag.ts,
+  // the same drag every composer dropdown has).
+  const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: PopupResizeAxes) => {
     const popup = popupRef.current;
-    const positioner = popup?.parentElement;
     const content = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
-    if (event.button !== 0 || !popup || !positioner || !content) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const horizontal = axes !== "height";
-    const vertical = axes !== "width";
-    const grip = event.currentTarget;
+    if (!popup || !content) return;
     const doc = popup.ownerDocument;
     const view = doc.defaultView;
-    const start = popup.getBoundingClientRect();
-    const startHeight = content.getBoundingClientRect().height;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const fromEnd = align === "end";
-    const fromTop = side === "top";
-    const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
-    const left = (bound?.left ?? 0) + 5;
-    const right = (bound?.right ?? view?.innerWidth ?? start.right) - 5;
-    const mostWidth = Math.max(0, Math.floor(fromEnd ? start.right - left : right - start.left));
-    const leastWidth = Math.min(mostWidth, MODEL_MENU_MIN_WIDTH);
-    const bottom = (view?.innerHeight ?? start.bottom) - 5;
-    const mostHeight = Math.max(0, Math.floor(fromTop ? start.bottom - 5 : bottom - start.top));
-    const leastHeight = Math.min(mostHeight, MODEL_MENU_MIN_HEIGHT);
-    let width = start.width;
-    let height = startHeight;
-    const pin = () => {
-      const wantedX = fromEnd ? start.right - width : start.left;
-      const wantedY = vertical && fromTop ? start.bottom - popup.getBoundingClientRect().height : start.top;
-      const placed = positioner.getBoundingClientRect();
-      const x = horizontal ? Math.round((wantedX - placed.left) * 100) / 100 : 0;
-      const y = vertical ? Math.round((wantedY - placed.top) * 100) / 100 : 0;
-      popup.style.translate = x || y ? `${x}px ${y}px` : "";
-      return x === 0 && y === 0;
-    };
-    const placed = new MutationObserver(() => {
-      if (pin() && !dragging.current) placed.disconnect();
+    const column = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const box = popup.getBoundingClientRect();
+    startPopupResize(event, {
+      popup,
+      content,
+      axes,
+      fromEnd: align === "end",
+      fromTop: side === "top",
+      least: { width: MODEL_MENU_MIN_WIDTH, height: MODEL_MENU_MIN_HEIGHT },
+      bound: {
+        left: (column?.left ?? 0) + 5,
+        right: (column?.right ?? view?.innerWidth ?? box.right) - 5,
+        top: 5,
+        bottom: (view?.innerHeight ?? box.bottom) - 5,
+      },
+      onStart: () => {
+        dragging.current = true;
+      },
+      onEnd: (size) => {
+        dragging.current = false;
+        if (axes !== "height") {
+          if (size.width !== undefined) setModelMenuWidth(size.width);
+          widthOf(popup);
+        }
+        if (axes !== "width") {
+          if (size.height !== undefined) setModelMenuHeight(size.height);
+          else heightOf(popup);
+        }
+      },
     });
-    placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
-    grip.setPointerCapture?.(event.pointerId);
-    grip.dataset.dragging = "";
-    dragging.current = true;
-    let frame = 0;
-    let pointerX = startX;
-    let pointerY = startY;
-    const apply = () => {
-      frame = 0;
-      if (horizontal) {
-        const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
-        width = Math.round(Math.min(mostWidth, Math.max(leastWidth, start.width + delta)));
-        popup.style.width = `${width}px`;
-        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${mostWidth}px)`;
-        popup.style.maxWidth = `${mostWidth}px`;
-      }
-      if (vertical) {
-        const delta = (pointerY - startY) * (fromTop ? -1 : 1);
-        height = Math.round(Math.min(mostHeight, Math.max(leastHeight, startHeight + delta)));
-        content.style.minHeight = "";
-        content.style.height = `${height}px`;
-        content.style.maxHeight = `${height}px`;
-      }
-      pin();
-    };
-    const move = (next: PointerEvent) => {
-      pointerX = next.clientX;
-      pointerY = next.clientY;
-      if (!frame) frame = view?.requestAnimationFrame(apply) ?? 0;
-      if (!frame) apply();
-    };
-    const end = () => {
-      if (frame) view?.cancelAnimationFrame(frame);
-      apply();
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", end);
-      grip.removeEventListener("pointercancel", end);
-      delete grip.dataset.dragging;
-      dragging.current = false;
-      if (pin()) placed.disconnect();
-      if (horizontal) {
-        if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
-        widthOf(popup);
-      }
-      if (vertical) {
-        if (Math.abs(height - startHeight) >= 1) setModelMenuHeight(height);
-        else heightOf(popup);
-      }
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", end);
-    grip.addEventListener("pointercancel", end);
   };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row). The
-  /// caller closes the menu, except after the Fast switch. True when the pick sets its harness up
-  /// instead (installs it, signs it in): the menu stays open on that progress (`setup`).
-  const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }): boolean => {
-    if (model.disabled) return false;
+  /// menu stays open; a pick that sets its harness up shows that progress in it.
+  const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
+    if (model.disabled) return;
     const { effort: _effort, fast: _fast, ...base } = model;
     const pick: Pending = {
       model: { ...base, ...(choice.effort ? { effort: choice.effort } : {}), ...(choice.fast ? { fast: true } : {}) },
       viaSearch: !!query,
     };
     setPending(pick);
-    const setsUp = pick.viaSearch && menu.search ? menu.search.pick(pick.model) : menu.families.onPick(pick.model);
-    return setsUp === true;
+    if (pick.viaSearch && menu.search) menu.search.pick(pick.model);
+    else menu.families.onPick(pick.model);
   };
   /// The level another model lands with: the carried one. None when there is no way to land one
   /// with the model.
   const inheritedLevel = (model: QuickModel) => (menu.inlineEffort === true ? carriedLevel(model) : undefined);
-  const pickModel = (index: number): Outcome => {
+  const pickModel = (index: number) => {
     const model = rows[index];
-    if (!model || model.disabled) return "none";
+    if (!model || model.disabled) return;
     setModelHl(index);
     setTuneHl(0);
+    // The model already picked in this opening: a click again keeps its level and Fast (#50998).
+    if (pending && keyOf(pending.model) === keyOf(model) && !model.effort && !model.fast) return;
     // The running model again: nothing to land, unless a search named a level or Fast for it. With
-    // another harness's model held, it is a pick again: it drops the hold.
+    // another harness's model held, or another model picked in this opening, it is a pick again: it
+    // drops the hold, and lands the running model back.
     if (isRunning(model) && !model.effort && !model.fast) {
+      const repick = heldFor || !!pending;
       setPending(undefined);
-      if (heldFor) menu.families.onPick(model);
-      return "landed";
+      if (repick) menu.families.onPick(model);
+      return;
     }
-    const result = outcome(hold(model, { effort: model.effort ?? inheritedLevel(model), fast: carriedFast(model) }));
+    hold(model, { effort: model.effort ?? inheritedLevel(model), fast: carriedFast(model) });
     // Fast switched off on this row before its pick: the chat's own Fast goes off with it.
     if (fastOffFor === keyOf(model) && !model.fast && model.family === families.current && fast?.checked)
       fast.onChange(false);
-    return result;
   };
-  const pickLevel = (value: string): Outcome => {
-    if (!focus || focusOff || !canLandEffort) return "none";
+  const pickLevel = (value: string) => {
+    if (!focus || focusOff || !canLandEffort) return;
+    setChosenLevel(value);
     setHandPickedUnder(query);
     if (focusRuns && effort && !picked) {
       setHeld({ ...mine, key: focusKey, effort: value });
       effort.onPick(value);
-      return "landed";
+      return;
     }
-    return outcome(hold(picked ?? focus, { effort: value, fast: fastOn }));
+    hold(picked ?? focus, { effort: value, fast: fastOn });
   };
-  /// Fast is a switch: it never closes the menu, also when it lands another model with Fast.
-  const toggleFast = (): Outcome => {
-    if (!focus || focusOff) return "none";
+  /// Fast is a switch, also when it lands another model with Fast.
+  const toggleFast = () => {
+    if (!focus || focusOff) return;
     setHandPickedUnder(query);
     const on = !fastOn;
     // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
@@ -1003,16 +1075,15 @@ function Columns({
       if (!picked) setFastOffFor(undefined);
       hold(picked ?? focus, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: on });
     }
-    return "none";
   };
   /// A provider of the shown model: it keeps the level and Fast already picked here.
-  const pickOffer = (offer: QuickModel): Outcome => {
-    if (focusOff) return "none";
-    return outcome(hold(offer, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: fastOn }));
+  const pickOffer = (offer: QuickModel) => {
+    if (focusOff) return;
+    hold(offer, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: fastOn });
   };
-  const runTune = (index: number): Outcome => {
+  const runTune = (index: number) => {
     const row = tuneRows[index];
-    if (!row) return "none";
+    if (!row) return;
     if (row.kind === "level") return pickLevel(row.choice.id);
     if (row.kind === "offer") return pickOffer(row.offer);
     return toggleFast();
@@ -1055,12 +1126,13 @@ function Columns({
     setModelHl(-1);
   };
 
-  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const columnKeys = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
     if ((event.metaKey && !commandDigit) || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // A focused button (the avatar, a card row, a star) keeps its own Return and Space.
-    if (event.target !== field.current && event.target !== event.currentTarget) return;
+    if (event.target !== field.current && event.target !== event.currentTarget && event.target !== modelsList.current)
+      return;
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     const clamp = (n: number, length: number) => Math.max(0, Math.min(length - 1, n));
     if (step) {
@@ -1102,9 +1174,10 @@ function Columns({
         families.onLaunch?.(launchOnly.id);
         return;
       }
-      // Return closes the menu, after a pick or with none, unless the pick sets its harness up.
-      const done = col === 2 && tuneKeys ? runTune(tuneHl) : col === 1 && focus && !picked ? pickModel(hl) : "none";
-      if (done !== "setup") close();
+      // Return is the keyboard's commit: it lands the highlighted row and closes the menu.
+      if (col === 2 && tuneKeys) runTune(tuneHl);
+      else if (col === 1 && focus && !picked) pickModel(hl);
+      close();
       return;
     }
     // 1 to 9 on an empty field pick the tab's rows, as in the list menu.
@@ -1112,8 +1185,44 @@ function Columns({
       const index = Number(event.key) - 1;
       if (!rows[index]) return;
       event.preventDefault();
-      if (pickModel(index) !== "setup") close();
+      pickModel(index);
+      close();
     }
+  };
+
+  // `app.keyStyle`. The field keeps its typing: Emacs' Ctrl-N/P move as the arrows do, and Vim's
+  // Esc (Emacs' Ctrl-G) gives the keyboard to the model list. There (modelListCommand) j/k, gg/G, l
+  // and h are the arrows, Home, End, Return and Left; / goes back to the field; Esc is the menu's.
+  const fieldKeys = useListKeys({
+    onCommand: (command, _native, pressed) => {
+      const event = pressed as React.KeyboardEvent<HTMLDivElement>;
+      if (command === "list.next" || command === "list.previous")
+        return columnKeys(asPlainKey(event, command === "list.next" ? "ArrowDown" : "ArrowUp"));
+      if (command !== "list.leave" || !modelsList.current) return false;
+      setCol(1);
+      focusRoute(modelsList.current, "person", "key style list key", { preventScroll: true });
+    },
+  });
+  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target === field.current) fieldKeys(event);
+    if (!event.defaultPrevented) columnKeys(event);
+  };
+  const modelListCommand = (command: ListCommand, event: React.KeyboardEvent<HTMLDivElement>): boolean | void => {
+    const key: Partial<Record<ListCommand, string>> = {
+      "list.next": "ArrowDown",
+      "list.previous": "ArrowUp",
+      "list.open": "Enter",
+      "list.back": "ArrowLeft",
+    };
+    if (command === "list.first" || command === "list.last") {
+      if (rows.length) setModelHl(command === "list.first" ? 0 : rows.length - 1);
+      return;
+    }
+    if (command === "list.search")
+      return void focusRoute(field.current, "person", "key style list key", { preventScroll: true });
+    const plain = key[command];
+    if (!plain) return false;
+    columnKeys(asPlainKey(event, plain));
   };
 
   // The avatar: the account of the harness whose model the settings column shows (on Starred and in a
@@ -1145,7 +1254,9 @@ function Columns({
       ? faceOf(activeAccount, t("picker.harnessLogin"))
       : (routeFace ?? faceOf(undefined, t("picker.harnessLogin")));
   const ownerName = ownerTab?.name ?? owner?.name ?? "";
-  const badge = owner?.mark ?? owner?.id;
+  // The tab's brand mark when its routes are other products (Gemini for Antigravity, Lucas
+  // 2026-11-25), else the route's own.
+  const badge = ownerTab?.mark ?? owner?.mark ?? owner?.id;
   const login = t("picker.harnessLogin");
   // A row's detail: what kind of account it is. The harness's own login says nothing more.
   const kindLabel = (kind: string | undefined) =>
@@ -1180,8 +1291,13 @@ function Columns({
     setAdding({ family: addFamily, apiKey: signedOut });
     setAddingAccount(true);
   };
+  /// An account switches in place: its card folds back to the avatar, which shows it, and the menu stays.
   const pickAccount = (routeId: string | null) => {
-    close();
+    setProfileOpen(false);
+    // Return on a card row unmounts the row it focused: the keyboard goes back to the search field.
+    focusRoute(field.current, "person", "an account picked on the card: back to the search field", {
+      preventScroll: true,
+    });
     accounts.pick(routeId);
   };
   // The card lists only the accounts the harness is not on: its other routes (transports, logins,
@@ -1233,7 +1349,10 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
+    <InlineCard
+      className="acpmux-cols-card ui-glass ui-glass-floats ui-glass-transient"
+      label={`${ownerName} · ${t("picker.account")}`}
+    >
       <div className="acpmux-cols-card-head">
         <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
@@ -1333,7 +1452,7 @@ function Columns({
         aria-description={model.hint ?? model.provider}
         onPick={() => {
           setCol(1);
-          if (pickModel(index) === "landed") close();
+          pickModel(index);
         }}
       >
         {/* The name's tooltip is the name alone, only while the row cuts it off (titleTooltips repeatsLabel), at
@@ -1404,7 +1523,7 @@ function Columns({
     key: string,
     checked: boolean,
     disabled: boolean,
-    onClick: () => Outcome,
+    onClick: () => void,
     body: React.ReactNode,
     kind: "radio" | "switch" = "radio",
     title?: string,
@@ -1429,8 +1548,8 @@ function Columns({
           setCol(2);
           setTuneKeys(false);
           setTuneHl(index);
-          // A level or a provider is a pick, which closes the menu as Return does; Fast is a switch.
-          if (onClick() === "landed") close();
+          // A level, a provider or Fast lands at once; the menu stays open (#50998).
+          onClick();
         }}
       >
         {body}
@@ -1492,6 +1611,10 @@ function Columns({
         side={side}
         align={align}
         flip={false}
+        // Its own size rule (widthOf, heightOf, sizeHold): the shared settled floor (ui/popupSettle.ts)
+        // would keep the widest width it had, so a drag could never narrow it and the drag's pin for
+        // the narrower width moved the menu off its chip.
+        popupSettle="own"
         initialFocus={field}
         finalFocus={false}
       >
@@ -1500,6 +1623,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the width also has its default */}
         <div
           className="acpmux-cols-resize"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={align === "end" ? "start" : "end"}
           aria-hidden="true"
           onPointerDown={(event) => startResize(event, "width")}
@@ -1510,6 +1634,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the height also has its default */}
         <div
           className="acpmux-cols-resize-y"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={side === "top" ? "top" : "bottom"}
           aria-hidden="true"
           onPointerDown={(event) => startResize(event, "height")}
@@ -1518,6 +1643,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; both dimensions also have defaults */}
         <div
           className="acpmux-cols-resize-corner"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={align === "end" ? "start" : "end"}
           data-side={side === "top" ? "top" : "bottom"}
           aria-hidden="true"
@@ -1683,6 +1809,10 @@ function Columns({
                       className="acpmux-cols-tab"
                       data-hl={selected ? "" : undefined}
                       data-off={family.setUp ? "" : undefined}
+                      // Every harness tab moves along the rail; Starred stays first (railReorder.ts).
+                      data-tab-key={entry.key}
+                      data-movable={entry.starred ? undefined : ""}
+                      onPointerDown={entry.starred ? undefined : (event) => startRailDrag(event, "y", dropTab)}
                       onPick={() => {
                         setCol(1);
                         showTab(index);
@@ -1690,8 +1820,8 @@ function Columns({
                     >
                       {family.starred ? (
                         <StarIcon filled={selected} />
-                      ) : symbolOf(family) ? (
-                        <AgentMark agent={family.mark} size={16} />
+                      ) : symbolOf({ mark: entry.mark ?? family.mark }) ? (
+                        <AgentMark agent={entry.mark ?? family.mark} size={16} />
                       ) : (
                         <span className="acpmux-cols-initial" aria-hidden="true">
                           {initialOf(entry.name)}
@@ -1721,6 +1851,7 @@ function Columns({
 
               <DrivenList
                 ref={holdModelsList}
+                onListCommand={modelListCommand}
                 kind="listbox"
                 label={t("picker.model")}
                 className="acpmux-cols-list"
@@ -1729,22 +1860,22 @@ function Columns({
                 onScroll={(event) => markFades(event.currentTarget)}
                 data-col-focus={col === 1 ? "" : undefined}
               >
-                {models}
-                {query && rows.length === 0 && (
-                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                    <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
-                  </div>
-                )}
+                {/* A harness this Mac lacks (or a signed-out one) leads its list with its note and its
+                  Install or Log In row, above its catalog models, where the eye lands first. */}
                 {tabEmpty && (
                   <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
                     <span className="acpmux-cols-name">
-                      {shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet"))}
+                      {shown.setUp
+                        ? t("harnesses.notInstalledNamed", { agent: shownTab?.name ?? shown.name })
+                        : (shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet")))}
                     </span>
                   </div>
                 )}
                 {!query && shown?.note && rows.length > 0 && shown.setUp && (
                   <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                    <span className="acpmux-cols-name">{shown.note}</span>
+                    <span className="acpmux-cols-name">
+                      {t("harnesses.notInstalledNamed", { agent: shownTab?.name ?? shown.name })}
+                    </span>
                   </div>
                 )}
                 {!query && shown?.note && shown.logIn && (
@@ -1770,6 +1901,12 @@ function Columns({
                   >
                     <span className="acpmux-cols-name">{t("harnesses.install")}</span>
                   </DrivenRow>
+                )}
+                {models}
+                {query && rows.length === 0 && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                    <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
+                  </div>
                 )}
               </DrivenList>
             </div>
@@ -1798,7 +1935,7 @@ function Columns({
                 {focus && (
                   <>
                     {ladder.length === 0 && (
-                      <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                      <div className="acpmux-cols-row acpmux-cols-none" aria-disabled="true">
                         <span className="acpmux-cols-name">{t("picker.effortNone")}</span>
                       </div>
                     )}

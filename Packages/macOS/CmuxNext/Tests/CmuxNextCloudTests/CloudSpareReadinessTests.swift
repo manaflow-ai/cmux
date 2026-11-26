@@ -81,6 +81,15 @@ import Testing
         }
     }
 
+    @Test func aSignInWarmsTheSpareOnceAndSigningOutDoesNot() {
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: .none, now: "u1\u{0}t1")) // the first scope after the restore (a launch's sign-in)
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: .some(nil), now: "u1\u{0}t1")) // signed out, then in
+        #expect(CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: "u1\u{0}t2")) // another team: its own spare
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: "u1\u{0}t1"))
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: "u1\u{0}t1", now: nil))
+        #expect(!CloudSpareReadiness.warmsAtSignIn(previous: .none, now: nil))
+    }
+
     @Test func aPrimedSpareIsKeyedOnceForItsScopeAndRun() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")
@@ -354,6 +363,68 @@ import Testing
     }
 
     /// With no route read supplied (an app that reads none ahead), a prime keys and links as before.
+    /// The first home chat of a keyed spare is warmed once per daemon run, never on a spare that is not keyed, and a warm
+    /// that left no agent ready waits before the next.
+    @Test func aKeyedSparesFirstHomeChatIsWarmedOncePerRun() async {
+        let world = World()
+        var dependencies = world.dependencies(), warms: [String] = []
+        dependencies.warm = { machine in warms.append(machine); return true }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == ["vm_spare"])
+        #expect(readiness.holdsHomeWarm("vm_spare", instance: "run-1"))
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == ["vm_spare"], "one warm per run")
+        // A new daemon run is warmed again (the old run's agent is gone with it).
+        world.answer = "run-2"
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == ["vm_spare", "vm_spare"])
+        #expect(readiness.holdsHomeWarm("vm_spare", instance: "run-2"))
+    }
+
+    @Test func aWarmThatLeftNoAgentReadyWaitsBeforeTheNext() async {
+        let world = World()
+        var dependencies = world.dependencies(), warms = 0, ready = false
+        dependencies.warm = { _ in warms += 1; return ready }
+        let readiness = CloudSpareReadiness(dependencies)
+        var clock = ContinuousClock.now
+        readiness.now = { clock }
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 1)
+        #expect(!readiness.holdsHomeWarm("vm_spare", instance: "run-1"))
+        ready = true
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 1)
+        clock = clock.advanced(by: CloudSpareReadiness.keyRetry + .seconds(1))
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 2)
+        #expect(readiness.holdsHomeWarm("vm_spare", instance: "run-1"))
+    }
+
+    @Test func aSpareThatIsNotKeyedOrAResetWarmsNothing() async {
+        let world = World()
+        world.answer = nil
+        var dependencies = world.dependencies(), warms = 0
+        dependencies.warm = { _ in warms += 1; return true }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 0)
+        world.answer = "run-1"
+        readiness.reset()
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(warms == 1)
+        readiness.reset()
+        #expect(!readiness.holdsHomeWarm("vm_spare", instance: "run-1"), "a reset forgets the warm")
+    }
+
     @Test func noRouteReadSuppliedReadsNothing() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         readiness.prime("vm_spare", team: "team_a")

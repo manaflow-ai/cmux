@@ -15,8 +15,9 @@ name: cmux-next tip test-compile
 # Cost and fairness (scripts/ci/tip-test-compile.sh):
 #   - one run at a time: the concurrency group keeps at most one newer run
 #     pending, and GitHub cancels a pending run when a still newer push comes;
-#   - the fleet step runs in the controller's background class (cmux-ci run
-#     --background, priority -10000): after every urgent, manual and agent job;
+#   - the fleet step runs in the controller's idle request class (cmux-ci run
+#     --priority idle, cmuxterm-hq#23557; --background on an older client):
+#     after every urgent, manual and agent job;
 #   - while the step is still queued, a newer push's pending run cancels it, and
 #     it gives up (no verdict) after 45 minutes in the queue, so the one gateway
 #     runner it holds goes back to required compiles. A started step is never
@@ -64,7 +65,7 @@ jobs:
   plan:
     name: tip test-compile plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -145,7 +146,9 @@ jobs:
           submodules: false
           ref: ${{ inputs.sha || '' }}
           fetch-depth: 1
-          sparse-checkout: scripts/ci/tip-test-compile.sh
+          sparse-checkout: |
+            scripts/ci/tip-test-compile.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Compile the planned test targets on a fleet Mac
@@ -170,7 +173,7 @@ jobs:
     needs: [plan, compile]
     # Not in a bisect probe (inputs.only set): a probe of an older commit must not open or close the tip's issue.
     if: ${{ !cancelled() && inputs.only == '' && needs.plan.outputs.needed == 'true' && needs.compile.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       issues: write
       actions: write

@@ -12,6 +12,10 @@ pub struct Target {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// This candidate's own plan hint, put before the shared task so attempts of one model
+    /// diverge on purpose (best-of-N diversity); none is the task alone. Never sent to the reviewer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

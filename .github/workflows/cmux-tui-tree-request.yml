@@ -49,7 +49,7 @@ jobs:
   request:
     name: request the cmux-tui tree publish
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       # actions: write re-runs a cmux-tui artifacts run.
@@ -73,10 +73,16 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
             if ! git config --bool core.sparseCheckout | grep -qx true; then
               git sparse-checkout disable 2>/dev/null || true
-              git reset -q --hard HEAD
+              # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+              if git rev-parse --git-dir >/dev/null 2>&1; then
+                git reset -q --hard HEAD
+              fi
             fi
           fi
 
@@ -197,17 +203,36 @@ jobs:
             --jq '[.workflow_runs[]
                    | select((.event == "push" and .head_branch == "feat-cmux-next")
                             or (.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"))]
-                  | sort_by(.id) | last | if . == null then "" else "\(.id)\t\(.status)\t\(.html_url)" end')"
+                  | sort_by(.id) | last | if . == null then "" else "\(.id)\t\(.status)\t\(.html_url)\t\(.run_attempt)\t\(.conclusion // "")" end')"
           if [[ -z "$latest" ]]; then
             echo "::error::no cmux-tui artifacts run exists for $COMMIT (it was never a pushed branch head). This tree has no artifact yet; re-run after a trusted feat-cmux-next push publishes the same tree."
             report unpublishable
             exit 1
           fi
-          IFS=$'\t' read -r run_id run_status run_url <<<"$latest"
+          IFS=$'\t' read -r run_id run_status run_url run_attempt run_conclusion <<<"$latest"
           if [[ "$run_status" != completed ]]; then
             report publishing "$run_url"
             exit 0
           fi
-          gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun" >/dev/null
-          echo "Re-ran cmux-tui artifacts run $run_id for $COMMIT."
+          # A coalesced run (it built nothing) re-runs in full; a run that built and failed re-runs only its
+          # failed jobs, so the legs that passed are not built again; at 3 failed attempts it stops
+          # (scripts/ci/cmux_tui_tree_request_rerun.py).
+          # A run whose build leg failed on a Rust compile error is not re-run: the same source fails the same way.
+          how="$(RUN_ID="$run_id" python3 scripts/ci/cmux_tui_tree_request_rerun.py --attempt "${run_attempt:-1}" --conclusion "${run_conclusion:-}")"
+          case "$how" in
+            compile-error)
+              echo "::error::cmux-tui artifacts run $run_id for $COMMIT failed a build leg on a Rust compile error; a re-run builds the same source and fails the same way, so it is not re-run. The next push of a new tree builds it; re-run it by hand (gh run rerun $run_id) if the error was the runner's. Read why it fails: $run_url"
+              report failed "$run_url"
+              exit 1 ;;
+            cap)
+              echo "::error::cmux-tui artifacts run $run_id for $COMMIT failed $run_attempt attempts; not re-running it again. Read why it fails: $run_url"
+              report failed "$run_url"
+              exit 1 ;;
+            failed-jobs)
+              gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun-failed-jobs" >/dev/null ;;
+            full)
+              gh api -X POST "repos/$REPOSITORY/actions/runs/$run_id/rerun" >/dev/null ;;
+            *) echo "::error::unexpected re-run decision '$how'"; exit 1 ;;
+          esac
+          echo "Re-ran cmux-tui artifacts run $run_id ($how, after attempt $run_attempt: $run_conclusion) for $COMMIT."
           report publishing "$run_url"
