@@ -12,6 +12,16 @@
 //! (`initialize`, the start model, effort and mode). Every time is read from records the log
 //! already holds, a few per turn.
 //!
+//! A prompt written while the agent was still at work waits there, and that wait is no model
+//! time (cmuxterm-hq `docs/findings/2026-11-23-lane-vm-first-token.md`: 92 of 3,416 turns on a
+//! lane VM waited p50 47 s, max 476 s, all read as MODEL; 35 of them behind a compaction). Claude
+//! Code holds the prompt line in its queue (`command_lifecycle` `queued`, then `started` once its
+//! own work ends), and a compaction before the prompt's first output runs ahead of it
+//! (`compaction` `running`, then `completed`). `queuedMs` is the prompt written to the later of
+//! those ends, with `queuedOn` `busy` or `compacting`; `firstModelMs` counts from there, so
+//! `toAgentMs + queuedMs + firstModelMs` is the prompt accepted to the first output. A hold under
+//! [`HELD_MS`] is Claude Code taking the line at once, and counts 0.
+//!
 //! `firstModelMs` mixes Claude Code's boot, its wait for every `--mcp-config` server, and the API
 //! request (cmuxterm-hq `docs/findings/2026-11-24-first-model.md`). So a turn whose prompt met a
 //! Claude Code that had just started also gets `claudeBootMs` (`initialize` sent to Claude Code's
@@ -39,9 +49,15 @@ pub(super) const KINDS: &[&str] = &[
     method::SESSION_PROMPT,
     "response",
     "claude.stream_event",
+    "claude.command_lifecycle",
+    "compaction",
     "claude.control_response",
     "claude.system.init",
 ];
+
+/// A hold of the prompt line shorter than this is Claude Code reading it as it came (an idle
+/// chat's `queued` and `started` are a millisecond or two apart), not a wait behind other work.
+pub(super) const HELD_MS: u64 = 250;
 
 /// The requests a chat's start sends before its first prompt.
 const START_REQUESTS: [&str; 5] = [
@@ -64,6 +80,10 @@ pub(super) struct Timing {
     /// When the current turn's prompt was written to the agent.
     written_at: Option<u64>,
     model_seen: bool,
+    /// A compaction runs (its `running` seen, no end yet), whichever turn it began in.
+    compacting: bool,
+    /// The current prompt's wait ahead of the model (module docs), while it is read.
+    queue: Queue,
     /// When `initialize` was last sent: Claude Code started then; cleared by its `system/init`.
     spawned_at: Option<u64>,
     /// Claude Code's own answer to that `initialize`, in ms after it was sent.
@@ -71,6 +91,19 @@ pub(super) struct Timing {
     /// When the current turn's `system/init` came.
     init_at: Option<u64>,
     usage_seen: bool,
+}
+
+/// The current prompt's wait, from its write to the model's first output.
+#[derive(Default)]
+struct Queue {
+    /// Claude Code's id of the prompt line: the first `queued` after the write.
+    command: Option<String>,
+    /// The line was queued and is not started yet.
+    held: bool,
+    /// The latest end of a wait: the line's `started`, a compaction's end.
+    until: Option<u64>,
+    /// A compaction ran between the write and the first output.
+    compacted: bool,
 }
 
 impl Timing {
@@ -119,6 +152,7 @@ impl Timing {
             ("mux", "user_message") if opened => {
                 self.written_at = None;
                 self.model_seen = false;
+                self.queue = Queue::default();
                 self.init_at = None;
                 self.usage_seen = false;
                 if std::mem::replace(&mut self.prompted, true) {
@@ -143,10 +177,57 @@ impl Timing {
                 let accepted = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
                 t.insert("toAgentMs".into(), json!(e.at.saturating_sub(accepted)));
                 self.written_at = Some(e.at);
+                self.queue = Queue { compacted: self.compacting, ..Queue::default() };
+            }
+            ("in", "compaction") => {
+                let state = e.msg.pointer("/params/update/state").and_then(Value::as_str);
+                let waiting = self.written_at.is_some() && !self.model_seen;
+                match state {
+                    Some("running") => {
+                        self.compacting = true;
+                        if waiting {
+                            self.queue.compacted = true;
+                        }
+                    }
+                    Some("completed" | "failed") => {
+                        self.compacting = false;
+                        if waiting && self.queue.compacted {
+                            self.queue.until = self.queue.until.max(Some(e.at));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            ("in", "claude.command_lifecycle") if self.written_at.is_some() && !self.model_seen => {
+                let Some(command) = e.msg.get("command_uuid").and_then(Value::as_str) else {
+                    return;
+                };
+                match (e.msg.get("state").and_then(Value::as_str), &self.queue.command) {
+                    (Some("queued"), None) => {
+                        self.queue.command = Some(command.to_owned());
+                        self.queue.held = true;
+                    }
+                    (Some(_), Some(ours)) if ours == command && self.queue.held => {
+                        self.queue.held = false;
+                        self.queue.until = self.queue.until.max(Some(e.at));
+                    }
+                    _ => {}
+                }
             }
             ("in", "claude.stream_event" | "tool_call") if !self.model_seen => {
                 let (Some(written), Some(t)) = (self.written_at, turn) else { return };
-                t.insert("firstModelMs".into(), json!(e.at.saturating_sub(written)));
+                // A line still held at the first output (its `started` not logged) waited to it.
+                let until = if self.queue.held { Some(e.at) } else { self.queue.until };
+                let mut queued = until.map_or(0, |u| u.min(e.at).saturating_sub(written));
+                if queued < HELD_MS && !self.queue.compacted {
+                    queued = 0;
+                }
+                t.insert("queuedMs".into(), json!(queued));
+                if queued > 0 {
+                    let on = if self.queue.compacted { "compacting" } else { "busy" };
+                    t.insert("queuedOn".into(), json!(on));
+                }
+                t.insert("firstModelMs".into(), json!(e.at.saturating_sub(written + queued)));
                 if let Some(init) = self.init_at {
                     t.insert("initToModelMs".into(), json!(e.at.saturating_sub(init)));
                 }

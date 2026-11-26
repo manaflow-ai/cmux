@@ -17,11 +17,19 @@ fn only_package_installs_check_and_every_switch_turns_it_off() {
     assert_eq!(allowed(&inputs(InstallChannel::Npm, &none, None, &no_env)), Check::Allowed);
     assert_eq!(allowed(&inputs(InstallChannel::Pypi, &none, None, &no_env)), Check::Allowed);
     assert!(matches!(allowed(&inputs(InstallChannel::App, &none, None, &no_env)), Check::Off(_)));
-    let off = serde_json::json!({"updates": {"checkAutomatically": false}});
-    assert_eq!(
-        allowed(&inputs(InstallChannel::Npm, &none, Some(&off), &no_env)),
-        Check::Off("updates.checkAutomatically is false")
-    );
+    // Automatic Updates Off, and the retired toggle it replaced (read while it is unset).
+    for off in [
+        serde_json::json!({"updates": {"automatic": "off"}}),
+        serde_json::json!({"updates": {"checkAutomatically": false}}),
+    ] {
+        assert_eq!(
+            allowed(&inputs(InstallChannel::Npm, &none, Some(&off), &no_env)),
+            Check::Off("updates.automatic is off"),
+            "{off}"
+        );
+    }
+    let on = serde_json::json!({"updates": {"automatic": "notify", "checkAutomatically": false}});
+    assert_eq!(allowed(&inputs(InstallChannel::Npm, &none, Some(&on), &no_env)), Check::Allowed);
     let managed = BTreeMap::from([("DisableAutoUpdate".to_string(), Value::Bool(true))]);
     assert_eq!(
         allowed(&inputs(InstallChannel::Npm, &managed, None, &no_env)),
