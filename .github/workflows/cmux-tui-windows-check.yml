@@ -139,6 +139,11 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "first-party-apps/cloud/server/Cargo.lock"
+      - "first-party-apps/cloud/server/Cargo.toml"
+      - "first-party-apps/cloud/server/rust-toolchain.toml"
+      - "first-party-apps/cloud/server/rustfmt.toml"
+      - "first-party-apps/cloud/server/src/**"
   workflow_dispatch:
 
 concurrency:
