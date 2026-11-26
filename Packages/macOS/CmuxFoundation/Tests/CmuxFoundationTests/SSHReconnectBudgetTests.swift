@@ -149,6 +149,24 @@ struct SSHReconnectBudgetTests {
         #expect(result.stdout == "1/1/3/1\n2/1/3/1\n3/1/3/1\n4/1/3/1\n")
     }
 
+    // Before the shared loop, a limit of 0 meant "attach once, never
+    // reconnect"; it must keep meaning that, not the 86,400-retry ceiling.
+    @Test(arguments: ["0", "000"])
+    func attachRetryLoopTreatsZeroAsNoReconnect(limit: String) throws {
+        let budget = SSHReconnectBudget()
+        let script = ([
+            "sleep() { :; }",
+            "cmux_test_attach() { printf 'attempt\\n'; return 255; }",
+        ] + budget.attachRetryLoopShellLines(attachCommand: "cmux_test_attach"))
+            .joined(separator: "\n")
+
+        let result = try runShell(script, environment: [budget.limitEnvironmentName: limit])
+
+        #expect(result.status == 255)
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "attempt\n")
+    }
+
     @Test func attachRetryLoopStopsOnANonRetryableStatus() throws {
         let budget = SSHReconnectBudget()
         let script = ([
