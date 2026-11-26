@@ -51,7 +51,7 @@ public nonisolated struct HostPressureTunables {
 
     public static let force = Tunable<HostPressureForce>.choice(
         "hostPressure.force", section, "Force level",
-        help: "With the indicator on, shows it at this level with sample numbers (the cosmic-gray incident: load 146 on 12 performance cores, memory pressure warn, swap growing), whatever the host is at. Off follows the host.",
+        help: "With the indicator on, shows it at this level with sample numbers (at critical: load 146 on 12 performance cores, memory pressure warn, swap growing), whatever the host is at. Off follows the host.",
         default: .off, code: "HostPressureTunables.force")
 
     public static let style = Tunable<HostPressureIndicatorStyle>.choice(
