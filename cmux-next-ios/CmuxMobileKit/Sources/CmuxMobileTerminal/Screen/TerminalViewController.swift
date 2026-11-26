@@ -296,6 +296,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private static let jumpAwaitsFrame = !CommandLine.arguments.contains("-CmuxMobileNoJumpAwait")
     private var refreshAfterTUI = false
     private(set) var started = false
+    #if DEBUG
+    /// The offline duress player's feed of this page (`TerminalDuress`; nil unless `CmuxMobileDuress` is set).
+    private var duressPlayback: AnyObject?
+    #endif
     private var fling: FlingAnimator?
     /// Jump to bottom's animated scroll, while it runs (CMUX-10).
     private var glide: BottomGlide?
@@ -1801,6 +1805,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // live before the attach, scrolls and takes keys (they wait for it). The Mac's
             // replay, a full reset first, replaces it.
             if let seed = model.takeSeed() { surface.feed(seed) }
+            #if DEBUG
+            // Offline duress (cmux-next-ios/design/duress-sim.md): its history goes in before the
+            // session's own output, so what the session draws stays at the bottom.
+            duressPlayback = TerminalDuress.attach? { [weak self] data in self?.sessionEvent(.output(data)) }
+            #endif
             model.session.start { [weak self] event in self?.sessionEvent(event) }
             #if DEBUG
             if model.demoFinalColumns != nil { startSettleProbe() }
@@ -4622,7 +4631,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The reader scrolls itself while it is open; a zoomed grid pans under one finger.
             return model.isTUI && surface.superview === tuiHost && !tuiReader.isOpen && !tuiZoomActive
         }
-        // Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default).
+        // Settings → Terminal → Plain Scroll in Full-Screen Apps (on by default; off keeps line-by-line wheel scroll).
         tuiScroll.readerOpens = { [weak self] in
             CmuxMobilePreferences.terminalPlainScroll() && self?.openTUIReader() == true
         }

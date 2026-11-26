@@ -159,6 +159,11 @@
         "swift": "fast tier (Swift entries, build fleet)"
       }
     },
+    "tooling-tests": {
+      "workflow": "cmux-next-tooling-tests-batch.yml",
+      "paths": [],
+      "jobs": {"tooling-tests": "tooling-tests"}
+    },
     "tip-test-compile": {
       "workflow": "cmux-next-tip-test-compile.yml",
       "paths": [
@@ -444,7 +449,13 @@
         "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml",
         "workers/cmux-vm/cli/crates/cmux-vm/src/**",
         "scripts/ci/cmux_tui_tree_key.py",
-        ".github/workflows/base-coalesce.yml"
+        ".github/workflows/base-coalesce.yml",
+        "schemas/design-scale/design-scale.json",
+        "schemas/instrument/instrument.json",
+        "schemas/layout-grid/layout-grid.json",
+        "schemas/motion-scale/motion-scale.json",
+        "schemas/type-scale/type-scale.json",
+        "schemas/design-scale/scene-scale.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
