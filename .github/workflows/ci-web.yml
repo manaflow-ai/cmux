@@ -2,6 +2,16 @@ name: CI web
 
 on:
   workflow_call:
+    # Base-side callers (post-merge batch, feat-cmux-next pushes) pass the R2 write secrets so base-comparison
+    # logs go to R2: the GitHub cache is over its 10 GB cap and evicts them before pull requests read them.
+    # Pull request callers pass none; they only read, which needs no credentials.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID:
+        required: false
+      CI_CACHE_R2_SECRET_ACCESS_KEY:
+        required: false
+      CI_CACHE_R2_ACCOUNT_ID:
+        required: false
     inputs:
       # ci.yml passes all three routes. The post-merge batch tier (cmux-next-post-merge.yml, suite `web`) passes only
       # sha and only, so these default to what cmux-next-web.yml passed on base pushes: every web check, no macOS.
@@ -56,6 +66,10 @@ env:
   # 1: a pull request push is fast (docs or comments only: shard 1's checks, no test file), sampled (shard 1, the
   # touched tests, and two head-sampled shards where it would have run every shard) or full (every shard).
   CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
+  # 0 lets apt's needrestart restart the runner's services after `playwright install --with-deps` again; 1 lists them
+  # instead (scripts/ci/apt-no-service-restarts.sh): restarting cmux-git-mirror.service held 6 of 17 react-apps-check (1)
+  # pull request jobs 900 s (2026-11-25).
+  CI_APT_NO_SERVICE_RESTARTS: ${{ vars.CI_APT_NO_SERVICE_RESTARTS || '1' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
@@ -67,7 +81,7 @@ jobs:
     # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
     # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 11: the shard pick and the picked shards' file list (webviews_pr_shards.py, each bounded at 150 s) run here too.
     timeout-minutes: 11
     # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
@@ -83,6 +97,7 @@ jobs:
       agent_pane: ${{ steps.scope.outputs.agent_pane }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
       react_class: ${{ steps.react-shards.outputs.class }}
+      react_fleet: ${{ steps.react-shards.outputs.fleet }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
@@ -129,8 +144,13 @@ jobs:
         id: base-history-cache
         if: ${{ steps.scope.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          # R2, not the GitHub cache: that store is over its 10 GB cap and evicted this small entry before
+          # pull requests read it, so their base comparison missed and every base red was charged to them.
+          backend: r2
           path: .webviews-test-history-cache/history.json
           key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
           restore-keys: webviews-test-history-${{ github.base_ref }}-
@@ -171,8 +191,8 @@ jobs:
       # 8, not 12 (Leo, 2026-11-22: "if it's really so big then you guys need to be hurrying up and thinking more
       # innovatively"): every shard pays about 3.5 min of checkout, install, bundle build and engines plus a cold Vite
       # warm-up before its first test, so a full matrix at 12 cost about 9% more runner-minutes than at 8
-      # (12 x 820 s against 8 x 1133 s) for about 5 min less wall time. A pull request's pick is shard 1 and one
-      # touched-test shard either way, so the count moves only full-matrix runs (push, batch, full-ci, build input).
+      # (12 x 820 s against 8 x 1133 s) for about 5 min less wall time. A pull request's pick is shard 1 (with its
+      # touched tests) either way, so the count moves only full-matrix runs (push, batch, full-ci, build input).
       # Push classes (Leo, 2026-11-22: "there must surely be some changes which can get the fast track
       # route. like a nexus card."): the summary names the push's class (fast, sampled, full), the rule that fired and
       # how to get a full run; `class` hands it to the shards (a fast push's shard 1 runs its checks and no test file).
@@ -192,11 +212,22 @@ jobs:
           CMUX_WEB_TEST_JOBS: "8"
           CMUX_WEB_TEST_DEV_JOBS: "4"
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
+          # Where react-apps-check runs (scripts/ci/react_apps_fleet.py): a feat-cmux-next pull request whose pick
+          # runs only touched tests runs it on the fleet (ci/steps.toml's react-apps-check, pr-pipeline.yml).
+          CI_PR_BASE_REF: ${{ github.base_ref }}
+          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
+          CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
         run: |
           picked=""
           class_file="$RUNNER_TEMP/webviews-durations/pr-shard-class"
           rm -f "$class_file"
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
+          # A full-ci (land-tier) head into feat-cmux-next picks too: its post-merge batch runs every shard and
+          # reverts a red. 30 days to 11-25: react-apps-check had 9 real catches in 148 runs; the batch keeps the
+          # whole matrix after merge, so the land tier's 8-shard run bought no catch the pick and the batch missed.
+          # CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for a full-ci head again.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && { [ "$FULL_CI" != true ] || { [ "$CI_WEBVIEWS_PR_BASE" = feat-cmux-next ] && [ "$CI_WEBVIEWS_FULL_TO_BATCH" != 0 ]; }; }; then
             picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
               --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --summary "$GITHUB_STEP_SUMMARY" \
               --class-out "$class_file")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$class_file"; }
@@ -215,13 +246,16 @@ jobs:
           echo "react-apps-check shards: $picked"
           echo "matrix=$picked" >> "$GITHUB_OUTPUT"
           echo "class=$(cat "$class_file" 2>/dev/null)" >> "$GITHUB_OUTPUT"
+          fleet="$(python3 scripts/ci/react_apps_fleet.py decide --class "$(cat "$class_file" 2>/dev/null)" --matrix "$picked" \
+            --direct "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --routed)" || fleet=actions
+          echo "fleet=$([ "$fleet" = fleet ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           # The files those shards run, for react-apps-base-early (RFD 0023 item 3): only when the pick ran fewer
           # than every shard; any failure leaves no list, and the early job keeps its whole affected list.
           rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files"
           shards="$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); print(",".join(str(e["shard"]) for e in m) if len(m) < int(sys.argv[2]) else "")' "$picked" "$REACT_APPS_SHARDS")" || shards=""
           if [ -n "$shards" ]; then
             timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" --files-of "$shards" \
-              > "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" &&
+              --direct-in "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" > "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" &&
               mv "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" "$RUNNER_TEMP/webviews-durations/pr-shard-files" ||
               rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp"
           fi
@@ -248,7 +282,7 @@ jobs:
     # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' && (inputs.only == '' || inputs.only == 'web-typecheck') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     outputs:
@@ -366,7 +400,9 @@ jobs:
   # On a feat-cmux-next pull request only errors the merge parent lacks fail (fast_gate_webviews_checks.py).
   webviews-typecheck:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
+    # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'cmux-linux' }}
     # The merge's type check, and on a red the base's (a worktree of the merge parent).
     timeout-minutes: 15
@@ -469,7 +505,7 @@ jobs:
     # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run it
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' && (inputs.only == '' || inputs.only == 'web-production-build') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -539,7 +575,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -620,10 +656,12 @@ jobs:
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     name: Agent pane on real acpmux
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
@@ -663,6 +701,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Set up pinned Rust
+        timeout-minutes: 8
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
@@ -693,7 +732,7 @@ jobs:
 
       - name: Install headless engines
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Run the real-daemon pane checks
         working-directory: webviews
@@ -730,7 +769,7 @@ jobs:
     # web-browser job); a push, dispatch, the post-merge batch and a pull request into any other base still run them
     # here. Web status counts the skip as fine only on such a pull request.
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -808,7 +847,12 @@ jobs:
 
   react-apps-check-shard:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    # A feat-cmux-next pull request whose pick runs only touched tests (react_fleet, scripts/ci/react_apps_fleet.py)
+    # runs this check as the ci/steps.toml step `react-apps-check` (pr-pipeline.yml's web-browser job) instead.
+    # Land tier (#54886): a feat-cmux-next pull request head not handed to land skips it; the `ready-to-land`
+    # label re-runs it at the same head. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    # react-apps-base-check and webviews-test-durations skip with it; react-apps-check and Web status still report.
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -824,7 +868,7 @@ jobs:
     # runner as a push does. It read linux_4 before: on 2026-11-22 its 12 shards ran 2 files at once on
     # the 4 vCPU pool for 39-71 min of tests each, about 722 runner-minutes a batch run (runs 44990794651 and
     # 44991513044), where a pull request's shards on the owned runner take 13-15 min.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -844,7 +888,7 @@ jobs:
     # after a push. The same split over run 43342256133's manifest gives 690 s a
     # shard at 12, for about 9% more runner minutes (12 x 820 s against 8 x 1133 s).
     # Back to 8 on 2026-11-22 (REACT_APPS_SHARDS): those 9% outweigh the 5 min, now that a pull request runs
-    # shard 1 and one touched-test shard and only full-matrix runs feel the count.
+    # shard 1 (with its touched tests) and only full-matrix runs feel the count.
     # The widths in Test webviews are declared for 16 vCPU (CMUX_WEB_TEST_SIZED_FOR_VCPU); a runner
     # with fewer cores runs its files at that share of them, so a shard on 4 vCPU runs 2 at a time,
     # about 4x the 690 s of tests plus a slower setup, and on 2 vCPU 1 at a time, about 8x. 40 min is
@@ -896,6 +940,25 @@ jobs:
         run: |
           git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
+
+      # Whether Test webviews runs no test file here: the rule it applies (a fast push, or shard 1's --direct-out entry
+      # an empty list) read up front, so this job skips the Playwright browsers, their apt packages and the engines,
+      # which only the test files use (about 30 s of shard 1's job 137332637156). Over 11-22 20Z to 11-23 02Z the
+      # median shard 1 job ran no test file. Any doubt (no file, no entry, an unreadable map) installs them as before.
+      - name: Does this shard run a test file
+        id: shard-tests
+        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        env:
+          REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
+        run: |
+          none=false
+          if [ "$REACT_APPS_CLASS" = fast ] ||
+            python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("1", "-") == [] else 1)' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" 2> /dev/null; then
+            none=true
+          fi
+          echo "shard ${{ matrix.shard }} runs no test file: $none"
+          echo "none=$none" >> "$GITHUB_OUTPUT"
 
       # A Freestyle react-class runner (CI_REACT_SHARD_RUNNER) boots from a snapshot that already
       # holds Bun's package cache, the Playwright browsers and their apt packages, and names them
@@ -984,7 +1047,7 @@ jobs:
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers (restore only off feat-cmux-next)
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref != 'refs/heads/feat-cmux-next' && steps.shard-tests.outputs.none != 'true' && steps.warm-react.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
@@ -1017,11 +1080,46 @@ jobs:
         continue-on-error: true
         run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
+      # The bundles cmux-next.yml's web-bundles job built for this exact source key (web-bundle-key.py --source:
+      # every input file and the Bun and Node pins, the same as here), cached as cmux-next-web-bundles-v1-KEY. A pull
+      # request that changes no bundle input has its merge parent's key, which the base push's job cached: 21 of 61
+      # React-routed merges over 11-22 18Z to 11-23 02Z changed nothing under webviews/. A hit installs that build
+      # (build-web-bundles.sh --from: completeness, the committed inspector page, the stamp) after the strings
+      # tables, in place of the 108 s rebuild (job 137332637156); a miss, or any failure on the way, rebuilds as before.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the web bundles built for this source key
+        id: web-bundle-cache
+        if: ${{ steps.web-bundle-key.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
       - name: Build the web bundles
         id: bundles
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        env:
+          RESTORED: ${{ steps.web-bundle-cache.outputs.cache-hit == 'true' && 'web-bundles-out' || '' }}
+        run: |
+          if [ -n "$RESTORED" ] && [ -d "$RESTORED" ]; then
+            if (cd webviews && bun scripts/pages/gen-strings.mjs) && ./scripts/cmux-next/build-web-bundles.sh --from "$RESTORED"; then
+              rm -rf "$RESTORED"
+              echo "web bundles installed from the build cached for this source key"
+              exit 0
+            fi
+            echo "::warning title=web bundles::the cached build for this source key did not install; building them"
+            rm -rf "$RESTORED"
+          fi
+          exec ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -1109,7 +1207,7 @@ jobs:
             echo "warn-only webviews checks run on the base's pushes, not on a pull request"
             exit "$status"
           fi
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:compiler-bails; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:compiler-bails; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -1124,7 +1222,7 @@ jobs:
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
         id: playwright-apt
-        if: ${{ steps.receipt.outputs.hit != 'true' && steps.warm-react.outputs.warm != 'true' }}
+        if: ${{ steps.receipt.outputs.hit != 'true' && steps.shard-tests.outputs.none != 'true' && steps.warm-react.outputs.warm != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
         with:
@@ -1132,30 +1230,45 @@ jobs:
 
       - name: Install headless engines
         id: engines
-        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        if: ${{ steps.receipt.outputs.hit != 'true' && steps.shard-tests.outputs.none != 'true' }}
         continue-on-error: true
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # The fixture copies the real webviews tree, so a finding already on the base fails it too: #48230's experiment
       # id agent-pane.high-contrast-look made it red on feat-cmux-next, and every web-view pull request's shard 1 went
       # red with it and skipped its tests (#49118). On a pull request, a red one is run again on the merge parent's
       # copy (a worktree of HEAD^1), and only a test red here and not there fails (guards_new_reds.py), as the tests do.
       # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
+      # The base run starts beside the head's, not after a red one: head then base, one after the other, was 320-416 s
+      # of shard 1's 16 min in 17 pull request jobs on 2026-11-25 (about 170 s each). A green head stops the base run
+      # and charges nothing. CI_PR_SCOPED_BASE_BESIDE=0 runs the base only after a red head again.
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          CI_PR_SCOPED_BASE_BESIDE: ${{ vars.CI_PR_SCOPED_BASE_BESIDE || '1' }}
         run: |
           check=scripts/tests/test_pr_scoped_webviews_checks.py
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
-          python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json" && exit 0
           base="$RUNNER_TEMP/pr-scoped-base"
-          git worktree add --detach "$base" HEAD^1
-          ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules"
-          if [ -f "$base/$check" ]; then
-            python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" || true
+          base_run() {
+            git worktree add -q --detach "$base" HEAD^1 &&
+              ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
+              if [ -f "$base/$check" ]; then
+                python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" >"$RUNNER_TEMP/pr-scoped-base.log" 2>&1 || true
+              fi
+          }
+          pid=
+          # Its own process group (set -m), so a green head stops the whole base run, the fixture's children too.
+          if [ "$CI_PR_SCOPED_BASE_BESIDE" != 0 ]; then set -m; base_run & pid=$!; set +m; fi
+          if python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json"; then
+            [ -z "$pid" ] || { kill -TERM -- "-$pid" 2>/dev/null; wait "$pid" 2>/dev/null; } || true
+            exit 0
           fi
+          if [ -n "$pid" ]; then wait "$pid" || true; else base_run || true; fi
+          [ ! -f "$RUNNER_TEMP/pr-scoped-base.log" ] || { echo "::group::base run"; cat "$RUNNER_TEMP/pr-scoped-base.log"; echo "::endgroup::"; }
           python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
             "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
 
@@ -1219,6 +1332,13 @@ jobs:
           # none passed. A push keeps every retry: its verdicts are the base's history. Undo: the repository variable
           # CMUX_WEB_TEST_RETRY_BREAKER=0.
           CMUX_WEB_TEST_RETRY_BREAKER: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_RETRY_BREAKER || '5') || '0' }}
+          # Pull requests only, the cost bound on the same retries: a red file whose first run took over 120 s gets no
+          # alone retry, and every alone retry starts within 300 s of the first (run-webviews-tests.sh). Job
+          # 137151085368 retried 15 files alone for 26 min; the slow ones (accent-glass-invariants 462-481 s,
+          # agent-pane-reveal-in-place 362 s) failed again, and the base check judged all 11 reds anyway. A push keeps
+          # every retry. Undo: the repository variables set to 0.
+          CMUX_WEB_TEST_RETRY_SLOW_SECONDS: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_RETRY_SLOW_SECONDS || '120') || '0' }}
+          CMUX_WEB_TEST_ALONE_RETRY_BUDGET: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_ALONE_RETRY_BUDGET || '300') || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
@@ -1290,12 +1410,15 @@ jobs:
             "$RUNNER_TEMP/webviews-head-results/runner/"
           # A pull request runs the test files its change can reach (scripts/ci/webviews_affected.py:
           # the import graph, every test that reads files from disk, and every file for a build input
-          # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
-          if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
+          # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all, except a
+          # full-ci head whose pick ran (REACT_APPS_CLASS sampled or fast: into feat-cmux-next, #57352): it runs the
+          # pick's files as any pull request does. It ran shard 1's whole share instead, 406 files and 12.9 min for
+          # a release-notes highlight (cmux#53546 35726b7d, run 45771042383); the post-merge batch runs every file.
+          if [ -n "$BASE_REF" ] && { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; }; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
-            # Shard 1 and the one shard past 1 a pull request picks run only their touched tests
-            # (webviews_pr_shards.py --direct-out), as one unsplit list, not their share of the closure above: shard 1
-            # the touched tests in its own share (maybe none), the other every touched test outside shard 1. No entry
+            # Shard 1 runs only the touched tests (webviews_pr_shards.py --direct-out), as one unsplit list, not its
+            # share of the closure above: the touched tests in its own share and every touched test outside it that no
+            # sampled shard runs (maybe none). No entry
             # (an every-shard pick, a failed pick, no file) keeps the closure share; "-" below marks no entry.
             own="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d[sys.argv[2]]) if sys.argv[2] in d else "-")' \
               "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own="-"
@@ -1410,6 +1533,8 @@ jobs:
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
+          WEB_BUNDLE_KEY: ${{ steps.web-bundle-key.outcome }}
+          WEB_BUNDLE_CACHE: ${{ steps.web-bundle-cache.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
@@ -1435,6 +1560,9 @@ jobs:
           fi
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
+          fi
+          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ]; then
+            echo "::warning::The web bundles' cached build was not looked up; Build the web bundles built them."
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
             echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
@@ -1505,7 +1633,7 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
     # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
@@ -1547,15 +1675,17 @@ jobs:
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ matrix.shard_count }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
         run: |
           runner="$RUNNER_TEMP/base-early/runner"
           mkdir -p "$runner"
           cp scripts/ci/run-webviews-tests.sh scripts/ci/timeout.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/guards_new_reds.py scripts/ci/webviews_test_history.py scripts/ci/test_reds.py "$runner/"
-          cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh "$RUNNER_TEMP/"
           # The head shards run only the change's affected files (empty: every file), so only those can be red there.
           only=()
-          if [ "$FULL_CI" != true ]; then
+          # A full-ci head whose pick ran runs the pick's files (Test webviews), so the same narrowing holds here.
+          if [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; then
             (cd webviews && python3 ../scripts/ci/webviews_affected.py --base HEAD^1 --head HEAD) > "$RUNNER_TEMP/base-early/affected" ||
               : > "$RUNNER_TEMP/base-early/affected"
             # A pull request whose pick ran fewer than every head shard: only those shards' files can be red there
@@ -1646,7 +1776,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.pick.outputs.files != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$RUNNER_TEMP/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # The base check's replay with the head's runner and no retry, at the head shards' widths (the base check
       # replays one at a time; one at a time here, shard 1's 600 s file plus the others ran past the head shards).
@@ -1702,7 +1832,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
@@ -1757,7 +1887,7 @@ jobs:
           date +%s > "$RUNNER_TEMP/job-started"
           # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
           # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
-          cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh "$RUNNER_TEMP/"
           git checkout -q --detach HEAD^1
           if failed="$(python3 scripts/ci/webviews_test_results.py --failed-files "$RUNNER_TEMP/head-results/webviews-head-results.json")"; then
             reds="$(printf '%s' "$failed" | grep -c . || true)"
@@ -1903,7 +2033,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$RUNNER_TEMP/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
       # the job's verdict is the last step's. A red the base passed is replayed there again, at most
@@ -2101,7 +2231,7 @@ jobs:
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Re-run the change's reds alone on the head
         id: rerun
@@ -2143,99 +2273,26 @@ jobs:
           echo "::error title=Webview test verdict::red on this change (see Run base reds and compare${{ steps.rerun.outcome == 'failure' && ' and the head re-run' || '' }})"
           exit 1
 
-  # The runner capability map (.github/runners.json), for jobs that pick a
-  # size from it. Resolves in parallel with web-subarea-scope.
-  runners:
-    if: ${{ inputs.web == 'true' }}
-    uses: ./.github/workflows/resolve-runners.yml
-
-  # React Doctor is independent of the per-file browser tests. Keep it on its
-  # own required lane so the long-running shard 1 does not serialize this
-  # diagnostic after the test suite.
-  # A feat-cmux-next push only. This scan reports and never fails on a finding
-  # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
-  # (cmux-next-react-doctor.yml) scans the same webviews project with the same
-  # pinned tool and reports a new error or a failed scan as a warning (lint never
-  # stops a merge, Leo 2026-11-20). Running
-  # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
-  # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
-  # held PRs (#44127).
-  react-doctor:
-    needs: [web-subarea-scope, runners]
-    if: ${{ github.event_name != 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-doctor') }}
-    # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
-    # 2026-10-20 (runs 39505208959, 39506071754), which failed
-    # react-apps-check. It takes the 16 vCPU size from the capability map.
-    # It has grown back into its cap: on 2026-11-16 `bun run react-doctor:ci`
-    # measured 20m02s at the feat-cmux-next tip and 13m58s on a PR head, both
-    # on one 8 vCPU Blacksmith runner, and the job itself ran 14 min of its 15
-    # before GitHub cancelled it three times on #44127 (jobs 133551852130,
-    # 133579638216, 133602056508). A cancelled job has no verdict, so the
-    # base-red classifier cannot excuse it and every PR that changes a React
-    # app waits on a rerun. 30 min is the headroom; the time to cut is in the
-    # doctor run, not in this cap.
-    # A fork head takes CI_FORK_LINUX_RUNNER (GitHub-hosted Ubuntu by default), like every other
-    # Linux job here: fork code never reaches the owned label the map names for manaflow-ai.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || fromJSON(needs.runners.outputs.map).linux_16 }}
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: webviews
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ inputs.sha || '' }}
-          persist-credentials: false
-
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-          bun-version: "1.4.4"
-
-      - name: Cache Bun package cache
-        timeout-minutes: 3
-        continue-on-error: true
-        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
-
-      - name: Cache Bun package cache (restore only off feat-cmux-next)
-        timeout-minutes: 3
-        continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: React Doctor
-        run: bun run react-doctor:ci
+  # web / react-doctor (a feat-cmux-next push-only `--fail-on none` report) and the runner
+  # capability map only it read are removed (CI catch-value audit, 2026-11-26: 0 catches,
+  # 5,771 job-min in 8 days). React Doctor (changed React projects), cmux-next-react-doctor.yml,
+  # is the scan of record.
 
   # Keep one stable required check name for branch protection while the test work
   # itself runs in independent file shards above.
   # A post-merge batch probe (inputs.only set) runs no aggregate: the probed shards answer for themselves.
   react-apps-check:
-    needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
+    needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check webview test shards
         env:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
+          # 'true' unless this is a feat-cmux-next pull request head not handed to land (the shards' land tier).
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
@@ -2263,14 +2320,19 @@ jobs:
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
+          # A cheap head (land tier, #54886) skips the shards and the base replay; they run once it is handed to land.
+          # Only an explicit "false" skips: an unset flag keeps the shards required (fail closed).
+          required = required and os.environ.get("WEB_LAND_TIER") != "false"
           required_jobs = ["react-apps-check-shard"]
-          # A pull request's base replay; a push's React Doctor report (the ratchet gates a pull request's).
+          # A pull request's base replay.
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
-          else:
-              required_jobs.append("react-doctor")
+          # On the fleet (react_fleet): pr-pipeline.yml's web-browser step react-apps-check judges this head.
+          fleet = needs["web-subarea-scope"]["outputs"].get("react_fleet") == "true"
+          if fleet:
+              print("react-apps-check runs on the fleet: ci/steps.toml's react-apps-check (pr-pipeline.yml web-browser)")
           exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
-                            () if required else required_jobs)
+                            required_jobs if fleet or not required else ())
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
@@ -2285,7 +2347,7 @@ jobs:
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper
@@ -2340,11 +2402,21 @@ jobs:
   webviews-test-history:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+    # Its last step saves the history to R2 (cmux-ci-cache-next). Only next-cache-writer holds the write
+    # credentials, and its deployment branches are feat-cmux-next only (tests/test_ci_pull_request_caches_are_read_only.py).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     permissions:
       contents: read
       actions: read
+    # The R2 write credentials (cmux-ci-cache-next) enter only on feat-cmux-next, through next-cache-writer
+    # (deployment branch feat-cmux-next only); the caller passes them only there (cache-receipts guard).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - name: Checkout the history helper
         id: history-checkout
@@ -2373,27 +2445,33 @@ jobs:
         id: history-cache
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: .webviews-test-history-cache/history.json
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-history-${{ github.ref_name }}-
 
       # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
       # alone would replace the whole accumulated history with one run. The artifact first; when its list or download
-      # answers no (a 403 from the repository's spent token quota), the cached copy.
+      # answers no (a 403 from the repository's spent token quota), the cached copy. A spent quota that resets within
+      # 25 min is waited out (the ticks come every 30): from 2026-11-21 22:21Z every tick's 403 saved no history, and the
+      # pull requests' base checks replayed a day of base reds against it (job 137269052440: 168 files, 55 min).
       - name: Restore the history
         id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 27
         env:
           GITHUB_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.ref_name }}
         run: |
           history="$RUNNER_TEMP/webviews-test-history/history.json"
           cached=.webviews-test-history-cache/history.json
-          python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read ||
+          python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read \
+            --wait-rate-limit 1500 ||
             { [ -s "$cached" ] && cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"; }
 
       - name: Add this push to the history
@@ -2438,8 +2516,15 @@ jobs:
         if: ${{ steps.history-stage.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 2
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: .webviews-test-history-cache/history.json
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -2461,7 +2546,7 @@ jobs:
     # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `diff-sidecar-check`
     # (pr-pipeline.yml); the docs-only fallback keeps this job for its direct reusable-workflow call.
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' && (inputs.only == '' || inputs.only == 'diff-sidecar-check') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -2545,7 +2630,7 @@ jobs:
   web-db-migrations:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' && (inputs.only == '' || inputs.only == 'web-db-migrations') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Matches web-production-build and diff-sidecar-check, the other 15s here.
     timeout-minutes: 15
     defaults:
@@ -2638,7 +2723,7 @@ jobs:
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() && inputs.only == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed web jobs
@@ -2648,6 +2733,8 @@ jobs:
           WEB_EVENT: ${{ github.event_name }}
           WEB_BASE_REF: ${{ github.base_ref }}
           WEB_WORKFLOW: ${{ github.workflow }}
+          # 'true' unless this is a feat-cmux-next pull request head not handed to land (webviews-typecheck's land tier).
+          WEB_LAND_TIER: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) }}
         run: |
           python3 - <<'PY'
           import json
@@ -2729,6 +2816,9 @@ jobs:
               # The docs-only fallback still runs diff-sidecar-check as its own job.
               if os.environ.get("WEB_WORKFLOW") != "docs-only fallback":
                   may_skip.add("diff-sidecar-check")
+          # A cheap head (land tier, #54886) skips webviews-typecheck; the `ready-to-land` label runs it at the same head.
+          if os.environ.get("WEB_LAND_TIER") == "false":
+              may_skip.add("webviews-typecheck")
           exit_with_verdict(results, "Web status", may_skip)
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")

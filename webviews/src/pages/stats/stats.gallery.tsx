@@ -100,11 +100,11 @@ export default componentEntry<Props>({
       props: { usage: "on", range: 7 },
     },
     failed: {
-      note: "acpmux did not answer.",
+      note: "acpmux did not answer: the page reads again on its own and, past the deadline, says the app's words in one quiet line with no button.",
       props: { failure: { code: "cmux.stats.unavailable", message: "The agent service is not running." } },
     },
     unreadable: {
-      note: "acpmux answered with an error; the page words it, never acpmux.",
+      note: "acpmux answered with an error: read again on its own; past the deadline the page's quiet line, never acpmux's words.",
       props: { failure: { code: "cmux.stats.failed", message: "stats: No such file or directory (os error 2)" } },
     },
   },
