@@ -614,8 +614,8 @@ impl Api {
             )
         })?;
         let api = cmux_cloud_api::session::secure_origin(&api).map_err(usage)?;
-        let credential = set("CMUX_CLOUD_ACCESS_TOKEN")
-            .ok_or_else(|| usage("no CMUX_CLOUD_ACCESS_TOKEN".into()))?;
+        let credential = super::super::api_tokens::env_credential(&env)
+            .ok_or_else(|| usage("no CMUX_CLOUD_ACCESS_TOKEN or CMUX_TOKEN".into()))?;
         let team = set("CMUX_CLOUD_TEAM");
         let _ = rustls::crypto::ring::default_provider().install_default();
         let ua = concat!("cmux/", env!("CARGO_PKG_VERSION"), " start-chat-direct");

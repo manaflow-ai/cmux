@@ -3,7 +3,7 @@
 //!
 //! A peer answers `_acpmux/watch` with a list it read before it answered,
 //! while its watch already sends `session_changed` notices from another task
-//! (`server/requests.rs` `MUX_WATCH`, `server/mod.rs` `deliver`): a session
+//! (`server/requests.rs` `MUX_WATCH`, `server/delivery.rs` `deliver`): a session
 //! purged after the list was read can have its purge written to the link
 //! before the reply. The hub takes notices in the order the link gives them
 //! (`peer.rs` `serve`), so the purge removes the row and the older list puts
