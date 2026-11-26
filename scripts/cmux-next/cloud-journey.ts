@@ -1987,8 +1987,9 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
- * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use) and the
- * activity the platform keeps (open sessions, the workload block), whichever the record carries.
+ * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use), the
+ * activity the platform keeps (open sessions, the workload block), whichever the record carries, and `idle_kept`: the
+ * platform's own reason with the names of what holds it.
  */
 export async function idleHeldBy(api: Api, machine: string, now = Date.now()): Promise<string> {
   const m = await Promise.resolve().then(() => api.read("cloud.machine.get", { machine })).catch((error) => error as Error);
@@ -1998,6 +1999,13 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const activity = m?.activity ?? m?.report?.activity;
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
+  // The platform's reason (cmux-platform#2154 `idle_kept`, the cloud.idle.kept line's): sessions, or the workload's
+  // process, port and timer names, so a walk that never paused names what held it.
+  const kept = m?.idle_kept;
+  if (kept && typeof kept === "object") {
+    const { running_s: _r, report_age_s: _a, daemon: _d, ...facts } = kept as Record<string, unknown>;
+    bits.push(`kept by ${short(facts)}`);
+  }
   return bits.join("; ");
 }
 
