@@ -217,10 +217,11 @@ final class AppReviewGateUITests: XCTestCase {
             XCTAssertTrue(consent.buttons["Not Now"].exists, "the AI sharing question must offer Not Now")
             if agree.exists { agree.tap() }
         }
-        capture("chief-02-sent", app)
         let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 10),
                       "the sent message must show; app alert: \(app.alerts.firstMatch.exists ? app.alerts.firstMatch.label : "none"); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
+        // Once the message has landed: taken at the tap, the still caught the bubble in flight.
+        capture("chief-02-sent", app)
         // The mock Chief reads, types, then replies within about 4 s: a
         // message from Chief below the one sent.
         let fromChief = messages.matching(NSPredicate(format: "label BEGINSWITH %@", "Chief"))
@@ -618,6 +619,12 @@ final class AppReviewGateUITests: XCTestCase {
         environment: [String: String] = [:]
     ) -> XCUIApplication {
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore"]
+        // The same stills on every run, so a run's screens compare with its base's: mock data
+        // stamped at one fixed instant (2026-10-02 21:20 UTC) read in one time zone, and every
+        // spinner held still. Unfixed, a third of the screens differed between two runs of the
+        // same commit (a row's "12:41 AM", a spinner's angle).
+        app.launchArguments += ["-cmux-mobile-fixed-now", "1790976000", "-cmux-stills"]
+        app.launchEnvironment["TZ"] = "America/Los_Angeles"
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         if signedIn {
             app.launchArguments += ["-cmuxMobile.setupComplete", setupComplete ? "YES" : "NO"]
@@ -785,9 +792,25 @@ final class AppReviewGateUITests: XCTestCase {
     private func capture(_ name: String, _ app: XCUIApplication) {
         // The whole screen: on iPad the app's own screenshot is cropped to the
         // phone-sized frame at the screen's corner, not to its window.
-        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let shot = XCTAttachment(screenshot: settledScreenshot())
         shot.name = "gate-\(isIPad ? "ipad" : "iphone")-\(name)"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// The screen once it holds still: two shots a quarter second apart that match (a transition,
+    /// a scroll or a keyboard has finished moving), else the last one after 3 s.
+    @MainActor
+    private func settledScreenshot() -> XCUIScreenshot {
+        var shot = XCUIScreen.main.screenshot()
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            // An intentional, bounded wait: a quarter second between two shots.
+            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "settle")], timeout: 0.25)
+            let next = XCUIScreen.main.screenshot()
+            if next.pngRepresentation == shot.pngRepresentation { return next }
+            shot = next
+        }
+        return shot
     }
 }
