@@ -3666,7 +3666,7 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   // The send's W3C trace id (cmux#55505 perf_trace.rs reads params._meta.traceId); only hex, so it is safe inline.
   const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
-import json, os, socket, sys, uuid
+import json, os, socket, sys, time, uuid
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
 trace = ${trace}
@@ -3682,49 +3682,102 @@ def call(f, s, i, method, p):
         m = json.loads(line)
         if m.get('id') == i:
             if m.get('error'):
-                raise RuntimeError(method + ': ' + json.dumps(m['error'])[:400])
+                err = m['error']
+                text = method + ': ' + json.dumps(err)[:400]
+                raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
             return m.get('result')
-errors = []
-for path in paths:
-    if not os.path.exists(path):
-        continue
-    try:
-        s = socket.socket(socket.AF_UNIX)
-        s.settimeout(110)
-        s.connect(path)
-        f = s.makefile('r')
-        call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
-        r = call(f, s, 2, 'session/new', params)
-        sid = (r or {}).get('sessionId')
-        print('@@session ' + str(sid), flush=True)
-    except Exception as e:
-        errors.append(path + ': ' + str(e))
-        continue
+class Retryable(RuntimeError):
+    pass
+# acpmux answers a start cut by its own restart with data.retryable (daemon.restarting: "Send the request again in a
+# few seconds"), and while it restarts its socket refuses connections or is not there yet. Neither can have made a
+# session, so the start sends it again for up to RETRY_S, as the app does, and gives up on anything else.
+RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
+deadline = time.monotonic() + RETRY_S
+while True:
+    errors = []
+    sid = None
+    retry = False
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(110)
+            try:
+                s.connect(path)
+            except (ConnectionRefusedError, FileNotFoundError) as e:
+                raise Retryable('connect: ' + str(e))
+            f = s.makefile('r')
+            call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            r = call(f, s, 2, 'session/new', params)
+            sid = (r or {}).get('sessionId')
+            print('@@session ' + str(sid), flush=True)
+            used = path
+            break
+        except Retryable as e:
+            errors.append(path + ': ' + str(e))
+            retry = True
+        except Exception as e:
+            errors.append(path + ': ' + str(e))
+    if not errors and sid is None:
+        retry = True
+        errors.append('no acpmux socket at ' + ', '.join(paths))
+    if sid is not None or not retry or time.monotonic() >= deadline:
+        break
+    print('@@retry ' + '; '.join(errors)[:400], flush=True)
+    time.sleep(2)
+if sid is not None:
     if first is None:
         sys.exit(0)
-    # The session exists now: a failed prompt never starts a second session on another socket.
-    try:
-        pid = str(uuid.uuid4())
-        meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
-        if trace:
-            meta['traceId'] = trace
-        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': meta}}) + '\\n').encode())
-        while True:
-            line = f.readline()
-            if not line:
-                raise RuntimeError('session/prompt: the daemon closed the connection')
-            m = json.loads(line)
-            if m.get('method') == '_acpmux/prompt_accepted' and (m.get('params') or {}).get('promptId') == pid:
-                break
-            if m.get('id') == 3:
-                if m.get('error'):
-                    raise RuntimeError('session/prompt: ' + json.dumps(m['error'])[:400])
-                break
-        print('@@prompted', flush=True)
-        sys.exit(0)
-    except Exception as e:
-        print('@@noprompt ' + str(e))
-        sys.exit(2)
+    # The session exists now: a failed prompt never starts a second session on another socket. A prompt cut by
+    # acpmux's restart (retryable, a closed or refused connection) is sent again on the same socket with the same
+    # promptId, which acpmux runs at most once ("a send with the same --prompt-id never runs twice").
+    pid = str(uuid.uuid4())
+    meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
+    if trace:
+        meta['traceId'] = trace
+    deadline = time.monotonic() + RETRY_S
+    while True:
+        try:
+            if s is None:
+                s = socket.socket(socket.AF_UNIX)
+                s.settimeout(110)
+                try:
+                    s.connect(used)
+                except (ConnectionRefusedError, FileNotFoundError) as e:
+                    raise Retryable('connect: ' + str(e))
+                f = s.makefile('r')
+                call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': meta}}) + '\\n').encode())
+            while True:
+                line = f.readline()
+                if not line:
+                    raise Retryable('session/prompt: the daemon closed the connection')
+                m = json.loads(line)
+                if m.get('method') == '_acpmux/prompt_accepted' and (m.get('params') or {}).get('promptId') == pid:
+                    break
+                if m.get('id') == 3:
+                    if m.get('error'):
+                        err = m['error']
+                        text = 'session/prompt: ' + json.dumps(err)[:400]
+                        raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
+                    break
+            print('@@prompted', flush=True)
+            sys.exit(0)
+        except Retryable as e:
+            if time.monotonic() >= deadline:
+                print('@@noprompt ' + str(e))
+                sys.exit(2)
+            print('@@retry ' + str(e)[:400], flush=True)
+            try:
+                s.close()
+            except Exception:
+                pass
+            s = None
+            time.sleep(2)
+        except Exception as e:
+            print('@@noprompt ' + str(e))
+            sys.exit(2)
 print('@@nostart ' + ('; '.join(errors) or 'no acpmux socket at ' + ', '.join(paths)))
 sys.exit(1)
 CMUX_JOURNEY_START`;
