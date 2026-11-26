@@ -21,6 +21,21 @@ on:
         description: baseline (before the channel moves) or after (the verdict and the settle)
         required: true
         type: string
+    # Named, not inherited, so the CI cache's R2 write keys never reach these jobs
+    # (tests/test_ci_pull_request_caches_are_read_only.py). A secret of a job's own environment wins over these.
+    secrets:
+      CMUX_DOGFOOD_STACK_EMAIL:
+        required: false
+      CMUX_DOGFOOD_STACK_PASSWORD:
+        required: false
+      CF_R2_ACCESS_KEY_ID:
+        required: false
+      CF_R2_SECRET_ACCESS_KEY:
+        required: false
+      CF_R2_ACCOUNT_ID:
+        required: false
+      CMUX_WEB_OTA_SIGNING_KEY:
+        required: false
 
 permissions:
   contents: read

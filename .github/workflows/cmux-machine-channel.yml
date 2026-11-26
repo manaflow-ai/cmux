@@ -348,7 +348,9 @@ jobs:
     uses: ./.github/workflows/cloud-machine-channel-journey.yml
     with:
       phase: baseline
-    secrets: inherit
+    secrets:
+      CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+      CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
 
   machine-channel-journey:
     needs: [point-x86_64, machine-channel-journey-baseline]
@@ -358,4 +360,10 @@ jobs:
     uses: ./.github/workflows/cloud-machine-channel-journey.yml
     with:
       phase: after
-    secrets: inherit
+    secrets:
+      CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+      CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+      CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      CF_R2_ACCOUNT_ID: ${{ secrets.CF_R2_ACCOUNT_ID }}
+      CMUX_WEB_OTA_SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
