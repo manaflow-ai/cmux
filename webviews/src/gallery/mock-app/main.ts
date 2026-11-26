@@ -127,7 +127,14 @@ async function readPaneData(fixture: string): Promise<PaneData> {
   if (!entry && entryIndex[id]) ({ entry } = await createFrameEntryStore().find(id));
   const state = entry?.variants[variant ?? Object.keys(entry.variants)[0] ?? ""] as AgentPaneVariant | undefined;
   const snapshot = state?.snapshot;
-  if (!snapshot) return { title: id, sessions: [] };
+  // A page (Settings, a diff): its tab's name, and the look it is drawn under (format.ts VariantBase look).
+  if (!snapshot)
+    return {
+      title: (entry && PAGE_TAB_TITLES[entry.host]) ?? id,
+      sessions: [],
+      look: state?.look,
+      fontStudy: state?.fontStudy,
+    };
   const title = snapshot.summary?.title ?? (snapshot.rows.length === 0 ? "New Tab" : "Chat");
   return {
     title,
@@ -138,6 +145,15 @@ async function readPaneData(fixture: string): Promise<PaneData> {
     fontStudy: state.fontStudy,
   };
 }
+
+/** The tab a page opens in, by its gallery host (the app names the page's tab so). */
+const PAGE_TAB_TITLES: Partial<Record<string, string>> = {
+  "settings-page": "Settings",
+  "passwords-page": "Passwords",
+  "keybindings-page": "Keyboard Shortcuts",
+  "changelog-page": "What's New",
+  "history-page": "History",
+};
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
   const node = document.createElement(tag);
@@ -226,8 +242,12 @@ function drawWindow(
   const frame = el("div", "app-window");
   frame.dataset.density = env.density;
   if (overPicture(env)) frame.dataset.glass = "";
+  // The native parts the window approximates carry `data-stand-in`: a capture or a test can tell them from the
+  // real web panes (each pane's frame), which carry none.
   const sidebar = el("aside", "app-sidebar");
+  sidebar.dataset.standIn = "native sidebar";
   const lights = el("div", "app-lights");
+  lights.dataset.standIn = "native traffic lights";
   if (!nativeChrome)
     for (const color of ["close", "minimize", "zoom"]) lights.append(el("span", `app-light app-light-${color}`));
   sidebar.append(lights);
@@ -240,6 +260,7 @@ function drawWindow(
     const fixture = fixtures[index] ?? fixtures[0]!;
     const box = el("section", "app-pane");
     const strip = el("div", "app-strip");
+    strip.dataset.standIn = "native tab strip";
     const tab = el("div", "app-tab");
     tab.dataset.selected = "";
     const tabTitle = el("span", "app-tab-title", "");
@@ -262,6 +283,7 @@ function drawWindow(
           other.style.height = tab.style.height;
           strip.insertBefore(other, plus);
         }
+        // The window takes the main pane's look, a page's too; each pane's frame draws its own variant's look.
         if (index === 0 && data.look) applyLook(data.look);
         if (index === 0 && sidebarShown) drawSidebar(sidebar, data);
       })
