@@ -245,6 +245,21 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
     return states[0] if states else ""  # the combined status lists each context's newest status once
 
 
+def labels_of(event: dict) -> set[str]:
+    """The PR's labels for EVENT: the payload's list, plus the label a `labeled` event added. GitHub fills the payload's
+    list when it sends the event, not when the label went on, so a label taken off right after (land-judge's full-ci
+    pulse on a lane VM, label_lane_pulse: added and taken off 2 s later) is missing from it. cmux#53671 at c52da39d,
+    2026-11-26 14:13Z: the pulse's `labeled` run read no full-ci, routed the land-affected cheap tier, skipped pr
+    pipeline, and land-judge refused matrix_missing again; every lane VM land of an iOS link PR stopped there."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if event.get("action") == "labeled":
+        added = str((event.get("label") or {}).get("name") or "")
+        if added:
+            labels.add(added)
+    return labels
+
+
 def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0") -> bool:
     """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
     head into feat-cmux-next (land_rule_applies), without `full-ci`, with both switches on."""
@@ -285,7 +300,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     if FULL_CI in labels:
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
@@ -415,7 +430,7 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
     land_full_switch = os.environ.get("CI_LAND_FULL_PER_PR", "0")
     carry_switch = os.environ.get("CI_LAND_CARRY", "1")
-    labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+    labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
     carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch)
