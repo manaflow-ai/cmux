@@ -8,25 +8,25 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ترتيب أدوات التشغيل في منتقي النماذج"
+            "value" : "ترتيب أدوات التشغيل في منتقي النموذج"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Redoslijed harnessa u biraču modela"
+            "value" : "Redoslijed alata u biraču modela"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rækkefølge af harnesses i modelvælgeren"
+            "value" : "Rækkefølge af værktøjer i modelvælgeren"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Harness-Reihenfolge in der Modellauswahl"
+            "value" : "Reihenfolge der Harnesses in der Modellauswahl"
           }
         },
         "en" : {
@@ -38,19 +38,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Orden de harnesses en el selector de modelos"
+            "value" : "Orden de los entornos en el selector de modelos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ordre des harnais dans le sélecteur de modèle"
+            "value" : "Ordre des environnements dans le sélecteur de modèle"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ordine degli harness nel selettore dei modelli"
+            "value" : "Ordine degli ambienti nel selettore del modello"
           }
         },
         "ja" : {
@@ -62,7 +62,7 @@
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "លំដាប់ Harness ក្នុងកម្មវិធីជ្រើសម៉ូដែល"
+            "value" : "លំដាប់ឧបករណ៍ក្នុងកម្មវិធីជ្រើសម៉ូដែល"
           }
         },
         "ko" : {
@@ -74,43 +74,43 @@
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rekkefølge for harnesser i modellvelgeren"
+            "value" : "Rekkefølge på verktøy i modellvelgeren"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kolejność harnessów w wyborze modelu"
+            "value" : "Kolejność narzędzi w wyborze modelu"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ordem dos harnesses no seletor de modelos"
+            "value" : "Ordem dos ambientes no seletor de modelo"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Порядок харнессов в выборе модели"
+            "value" : "Порядок сред в выборе модели"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ลำดับ Harness ในตัวเลือกโมเดล"
+            "value" : "ลำดับฮาร์เนสในตัวเลือกโมเดล"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Model seçicide harness sırası"
+            "value" : "Model seçicide araç sırası"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Порядок харнесів у виборі моделі"
+            "value" : "Порядок середовищ у виборі моделі"
           }
         },
         "vi" : {
@@ -122,13 +122,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "模型选择器中的 Harness 顺序"
+            "value" : "模型选择器中的工具顺序"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "模型選擇器中的 Harness 順序"
+            "value" : "模型選擇器中的工具順序"
           }
         }
       }

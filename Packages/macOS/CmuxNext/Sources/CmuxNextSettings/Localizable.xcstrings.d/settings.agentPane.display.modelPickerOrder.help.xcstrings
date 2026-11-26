@@ -8,19 +8,19 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ترتيب أدوات التشغيل في منتقي النماذج. اسحب أداة تشغيل في المنتقي لنقلها."
+            "value" : "ترتيب أدوات التشغيل في منتقي النموذج. اسحب أداة في المنتقي لنقلها."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Redoslijed harnessa u biraču modela. Prevucite harness u biraču da ga pomjerite."
+            "value" : "Redoslijed alata u biraču modela. Prevucite alat u biraču da ga pomjerite."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rækkefølgen af harnesses i modelvælgeren. Træk en harness i vælgeren for at flytte den."
+            "value" : "Rækkefølgen af værktøjer i modelvælgeren. Træk et værktøj i vælgeren for at flytte det."
           }
         },
         "de" : {
@@ -38,97 +38,97 @@
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "El orden de los harnesses en el selector de modelos. Arrastra un harness en el selector para moverlo."
+            "value" : "El orden de los entornos en el selector de modelos. Arrastra un entorno en el selector para moverlo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’ordre des harnais dans le sélecteur de modèle. Faites glisser un harnais dans le sélecteur pour le déplacer."
+            "value" : "L’ordre des environnements dans le sélecteur de modèle. Faites glisser un environnement dans le sélecteur pour le déplacer."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’ordine degli harness nel selettore dei modelli. Trascina un harness nel selettore per spostarlo."
+            "value" : "L’ordine degli ambienti nel selettore del modello. Trascina un ambiente nel selettore per spostarlo."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "モデルピッカー内のハーネスの順序。ピッカーでハーネスをドラッグすると移動できます。"
+            "value" : "モデルピッカー内のハーネスの順序です。ピッカーでハーネスをドラッグして移動できます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "លំដាប់នៃ Harness ក្នុងកម្មវិធីជ្រើសម៉ូដែល។ អូស Harness ក្នុងកម្មវិធីជ្រើសដើម្បីផ្លាស់ទីវា។"
+            "value" : "លំដាប់ឧបករណ៍ក្នុងកម្មវិធីជ្រើសម៉ូដែល។ អូសឧបករណ៍ក្នុងកម្មវិធីជ្រើសដើម្បីផ្លាស់ទី។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "모델 선택기의 하네스 순서입니다. 선택기에서 하네스를 드래그해 옮기세요."
+            "value" : "모델 선택기의 하네스 순서입니다. 선택기에서 하네스를 드래그해 이동하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rekkefølgen på harnesser i modellvelgeren. Dra en harness i velgeren for å flytte den."
+            "value" : "Rekkefølgen på verktøy i modellvelgeren. Dra et verktøy i velgeren for å flytte det."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kolejność harnessów w wyborze modelu. Przeciągnij harness w wyborze, aby go przenieść."
+            "value" : "Kolejność narzędzi w wyborze modelu. Przeciągnij narzędzie w wyborze, aby je przenieść."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "A ordem dos harnesses no seletor de modelos. Arraste um harness no seletor para movê-lo."
+            "value" : "A ordem dos ambientes no seletor de modelo. Arraste um ambiente no seletor para movê-lo."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Порядок харнессов в выборе модели. Перетащите харнесс в списке, чтобы переместить его."
+            "value" : "Порядок сред в выборе модели. Перетащите среду в списке, чтобы переместить её."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ลำดับของ Harness ในตัวเลือกโมเดล ลาก Harness ในตัวเลือกเพื่อย้าย"
+            "value" : "ลำดับของฮาร์เนสในตัวเลือกโมเดล ลากฮาร์เนสในตัวเลือกเพื่อย้าย"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Model seçicideki harness sırası. Taşımak için seçicide bir harness’ı sürükleyin."
+            "value" : "Model seçicideki araçların sırası. Taşımak için seçicide bir aracı sürükleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Порядок харнесів у виборі моделі. Перетягніть харнес у списку, щоб перемістити його."
+            "value" : "Порядок середовищ у виборі моделі. Перетягніть середовище у списку, щоб перемістити його."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thứ tự các harness trong bộ chọn mô hình. Kéo một harness trong bộ chọn để di chuyển nó."
+            "value" : "Thứ tự các harness trong bộ chọn mô hình. Kéo một harness trong bộ chọn để di chuyển."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "模型选择器中 Harness 的顺序。在选择器中拖动 Harness 即可移动。"
+            "value" : "模型选择器中工具的顺序。在选择器中拖动工具即可移动。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "模型選擇器中 Harness 的順序。在選擇器中拖曳 Harness 即可移動。"
+            "value" : "模型選擇器中工具的順序。在選擇器中拖曳工具即可移動。"
           }
         }
       }
