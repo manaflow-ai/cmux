@@ -488,3 +488,4 @@ cmux-tui/crates/cmux-cloud-config/src/handoff.rs	com.cmuxterm.app"	2	keep	review
 scripts/cmux-next/cloud-journey.ts	join(bin, "cmux")	1	keep	harness: puts the cmux CLI on PATH under its command name, not a state root
 scripts/cmux-next/codex-login-hang.py	com.cmuxterm.app*	1	keep	harness: collects hang reports every cmux build writes, Classic ids included
 scripts/cmux-next/quit-leaves-no-helpers-live.py	/tmp/cmux-debug-{tag}.sock	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+cmux-tui/crates/cmux-home-rules/src/chief_home/build.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
