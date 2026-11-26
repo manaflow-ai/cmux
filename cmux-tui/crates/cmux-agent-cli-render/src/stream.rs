@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crate::Grid;
-use crate::hybrid::{Delta, Overlay};
+use crate::hybrid::{Delta, Overlay, grid_row_hashes};
 
 /// How many sent frames a stream keeps for a resume.
 pub const RESUME_FRAMES: usize = 512;
@@ -48,20 +48,32 @@ pub struct HybridStream {
     /// Frames `base_frame + 1 ..= frame`, encoded.
     sent: VecDeque<Vec<u8>>,
     sent_bytes: usize,
+    /// `shown`'s row hashes, and the newest real screen's: a frame diffs only the rows they
+    /// differ in.
+    shown_hashes: Vec<u64>,
+    real_hashes: Vec<u64>,
+    /// A candidate delta's bytes while [`Overlay::delta_over_blank`] picks one.
+    scratch: Vec<u8>,
 }
 
 impl HybridStream {
     pub fn new(cols: u16, rows: u16) -> HybridStream {
+        let shown = Overlay::new(cols, rows);
+        let mut shown_hashes = Vec::new();
+        shown.row_hashes_over_blank(&mut shown_hashes);
         HybridStream {
             cols,
             rows,
             blank: Grid::blank(cols, rows),
-            shown: Overlay::new(cols, rows),
+            shown,
             frame: 0,
             base: Overlay::new(cols, rows),
             base_frame: 0,
             sent: VecDeque::new(),
             sent_bytes: 0,
+            shown_hashes,
+            real_hashes: Vec::new(),
+            scratch: Vec::new(),
         }
     }
 
@@ -81,12 +93,22 @@ impl HybridStream {
 
     /// The frame that turns the viewer's screen into `real`, or `None` when it shows `real`
     /// already. `at_ms` is the time the delta carries.
+    ///
+    /// Only the rows whose hash changed are diffed, and only the shifts that line up the most
+    /// rows are tried ([`Overlay::delta_over_blank`]): no full-screen diff or clone per frame.
     pub fn update(&mut self, real: &Grid, at_ms: u64) -> Option<Frame> {
-        let delta = self.shown.delta(&self.blank, real, 0, at_ms);
-        if delta.shift == 0 && delta.spans.is_empty() {
-            return None;
-        }
-        self.shown.apply_delta(&delta, &self.blank);
+        grid_row_hashes(real, self.cols, self.rows, &mut self.real_hashes);
+        let delta = self.shown.delta_over_blank(
+            real,
+            &self.shown_hashes,
+            &self.real_hashes,
+            0,
+            at_ms,
+            &mut self.scratch,
+        )?;
+        self.shown.apply_delta_over_blank(&delta);
+        // The shown screen now looks like `real`, row for row.
+        std::mem::swap(&mut self.shown_hashes, &mut self.real_hashes);
         let data = delta.encode();
         let base = self.frame;
         self.frame += 1;
@@ -96,7 +118,7 @@ impl HybridStream {
             let Some(oldest) = self.sent.pop_front() else { break };
             self.sent_bytes -= oldest.len();
             if let Some(delta) = Delta::decode(&oldest) {
-                self.base.apply_delta(&delta, &self.blank);
+                self.base.apply_delta_over_blank(&delta);
             }
             self.base_frame += 1;
         }

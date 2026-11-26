@@ -36,6 +36,22 @@ export const UPSELL_PLANS: Readonly<Record<string, { readonly name: string; read
   max: { name: "cmux Max", usd: 200 }
 }
 
+/**
+ * The cmux NEXT plans (Cloud's machine sizes, cmux-platform Entitlements.ts), with their monthly price (USD). A paid
+ * test checkout of one is the team's test NEXT plan: TeamDO answers it as `next_plan` (inference/plan.ts), which
+ * Cloud reads; it never changes `paid` or the model limit. Cloud's `cloud.billing.checkout` asks for the link
+ * (TeamDO.nextPlanLink).
+ */
+export const NEXT_PLANS: Readonly<Record<string, { readonly name: string; readonly usd: number }>> = {
+  next_plus: { name: "cmux NEXT Plus", usd: 20 },
+  next_pro: { name: "cmux NEXT Pro", usd: 50 },
+  next_max: { name: "cmux NEXT Max", usd: 200 }
+}
+
+/** Every plan a signed link may buy. */
+const LINK_PLANS: Readonly<Record<string, { readonly name: string; readonly usd: number }>> = { ...UPSELL_PLANS, ...NEXT_PLANS }
+export const isNextPlan = (plan: string) => Object.hasOwn(NEXT_PLANS, plan)
+
 /** Where a person can read the plans when no checkout link can be made. */
 export const PRICING_URL = "https://cmux.com/pricing"
 
@@ -46,7 +62,7 @@ const unb64url = (s: string) => atob(s.replace(/-/g, "+").replace(/_/g, "/"))
 export const planLink = async (env: Env, origin: string, team: string, plan: string, asker?: PlanAsker, now = Date.now()): Promise<string | null> => {
   const key = env.BILLING_LEVELS_KEY
   // No webhook, no grant (grantPlanSession's no_webhook): never offer a link whose payment cannot turn the plan on.
-  if (!key || key.length < 32 || !TEAM.test(team) || !Object.hasOwn(UPSELL_PLANS, plan) || !creditsKey(env).ok || !env.STRIPE_CREDITS_WEBHOOK_SECRET) return null
+  if (!key || key.length < 32 || !TEAM.test(team) || !Object.hasOwn(LINK_PLANS, plan) || !creditsKey(env).ok || !env.STRIPE_CREDITS_WEBHOOK_SECRET) return null
   if (asker && (!ID.test(asker.chief) || !ID.test(asker.conversation))) return null
   const payload = b64url(JSON.stringify({ t: team, p: plan, e: now + LINK_TTL_MS, ...(asker ? { a: asker.chief, c: asker.conversation } : {}) }))
   return `${origin.replace(/\/$/, "")}/v1/billing/plan/${payload}.${await hmacHex(key, `plan-link:${payload}`)}`
@@ -60,7 +76,7 @@ export const planOfLink = async (env: Env, token: string, now = Date.now()): Pro
   if (!timingSafeEqual(sig, await hmacHex(key, `plan-link:${payload}`))) return null
   try {
     const v = JSON.parse(unb64url(payload)) as { t?: unknown; p?: unknown; e?: unknown; a?: unknown; c?: unknown }
-    if (!(typeof v.t === "string" && TEAM.test(v.t) && typeof v.p === "string" && Object.hasOwn(UPSELL_PLANS, v.p) && typeof v.e === "number" && v.e > now)) return null
+    if (!(typeof v.t === "string" && TEAM.test(v.t) && typeof v.p === "string" && Object.hasOwn(LINK_PLANS, v.p) && typeof v.e === "number" && v.e > now)) return null
     const asker = typeof v.a === "string" && ID.test(v.a) && typeof v.c === "string" && ID.test(v.c) ? { chief: v.a, conversation: v.c } : undefined
     return { team: v.t, plan: v.p, ...(asker ? { asker } : {}) }
   } catch {
@@ -77,7 +93,7 @@ export type PlanGrant = { ok: true; team: string; plan: string; added: boolean }
 
 /** The note that tells the asking Chief the plan is on (its own words, never the person's). */
 export const planGrantedNote = (plan: string): string => {
-  const name = UPSELL_PLANS[plan]?.name ?? plan
+  const name = LINK_PLANS[plan]?.name ?? plan
   return `[billing] ${name} is on for this account now: the person paid on the checkout page you sent (test mode, no real charge). Tell them in one line that ${name} is on, then redo the step that needed it (the one that answered plan.required) yourself, without asking. (A billing notice from cmux, not the person's word now.)`
 }
 
@@ -88,13 +104,13 @@ export const planGrantedNote = (plan: string): string => {
  */
 export const grantPlanSession = async (env: Env, s: Session): Promise<PlanGrant> => {
   const m = s.metadata ?? {}
-  if (!s.id || m.app !== "cmux" || m.kind !== PLAN_KIND || !m.team || !TEAM.test(m.team) || !m.plan || !Object.hasOwn(UPSELL_PLANS, m.plan) || s.mode !== "subscription") return { ok: false, reason: "not_a_plan_session" }
+  if (!s.id || m.app !== "cmux" || m.kind !== PLAN_KIND || !m.team || !TEAM.test(m.team) || !m.plan || !Object.hasOwn(LINK_PLANS, m.plan) || s.mode !== "subscription") return { ok: false, reason: "not_a_plan_session" }
   if (s.livemode !== false || !creditsKey(env).ok) return { ok: false, reason: "not_test_mode" }
   // Only the webhook can take a grant back (customer.subscription.deleted): without it, grant nothing.
   if (!env.STRIPE_CREDITS_WEBHOOK_SECRET) return { ok: false, reason: "no_webhook" }
   if (s.status !== "complete" || s.payment_status !== "paid") return { ok: false, reason: "not_paid" }
   // The plan's price, and only when nothing changed it (a discount or tax would make the two differ).
-  const cents = UPSELL_PLANS[m.plan]!.usd * 100
+  const cents = LINK_PLANS[m.plan]!.usd * 100
   if (s.currency !== "usd" || s.amount_total !== cents || s.amount_subtotal !== cents) return { ok: false, reason: "bad_amount" }
   const subscription = typeof s.subscription === "string" ? s.subscription : s.subscription?.id
   if (!subscription || !/^sub_[A-Za-z0-9_]{1,200}$/.test(subscription)) return { ok: false, reason: "no_subscription" }
@@ -158,16 +174,16 @@ export const handlePlanCheckout = async (request: Request, env: Env, sub: string
     if (!r.ok) {
       console.warn(JSON.stringify({ msg: "plan.return_not_granted", reason: r.reason }))
       // The plan is on; only the Chief's note waits for the webhook's redelivery.
-      if (r.retry && r.plan) return page(`${UPSELL_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped shortly. You can close this page.")
+      if (r.retry && r.plan) return page(`${LINK_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped shortly. You can close this page.")
       if (r.reason === "revoked") return page("Plan cancelled", "This plan was cancelled after this payment. Ask your Chief for a new link to start it again.", 410)
       if (r.reason === "no_webhook") return page("Billing unavailable", `Plans cannot be turned on on this deployment yet, so this payment starts no plan. See ${PRICING_URL}.`, 503)
       return page("Payment not confirmed yet", r.reason === "not_paid" ? "Your payment is still processing. The plan turns on when it completes." : "We could not confirm this payment. If you paid, the plan turns on shortly.", r.reason === "not_paid" ? 202 : 400)
     }
-    return page(`${UPSELL_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped. You can close this page.")
+    return page(`${LINK_PLANS[r.plan]!.name} is on`, isNextPlan(r.plan) ? "This is a test-mode checkout: no real charge was made. Cloud machines get the plan within a few minutes. You can close this page." : "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped. You can close this page.")
   }
   const link = await planOfLink(env, sub)
   if (!link) return page("Link expired", "This plan link is no longer valid. Ask your Chief again for a new one.", 404)
-  const plan = UPSELL_PLANS[link.plan]!
+  const plan = LINK_PLANS[link.plan]!
   const base = new URL(request.url).origin
   const meta = { app: "cmux", kind: PLAN_KIND, team: link.team, plan: link.plan, ...(link.asker ? { chief: link.asker.chief, conversation: link.asker.conversation } : {}) }
   const form: Record<string, string> = {

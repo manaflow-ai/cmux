@@ -1,0 +1,1810 @@
+{
+  "schema": "best-of-n-results/v1",
+  "measured_at": "2026-11-24T22:13:41Z",
+  "task_set": "cmux evals/best-of-n/tasks_deep",
+  "model": "claude/haiku",
+  "attempts": 4,
+  "reviewer": "claude/sonnet",
+  "effort": null,
+  "diverse": null,
+  "plan": [
+    [
+      "claude/haiku",
+      ""
+    ],
+    [
+      "claude/haiku",
+      ""
+    ],
+    [
+      "claude/haiku",
+      ""
+    ],
+    [
+      "claude/haiku",
+      ""
+    ]
+  ],
+  "hints_emulated": false,
+  "n_tasks": 27,
+  "n_started": 27,
+  "single_solve_rate": 0.9167,
+  "pick_solve_rate": 0.963,
+  "oracle_solve_rate": 0.963,
+  "single_test_share": 0.9657,
+  "pick_test_share": 0.9972,
+  "oracle_test_share": 0.9972,
+  "mean_wall_s": 485.0556,
+  "rows": [
+    {
+      "task": "ansiwrap",
+      "race": "01a20f91c4a374a3a2e090651587a7d1",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I ran the same 30,000-case randomized check against all four worktrees. It covered truncate with several ellipses, wrap and pad, using mixed CSI and OSC escapes (including ones containing spaces), CJK, emoji, combining marks and tabs. It checked that results fit the width, that escapes survive in order, that no escape is cut, that visible text is kept, and that wrap raises ValueError below width 2",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 853.5,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "argvquote",
+      "race": "01a20f91c4ed7437b44fedf24948488c",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "I ran the same differential fuzz against c1, c2, c3 and c4 using real dash. It had random argv through join, split and sh, first-word keywords and NAME= words, raw-line split against sh, and line-continuation cases. c1, c2 and c3 had 0 failures. c4 failed 3 backslash-newline cases: split('a \\\\\\n b') gave ['a','','b'], split('\\\\\\n') gave [''], and split('a \\\\\\n') gave ['a','']. c1 is the most conse",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 325.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "backoff",
+      "race": "01a20f91c59e74a68c420f57269e7c47",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "All four candidates make the same core fixes, and I read the diffs without running anything. They change the give-up test to `failures >= max_attempts`. They use `retry_after` exactly, with no jitter, no cap and no `rng()` draw, and clamp it to 0.0 when it is zero or less. They compute the nominal delay first and then jitter it with one `rng()` draw. They shorten a computed delay to end at the dea",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 459.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "cursorpage",
+      "race": "01a20f91c6ed72cc87c04ffeb71369e7",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "All four candidates changed only cursorpage.py. All four passed my own black-box check: 3000 random feeds with heavy ts ties, compared against a brute-force model. It covered forward walks, after= and before= from every record, the next/prev None rules, empty pages, and an after= cursor whose record was deleted. c1 has the smallest diff (27 added, 31 removed lines), keeps the public signatures unc",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 787.5,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "dedupelog",
+      "race": "01a20f91c7fb71d7b3777e6f61283e75",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "I ran all four candidates through a 3000-case randomized differential test against my own reference implementation of the spec. It covered `replay`, `get`, `next_seq` and `compact`, with torn, blank and tombstone lines and `deleted` values of false and 1. c1 and c4 matched exactly, with 0 mismatches. c2 and c3 each had some mismatches (162 and 286), but I think those come from `compact` output ord",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 173.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "envexpand",
+      "race": "01a20f91c93a77fb947de13905e85357",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "c1, c2 and c3 make the same core fixes. They route `${NAME}` through `_lookup`, expand a used default with `strict`, and pass `strict` into `parse_dotenv` values and the `resolve_workspace` `cwd`. c4 made no edit. c1 is the only one that keeps non-strict behaviour exactly as today. It still parses an unused default non-strictly, so a malformed default such as `${A-$$${B}${}}` keeps raising `ValueE",
+      "single": 0.75,
+      "single_tests": 0.875,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 789.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_dotenv_and_env_blocks_are_strict: AssertionError('did not raise UnsetVariable')",
+            "test_random_templates_match_model: AssertionError('did not raise UnsetVariable')",
+            "test_reported_braced_reference_is_strict: AssertionError('did not raise UnsetVariable')",
+            "test_used_default_is_strict_too: AssertionError('did not raise UnsetVariable')",
+            "test_workspace_strict_everywhere: AssertionError('did not raise UnsetVariable')"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "focusorder",
+      "race": "01a20f91c9ce7266a21765875fac6f92",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "I ran a differential fuzz of all four candidates: 3000 random 30-step sequences over open, close, reopen, pin, unpin, move and activate, comparing the strip order, active tab and pinned flags after every call. All four gave identical results, and none broke the pinned-first rule or left an active tab outside its group. The fuzz never called `open` with `after`, so that path was not compared. Since",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 757.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "gitstatus",
+      "race": "01a20f91cae075169f40d3f469dc949d",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "All four diffs fix the bug the same way: an entry takes a source path when either X or Y is R or C. All four also switch the conflict check to exact membership in UNMERGED. I read the diffs and the code but did not run any candidate. The authors report parsing 100,000 entries in about 0.17 s. c4 is the only one that also makes `renamed` count every entry carrying a source path, ahead of the kind d",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 671.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "globmatch",
+      "race": "01a20f91cb9b70ecab19601791c444e8",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I fuzzed each candidate's `ignored` against `git check-ignore --no-index`. c1 had 0 mismatches over 1,900 random trees and c2 had 0 over 1,900. c4 mismatched git on a `[^a]` pattern (`/**`, `[!a]`, `![^a]`, `b` ignored `c/ab` in git but not in c4). I also checked that `filter_paths` agrees with `ignored` on 3,000 random entry lists, with 0 disagreements for c1 and c2. The performance checks on `*a",
+      "single": 0.75,
+      "single_tests": 0.8333333333333334,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 741.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 3,
+          "total": 9,
+          "solved": false,
+          "failures": [
+            "test_double_star_matches_zero_directories: AssertionError()",
+            "test_files_inside_ignored_directory: AssertionError()",
+            "test_filter_paths_walk: AssertionError()",
+            "test_hostile_patterns_are_fast: AssertionError('too slow')",
+            "test_negation_cannot_reinclude_under_ignored_dir: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 9,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "hunkapply",
+      "race": "01a20f91cbd171a8861add850432e1ce",
+      "state": "completed",
+      "winner": "c3",
+      "reason": "c3 and c4 are the only candidates that implement the whole contract, and their logic is equivalent. Both fix the omitted-count default in `parse` so an omitted count means 1, fix the expected position (shifted by earlier hunks' added minus removed lines plus their drift, with `a` rather than `a-1` when `b`=0), search in the order 0, -1, +1, -2, +2 \u2026, and reject matches below the end of earlier wri",
+      "single": 0.5,
+      "single_tests": 0.8,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 214.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 9,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_count_omitted_means_one: PatchError('hunk Hunk(-2,0 +2,0) does not match its header')"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 3,
+          "total": 10,
+          "solved": false,
+          "failures": [
+            "test_count_omitted_means_one: PatchError('hunk Hunk(-2,0 +2,0) does not match its header')",
+            "test_drift_of_earlier_hunk_carries_to_later_ones: AssertionError()",
+            "test_hunk_found_earlier_than_expected: HunkFailed('hunk #1 failed to apply')",
+            "test_later_hunk_shifted_by_earlier_additions: AssertionError()",
+            "test_later_hunk_shifted_by_earlier_removals: HunkFailed('hunk #2 failed to apply')"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "intervalset",
+      "race": "01a20f91cd6871c592e1f88753104ba0",
+      "state": "completed",
+      "winner": "c3",
+      "reason": "I ran the same randomized differential test against a brute-force integer-set model on all four candidates. It covered iteration canonical form, total, contains, overlaps, covers, complement, intersection and union. Inputs included empty, inverted, out-of-range and overlapping intervals. Only c3 passed all 4000 trials with 0 failures. c1, c2 and c4 failed `intersection` (c4 also failed `union`) wh",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 284.4,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "keychord",
+      "race": "01a20f91ce36759cbe2b30b93027b98d",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "c1 fixes everything in the report. Modifiers now follow the Ctrl, Alt, Shift, Cmd order. Letters are ASCII-only, so `Ctrl+\u00e9` and `Ctrl+\u00c9` stay different chords. Named keys and aliases match in any ASCII case. `Keymap` keys its bindings by canonical text, so `ctrl+shift+p` and `Ctrl+Shift+P` find the same binding. I ran each candidate on the bug case, `Alt+Ctrl+enter`, `Ctrl+\u00e9` and `Ctrl+\u00df`, and al",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 663.2,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "keyring",
+      "race": "01a20f91cf1f74eb8bad51d5d46e5afe",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "c1 and c3 made no changes, so they are out. c2 and c4 both fix the bug-report case and the empty env var case. c2 removes null object members at any depth from every layer, which is the contract's literal wording. c4 also drops any object whose members are all null, so {\"terminal\":{\"font\":{\"size\":null}}} on its own removes \"terminal\" from as_dict(). The contract only unsets the null key, so that g",
+      "single": 0.0,
+      "single_tests": 0.5961538461538461,
+      "pick": 0.0,
+      "pick_tests": 0.9230769230769231,
+      "oracle": 0.0,
+      "oracle_tests": 0.9230769230769231,
+      "wall_s": 620.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 4,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_empty_env_var_is_unset: AssertionError()",
+            "test_env_converts_against_value_below_a_null: AssertionError()",
+            "test_get_returns_copies_and_inputs_untouched: AssertionError()",
+            "test_keyed_list_items_merge_like_objects: AssertionError()",
+            "test_null_in_a_new_section_is_absent: AssertionError()"
+          ]
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_keyed_list_items_merge_like_objects: AssertionError()"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 4,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_empty_env_var_is_unset: AssertionError()",
+            "test_env_converts_against_value_below_a_null: AssertionError()",
+            "test_get_returns_copies_and_inputs_untouched: AssertionError()",
+            "test_keyed_list_items_merge_like_objects: AssertionError()",
+            "test_null_in_a_new_section_is_absent: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 11,
+          "total": 13,
+          "solved": false,
+          "failures": [
+            "test_keyed_list_items_merge_like_objects: AssertionError()",
+            "test_random_layers_match_model: AssertionError([{}, {}, {'r': {'c': None}, 'q': {'b': ['z', None]}, 'p': None}])"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "lineindex",
+      "race": "01a20f91d09070d0920a673bbd310bd4",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "c2 is the only candidate that matched the original module's semantics in my differential fuzz. The fuzz covered random CR/LF/CRLF/multibyte buffers and random edits, and compared `starts`, `data`, `line_col`, `offset` and `line_text` against a fresh original-semantics index, with edits landing mid-CRLF. c1, c3 and c4 each differed on some `line_col` or `offset` result, including a 4-byte-character",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 760.5,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "mdlinks",
+      "race": "01a20f91d23e72ebad4d4cb4636f0638",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "c3 and c4 were the only candidates that kept current behavior for a link whose text holds a code span, such as [`x`](u), and that treated a backtick fence with a backtick in its info string as not a fence. c1 and c2 drop the first kind of link entirely, and c2 also treats ```a`b as a fence, which CommonMark doesn't. I ran 26 edge cases against all four candidates, plus 20,000 random documents agai",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 749.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "oscparse",
+      "race": "01a20f91d317743c9c806e5b97cd9cec",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I fuzzed all four candidates and c2 was clean and fastest. Each ran 30,000 random streams, using atoms such as ESC, `]`, `\\`, BEL, OSC bodies, split UTF-8 bytes and CSI sequences. I fed each stream in random chunks and compared the result with one-piece feeding. I also compared one-piece feeding with an independent reference model I wrote. c1, c2, c3 and c4 all had 0 mismatches, and all four handl",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 672.9,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "rangemerge",
+      "race": "01a20f91d50f7722990e4f30cb15040e",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I ran my own fuzz test against all four. It used a per-cell model with random set, insert and delete, checked spans(), get and values_in after every op, and ran 1500 seeds. c1, c2 and c4 passed with 0 failures. c3 failed values_in on reversed ranges (start > end), which should be empty under the [start, end) contract. On 100k left-to-right paints plus 100k gets, c1, c2 and c4 took about 0.1\u20130.15 s",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 685.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "scrollback",
+      "race": "01a20f91d77c77c2a7e7786eb61853de",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "All four candidates passed my own checks, so this is close to a tie. The checks were the bug-report case (line_count 3), a randomized comparison against a naive model covering lines, rows, row_count, search and resize, and a 60,000-append timing run. Every candidate finished the timing run in under 0.06 s at both capacity 10 and capacity 3000, so cost does not depend on buffer size. Each stores lo",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 485.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 12,
+          "total": 12,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "sessiontree",
+      "race": "01a20f91d8807068995f0b303b9a951e",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "I ran a 400-seed differential test against a naive reference model. It covered create, rename, move, close and find, with casefold edge cases such as \u00df/ss, and it checked children order and returned close ids. c1, c2 and c4 all matched the model with 0 mismatches. c3 failed 348 of the 400 seeds because rename changes sibling order, which breaks the creation/arrival order the original code kept. c1",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 253.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "sortkeys",
+      "race": "01a20f91dcff7761aab4f304826f8b11",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "All four candidates produce the same order on 3,000 random names that mix case, leading zeros, Arabic-Indic digits, \u00b2 and \u00df. All four fix the four bug reports. `img2.png`, `IMG2.png` and `img02.png` sort as IMG2, img2, img02 in each. A 5,000-digit run sorts without error in each. A 50k-name sort of 25-character names takes about 0.37 s for c4 and c1 and about 0.44 s for c2 and c3. c4 has the same ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 302.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "splittree",
+      "race": "01a20f91df16741c933c28b813ad7589",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "I read all four diffs and did not run them. All four fix the reported bug and implement the close share rule and the focus rule. c4 does it with a single `_normalize` pass after `split` and `close`. That pass replaces one-child splits and splices same-orientation child splits into their parent, scaling ratios by the share each held. It leaves the ratios unscaled otherwise, so shares not involved i",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 219.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 11,
+          "total": 11,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "tablefmt",
+      "race": "01a20f91e7f8750e961860770606339e",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "c1, c2 and c4 return identical `clip` output on 20,000 random mixed-width strings. They follow the spec: widths are measured in cells, the prefix stops before a wide character that doesn't fit, and `pad` handles the shortfall. c3 also changes `text_width` to count Mn/Me marks as 0 cells. That goes beyond the bug and changes clip results on 3,179 of the 20,000 inputs. In some of those the clipped c",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 273.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "tokenbucket",
+      "race": "01a20f91ed187716aeb259d0d434afd5",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "All four candidates fix the reported bug in the same way. `_refill` always re-anchors `_last` to the current reading, so full time earns nothing and a backwards clock step creates no tokens and doesn't stall. `wait_time` and `tokens` refill before reading. `refund` is capped at `burst`. `wait_time` returns inf when cost exceeds `burst`, and `acquire` raises ValueError. c4 is the only one that make",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 249.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 13,
+          "total": 13,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "tokenize2",
+      "race": "01a20f91f1a67785802d65ad6577dba7",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "I fuzzed all four against my own byte-by-byte reference written from the docstring. I ran 40,000 random streams on whole-stream, random-cut and 1-byte-chunk feeding. c1, c2 and c4 had 0 mismatches. c3 had 3, for example `\\x1a\\x7f\\x1b[;/\\x7f0@\\\\`: a DEL between an intermediate and a parameter byte hides the malformed-CSI rule, so c3 wrongly emits a `csi` token. All three passing candidates feed an ",
+      "single": 0.75,
+      "single_tests": 0.96875,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 355.8,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 8,
+          "solved": false,
+          "failures": [
+            "test_parameter_after_intermediate_is_malformed: AssertionError()"
+          ]
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "ttlcache",
+      "race": "01a20f91f37d7158a34afe6dddd8258c",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "I ran one differential test against all four candidates. It used a reference model and fake clocks, with 300 seeds of 400 mixed ops each. The ops covered set (including per-entry ttl), get, peek, `in`, len, items, delete, ttl_remaining, pop and get_or_load. It also compared the hit and miss counters. All four matched the model with no mismatches, and each stayed under 1 s for 100k ops on a full 1,",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 224.9,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 15,
+          "total": 15,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "undotree",
+      "race": "01a20f91fbe4741e9bc160ea870fbf10",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I read the diffs but did not run any of the candidates. All four make the same core fixes: undo() records the node it left as the parent's preferred child, goto() sets the preferred child along the path from the target to node 0 in O(depth), each node keeps its own child list so children() and redo() stop scanning the whole tree, and commit() reuses the newest child with matching text. Their own t",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 203.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "wcdiff",
+      "race": "01a20f91fd7a73aebf6f23aec534dcfc",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "All four candidates passed my own checks. Those were 3,100 random cases, including CRLF and repeated lines. For each I checked that both sides reconstruct, that \"=\" lines come from b, that \"-\" lines come from a and \"+\" lines from b, that removals precede additions within a run, and that the \"=\" count equals a brute-force LCS. On 4,000-line inputs with 8 changed lines, whether scattered, at the sta",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 318.7,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "win_rate_gain": 0.0463,
+  "oracle_gain": 0.0463,
+  "judge_gap": 0.0
+}

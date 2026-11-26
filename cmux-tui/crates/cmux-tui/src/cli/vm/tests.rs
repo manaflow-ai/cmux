@@ -635,6 +635,29 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
     );
 }
 
+/// 2026-11-25: `cmux vm new` answered a VM the server made 7 minutes before the call as
+/// "Created". A machine the answer marks `reused` says so, with when it was made.
+#[test]
+fn a_reused_cloud_machine_is_not_called_created() {
+    let params = json!({ "action": "cloud new-machine" });
+    let reused = json!({ "result": {
+        "machine_id": "vm_57a7e6bc0337b978d609", "title": "dev", "status": "running",
+        "target": "machine:vm_57a7e6bc0337b978d609", "reused": true,
+        "created_at": "2026-11-25T10:00:00Z",
+    }});
+    let text = created_line(&params, &reused, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Got Cloud VM dev (vm_57a7e6bc0337b978d609): running."), "{text}");
+    assert!(text.contains("made at 2026-11-25T10:00:00Z, before this request"), "{text}");
+    assert!(!text.contains("Created"), "{text}");
+    assert!(text.contains("cmux vm ssh vm_57a7e6bc0337b978d609"), "{text}");
+    let own = json!({ "result": {
+        "machine_id": "vm-abc", "status": "running", "reused": false,
+        "created_at": "2026-11-25T10:00:00Z",
+    }});
+    let text = created_line(&params, &own, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Created Cloud VM vm-abc: running."), "{text}");
+}
+
 /// #32227 (1): a bootstrap or machine config that ran keeps the full field
 /// table, so a failed setup's status, reason and recovery commands still print.
 #[test]
@@ -939,4 +962,26 @@ fn dev_build_own_vm_config_is_the_one_counted() {
     std::fs::write(&own, r#"{"apiKey":"cmuxvm_sk_dev"}"#).unwrap();
     assert!(has_own_credential(&env), "the DEV build's own vm.json did not count");
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// `cmux vm resize --help` is `resize-machine`'s help (exit 0), and an alias's help names the
+/// alias before the VM API's help of the verb it runs (the Cloud and remote command matrix).
+#[test]
+fn alias_and_redirect_verbs_have_their_own_help() {
+    let Some(HelpNote::Whole(resize)) = verb_help_note("resize", false) else {
+        panic!("resize redirects")
+    };
+    assert!(resize.contains("cmux vm resize"), "{resize}");
+    assert!(resize.contains("resize-machine"), "{resize}");
+    for (alias, long) in
+        [("ls", "list"), ("show", "get"), ("key", "token"), ("access", "client-session")]
+    {
+        assert_eq!(
+            verb_help_note(alias, false),
+            Some(HelpNote::Before(format!("`cmux vm {alias}` is `cmux vm {long}`.\n\n")))
+        );
+    }
+    assert_eq!(verb_help_note("list", false), None);
+    assert!(verb_asks_help(&args(&["--help"])));
+    assert!(!verb_asks_help(&args(&["--", "--help"])));
 }

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "switch.cancelled" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أُلغي التبديل؛ عاد الـ prompt إلى حقل الإدخال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prebacivanje je otkazano; prompt je vraćen u polje za unos."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skiftet blev annulleret. Prompten er tilbage i inputfeltet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Wechsel wurde abgebrochen. Der Prompt ist wieder im Eingabefeld."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The switch was cancelled; the prompt is back in the composer."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se canceló el cambio; el prompt volvió al campo de entrada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le changement a été annulé ; le prompt est revenu dans le champ de saisie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il cambio è stato annullato; il prompt è tornato nel campo di input."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切り替えを取り消しました。プロンプトは入力欄に戻りました。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការប្តូរត្រូវបានបោះបង់។ ប្រអប់បញ្ចូលបានត្រឡប់ទៅកន្លែងសរសេរវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "전환이 취소되었습니다. 프롬프트가 입력창으로 돌아갔습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Byttet ble avbrutt. Prompten er tilbake i tekstfeltet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przełączenie anulowano, prompt wrócił do pola wpisywania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A troca foi cancelada; o prompt voltou para o campo de texto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переключение отменено, запрос вернулся в поле ввода."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ยกเลิกการสลับแล้ว พรอมต์กลับมาอยู่ในช่องเขียนข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Geçiş iptal edildi; istem yazma alanına geri döndü."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемикання скасовано; запит повернувся в поле введення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã hủy việc chuyển; lời nhắc đã trở lại ô soạn thảo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "切换已取消；提示已回到输入框。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "切換已取消；提示已回到輸入框。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

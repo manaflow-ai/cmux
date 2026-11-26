@@ -102,8 +102,6 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
 GATE_EXEMPT_REPORTING_READS = {
     ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "reports each runner variable's value; gating would report empty",
-    ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
-        "validates each runner variable's value; gating would validate empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -212,7 +210,31 @@ def top_level_conjuncts(condition: str) -> list[str]:
         current += char
         index += 1
     parts.append(current.strip())
-    return parts
+    # `a && (b && (c || d))` requires b and (c || d) too: a conjunct that is one parenthesized
+    # conjunction contributes its own conjuncts (#48747's tip test-compile gate is written so).
+    flat = []
+    for part in parts:
+        flat.append(part)
+        if part.startswith("(") and part.endswith(")") and wrapped_whole(part):
+            inner = top_level_conjuncts(part[1:-1])
+            if len(inner) > 1:
+                flat.extend(inner)
+    return flat
+
+
+def wrapped_whole(text: str) -> bool:
+    """`(a) && (b)` starts and ends with a parenthesis but is not one parenthesized group."""
+    depth, quoted = 0, False
+    for index, char in enumerate(text):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0 and index != len(text) - 1:
+                return False
+    return True
 
 
 def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
@@ -303,8 +325,11 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         # RUNNER_POOLS is the declarative route source. Its member read is a
         # valid terminal fallback; unlike scalar vars it must not be replaced
         # with a literal label.
+        # A compared read (`vars.X == 'on' && ...`) is a switch: its value is a boolean, never the label,
+        # so an unset one cannot empty the runs-on (billing's Blacksmith retry, the channel heal's skip).
         reads = [read for read in VARS_REFERENCE.finditer(expression)
-                 if read.group(1) != "RUNNER_POOLS"]
+                 if read.group(1) != "RUNNER_POOLS"
+                 and not re.match(r"\s*(?:==|!=)", expression[read.end():])]
         if not reads:
             continue
         if all(pool_read_after_fork_branch(expression, read) for read in reads):

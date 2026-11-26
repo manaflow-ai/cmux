@@ -149,6 +149,9 @@ pub fn github_machine() -> Option<cmux_host::github_cli_joined::JoinedMachine> {
 #[cfg(unix)]
 pub fn install_github_source() {
     cmux_host::github_cli_joined::set_joined_source(github_machine);
+    // A machine added from a Mac: its agent sessions ask the Mac through this daemon.
+    #[cfg(unix)]
+    cmux_host::github_cli_lane::set_lane_source(crate::github_lane_mint::ask);
 }
 
 /// Whether the launch opted in: `env_name` (`CMUX_CLAUDE_AUTH`, `CMUX_CODEX_AUTH`) pins `own` or

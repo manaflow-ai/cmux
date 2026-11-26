@@ -143,6 +143,7 @@ impl Workload {
         if self.is_terminal(i) {
             return Observation {
                 tab_id: id,
+                tab_key: String::new(),
                 title: format!("zsh: ~/src/project-{i}"),
                 kind: Kind::Terminal,
                 favicon: None,
@@ -175,6 +176,7 @@ impl Workload {
         };
         Observation {
             tab_id: id,
+            tab_key: String::new(),
             title: format!("Example page {i} - a typical page title of some length"),
             kind: Kind::Browser,
             favicon: favicon.map(|(mime, bytes)| FaviconInput { mime, bytes }),

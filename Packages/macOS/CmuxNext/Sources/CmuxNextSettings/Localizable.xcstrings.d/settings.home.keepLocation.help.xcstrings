@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.keepLocation.help" : {
+      "comment" : "Help under the Keep Location toggle.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, location data is removed from photos and videos before they are attached."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند الإيقاف، تُزال بيانات الموقع من الصور ومقاطع الفيديو قبل إرفاقها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kada je isključeno, podaci o lokaciji uklanjaju se iz fotografija i videozapisa prije prilaganja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når den er slået fra, fjernes lokationsdata fra fotos og videoer, før de vedhæftes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wenn aus, werden Ortsdaten aus Fotos und Videos entfernt, bevor sie angehängt werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Si está desactivado, los datos de ubicación se eliminan de las fotos y los vídeos antes de adjuntarlos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Si désactivé, les données de position sont supprimées des photos et vidéos avant leur ajout en pièce jointe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se disattivato, i dati sulla posizione vengono rimossi da foto e video prima di allegarli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "オフのときは、写真とビデオを添付する前に位置情報を削除します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "នៅពេលបិទ ទិន្នន័យទីតាំងត្រូវបានលុបចេញពីរូបថត និងវីដេអូ មុនពេលភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "끄면 사진과 비디오를 첨부하기 전에 위치 데이터를 제거합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når den er av, fjernes posisjonsdata fra bilder og videoer før de legges ved."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy wyłączone, dane lokalizacji są usuwane ze zdjęć i filmów przed ich załączeniem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando desativado, os dados de localização são removidos de fotos e vídeos antes de serem anexados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Если выключено, данные о местоположении удаляются из фото и видео перед вложением."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อปิด ข้อมูลตำแหน่งที่ตั้งจะถูกลบออกจากรูปภาพและวิดีโอก่อนแนบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapalıyken, konum verileri fotoğraf ve videolar eklenmeden önce kaldırılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Якщо вимкнено, дані про геопозицію видаляються з фото й відео перед вкладенням."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi tắt, dữ liệu vị trí sẽ bị xóa khỏi ảnh và video trước khi đính kèm."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭时，照片和视频在附加前会移除位置数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉時，照片和影片在附加前會移除位置資料。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

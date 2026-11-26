@@ -302,8 +302,9 @@ impl Hub {
             } else {
                 delays.clone()
             };
-            // A capacity outage never uses its attempts up (`super::capacity_wait`).
-            let unbounded = reason == RetryReason::Capacity && !delays.is_empty();
+            // A capacity outage, a rate limit or a refused connection never uses its attempts
+            // up (`super::waits_it_out`).
+            let unbounded = super::waits_it_out(reason, &error, &delays);
             let delay = if unbounded {
                 Some(super::capacity_wait(done, &delays, &session.id))
             } else {
@@ -408,6 +409,9 @@ impl Hub {
             }
             // A restored `rate_limit` wait holds the chat again until its deadline.
             hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
+            // A restored capacity wait reads as an outage still on: the first due probes it.
+            hub.capacity_gate_cut(&session, Some(retry.reason));
+            let _permit = hub.capacity_gate_admit(&session, &turn_id, retry.reason, &wake).await;
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,

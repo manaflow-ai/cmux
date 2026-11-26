@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState, memo, useCallback, useLayoutEffect } from "react";
 import {
   failureReason,
   matchRuns,
@@ -11,6 +11,8 @@ import {
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How long typing settles before the palette asks again.
 // motion-allow: a typing debounce
@@ -100,10 +102,46 @@ export function FileSearch({
   const pick = (match: FileMatch | undefined) => {
     if (match) onPick(match.path);
   };
+  // The rows' press handler is stable (a memoized row must not re-render for a new closure); it
+  // reads the latest onPick when it runs.
+  const onPickRef = useRef(onPick);
+  useLayoutEffect(() => {
+    onPickRef.current = onPick;
+  });
+  const pickPath = useCallback((path: string) => onPickRef.current(path), []);
+
+  // `app.keyStyle`. The field keeps its typing: Emacs' Ctrl-N/P move the highlight, and Vim's Esc
+  // (Emacs' Ctrl-G) gives the keyboard to the results, where j/k, gg/G and l or Return move and
+  // pick, / goes back to the field and Esc closes, as the field's Esc does.
+  const takesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const styleKeys = useListKeys({
+    onCommand: (command, event) => {
+      const inField = event.target === field.current;
+      const count = results.length;
+      if (command === "list.next" || command === "list.previous") {
+        if (count > 0) setActive((selected + (command === "list.next" ? 1 : -1) + count) % count);
+        return;
+      }
+      if (command === "list.leave") {
+        const list = root.current?.ownerDocument.getElementById(listId);
+        if (!inField || !list || count === 0) return false;
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
+        return;
+      }
+      if (inField) return false;
+      if (command === "list.first" || command === "list.last")
+        setActive(command === "list.first" ? 0 : Math.max(0, count - 1));
+      else if (command === "list.open") pick(results[selected]);
+      else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
+      else return false;
+    },
+  });
 
   const keyDown = (event: React.KeyboardEvent) => {
     // Keys that commit or cancel an input method's text belong to it, not the palette.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    styleKeys(event);
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -172,30 +210,21 @@ export function FileSearch({
         role="listbox"
         aria-label={t("files.search")}
         aria-busy={state.kind === "searching"}
+        tabIndex={takesKeys ? -1 : undefined}
+        onKeyDown={keyDown}
       >
         {state.kind === "searching" && results.length === 0 && <FileSearchLoading />}
-        {results.map((match, index) => {
-          const { dir, name } = matchRuns(match.path, match.matches);
-          return (
-            <div
-              key={match.path}
-              id={`${listId}-${index}`}
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === selected}
-              className={`acpmux-file-result${index === selected ? " acpmux-menu-active" : ""}`}
-              onPointerMove={() => setActive(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                pick(match);
-              }}
-            >
-              <span className="acpmux-file-name">{runs(name)}</span>
-              {dir.length > 0 && <span className="acpmux-file-dir">{runs(dir)}</span>}
-            </div>
-          );
-        })}
+        {results.map((match, index) => (
+          <FileResultRow
+            key={match.path}
+            match={match}
+            index={index}
+            id={`${listId}-${index}`}
+            selected={index === selected}
+            onHover={setActive}
+            onPick={pickPath}
+          />
+        ))}
       </div>
       {note && (
         <output className={state.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>{note}</output>
@@ -210,3 +239,41 @@ export function FileSearch({
 function runs(parts: Run[]) {
   return parts.map((part, index) => (part.matched ? <b key={index}>{part.text}</b> : part.text));
 }
+
+/// One result row. Memoized with stable props, so a hover re-renders only the two rows it moved
+/// between and a key that keeps the results re-renders none.
+const FileResultRow = memo(function FileResultRow({
+  match,
+  index,
+  id,
+  selected,
+  onHover,
+  onPick,
+}: {
+  match: FileMatch;
+  index: number;
+  id: string;
+  selected: boolean;
+  onHover(index: number): void;
+  onPick(path: string): void;
+}) {
+  const { dir, name } = matchRuns(match.path, match.matches);
+  return (
+    <div
+      id={id}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="option"
+      tabIndex={-1}
+      aria-selected={selected}
+      className={`acpmux-file-result${selected ? " acpmux-menu-active" : ""}`}
+      onPointerMove={() => onHover(index)}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onPick(match.path);
+      }}
+    >
+      <span className="acpmux-file-name">{runs(name)}</span>
+      {dir.length > 0 && <span className="acpmux-file-dir">{runs(dir)}</span>}
+    </div>
+  );
+});

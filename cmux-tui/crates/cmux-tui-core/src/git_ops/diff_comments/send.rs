@@ -13,6 +13,12 @@
 //!
 //! The acpmux prompt id is the caller's idempotency key, as required by the
 //! operation contract. Retries therefore address the same acpmux prompt.
+//!
+//! With `threads: true` the session host writes the prompt itself from the
+//! named threads (`thread::render`; `text`, when given, is the reviewer's
+//! note at its top) and, once acpmux takes it, marks what it carried as read
+//! instead of removing the comments, so the agent's answers come back to the
+//! same threads.
 
 use std::collections::HashMap;
 use std::io;
@@ -23,7 +29,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt, versions};
+use super::{
+    MAX_PROMPT_BYTES, Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt,
+    thread, versions,
+};
 use crate::Mux;
 use crate::git_ops::checkpoint::ledger;
 use crate::git_ops::checkpoint::store::{hex, private_directory, read_json, write_json};
@@ -65,12 +74,14 @@ pub(super) fn send_with(
     hand_over: impl FnOnce(&str, &str, String, Value) -> Handover,
 ) -> Result<Value, ResourceError> {
     let acp_session = acp_session(&request.fields)?;
-    let text = prompt(&request.fields)?;
+    let threads = threaded(&request.fields)?;
+    // A threaded send's text is an optional note; the prompt is the daemon's.
+    let note = if threads { note(&request.fields)? } else { Some(prompt(&request.fields)?) };
     let ids = ids(&request.fields)?;
     if ids.is_empty() {
         return Err(ResourceError::validation_invalid(Some("ids"), "a send names at least one id"));
     }
-    let versions = versions(&request.fields, true)?;
+    let versions = versions(&request.fields, !threads)?;
     let key = crate::git_ops::checkpoint::mutation_key(request);
     let fingerprint = fingerprint(request);
     let reservation = reservation_path(store, &key);
@@ -80,13 +91,29 @@ pub(super) fn send_with(
         if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
-        reserve(&reservation, &key, &fingerprint)?;
         let prompt_id = prompt_id(&key);
+        // The threaded prompt: what the named threads hold that the agent has not read.
+        let (text, carried) = if threads {
+            let file = store.read(root).map_err(|error| io_failed(OPERATION, &error))?;
+            let Some((text, carried)) = thread::render(&file, root, &ids, note) else {
+                let message = "the named threads hold nothing the agent has not read";
+                return Err(failed("nothing_to_send", message.to_owned()));
+            };
+            if text.len() > MAX_PROMPT_BYTES {
+                let message =
+                    format!("the review is over {MAX_PROMPT_BYTES} bytes; send fewer threads");
+                return Err(failed("prompt_too_large", message));
+            }
+            (text, carried)
+        } else {
+            (note.unwrap_or_default().to_owned(), Vec::new())
+        };
+        reserve(&reservation, &key, &fingerprint)?;
         // Queued behind a running turn, never steered into it, and marked a
         // resend so acpmux answers a prompt id it already took, even from
         // its log, without running it again.
         let meta = json!({"steer": false, "promptId": prompt_id, "resend": true});
-        match hand_over(acp_session, &prompt_id, text.to_owned(), meta) {
+        match hand_over(acp_session, &prompt_id, text, meta) {
             Handover::Delivered => {}
             Handover::Unreachable => {
                 release(&reservation);
@@ -109,9 +136,17 @@ pub(super) fn send_with(
                 return Err(failed("send_unsettled", message));
             }
         }
-        let sent = ids.len();
-        let value =
-            mutate(mux, store, request, root, |file, _| Ok(cleared(file, &ids, &versions, sent)))?;
+        let value = if threads {
+            let sent = carried.len();
+            mutate(mux, store, request, root, |file, _| {
+                let marked = thread::mark_sent(file, &carried, &prompt_id);
+                let changed = !marked.is_empty();
+                Ok((json!({"sent": sent, "cleared": [], "threads": marked}), changed))
+            })?
+        } else {
+            let sent = ids.len();
+            mutate(mux, store, request, root, |file, _| Ok(cleared(file, &ids, &versions, sent)))?
+        };
         // The ledger answers the key from here on.
         release(&reservation);
         Ok(value)
@@ -197,6 +232,29 @@ fn one_attempt_per_key<T>(reservation: &Path, body: impl FnOnce() -> T) -> T {
         held.remove(reservation);
     }
     result
+}
+
+/// `threads`: absent or a bool.
+fn threaded(fields: &serde_json::Map<String, Value>) -> Result<bool, ResourceError> {
+    match fields.get("threads") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(threads)) => Ok(*threads),
+        Some(_) => {
+            Err(ResourceError::validation_invalid(Some("threads"), "threads must be a bool"))
+        }
+    }
+}
+
+/// A threaded send's `text`: an optional note of at most 256 KiB.
+fn note(fields: &serde_json::Map<String, Value>) -> Result<Option<&str>, ResourceError> {
+    match fields.get("text") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) if text.len() <= MAX_PROMPT_BYTES => Ok(Some(text.as_str())),
+        Some(_) => Err(ResourceError::validation_invalid(
+            Some("text"),
+            format!("text must be a note of at most {MAX_PROMPT_BYTES} bytes"),
+        )),
+    }
 }
 
 fn failed(reason: &str, message: String) -> ResourceError {

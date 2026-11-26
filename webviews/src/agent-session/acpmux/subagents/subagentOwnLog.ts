@@ -5,7 +5,7 @@
 // sub-agent, or is this literally just a duplicate of you?"
 import { useEffect, useState } from "react";
 import type { AcpmuxRow } from "../model";
-import { SUBAGENTS, SubagentFold, type Event, type Subagent } from "./subagentFold";
+import { SubagentFold, type Event, type Subagent, SUBAGENTS } from "./subagentFold";
 import type { Folds } from "../conversation/viewFolds";
 import { SUBAGENT_EMPTY, childView, subagentsIn } from "./subagentRows";
 
@@ -45,8 +45,7 @@ export function pendingSubagentView(id: string, loading: boolean): AcpmuxRow[] {
   ];
 }
 
-/// Whether `view` (a `childView`) draws none of the subagent's own rows: only its pill and the
-/// empty row.
+/// Whether `view` (a `childView`) draws none of the subagent's own rows: only the empty row.
 const drawsNothing = (view: readonly AcpmuxRow[]) => view.some((row) => row.kind === SUBAGENT_EMPTY);
 
 /// Whether a pane on subagent `id` reads its own records (`useOwnLog`), given the chat's loaded
@@ -95,10 +94,9 @@ export function subagentPaneView(
   chat: { rows: readonly AcpmuxRow[]; views?: Record<string, AcpmuxRow[]> },
   own: { log?: OwnLog; loading: boolean },
   expanded: Folds,
-  chatName: string,
 ): AcpmuxRow[] {
-  const fromChat = childView(id, chat.rows, chat.views, expanded, chatName);
-  const fromOwn = own.log && childView(id, own.log.rows, own.log.views, expanded, chatName);
+  const fromChat = childView(id, chat.rows, chat.views, expanded);
+  const fromOwn = own.log && childView(id, own.log.rows, own.log.views, expanded);
   const chatDraws = fromChat !== undefined && !drawsNothing(fromChat);
   const ownDraws = fromOwn !== undefined && !drawsNothing(fromOwn);
   if (chatDraws && ownDraws) {
@@ -108,7 +106,7 @@ export function subagentPaneView(
   }
   if (chatDraws) return fromChat!;
   if (ownDraws) return fromOwn!;
-  // Nothing of its own to draw yet: the pill the chat or its records give it, then loading while
+  // Nothing of its own to draw yet: the empty row the chat or its records give it, loading while
   // its records are read, empty after.
   const shell = fromChat ?? fromOwn;
   if (!shell) return pendingSubagentView(id, own.loading);

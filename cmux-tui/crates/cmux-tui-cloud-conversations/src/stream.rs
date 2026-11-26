@@ -160,6 +160,25 @@ impl CloudEvent {
         }
     }
 
+    /// The `event` name of [`Self::wire_json`], read without building it.
+    pub const fn wire_name(&self) -> &'static str {
+        match self {
+            Self::ConversationChanged { .. } => "cloud-conversation-changed",
+            Self::ConversationResynced { .. } => "cloud-conversation-resynced",
+            Self::InboxChanged { .. } => "cloud-inbox-changed",
+            Self::InboxReset { .. } => "cloud-inbox-reset",
+            Self::MuxWake { .. } => "cloud-mux-wake",
+            Self::MuxResynced { .. } => "cloud-mux-resynced",
+            Self::SubscriptionState { .. } => "cloud-subscription-state",
+            Self::SessionNeeded { .. } => "cloud-session-needed",
+            Self::HostReplicaNeeded { .. } => "cloud-host-replica-needed",
+            Self::RunChanged { .. } => "cloud-conversation-run-changed",
+            Self::Live { .. } => "cloud-conversation-live",
+            Self::Typing { .. } => "cloud-conversation-typing",
+            Self::Presence { .. } => "cloud-conversation-presence",
+        }
+    }
+
     /// The event line sent to subscribed trusted local clients.
     pub fn wire_json(&self) -> Value {
         let mut value = match self {

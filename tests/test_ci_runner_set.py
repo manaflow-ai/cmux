@@ -57,7 +57,7 @@ class RunnerSetTests(unittest.TestCase):
         runs_on = runs_on_text(job, "ci.yml#changes")
         self.assertNotIn("needs.", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER", runs_on)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
         self.assertNotIn("needs", job)
         self.assertNotIn("portable-placement", jobs)
@@ -201,7 +201,7 @@ class RunnerSetTests(unittest.TestCase):
 
         mac = {name for name, job in jobs.items() if can_take_a_mac(job) and name not in starts_at_once}
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
-                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet"} <= mac, sorted(mac))
+                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet-mac"} <= mac, sorted(mac))
         for name in sorted(mac):
             with self.subTest(job=name):
                 self.assertIn("macos-placement", ancestors(name), f"{name} takes a Mac before the quiet period ends")

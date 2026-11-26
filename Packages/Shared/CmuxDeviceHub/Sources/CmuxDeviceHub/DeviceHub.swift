@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 public import Observation
 
 /// The signed-in user's devices as this app sees them: who is online, who
@@ -78,16 +81,18 @@ public final class DeviceHub {
         self.now = now
     }
 
+    #if canImport(Security)
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
-    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
+    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token), in `buildSpace`.
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String, platform: DevicePlatform = .macos,
-                              tokens: any DeviceHubAccountTokenProvider) async throws -> DeviceHub {
+                              tokens: any DeviceHubAccountTokenProvider, buildSpace: DeviceHubBuildSpace = .nightly) async throws -> DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier) }
-        return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
+        return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens, buildSpace: buildSpace),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
                          platform: platform, renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
     }
+    #endif
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave
     /// calls behind an identity took 8-20 s on some Macs (H7).

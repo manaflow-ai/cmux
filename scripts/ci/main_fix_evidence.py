@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import json
+import os
 import re
 import subprocess
 import sys
@@ -56,11 +57,12 @@ class Refused(RuntimeError):
 
 
 class GitHub:
-    def run(self, args: list[str]) -> str:
+    def run(self, args: list[str], *, repo: str | None = None) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
         # kept. A long API call has a deadline instead of an observation loop.
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-            process = subprocess.Popen(["gh", *args], stdout=output, stderr=errors)
+            env = {**os.environ, "GH_REPO": repo} if repo else None
+            process = subprocess.Popen(["gh", *args], stdout=output, stderr=errors, env=env)
             try:
                 process.wait(timeout=90)
             except subprocess.TimeoutExpired:

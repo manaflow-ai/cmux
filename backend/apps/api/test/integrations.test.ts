@@ -491,6 +491,9 @@ describe("connections end to end (workerd)", () => {
     const url = new URL(started.json.value.authorize_url)
     const state = url.searchParams.get("state")!
     expect(claims(state).ret).toBe(back)
+    // cmux NEXT's own scheme is kept too: without it the console had no app to hand back to and asked for a web sign-in.
+    const next = await op(token, "integration.connect", { provider: "github", return_to: "cmux-next://integration/complete" })
+    expect(claims(new URL(next.json.value.authorize_url).searchParams.get("state")!).ret).toBe("cmux-next://integration/complete")
     // GitHub redirects to the dashboard callback, which sends the browser on to the app with everything it needs.
     const handoff = integrationAppHandoff({ state, code: "c", installation_id: "55", setup_action: "install" })
     expect(handoff).toBe(`${back}?${new URLSearchParams({ state, code: "c", installation_id: "55", setup_action: "install" }).toString()}`)
@@ -508,6 +511,7 @@ describe("connections end to end (workerd)", () => {
   it("the callback hands only the app's completion link a redirect, and only from a state that names it", () => {
     const state = (claims: Record<string, unknown>) => `e30.${btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.sig`
     expect(integrationAppHandoff({ state: state({ ret: "cmux://integration/complete" }), code: "c", installation_id: "7" })).toMatch(/^cmux:\/\/integration\/complete\?state=.+&code=c&installation_id=7$/)
+    expect(integrationAppHandoff({ state: state({ ret: "cmux-next://integration/complete" }), code: "c" })).toMatch(/^cmux-next:\/\/integration\/complete\?state=.+&code=c$/)
     // A chat link, another scheme, a web origin or no return link: the page finishes it as before (no handoff).
     for (const ret of [undefined, "cmux-nightly://session/ses-01", "https://evil.example/integration/complete", "javascript://integration/complete", "cmux://integration/complete/x", "cmux://integration/complete?next=x"])
       expect(integrationAppHandoff({ state: state(ret ? { ret } : {}), code: "c" })).toBeUndefined()

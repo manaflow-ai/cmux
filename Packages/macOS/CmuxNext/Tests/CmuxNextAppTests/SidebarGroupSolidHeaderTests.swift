@@ -27,8 +27,6 @@ import Testing
         ])
         let design = DesignSettings()
         design.sidebarSections.minimal = minimal
-        // The band look (`sidebar.groupHeader.background` Automatic): the default is plain folders (`SidebarGroupsAsFoldersTests`).
-        design.sidebarSections.groupHeaderBackground = .auto
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         // The settings reach the list on an observation a turn later; draw them in this turn.

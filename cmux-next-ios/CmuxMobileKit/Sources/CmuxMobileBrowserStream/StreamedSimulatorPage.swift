@@ -12,6 +12,8 @@ import UIKit
 public struct StreamedSimulatorPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
+    /// A failed open is opened again on its own (no Retry); one quiet line past the bound.
+    @State private var autoRetry = AutoRetry()
 
     public static let unavailableText = String(localized: "Simulators aren't available from this Mac.")
 
@@ -25,12 +27,15 @@ public struct StreamedSimulatorPage: View {
             SimulatorSurface(model: model)
                 .accessibilityIdentifier("simulator.stream")
             if model.phase == .unavailable {
-                retryStatus(Self.unavailableText)
+                // The Mac streams no simulators: a fact, not a passing failure; no Retry.
+                plainStatus(Self.unavailableText)
             } else if case let .waiting(reason) = model.phase {
                 if model.canReopen {
                     VStack(spacing: 10) {
                         Text(reason).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        RetryButton(action: retry).accessibilityIdentifier("simulator.retry")
+                        // retry-prompt-ok: Reopen takes the simulator back from another device or a page the
+                        // Mac stopped to make room (two viewers would otherwise evict each other forever).
+                        RetryButton("Reopen", action: reopen).accessibilityIdentifier("simulator.reopen")
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18))
@@ -41,11 +46,19 @@ public struct StreamedSimulatorPage: View {
                         .padding(.top, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .accessibilityIdentifier("simulator.reconnecting")
+                        .placeholderBound("simulator.connection.chip", .milliseconds(0))
+                } else if model.openFailed, !autoRetry.isQuietLineShown {
+                    // Opened again on its own: the opening line stays until the quiet bound.
+                    status(String(localized: "Opening the simulator on your Mac…"))
                 } else {
-                    retryStatus(reason)
+                    VStack(spacing: 6) {
+                        plainStatus(reason)
+                        if model.openFailed { AutoRetryQuietLine(autoRetry) }
+                    }
                 }
             } else if model.phase == .connecting {
                 status(String(localized: "Opening the simulator on your Mac…"))
+                    .placeholderBound("simulator.stream.opening", .milliseconds(2000))
             }
             if StreamedBrowserOverlay.enabled {
                 // Top left: the accessory bar (Home, Lock, keyboard) sits at the bottom.
@@ -57,24 +70,22 @@ public struct StreamedSimulatorPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
-        // The simulator page is black in both appearances: its status and Retry draw dark.
+        // The simulator page is black in both appearances: its status and Reopen draw dark.
         .environment(\.colorScheme, .dark)
         .onAppear {
             model.setVisible(true)
             model.reconnect()
         }
         .onDisappear { model.setVisible(false) }
+        .autoRetry(autoRetry, failing: model.openFailed) { await model.reconnectAnswered() }
     }
 
-    func retry() async { model.reopen() }
+    func reopen() async { model.reopen() }
 
-    private func retryStatus(_ text: String) -> some View {
-        VStack {
-            Text(text).font(.footnote).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            RetryButton(action: retry).accessibilityIdentifier("simulator.retry")
-        }
-        .padding(.horizontal, 16)
+    private func plainStatus(_ text: String) -> some View {
+        Text(text).font(.footnote).foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
     }
 
     private func status(_ text: String) -> some View {

@@ -131,7 +131,7 @@ impl Hub {
         // The cmux router profile's start model (`agents.modelRouter.model`): a change rebuilds
         // the catalog, so the next new chat on `cmux` starts on it.
         let mut last_router = crate::config::cmux_router_model_setting();
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wake) = super::harness_watch::wake_slot();
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
             while wake.recv().await.is_some() {
@@ -292,7 +292,7 @@ fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     watch: &std::sync::Weak<SettingsWatcher>,
     files: &[PathBuf],
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
+    signal: &super::harness_watch::WakeTx,
 ) {
     let mut names: Vec<PathBuf> = files.to_vec();
     names.extend(files.iter().map(|f| real(f)));
@@ -328,7 +328,7 @@ fn run(
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(files);
             drop(watch);
-            if signal.send(()).is_err() {
+            if !super::harness_watch::wake(signal) {
                 return;
             }
         }

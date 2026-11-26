@@ -4,7 +4,7 @@ extension SurfaceRole {
     /// cards and group headers sit on the window's chrome.
     public nonisolated var glassLevel: GlassLevel {
         switch self {
-        case .popover, .toast, .sheet: .popover
+        case .popover, .toast, .sheet, .prompt: .popover
         case .menu: .menu
         case .tooltip: .chip
         case .card, .group: .chrome

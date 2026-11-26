@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { SceneFailure, sceneFailureCopy } from "./SceneFailure";
 import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch } from "./SceneRenderer";
 import { translate } from "../../agent-session/acpmux/i18n";
-import { appSceneIcon } from "./SceneSymbol";
+import { SCENE_FALLBACK_ICON, appSceneIcon } from "./SceneSymbol";
 import { SceneStore, type SceneOp } from "./store";
 import { formatSceneDate, sceneClockRunning } from "./sceneDate";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -289,8 +289,10 @@ test("a disabled container suppresses descendant row input; unknown symbols use 
   expect(button.disabled).toBe(true);
   act(() => button.click());
   expect(calls).toEqual([]);
-  expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe("icon.missing");
-  expect(appSceneIcon("not.a.real.sf.symbol")).toBe("icon.missing");
+  expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe(SCENE_FALLBACK_ICON);
+  // Unfitted: the dot keeps its small authored size instead of being scaled to the shared glyph box.
+  expect(button.querySelector("svg")?.getAttribute("viewBox")).toBe("2.5 2.5 19 19");
+  expect(appSceneIcon("not.a.real.sf.symbol")).toBe(SCENE_FALLBACK_ICON);
 });
 
 test("a context menu leaf dispatches its real nested index path, including dividers", async () => {

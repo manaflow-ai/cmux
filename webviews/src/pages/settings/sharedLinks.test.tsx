@@ -5,9 +5,13 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { MockSettingsProvider } from "./mockProvider";
 import type { Rendered } from "./testing";
+import { installVirtualSizes } from "../../../test/support/virtualSizes";
+import { settingsCardSizes } from "../../../test/support/settingsCardSizes";
 
 const restore = installDom();
 afterAll(() => restore());
+// The card's rows are windowed: give the page a viewport and its rows a height, as a browser would.
+installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 const { renderPage, settle, click } = await import("./testing");
 const { sharedLinkRows } = await import("./sharedLinks");
 const { mockShares } = await import("./mockProvider");

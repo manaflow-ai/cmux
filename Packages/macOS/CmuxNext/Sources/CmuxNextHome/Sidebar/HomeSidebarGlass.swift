@@ -6,11 +6,20 @@ import QuartzCore
 /// its at (its from the top, not from the side)"). In dark: the window's own grey, a blue light from
 /// above that fades out over 380 pt, and a one-pixel rim lit blue along the top and down the upper
 /// left, grey elsewhere. No shadow. Light keeps a white wash and a white rim. Pure colours from the
-/// surface and the appearance; the views apply them.
+/// surface, the window's cover and the appearance; the views apply them.
 nonisolated struct HomeSidebarGlass: Equatable {
     var dark: Bool
-    /// The panel's fill: the surface 5 % toward black (Messages' panel is a level or two under the window).
+    /// The panel's fill: black at 5 % (dark) or 5.92 % (light) over the column's own fill. Over an opaque window
+    /// that is the surface 5 % toward black (Messages' panel is a level or two under the window); over a
+    /// translucent window it blends with the desktop or the picture as the rest of the window does. An opaque
+    /// tint hid the window's transparency (the user, 2026-11-23: "the background needs to blend on low
+    /// opacity/transprency"). Under ``legibleCover`` the surface tops the cover up first, so the list's text
+    /// stays readable over a white desktop or a busy picture ("being able to read them").
     var tint: NSColor
+    /// The least the panel covers what is behind the window (0...1): about the workspace sidebar's cover beside it
+    /// (0.71 at a 0.5 window), so the two sidebars read as one; 0.8 read too dark (the user, 2026-11-24). Over a
+    /// white desktop in dark the name reads at 7.1:1 and the preview's grey at 3.9:1 (2.1:1 at the window's 0.5).
+    static let legibleCover = 0.7
     /// The wash from the top edge down: a colour and its distance from the top, in points.
     var wash: [(at: CGFloat, color: CGColor)]
     /// The rim from top to bottom: a colour and its distance from the top, in points
@@ -24,10 +33,20 @@ nonisolated struct HomeSidebarGlass: Equatable {
     /// The wash's height under the panel's top edge.
     var washBand: CGFloat { wash.last?.at ?? 0 }
 
-    init(surface: NSColor, dark: Bool) {
+    /// - Parameters:
+    ///   - surface: The window's colour (its alpha is ignored): what tops a thin cover up.
+    ///   - cover: How much the window and the column's fill already cover the desktop under the panel (1: opaque).
+    init(surface: NSColor, cover: Double, dark: Bool) {
         self.dark = dark
+        // Light: the surface 8 % toward black at 74 %, the same as black at 0.74 x 0.08 over the surface.
+        let shade: CGFloat = dark ? 0.05 : 0.0592
+        // The surface at `top`, so that with the cover under it the panel covers `legibleCover`; then the shade.
+        let under = min(max(cover, 0), 1)
+        let top = CGFloat(under >= Self.legibleCover ? 0 : (Self.legibleCover - under) / (1 - under))
         let base = surface.usingColorSpace(.sRGB) ?? surface
-        tint = Self.mix(base.withAlphaComponent(1), dark ? 0.95 : 0.92, .black).withAlphaComponent(dark ? 1 : 0.74)
+        let alpha = 1 - (1 - shade) * (1 - top)
+        func channel(_ c: CGFloat) -> CGFloat { (1 - shade) * top * c / alpha }
+        tint = NSColor(srgbRed: channel(base.redComponent), green: channel(base.greenComponent), blue: channel(base.blueComponent), alpha: alpha) // colour-allow: the theme's own window colour under the shade, at the cover it needs; no new colour
         if dark {
             // Messages: 24 grey under the light, 20 33 44 at the top (blue 0 96 196 at 12.5 %), eased
             // out. On cmux's darker grey that read as too much (the user, 2026-11-23): 7 % at the top.

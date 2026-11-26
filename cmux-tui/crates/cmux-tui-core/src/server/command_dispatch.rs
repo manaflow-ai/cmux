@@ -170,6 +170,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote,
@@ -185,6 +186,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote.unwrap_or(false),
@@ -255,14 +257,19 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit, after } => cmd_workspaces::list_workspaces(
-            mux,
-            client,
-            writer.lines_written(),
-            known.as_ref(),
-            limit,
-            after,
-        ),
+        Command::ListWorkspaces { known, limit, after, since } => match since {
+            Some(since) => {
+                cmd_workspaces::list_workspaces_delta(mux, client, writer.lines_written(), &since)
+            }
+            None => cmd_workspaces::list_workspaces(
+                mux,
+                client,
+                writer.lines_written(),
+                known.as_ref(),
+                limit,
+                after,
+            ),
+        },
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -285,6 +292,7 @@ fn dispatch_command(
             projection,
             mutation,
         ),
+        Command::FlushLaunchSnapshot => launch_snapshot::flush_command(mux),
         Command::JournalFrontendEvent { event } => {
             cmd_frontend::journal_frontend_event(mux, client, event)
         }
@@ -303,6 +311,28 @@ fn dispatch_command(
         Command::ReadScrollback { surface, start, count } => {
             cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
+        Command::TerminalFind {
+            surface,
+            query,
+            case_sensitive,
+            whole_word,
+            regex,
+            before,
+            epoch,
+            page_rows,
+            max_matches,
+        } => cmd_terminal_find::terminal_find(
+            mux,
+            surface,
+            cmd_terminal_find::FindRequest {
+                query,
+                options: cmux_terminal_find::FindOptions { case_sensitive, whole_word, regex },
+                before,
+                epoch,
+                page_rows,
+                max_matches,
+            },
+        ),
         Command::SidebarPlugin { cols, rows, relaunch } => {
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
@@ -417,8 +447,17 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, first_tab, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
+        Command::CreateWorkspace { name, key, first_tab, name_source, mutation } => {
+            let explicit_name = name_source == Some(crate::resource_name::NameSource::User);
+            cmd_workspaces::create_workspace(
+                mux,
+                client,
+                name,
+                key,
+                first_tab,
+                explicit_name,
+                mutation,
+            )
         }
         Command::CreateTerminal {
             workspace,
@@ -504,16 +543,26 @@ fn dispatch_command(
             cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
-            cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+            let drag = transaction.is_some() && input_qos::from_app(&actor);
+            let reply = cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction);
+            input_qos::note_drag(writer, drag && reply.is_ok());
+            reply
         }
         Command::SetDividerVisible { split, visible, transaction } => {
             cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
-            cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
+            let drag = transaction.is_some() && input_qos::from_app(&actor);
+            let reply =
+                cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction);
+            input_qos::note_drag(writer, drag && reply.is_ok());
+            reply
         }
         Command::SetLayoutSizes { values, transaction } => {
-            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
+            let drag = input_qos::from_app(&actor);
+            let reply = cmd_panes::set_layout_sizes(mux, client, actor, values, transaction);
+            input_qos::note_drag(writer, drag && reply.is_ok());
+            reply
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
@@ -651,7 +700,9 @@ fn dispatch_command(
             cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
         }
         Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
-        Command::ListNotifications { limit } => cmd_frontend::list_notifications(mux, limit),
+        Command::ListNotifications { limit, stats } => {
+            cmd_frontend::list_notifications(mux, limit, stats)
+        }
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
         }
@@ -965,6 +1016,7 @@ fn dispatch_command(
         Command::RenameWorkspace { request, mutation } => {
             cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
+        Command::ReleaseWorkspaceNames {} => cmd_workspaces::release_workspace_names(mux, actor),
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
                 mux, actor, workspace, key, name, authority,
@@ -974,6 +1026,7 @@ fn dispatch_command(
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
         Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+            input_qos::note_view_resize();
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )
@@ -1027,6 +1080,7 @@ fn dispatch_command(
             hybrid_frame,
             resume_offset,
             resume_generation,
+            resume_max_bytes,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1048,7 +1102,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
-                (resume_offset, resume_generation),
+                (resume_offset, resume_generation, resume_max_bytes),
                 snapshot,
             )
         }

@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import Foundation
 import IrohLib
@@ -164,3 +165,4 @@ struct CmxIrohDirectTransportGateTests {
         return result
     }
 }
+#endif

@@ -518,7 +518,7 @@ impl HttpSource {
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
         // try connects with no connect timeout. Both clients carry the space.
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_tui::carrier::answer")
                 .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(FETCH_TIMEOUT)
@@ -761,6 +761,7 @@ impl TicketCache {
 
     /// The ticket alone, for a control socket's authentication: it spends no
     /// grant.
+    #[cfg(test)]
     pub(super) async fn ticket(&self) -> Result<String, ()> {
         self.take(false).await.map(|credential| credential.ticket.to_string())
     }

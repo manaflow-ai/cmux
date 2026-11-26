@@ -4,7 +4,7 @@
 //! such session, 5 every permission in the turn was denied or the host
 //! refused a new session (`admission_refused`), 6 `session stop --if-idle`
 //! refused: the session is not idle (`busy`) or its revision moved
-//! (`revision_moved`, `hub/stop_if_idle.rs`), 130 interrupted. `code`
+//! (`revision_moved`, `hub/stop_if_idle.rs`), 75 busy (temporary resource exhaustion), 130 interrupted. `code`
 //! is the small stable set orchestrators branch on; `detail` is free text
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
@@ -24,6 +24,8 @@ pub enum Code {
     /// The target refused a send at once (`send_async.rs`): its folder's trust, a bad prompt, a
     /// paused or full agent pair. Nothing was delivered.
     Refused = 7,
+    /// Temporary resource exhaustion (EX_TEMPFAIL).
+    Busy = 75,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -39,6 +41,7 @@ impl Code {
             Code::PermissionDenied => "permission_denied",
             Code::NotIdle => "not_idle",
             Code::Refused => "refused",
+            Code::Busy => "busy",
             Code::Interrupted => "interrupted",
         }
     }
@@ -220,6 +223,8 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         // when no host qualifies (`hub/admission.rs`).
         let code = if reason == crate::hub::admission::REASON {
             Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == crate::rpc::BUSY_CODE) {
+            Code::Busy
         } else if daemon.is_some_and(|d| d.0.code == crate::hub::stop_if_idle::NOT_IDLE_CODE) {
             Code::NotIdle
         } else if daemon.is_some_and(|d| d.0.code == -32602) {
@@ -251,6 +256,35 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     app
 }
 
+/// What a typed error in an error's chain says about the daemon.
+#[derive(Debug, PartialEq, Eq)]
+enum TypedKind {
+    /// The socket refused the connection or is missing: positive evidence the daemon is gone.
+    Unreachable,
+    /// A bound ran out (`io::ErrorKind::TimedOut`, a tokio `Elapsed`): slow, not dead.
+    Timeout,
+}
+
+/// The kind a typed cause anywhere in the chain gives, first cause wins. Untyped errors give
+/// `None` and fall back to the message text in `classify_message`.
+fn typed_kind(e: &anyhow::Error) -> Option<TypedKind> {
+    for cause in e.chain() {
+        if cause.is::<tokio::time::error::Elapsed>() {
+            return Some(TypedKind::Timeout);
+        }
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            match io.kind() {
+                std::io::ErrorKind::TimedOut => return Some(TypedKind::Timeout),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound => {
+                    return Some(TypedKind::Unreachable);
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
@@ -261,6 +295,17 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
             data["panic"] = panic.clone();
         }
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable().with_data(data);
+    }
+    // RFD 0050 rule 2: the class comes from the typed error where it began, not its words.
+    // A refused or missing socket is the only proof the daemon is gone; a timeout is slow.
+    match typed_kind(e) {
+        Some(TypedKind::Unreachable) => {
+            return AppError::new(Code::Runtime, "daemon_unreachable", msg);
+        }
+        Some(TypedKind::Timeout) => {
+            return AppError::new(Code::Timeout, "timeout", msg).retryable();
+        }
+        None => {}
     }
     if lower.contains("no session matches")
         || lower.contains("unknown session")
@@ -316,6 +361,58 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
         }
     }
     std::process::exit(app.exit_status());
+}
+
+#[cfg(test)]
+mod typed_kind_tests {
+    use super::*;
+    use std::io::{Error as Io, ErrorKind};
+
+    fn connect_failed(kind: ErrorKind) -> anyhow::Error {
+        anyhow::Error::new(Io::new(kind, "x")).context("connect /run/acpmux.sock")
+    }
+
+    /// A refused or missing socket is `daemon_unreachable`, whatever the words say.
+    #[test]
+    fn a_refused_or_missing_socket_is_daemon_unreachable() {
+        for kind in [ErrorKind::ConnectionRefused, ErrorKind::NotFound] {
+            let app = classify(&connect_failed(kind));
+            assert_eq!(app.detail, "daemon_unreachable");
+            assert_eq!(app.code, Code::Runtime);
+        }
+    }
+
+    /// A timed-out io error never reads as a gone daemon even when its text names the daemon.
+    #[test]
+    fn a_timed_out_io_error_is_slow_not_unreachable() {
+        let e =
+            anyhow::Error::new(Io::new(ErrorKind::TimedOut, "no reply")).context("daemon status");
+        let app = classify(&e);
+        assert_eq!(app.code, Code::Timeout);
+        assert_eq!(app.detail, "timeout");
+        assert!(app.retryable);
+    }
+
+    /// An elapsed tokio timeout is a timeout even when its context has no timeout word.
+    #[tokio::test]
+    async fn an_elapsed_bound_is_a_timeout() {
+        let elapsed = tokio::time::timeout(std::time::Duration::ZERO, std::future::pending::<()>())
+            .await
+            .unwrap_err();
+        let e = anyhow::Error::new(elapsed).context("reading the roster");
+        assert_eq!(classify(&e).code, Code::Timeout);
+    }
+
+    /// A typed non-socket cause naming the daemon is not unreachable; text matching is only the
+    /// fallback for untyped errors.
+    #[test]
+    fn a_typed_permission_error_naming_the_daemon_stays_untyped_text() {
+        let e = anyhow::Error::new(Io::new(ErrorKind::PermissionDenied, "denied"))
+            .context("daemon socket");
+        assert_eq!(typed_kind(&e), None);
+        let legacy = anyhow::anyhow!("the daemon went away");
+        assert_eq!(classify(&legacy).detail, "daemon_unreachable");
+    }
 }
 
 #[cfg(test)]

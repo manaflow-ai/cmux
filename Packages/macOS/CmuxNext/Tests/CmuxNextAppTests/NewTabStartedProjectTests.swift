@@ -54,4 +54,48 @@ struct NewTabStartedProjectTests {
         )
         #expect(json["startedProject"] == nil)
     }
+
+    /// Cloud's last pick is its own (cmux#53226): a Cloud start tells the app (`cloudStarted`), which keeps it across
+    /// launches apart from This Mac's started project, so a relaunched page with Cloud picked starts there.
+    @Test func aCloudStartReachesTheNextLaunchsNewTabContextApartFromThisMacs() async throws {
+        let suite = "NewTabStartedProjectTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let memory = NewTabChoiceMemory(defaults: defaults)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        model.onRememberNewTab = { memory.remember($0) }
+        _ = await Self.remember(model, ["started": "/Users/you/src/atlas"])
+        let reply = await Self.remember(model, ["cloudStarted": "github:acme/api"])
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        // Neither a bare name nor a relative path is a Cloud pick.
+        _ = await Self.remember(model, ["cloudStarted": "acme/api"])
+        _ = await Self.remember(model, ["cloudStarted": "briefs/lane"])
+
+        let relaunched = NewTabChoiceMemory(defaults: defaults)
+        #expect(relaunched.cloudStartedProject == "github:acme/api")
+        #expect(relaunched.startedProject == "/Users/you/src/atlas")
+        let page = AgentPaneNewTab(kind: .agent).startingIn(relaunched.startedProject, cloud: relaunched.cloudStartedProject)
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
+        #expect(json["cloudStartedProject"] as? String == "github:acme/api")
+        #expect(json["startedProject"] as? String == "/Users/you/src/atlas")
+
+        // A Cloud start in a folder of this Mac replaces it; This Mac's stays.
+        _ = await Self.remember(model, ["cloudStarted": "/Users/you/src/billing"])
+        #expect(NewTabChoiceMemory(defaults: defaults).cloudStartedProject == "/Users/you/src/billing")
+        #expect(NewTabChoiceMemory(defaults: defaults).startedProject == "/Users/you/src/atlas")
+
+        // A chat page has no New Tab context: it asks (`newTab.cloudPick`) and gets the same pick; a chat on another
+        // machine gets none.
+        model.cloudPick = { NewTabChoiceMemory(defaults: defaults).cloudStartedProject }
+        let asked = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick"]))
+        #expect((asked["value"] as? [String: Any])?["cloudStarted"] as? String == "/Users/you/src/billing", "\(asked)")
+        model.remoteChat = true
+        let remote = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick"]))
+        #expect((remote["value"] as? [String: Any])?["cloudStarted"] == nil, "\(remote)")
+    }
+
+    /// A chat page on the page host (Chromium) reaches the request only through the page's op list.
+    @Test func aChatPageCanAskForCloudsLastPick() {
+        #expect(AgentPageOps.methods["newTab.cloudPick"] == "newTab.cloudPick")
+    }
 }
