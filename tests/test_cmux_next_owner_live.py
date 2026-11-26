@@ -9,6 +9,7 @@ and that live session is sent one notice per area and pushed head.
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -194,13 +195,22 @@ class Route(unittest.TestCase):
         self.assertRegex(key, r"^day \d{4}-\d\d-\d\d$")
         self.assertIn("has no live holder", text)
         self.assertIn("cmux-tui/crates/acpmux/src/lib.rs", text)
-        # A holder that took the workstream hears of each pushed head.
+        # A holder that took the workstream hears of each branch once a UTC day, not each pushed head.
         rows.append(row("host-b/acpmux-keeper", owns="PL-acpmux"))
         sent.clear()
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
             lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
         self.assertIn("held by host-b/acpmux-keeper (holds owns=PL-acpmux); told of this push", lines[0])
-        self.assertEqual(sent[0][:3], ("host-b/acpmux-keeper", "acpmux daemon", head))
+        branch = git("rev-parse", "--abbrev-ref", "HEAD")
+        self.assertEqual(sent[0][:2], ("host-b/acpmux-keeper", "acpmux daemon"))
+        self.assertRegex(sent[0][2], rf"^{re.escape(branch)} day \d{{4}}-\d\d-\d\d$")
+        # A second head on the same branch the same day keys the same, so notify() sends it once.
+        crate.write_text("// change again\n")
+        git("commit", "-qam", "again")
+        own2 = types.SimpleNamespace(base=base, head=git("rev-parse", "HEAD"))
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            guardrails.owner_route(repo, [own2], (rows, None), "host-a/coordinator")
+        self.assertEqual(sent[1][2], sent[0][2])
 
 
 if __name__ == "__main__":

@@ -18,6 +18,10 @@ public nonisolated struct StallSummaryReport: Sendable, Equatable {
     public let hangsDropped: Int
     /// Lag spikes sent with their stack.
     public let spikesSent: Int
+    /// The app's open descriptors and pipes when the window closed (nil when not counted): a leak shows as
+    /// a count that climbs window after window, long before it freezes anything (cmuxterm-hq#8747).
+    public var openDescriptors: Int?
+    public var openPipes: Int?
 
     /// - Parameters:
     ///   - windowMinutes: The window's length in minutes.
@@ -46,6 +50,14 @@ public nonisolated struct StallSummaryReport: Sendable, Equatable {
                     "stalls_total": String(totalStalls), "hangs_total": String(hangsSent + hangsDropped)]
         var extra: [String: Any] = ["window_minutes": windowMinutes, "stalls_total": totalStalls,
                                     "hangs_sent": hangsSent, "hangs_dropped": hangsDropped, "spikes_sent": spikesSent]
+        if let openDescriptors {
+            extra["open_fds"] = openDescriptors
+            tags["open_fds_bucket"] = MainThreadHangEvent.bucket(openDescriptors)
+        }
+        if let openPipes {
+            extra["open_pipes"] = openPipes
+            tags["open_pipes_bucket"] = MainThreadHangEvent.bucket(openPipes)
+        }
         for name in StallSummary.bucketNames {
             let count = stalls[name] ?? 0
             tags["stalls_\(name)"] = String(count)

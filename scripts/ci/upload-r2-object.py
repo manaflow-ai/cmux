@@ -140,6 +140,7 @@ def _build_signed_request(
     request_headers = {name.title(): value for name, value in headers.items() if name != "host"}
     request_headers["Authorization"] = authorization
     request_body = body if method not in {"GET", "HEAD"} else None
+    # user-agent: R2's signed S3 API, no CDN
     return urllib.request.Request(url, data=request_body, headers=request_headers, method=method)
 
 

@@ -43,6 +43,13 @@ a chat input_ms is late by at most that; the terminal's is the echo of the key t
 (premain, did_finish_launching, daemon_connected, first_window_shown, first_frame, webview_ready, first_chat_paint,
 first_interaction; launch_stages.py), and the run's `stages` is each stage's median per front.
 Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+
+Percentiles (startup-matrix, a fixed-slot harness like a device farm): a plan item KIND:FRONT*N runs N rounds of it
+(`cold_install:terminal*20`). Before each launch the round waits up to --load-wait s for the Mac's 1-minute load per
+core to fall to --max-load-per-core (LOAD_BOUND_PER_CORE) and records load_1m, cpus and load_per_core. The run prints
+`TTI-PCT {json}`: per KIND_FRONT the nearest-rank p50 and p95 of input_ms over the rounds launched at or under the
+bound, n, the rounds left out for load, and the load they ran at; a cell with under --min-quiet quiet measured rounds
+reads `refused` with no p50/p95, so a loaded Mac never posts a number.
 Exit 0 when every round measured its front.
 
 --launch-delay-ms N is the bench's positive control (launch-tti.sh control=N): each measured launch gets
@@ -58,8 +65,12 @@ interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `ter
 process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
-round. The chat composer posts no input mark in any build yet (`no_mark`), so on either path a chat round measures
-nothing and the row is the terminal's.
+round. The app types that one key wherever its key window takes it, before a chat page is up, so on the in_app path a
+chat round ends when the chat drew and fails nothing; the posted path's keys time the chat.
+
+Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
+launch): under it the app refuses every activation and no window ever takes key (WindowActivation orders them in
+behind, NoActivateKeyboardGuard gives the front back), so no key, posted or the app's own, could reach a window.
 """
 from __future__ import annotations
 
@@ -67,6 +78,7 @@ import csv
 import ctypes
 import ctypes.util
 import json
+import math
 import mmap
 import os
 import plistlib
@@ -92,6 +104,13 @@ DEFAULT_PLAN = ("cold_install:chat,cold_install:terminal,cold_after_update:chat,
                 "cold_install:chat,cold_install:terminal,cold_after_update:chat,cold_after_update:terminal,"
                 "warm:chat,warm:terminal,warm60:chat,warm60:terminal")
 PRERUN_S = 60.0
+# The load bound (startup-matrix, a fixed-slot harness): a round launches only once the Mac's 1-minute load per core is
+# at most LOAD_BOUND_PER_CORE, waiting up to LOAD_WAIT_S for it; a round launched over it is kept but left out of the
+# p50/p95, and a KIND_FRONT cell with fewer than MIN_QUIET_ROUNDS quiet rounds posts no number (`refused`).
+LOAD_BOUND_PER_CORE = 0.5
+LOAD_WAIT_S = 120.0
+LOAD_POLL_S = 5.0
+MIN_QUIET_ROUNDS = 5
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
@@ -103,6 +122,28 @@ PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_ke
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
               PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT)
+# Every mark of the steps between the first frame and the chat drawn, kept too: Chromium's start (cef.*, its
+# cef.step.* split), the page host (chromium_page.*), the page's own navigation and paint (first_page.*), the chat's
+# handshake and paint (agent_pane.*) and Home (home.*). Without them a round says only that webview_ready or
+# first_chat_paint was late, never which step (a warm-vs-update gap on 2026-11-23 could not be split from the logs).
+# `terminal.first_key.<reading>`: what the app's terminal key hold read of the process's first key-down (hq#22681):
+# `terminal_awaited` held it for the restored terminal; any other names why it did not.
+FIRST_KEY_PREFIX = "terminal.first_key."
+KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
+                      FIRST_KEY_PREFIX)
+KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+
+
+def kept_marks(marks: dict) -> dict:
+    """The marks a round's line carries: KEPT_MARKS and every stage mark, then each mark under KEPT_MARK_PREFIXES in
+    launch order, at most KEPT_MARKS_MAX in all."""
+    named = set(KEPT_MARKS) | set(launch_stages.MARKS)
+    out = {k: marks[k] for k in marks if k in named}
+    rest = sorted((k for k in marks if k not in named and k.startswith(KEPT_MARK_PREFIXES)),
+                  key=lambda k: (_num(marks[k]) is None, _num(marks[k]) or 0.0, k))
+    for k in rest[:max(0, KEPT_MARKS_MAX - len(out))]:
+        out[k] = marks[k]
+    return out
 
 
 def log(message: str) -> None:
@@ -160,6 +201,15 @@ class Keys:
                 self.cg.CFRelease(event)
 
 
+NO_ACTIVATE_VARIABLE = "CMUX_NEXT_NO_ACTIVATE"
+
+
+def interactive_env(env: dict) -> dict:
+    """The run's environment without CMUX_NEXT_NO_ACTIVATE, for every launch it times: a person's launch activates
+    the app and its window takes key; under the variable none ever does, so a key could reach no window."""
+    return {k: v for k, v in env.items() if k != NO_ACTIVATE_VARIABLE}
+
+
 def activate(pid: int) -> None:
     """Bring the app to the front without waiting (a posted key goes to its key window)."""
     script = (f"ObjC.import('AppKit'); var a = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}); "
@@ -172,6 +222,66 @@ def activate(pid: int) -> None:
 
 
 # ---- the typing probe -----------------------------------------------------------------------
+
+def load_1m() -> float | None:
+    try:
+        return round(os.getloadavg()[0], 2)
+    except OSError:
+        return None
+
+
+def per_core(load: float | None, cpus: int | None = None) -> float | None:
+    """The 1-minute load over this Mac's CPU count: the one load figure that compares across Macs of 8 to 14 cores."""
+    cpus = cpus if cpus is not None else os.cpu_count()
+    return round(load / cpus, 3) if load is not None and cpus else None
+
+
+def wait_for_quiet(bound: float, wait_s: float) -> tuple[float | None, float]:
+    """A fixed slot, as a device farm takes one: before a launch, wait up to wait_s for the load per core to fall to
+    bound (checked every LOAD_POLL_S). Returns the load per core at the launch and the seconds waited."""
+    started = time.monotonic()
+    while True:
+        load = per_core(load_1m())
+        if load is None or load <= bound or time.monotonic() - started >= wait_s:
+            return load, round(time.monotonic() - started, 1)
+        time.sleep(LOAD_POLL_S)
+
+
+def nearest_rank(values: list[float], pct: float) -> float | None:
+    """The pct percentile by nearest rank (no interpolation): with N=20, p50 is the 10th value and p95 the 19th."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[max(0, min(len(ordered) - 1, math.ceil(pct / 100 * len(ordered)) - 1))]
+
+
+def percentiles(rounds: list[dict], bound: float, min_quiet: int) -> dict:
+    """Per KIND_FRONT: p50 and p95 of input_ms over the rounds launched at or under `bound` load per core, with n, the
+    rounds left out for load (over_load) and the load they ran at. A cell with fewer than min_quiet quiet measured
+    rounds is `refused` (its p50/p95 None): a number from a loaded Mac is not posted."""
+    out: dict = {}
+    for kind in KINDS:
+        for which in FRONTS:
+            mine = [r for r in rounds if r.get("kind") == kind and r.get("front") == which]
+            if not mine:
+                continue
+            over = [r for r in mine if (lpc := _num(r.get("load_per_core"))) is not None and lpc > bound]
+            quiet = [r for r in mine if r not in over]
+            times = [float(r["input_ms"]) for r in quiet if isinstance(r.get("input_ms"), (int, float))]
+            loads = [float(r["load_1m"]) for r in quiet if isinstance(r.get("load_1m"), (int, float))]
+            lpcs = [float(r["load_per_core"]) for r in quiet if isinstance(r.get("load_per_core"), (int, float))]
+            refused = len(times) < min_quiet
+            out[f"{kind}_{which}"] = {
+                "n": len(times), "rounds": len(mine), "over_load": len(over), "unmeasured": len(quiet) - len(times),
+                "p50_ms": None if refused else nearest_rank(times, 50),
+                "p95_ms": None if refused else nearest_rank(times, 95),
+                "load_1m_p50": nearest_rank(loads, 50), "load_1m_max": max(loads) if loads else None,
+                "load_per_core_max": max(lpcs) if lpcs else None, "cpus": os.cpu_count(),
+                "load_bound_per_core": bound, "min_quiet": min_quiet,
+                **({"refused": f"{len(times)} quiet measured rounds of {len(mine)}, under {min_quiet}"}
+                   if refused else {})}
+    return out
+
 
 def _num(value) -> float | None:
     try:
@@ -249,15 +359,17 @@ def probe_focus(marks: dict) -> str | None:
 
 def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
     """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
-    way to type; the in_app path with no key window at the first frame typed nowhere."""
+    way to type; the in_app path with no window key at its first frame typed nowhere. The in_app path's one key is typed
+    before a chat page is up, so its chat round measures nothing and fails nothing."""
     out = []
     if path == "posted" and not row.get("post_access", True):
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark"):
+    if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
         if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
             out.append("the app typed no key: no window could take keys at its first frame (terminal.probe_no_key_window)")
         else:
-            out.append(f"the {which} took no key within {settle:.0f} s ({path})")
+            first = next((k.removeprefix(FIRST_KEY_PREFIX) for k in marks if k.startswith(FIRST_KEY_PREFIX)), None)
+            out.append(f"the {which} took no key within {settle:.0f} s ({path})" + (f"; its key hold read {first}" if first else ""))
     return out
 
 
@@ -310,14 +422,21 @@ def seed_list(inst: rr.Instance, made: dict, workspaces: int, chats: int, work: 
 
 # ---- one round ------------------------------------------------------------------------------
 
-def quit_app(inst: rr.Instance, process) -> str | None:
+def quit_app(inst: rr.Instance, process, timing: dict | None = None) -> str | None:
+    """Quit and Keep Sessions, then wait for the process to end. `timing`, when given, gets `quit_ms`: the ask to the
+    old process's end (or to its kill), so a round can tell a slow relaunch from a slow quit before it."""
+    asked = time.monotonic()
     reply = rr.call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     try:
         process.wait(timeout=20)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=10)
+        if timing is not None:
+            timing["quit_ms"], timing["quit_killed"] = round((time.monotonic() - asked) * 1000, 1), True
         return f"the app did not end within 20 s of Quit and Keep Sessions ({reply.get('error') or 'ok'})"
+    if timing is not None:
+        timing["quit_ms"] = round((time.monotonic() - asked) * 1000, 1)
     if os.path.exists(inst.sock):
         try:
             os.remove(inst.sock)
@@ -455,7 +574,8 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
         return row, process, app
-    why = quit_app(inst, process)
+    why = quit_app(inst, process, row)
+    quit_end = time.monotonic()
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
@@ -476,6 +596,11 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             failures.append(why)
     probe = out / f"typing-round{n}.csv"
     probe.unlink(missing_ok=True)
+    # The old process's end to this launch (a cold round's copy and prewarm sit in it, a warm round's is ~0), and the
+    # Mac's 1-minute load at the launch: a stage median mixes rounds, and both decide whether rounds compare.
+    row["quit_to_launch_ms"] = round((time.monotonic() - quit_end) * 1000, 1)
+    row["load_per_core"], row["load_wait_s"] = wait_for_quiet(args.max_load_per_core, args.load_wait)
+    row["load_1m"], row["cpus"] = load_1m(), os.cpu_count()
     spawned = uptime_ns()
     process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
     start_ns = process_start_uptime_ns(process.pid)
@@ -494,7 +619,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             break
         # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run): the
         # round ends when the chat drew and types nothing into its draft; it reads `no_mark`, not a failure of the app.
-        if which == "chat" and not args.has_input_mark and "agent_pane.painted" in marks:
+        if which == "chat" and (not args.has_input_mark or path == "in_app") and "agent_pane.painted" in marks:
             break
         if which == "terminal" and path == "in_app":
             term = in_app_terminal_reading(marks)
@@ -544,7 +669,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     row.update(split(row.get("input_ms"), row["main_ms"]))
     if path == "in_app":
         row["probe_focus"] = probe_focus(marks)
-    row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["marks"] = kept_marks(marks)
     row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
@@ -565,6 +690,7 @@ def check(args) -> int:
         app = Path(app)
         inst = rr.Instance(str(socket_path), str(app), env["HOME"])
         work = os.path.join(env["HOME"], "l5-work")
+        env = interactive_env(env)  # every launch from here takes the front, as a person's does
         started = time.monotonic()
         try:
             made = rr.seed(inst, args.fake_agent, work, front_terminal=False)
@@ -618,6 +744,9 @@ def check(args) -> int:
     # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
     result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
                         for which in FRONTS}
+    # The percentile rows (startup-matrix): p50/p95 per KIND_FRONT over the rounds launched under the load bound.
+    result["percentiles"] = percentiles(result["rounds"], args.max_load_per_core, args.min_quiet)
+    rr.safe_print("TTI-PCT " + json.dumps(result["percentiles"]), flush=True)
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
@@ -626,7 +755,8 @@ def check(args) -> int:
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
-    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", *summary)
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "percentiles",
+             *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)
@@ -635,10 +765,14 @@ def check(args) -> int:
 def parse_plan(text: str) -> list[tuple[str, str]]:
     plan = []
     for item in (p.strip() for p in text.split(",") if p.strip()):
-        kind, _, which = item.partition(":")
+        # KIND:FRONT*N repeats a round N times in a row (cold_install:terminal*20: twenty cold launches)
+        head, star, count = item.partition("*")
+        kind, _, which = head.partition(":")
         if kind not in KINDS or which not in FRONTS:
             raise ValueError(f"{item!r}: KIND is one of {', '.join(KINDS)}, FRONT one of {', '.join(FRONTS)}")
-        plan.append((kind, which))
+        if star and not (count.isdigit() and 1 <= int(count) <= 100):
+            raise ValueError(f"{item!r}: *N takes 1-100 rounds")
+        plan += [(kind, which)] * (int(count) if star else 1)
     if not plan:
         raise ValueError("an empty plan")
     return plan
@@ -661,6 +795,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--launch-delay-ms", type=int, default=0,
                         help="the positive control: each measured launch waits this long before its first window "
                              "(CMUX_NEXT_LAUNCH_TEST_DELAY_MS; the app clamps it to 5000)")
+    parser.add_argument("--max-load-per-core", type=float, default=LOAD_BOUND_PER_CORE,
+                        help="the load bound: a round waits (up to --load-wait s) for the 1-minute load per core to "
+                             "fall to this, and a round launched over it is left out of the p50/p95")
+    parser.add_argument("--load-wait", type=float, default=LOAD_WAIT_S)
+    parser.add_argument("--min-quiet", type=int, default=MIN_QUIET_ROUNDS,
+                        help="a KIND_FRONT cell with fewer quiet measured rounds posts no p50/p95 (refused)")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
     args = parser.parse_args(argv)

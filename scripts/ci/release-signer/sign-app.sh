@@ -125,11 +125,16 @@ echo "==> signing as $cn"
 
 find "$APP_PATH" -name '._*' -type f -delete   # AppleDouble files from an unzip
 plist_get() { python3 -I -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb"))[sys.argv[2]])' "$@"; }
-jit="$work/jit.entitlements" empty="$work/empty.entitlements"
+jit="$work/jit.entitlements" empty="$work/empty.entitlements" cdm="$work/cdm.entitlements"
 printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
   '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
   '<plist version="1.0">' '<dict>' '  <key>com.apple.security.cs.allow-jit</key><true/>' '</dict>' '</plist>' > "$jit"
 sed '/<key>/d' "$jit" > "$empty"
+# The plain Chromium helper runs the Widevine CDM, which Google's team signs (sign-cef.sh).
+printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+  '<plist version="1.0">' '<dict>' '  <key>com.apple.security.cs.allow-jit</key><true/>' \
+  '  <key>com.apple.security.cs.disable-library-validation</key><true/>' '</dict>' '</plist>' > "$cdm"
 
 # Effective app entitlements (sign-cmux-bundle.sh:109-133). openssl unwraps the
 # profile where the Mac uses security cms -D. cmux-next ships no tunnel.
@@ -301,7 +306,8 @@ fi
 # 3. The Chromium engine (feat-cmux-next scripts/cmux-next/sign-cef.sh, blob
 # 42525cf0): the framework, its Libraries and the shim get no entitlements;
 # of the "<product> Helper*.app" apps, the plain one, GPU and Renderer get
-# allow-jit (CEF 156 starts renderers from the plain helper).
+# allow-jit (CEF 156 starts renderers from the plain helper); the plain one also
+# disable-library-validation (it loads the Google-signed Widevine CDM).
 # The remote browser host in Contents/Helpers (rbh_sign of
 # scripts/cmux-next/remote-browser-host-layout.sh, blob 654ee654): its helper
 # apps by the same rule, the host app with no entitlements. Then every other
@@ -309,7 +315,8 @@ fi
 cef_helper() { # <helper.app>
   exe_of "$1"
   case "$1" in
-    *" Helper.app" | *" Helper (GPU).app" | *" Helper (Renderer).app") ent["$exe"]="$jit" ;;
+    *" Helper.app") ent["$exe"]="$cdm" ;;
+    *" Helper (GPU).app" | *" Helper (Renderer).app") ent["$exe"]="$jit" ;;
     *) clear["$exe"]=1 ;;
   esac
 }

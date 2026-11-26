@@ -200,7 +200,10 @@ fn codex_runs_only_without_a_subcommand_or_as_resume() {
 fn muse_keeps_its_flags_from_the_binary_its_launcher_runs() {
     let binary = "/Users/a/.local/bin/muse-bin-1.4.14-R7309.1";
     let yolo = agent_launch_from_job("muse", &strings(&[binary, "--yolo"]), &[]).unwrap();
-    assert_eq!(yolo, AgentLaunch { args: strings(&["--yolo"]), env: Vec::new() });
+    assert_eq!(
+        yolo,
+        AgentLaunch { args: strings(&["--yolo"]), env: Vec::new(), wrapper: Vec::new() }
+    );
     let resumed = agent_launch_from_job(
         "muse",
         &strings(&[
@@ -248,4 +251,50 @@ fn the_shims_arguments_need_the_harness_process() {
     let args = r#"["--model","opus"]"#;
     let other = strings(&["node", "/usr/lib/node_modules/some-tool/index.js"]);
     assert!(agent_launch_from_job("claude", &other, &env(&[(SHIM_ARGS_ENV, args)])).is_none());
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/55601: the launcher that ran the
+/// CLI by name (`sr2 claude`) is kept, so the resume goes through it.
+#[test]
+fn a_launcher_that_runs_the_cli_by_name_is_kept() {
+    let sr2 = strings(&["/Users/a/.local/bin/sr2", "claude", "--dangerously-skip-permissions"]);
+    let launch = agent_launch_from_job("claude", &sr2, &[]).unwrap();
+    assert_eq!(launch.wrapper, strings(&["/Users/a/.local/bin/sr2"]));
+    assert_eq!(launch.args, strings(&["--dangerously-skip-permissions"]));
+    let codex = agent_launch_from_job("codex", &strings(&["sr2", "codex", "--yolo"]), &[]).unwrap();
+    assert_eq!(codex.wrapper, strings(&["sr2"]));
+    // The CLI itself, and interpreters that run its script, are no launcher.
+    for argv in [
+        &["/opt/homebrew/bin/claude", "--verbose"][..],
+        &["node", "/opt/homebrew/bin/claude", "--verbose"],
+        &["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"],
+        &["/bin/bash", "/Users/a/bin/claude"],
+        &["env", "FOO=1", "claude"],
+    ] {
+        let launch = agent_launch_from_job("claude", &strings(argv), &[]).unwrap();
+        assert!(launch.wrapper.is_empty(), "{argv:?}");
+    }
+    let python = strings(&["python3", "/tmp/fake.py", "codex", "-m", "gpt-5.5"]);
+    assert!(agent_launch_from_job("codex", &python, &[]).unwrap().wrapper.is_empty());
+    // A launcher script shows as its interpreter and its path: it runs by itself.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("cmux-agent-launcher-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("sr2");
+        std::fs::write(&script, "#!/bin/bash\nexec \"$@\"\n").unwrap();
+        let script = script.to_string_lossy().into_owned();
+        let argv = strings(&["/bin/bash", &script, "claude", "--verbose"]);
+        assert!(
+            agent_launch_from_job("claude", &argv, &[]).unwrap().wrapper.is_empty(),
+            "not executable: not a launcher"
+        );
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(agent_launch_from_job("claude", &argv, &[]).unwrap().wrapper, vec![script]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    // A launcher word that looks like a credential drops the launcher.
+    let secret = strings(&["sr2", "--token=sk-ant-abcdefghijklmnop", "claude"]);
+    assert!(agent_launch_from_job("claude", &secret, &[]).unwrap().wrapper.is_empty());
 }

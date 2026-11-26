@@ -254,6 +254,19 @@
         [{"id": "a", "name": "A", "level": "1"}]
       ]
     },
+    "domain:particles_document": {
+      "accept": [
+        {"$schema": "cmux.particles/1", "particle": {"size": 3, "max": 1}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": [[0, 0, 0.7]]}]}}},
+        {"$schema": "cmux.particles/1", "particle": {"shape": "circle", "size": 3, "color": "accent", "max": 3}, "phases": {"row": {"duration": 1200, "ease": "easeInOut", "frames": [{"at": 0, "formation": "row"}, {"at": 1, "dots": [[-6, 0, 1], [0, 0, 0.6], [6, 0, 1]]}]}}, "triggers": {"execute": ["row"], "cycle": ["row"]}}
+      ],
+      "refuse": [
+        "thinking-glyph.json",
+        {},
+        {"$schema": "cmux.particles/2", "particle": {"size": 3}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}},
+        {"$schema": "cmux.particles/1", "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}},
+        {"$schema": "cmux.particles/1", "particle": {"size": 3}, "phases": {}}
+      ]
+    },
     "domain:command_labels": {
       "accept": [
         [],
