@@ -44,8 +44,12 @@ const AUTH_ENV: &[&str] = &[
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
     "GROK_HOME",
-    // Where the request goes, and the own-or-team pins (`claude_cloud_auth.rs`,
-    // `provider_cloud_auth.rs`).
+];
+
+/// Env keys that say where a harness sends its requests, and the own-or-team pins
+/// (`claude_cloud_auth.rs`, `provider_cloud_auth.rs`). A route, not a login, so not in
+/// [`AUTH_ENV`] (whose keys each name an owner family, `agent/foreign_login.rs`).
+const ROUTE_ENV: &[&str] = &[
     "ANTHROPIC_BASE_URL",
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
@@ -221,7 +225,7 @@ impl AuthCache {
         let mut account = std::collections::hash_map::DefaultHasher::new();
         let mut named = false;
         family.hash(&mut h);
-        for k in AUTH_ENV {
+        for k in AUTH_ENV.iter().chain(ROUTE_ENV) {
             (k, env(k)).hash(&mut h);
         }
         for (path, reader) in files(family, env, home) {
