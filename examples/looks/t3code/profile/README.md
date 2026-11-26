@@ -96,44 +96,44 @@ Shift-Command-F (find) are cmux's defaults already.
 | Inline approval card with keys; subagent approvals in parent thread | matched | The permission card with Option-Command-1 to 4; subagent approvals show in the parent chat. |
 | Managed policy that caps allowed access modes | missing | Gap: no admin policy limits which access modes a person can pick. |
 | Thread status indicators (working, needs approval, unread, done) | matched | `sidebar.workspaceRow.agent.agentStatus`; the chat's status line. |
-| Running tool label shimmer and work-log steps | partial | `agentPane.display.thinking.shimmer` `continuous`. Gap: cmux's own shimmer, not the app's stepped shine; its timing needs motion tokens a look can set (lane/look-motion-tokens). |
+| Running tool label shimmer and work-log steps | partial | `agentPane.display.thinking.shimmer` `continuous`. Gap: cmux's own shimmer, not the app's stepped shine; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
 | Context-window meter | matched | The context ring in the composer; Command-U opens it here. |
 | Usage and limits page (mod+U) | partial | Command-U shows context usage (`agentPane.composer.showContextUsage`). Gap: no standalone usage page. |
 | Timeline minimap | matched | `agentPane.display.minimap` `compact`. |
 | Find in chat (mod+F), project search (mod+shift+F), file picker (mod+P) | partial | Command-F and Shift-Command-F. Gap: Command-P is Go to Workspace; no file picker action. |
 | Open in favorite editor (mod+O) | partial | The look's Session Info section opens the folder in an editor. Gap: no action to bind Command-O to. |
 | Themes, theme picker (mod+alt+A), theme editor, custom CSS | partial | The look's theme file, chat stylesheet and views. Gap: no theme picker key and no visual theme editor. |
-| Panel animations setting (0-400 ms, default 0) | partial | `ui.animations.panes` false: panels open in one frame, the app's default. Gap: no millisecond slider; a look can't set durations without motion tokens a look can set (lane/look-motion-tokens). |
+| Panel animations setting (0-400 ms, default 0) | partial | `ui.animations.panes` false: panels open in one frame, the app's default. Gap: no millisecond slider; the look's motion tokens time chat transitions only, not panels. |
 | Remote access from phone and web clients | partial | The iPhone app, remote control and cloud machines. Gap: no browser client served by the desktop app. |
 | Notifications when a thread finishes or needs input | matched | Notifications on finish and on permission asks; Shift-Command-U jumps to unread. |
 | Hover card for threads | matched | The look's `cmux.hovercard/1` view. |
 
 ## Motion checklist
 
-23 motions: 16 gap, 6 matched, 1 partial.
+23 motions: 12 gap, 10 matched, 1 partial.
 
 | Motion | The app | Status | How, or the gap |
 | --- | --- | --- | --- |
-| Popover open/close (scale 0.98 + fade) | 150 ms | gap | cmux: 0 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Menu (dropdown/context) open/close | 150 ms | gap | cmux: 0 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Tooltip appear | 150 ms | gap | cmux: 120 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
+| Popover open/close (scale 0.98 + fade) | 150 ms | matched | The look's `--cmux-motion-micro: 150ms` (agent-pane/theme.css). |
+| Menu (dropdown/context) open/close | 150 ms | matched | The look's `--cmux-motion-micro: 150ms`. |
+| Tooltip appear | 150 ms | matched | The look's `--cmux-motion-micro: 150ms` (cmux's default is 120 ms). |
 | Sidebar open/close (mod+B) | 0 ms | matched | `ui.animations.panes` false: one frame, as the app's default. |
 | Right panel / diff panel open/close | 0 ms | matched | `ui.animations.panes` false. |
 | Terminal drawer open/close (mod+J) | 0 ms | partial | The quick terminal; no drawer to animate. |
 | Sidebar thread selection highlight | 0 ms | matched | cmux's default motion already matches. |
 | Thread switch: panel state snaps | 0 ms | matched | `ui.animations.panes` false. |
 | Row and button hover (background) | 0 ms | matched | `ui.animations.feedback` false: hover backgrounds change at once. |
-| Button press | 150 ms | gap | cmux: 0 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Switch toggle thumb | 150 ms | gap | cmux: unmeasured; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Streaming assistant text appearance | 0 ms | gap | cmux: 120 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Work-log / step row enter | 180 ms | gap | cmux: 120 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Thread list reorder (row moves) | 150 ms | gap | cmux: 180 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Thread list insert (new row) | 150 ms | gap | cmux: 135 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Thread list remove (row leaves) | 150 ms | gap | cmux: 110 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Composer growth while typing | 0 ms | gap | cmux: unmeasured; needs motion tokens a look can set (lane/look-motion-tokens). |
+| Button press | 150 ms | gap | cmux: 0 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Switch toggle thumb | 150 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Streaming assistant text appearance | 0 ms | gap | cmux: 120 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Work-log / step row enter | 180 ms | gap | cmux: 120 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Thread list reorder (row moves) | 150 ms | gap | cmux: 180 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Thread list insert (new row) | 150 ms | gap | cmux: 135 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Thread list remove (row leaves) | 150 ms | gap | cmux: 110 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Composer growth while typing | 0 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
 | Composer resting / draft-hero to docked transition | 0 ms | matched | `agentPane.emptyChatComposerPosition` `center`; instant, as the app's default. |
-| Send message | unmeasured | gap | cmux: 0 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Collapsible height fold (tool groups, details) | 200 ms | gap | cmux: 180 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Working status pulse / spinner | 2000 ms | gap | cmux: 2000 ms; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Running tool label shimmer | 2200 ms | gap | cmux: unmeasured; needs motion tokens a look can set (lane/look-motion-tokens). |
-| Sidebar update pill | 180 ms | gap | cmux: unmeasured; needs motion tokens a look can set (lane/look-motion-tokens). |
+| Send message | unmeasured | gap | cmux: 0 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Collapsible height fold (tool groups, details) | 200 ms | matched | The look's `--cmux-motion-settle: 200ms` (cmux's default is 180 ms). |
+| Working status pulse / spinner | 2000 ms | gap | cmux: 2000 ms; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Running tool label shimmer | 2200 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
+| Sidebar update pill | 180 ms | gap | cmux: unmeasured; no motion token times it yet (docs/cmux-next/look-addons.md, Motion). |
