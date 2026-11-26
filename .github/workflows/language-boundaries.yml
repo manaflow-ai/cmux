@@ -77,8 +77,12 @@ jobs:
           rm -rf "$part"
           for f in $FILES; do
             mkdir -p "$part/$(dirname "$f")"
-            curl -fsS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" \
-              "https://raw.githubusercontent.com/$REPO/$SHA/$f"
+            code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
+            if [ "$code" != 200 ]; then
+              echo "::notice::$f read $code over raw; actions/checkout reads the files instead."
+              exit 1
+            fi
           done
           # The check step fetches the merge ref into this repository, as it did into the checkout's.
           git init -q .

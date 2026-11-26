@@ -42,7 +42,7 @@ JOB_NAMES = {
 
 GATE = "steps.raw.outputs.ok != 'true'"
 BASE_SHAS = {
-    "risk-tier.yml": None,  # resolves the base branch tip with ls-remote
+    "risk-tier.yml": None,  # resolves the base branch tip with a git ls-refs request
     "merge-freeze.yml": "${{ github.sha }}",
     "language-boundaries.yml": "${{ github.event.pull_request.base.sha }}",
     "intent-familiar-review.yml": "${{ github.event.pull_request.base.sha }}",
@@ -84,14 +84,18 @@ class RawBaseFilesTest(unittest.TestCase):
                 text = yaml.safe_dump(raw)
                 for forbidden in ("head.sha", "head.ref", "refs/pull", "github.head_ref", "pull/"):
                     self.assertNotIn(forbidden, text)
-                self.assertIn('https://raw.githubusercontent.com/$REPO/$SHA/$f', raw["run"])
+                self.assertIn('"https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000', raw["run"])
+                # Anything but a 200 (or a 404 for a file the checkout may also find absent) falls back.
+                self.assertIn('elif [ "$code" != 200 ]' if "OPTIONAL_FILES" in raw["env"] else 'if [ "$code" != 200 ]', raw["run"])
                 self.assertIn('[[ "$SHA" =~ ^[0-9a-f]{40}$ ]]', raw["run"])
                 self.assertIn('echo "ok=true" >> "$GITHUB_OUTPUT"', raw["run"])
                 # Files land in the workspace only after every read succeeded.
                 self.assertLess(raw["run"].index("done"), raw["run"].index('cp -R "$part"/. .'))
                 expected = BASE_SHAS[name]
                 if expected is None:
-                    self.assertIn('git ls-remote "https://github.com/$REPO.git" "refs/heads/$BASE_REF"', raw["run"])
+                    self.assertIn('"https://github.com/$REPO.git/git-upload-pack"', raw["run"])
+                    self.assertIn('ref-prefix refs/heads/$BASE_REF', raw["run"])
+                    self.assertNotIn("git ls-remote", raw["run"])
                     self.assertEqual(raw["env"]["BASE_REF"], "${{ github.event.pull_request.base.ref }}")
                 else:
                     self.assertEqual(raw["env"]["SHA"], expected)
@@ -107,7 +111,8 @@ class RawBaseFilesTest(unittest.TestCase):
                     for line in checkout["with"]["sparse-checkout"].splitlines()
                     if line.strip() and line.strip() != "scripts/ci/api_call_log"
                 }
-                self.assertEqual(set(raw["env"]["FILES"].split()), sparse)
+                read = set(raw["env"]["FILES"].split()) | set(raw["env"].get("OPTIONAL_FILES", "").split())
+                self.assertEqual(read, sparse)
 
     def test_language_boundaries_keeps_a_repository_for_its_merge_fetch(self) -> None:
         steps = load("language-boundaries.yml")["jobs"]["language-boundaries"]["steps"]
