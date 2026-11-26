@@ -4,9 +4,9 @@ public import CmuxNextActions
 ///
 /// While a downloaded update waits, the palette lists one "Restart to Update" row, found by restart,
 /// update, relaunch or upgrade, that runs the install the sidebar card's Restart to Update and the app
-/// menu run (`palette.applyUpdateIfAvailable`). While it waits, Check for Updates… and the install rows
-/// step aside: a check only answers with the waiting update. With none waiting there is no row, and
-/// Check for Updates… is listed as before. The updater owns what waits and the row's localized title
+/// menu run (`palette.applyUpdateIfAvailable`). While it waits, the install rows step aside; Check for
+/// Updates… stays listed (Leo 2026-11-22: typing "check for update" found only a setting), since a check
+/// while an update waits still looks for a newer build. With none waiting there is no row. The updater owns what waits and the row's localized title
 /// (`UpdaterService.restartableUpdate`); this type only lists it.
 ///
 /// ```swift
@@ -22,7 +22,7 @@ public struct RestartToUpdatePaletteRows {
     /// The install every Restart to Update runs.
     static let installAction: ActionID = "palette.applyUpdateIfAvailable"
     /// The catalog rows the staged update's row stands in for while it waits.
-    static let replacedWhileStaged: Set<ActionID> = ["palette.checkForUpdates", "palette.applyUpdateIfAvailable", "palette.attemptUpdate"]
+    static let replacedWhileStaged: Set<ActionID> = ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"]
     /// Words the row is found by beside its title (English, like the catalog's keywords).
     static let keywords = ["restart", "update", "relaunch", "upgrade", "install", "new version"]
 
