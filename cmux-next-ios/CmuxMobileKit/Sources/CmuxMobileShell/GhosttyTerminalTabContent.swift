@@ -116,6 +116,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private func setAppActive(_ active: Bool) {
         appActive = active
         for host in hosts.values { host.model.setAppActive(active) }
+        for retry in autoRetries.values { retry.update(foreground: active) }
     }
 
     private func frameKey(surfaceID: String, macID: String?) -> TerminalFrameKey? {
@@ -222,6 +223,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hasLiveSession?(id, placeholderTabs[id]?.workspace.macID) ?? false
     }
     private var feeds: [String: Task<Void, Never>] = [:]
+    /// Per tab with a host: a terminal whose reattach gave up ("Can't reach this terminal") is
+    /// reattached on its own with a jittered backoff while the app is in the foreground, instead
+    /// of a Reconnect in the page menu whose only answer is yes.
+    private var autoRetries: [String: AutoRetry] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
     var reconnect: (@MainActor (String) -> Void)?
@@ -500,8 +505,20 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private func watchReattach(_ id: String, model: TerminalModel) {
         stopWatching(id)
         let indicator = indicator(id)
-        feeds[id] = Task { [weak indicator, model] in
+        let retry = AutoRetry()
+        retry.update(foreground: appActive)
+        retry.setAttempt { [weak model] in await Self.reattach(model) }
+        autoRetries[id] = retry
+        feeds[id] = Task { [weak indicator, weak retry, model] in
             for await state in Observations({ model.connectionState }) {
+                // Failing from a gave-up reattach until it attaches; a Mac gone offline is the
+                // link's to bring back (it reattaches every session), and a reattach under way
+                // (connecting, reattaching) changes nothing, so the backoff keeps its place.
+                switch state {
+                case .failed: retry?.update(failing: true)
+                case .attached, .offline: retry?.update(failing: false)
+                case .connecting, .reattaching: break
+                }
                 guard let indicator else { return }
                 if case .offline = state { indicator.update(offline: true) } else { indicator.update(offline: false) }
                 // Any outage (a reattach, a first connect, a failure, an offline
@@ -516,7 +533,29 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// the same indicator again.
     private func stopWatching(_ id: String) {
         feeds.removeValue(forKey: id)?.cancel()
+        autoRetries.removeValue(forKey: id)?.update(visible: false)
         indicators[id]?.cancel()
+    }
+
+    /// One automatic reattach of a terminal that gave up: the Mac's link and the attach again
+    /// (`TerminalModel.reconnect`), returning once it answered (attached, or failed again after
+    /// the session's own reattach backoff), at most a minute on.
+    private static func reattach(_ model: TerminalModel?) async {
+        guard let model, let reconnect = model.reconnect else { return }
+        await reconnect()
+        // The session leaves `.failed` as the reattach starts; a reattach that did not start
+        // (no handler, ended) answers at once.
+        let started = await ObservationWait({ [weak model] in
+            guard let state = model?.connectionState else { return true }
+            if case .failed = state { return false }
+            return true
+        }, budget: .seconds(2)).value
+        guard started else { return }
+        _ = await ObservationWait({ [weak model] in
+            guard let state = model?.connectionState else { return true }
+            if case .failed = state { return true }
+            return state.isAttached
+        }, budget: .seconds(60)).value
     }
 
     /// A read (no host is created): the tab's pill says "Can't connect" or
@@ -806,11 +845,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // The keyboard toggle and ^C live on the key bar, and Back leaves
         // the workspace, so the menu does not repeat them (design/terminal P1).
         var actions: [TerminalTabAction] = []
-        // Retry, past the quiet bound of an outage only (the pill says
-        // "Reattaching…" then): first in the menu, no layout space on the page.
-        if model.offersReconnect, let reconnect = model.reconnect {
-            actions.append(TerminalTabAction(title: "Reconnect", systemImage: "arrow.clockwise") { Task { await reconnect() } })
-        }
+        // No Reconnect: a terminal whose reattach gave up is reattached on its own
+        // (`autoRetries`), and the pill says the state past the quiet bound.
         // A Mac terminal: who shows it, the size each asks for, and the Mac's sizing policy.
         if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
