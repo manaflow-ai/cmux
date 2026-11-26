@@ -1898,6 +1898,10 @@ pub struct MachineWakeConfig {
 pub struct WriteJournalConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// RFD 0144 piece 2: also answer the app's and phone's file tree, file and search reads of a
+    /// paused machine from its replica and journal, with no wake. Needs `enabled`; off by default.
+    #[serde(default)]
+    pub serve_paused_reads: bool,
 }
 
 impl WriteJournalConfig {
