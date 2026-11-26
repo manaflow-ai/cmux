@@ -503,6 +503,7 @@
     "theme.scheme.convert",
     "theme.scheme.export",
     "theme.scheme.from_image",
+    "theme.slots.resolve",
     "thread.update",
     "title.set",
     "toast.show",

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f372987f95bfc5fce9562b5e0c2d1b51068ba3cf597a1e8aa3e6dd3857614e94",
+  "catalog_sha256": "8b91453e41ef5ef10d879519abcfee5c155de0d8aad903241d6c08e9420a3707",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -1055,6 +1055,9 @@
       "class": "read"
     },
     "theme.scheme.from_image": {
+      "class": "read"
+    },
+    "theme.slots.resolve": {
       "class": "read"
     },
     "window_record.delete": {

@@ -276,7 +276,7 @@ fn a_silent_spawn_turn_under_the_guard_gets_no_note_until_the_person_writes() {
     h.connect();
     h.say("user_local", "start the fix");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let sp = spawner(&h);
     let started = run(&mut h, move || {
@@ -345,7 +345,7 @@ fn a_no_text_note_already_queued_when_the_guard_refuses_is_held_too() {
     h.connect();
     h.say("user_local", "start the fix");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let sp = spawner(&h);
     let started = run(&mut h, move || {

@@ -1668,6 +1668,40 @@ def needs_mac(cur):
     return any(not is_linux_part(p) for p in cur.get("parts_todo") or [])
 
 
+def rerun_stale_linux(state, cur, t):
+    """Put back to do each Linux part the tip measurement in flight already ran whose newest stored rows
+    (state['part_stored']) are older than PART_STALE_HOURS, while the measurement still waits on a Mac part and has no
+    Linux part left (pure on state). A Linux part takes no Mac, so it need not wait for the Mac parts to end; each part
+    runs again at most once per PART_STALE_HOURS (cur['linux_reruns'], else the measurement's start). Returns the parts
+    put back.
+
+    2026-11-25: tip b76703549055 ran web-ui-god on 11-24, when its incomplete report stored no row (cmux#55126 fixed
+    that), and then waited on Mac parts until its 48 h bound, so NOW's idle_chat_rest_wakeups_per_s stayed 3 days
+    stale after the fix merged: a one-minute Linux bench waited behind a two-day measurement."""
+    if cur.get("kind") != "tip" or cur.get("closed_at") or not needs_mac(cur):
+        return []
+    if any(is_linux_part(p) for p in cur.get("parts_todo") or []):
+        return []
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    reruns = cur.get("linux_reruns") if isinstance(cur.get("linux_reruns"), dict) else {}
+    back = []
+    for name in list(cur.get("parts") or {}):
+        if name not in PART_BY_NAME or not is_linux_part(name):
+            continue
+        e = stored.get(name)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) and e.get("at") else None
+        if at and hours_between(at, t) <= PART_STALE_HOURS:
+            continue
+        last = parse_iso(reruns[name]) if reruns.get(name) else parse_iso(cur.get("started_at"))
+        if not last or hours_between(last, t) <= PART_STALE_HOURS:
+            continue  # its last run, or the measurement's start, is newer than PART_STALE_HOURS
+        back.append(name)
+    if back:
+        cur["parts_todo"].extend(back)
+        cur["linux_reruns"] = {**reruns, **{name: iso(t) for name in back}}
+    return back
+
+
 def drop_dead_measurement(state, t, measurable):
     """End the measurement in flight when it ran too long (ABANDON_HOURS of active time, or ABANDON_WALL_HOURS in
     all) or, while it still has a Mac part to run, the cron no longer measures its commit (another split-spring.sh
@@ -1924,6 +1958,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
             cur["host"] = pin
     if cur and mac_disabled:
         disable_mac_parts(cur, mac_disabled)
+    if cur:
+        rerun_stale_linux(state, cur, t)
     tree_wait = wait_for_tree(cur, t, tree_ready) if cur else ""
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "

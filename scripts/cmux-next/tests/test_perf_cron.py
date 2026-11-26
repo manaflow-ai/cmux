@@ -4852,6 +4852,43 @@ class UnreadPartFirstTests(unittest.TestCase):
         d = cron.decide(state, at(30), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
 
+    def test_a_stale_linux_part_runs_again_while_the_tip_waits_on_mac_parts(self):
+        # 2026-11-25: tip b76703549055 ran web-ui-god once, stored nothing, then waited two days on Mac parts, and
+        # NOW's idle_chat_rest_wakeups_per_s stayed stale behind it.
+        state = self.mid_tip(stored=[])
+        cur = state["current"]
+        cur["yield_hours"] = 3 * cron.PART_STALE_HOURS  # the days went to nightlies: under the active bound
+        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", T0)
+        d = cron.decide(state, at(1), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], [], "rows under PART_STALE_HOURS old: nothing runs again")
+        t = cron.PART_STALE_HOURS + 1
+        for name, e in state["part_stored"].items():
+            if name != "coord-sim":
+                e["at"] = cron.iso(at(t - 1))  # the others stored rows since: only coord-sim's are stale
+        cur.pop("host_asked_since", None)  # its host still takes parts
+        d = cron.decide(state, at(t), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], ["coord-sim"], "its rows went stale while wake and power wait")
+        self.assertIn("wake", cur["parts_todo"])
+        cron.record_part(cur, "coord-sim", {"state": "failed", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(t))
+        cur.pop("host_asked_since", None)
+        d = cron.decide(state, at(t + 1), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], [], "at most once per PART_STALE_HOURS, even when it stored nothing")
+        cur.pop("host_asked_since", None)
+        for name, e in state["part_stored"].items():
+            if name != "coord-sim":
+                e["at"] = cron.iso(at(t + cron.PART_STALE_HOURS))
+        d = cron.decide(state, at(t + cron.PART_STALE_HOURS + 1), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], ["coord-sim"])
+
+    def test_no_linux_part_runs_again_once_the_mac_parts_are_done(self):
+        state = self.mid_tip(stored=[])
+        cur = state["current"]
+        cur["yield_hours"] = 3 * cron.PART_STALE_HOURS
+        for name in ("wake", "power", "coord-sim"):
+            cron.record_part(cur, name, {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        d = cron.decide(state, at(cron.PART_STALE_HOURS + 5), None, None, self.supported, None)
+        self.assertEqual(d["action"], "finish", "the next tip measures every part anyway")
+
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
         state = self.mid_tip()
         state["part_stored"]["wake"]["at"] = cron.iso(at(-40))

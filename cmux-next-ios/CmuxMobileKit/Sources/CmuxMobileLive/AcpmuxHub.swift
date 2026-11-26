@@ -129,6 +129,9 @@ public final class AcpmuxHub {
     /// The protocol surfaces the Mac's acpmux serves (`initialize` `_meta.acpmux.capabilities`,
     /// acpmux `capabilities.rs`); empty until this connection initializes.
     @ObservationIgnored private(set) var capabilities: Set<String> = []
+    /// Whether an `initialize` from this Mac has answered since launch: until then
+    /// `capabilities` is unknown, not empty (``pipelineAttaches``).
+    @ObservationIgnored private var capabilitiesKnown = false
     /// This connection's compact chunks and row patches, read back into whole records and rows
     /// (``AcpmuxDeltas``); a new one per connection, as the Mac keeps its side per connection.
     @ObservationIgnored var deltas = AcpmuxDeltas()
@@ -265,6 +268,7 @@ public final class AcpmuxHub {
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
+            capabilitiesKnown = true
             let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
             let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
@@ -318,11 +322,14 @@ public final class AcpmuxHub {
     /// with the kinds the last connection to this Mac allowed (`capabilities` stays until this
     /// connection's `initialize` answers). The chat's catch-up reads that reply instead of asking
     /// again (``AcpmuxSessionSource/readPages``); when `initialize` names other kinds, or the
-    /// chat's cursor moved, the reply is dropped and the attach is asked as before. Nothing goes
-    /// on a first connection (no kinds known yet).
+    /// chat's cursor moved, the reply is dropped and the attach is asked as before. On the first
+    /// connection since launch (no kinds known yet) it asks for every kind the phone draws: a
+    /// current Mac answers that, so the cold open's chat is one round trip from its page, not
+    /// two; an older one refuses it or names fewer kinds, and the attach is asked again as
+    /// before. A Mac whose `initialize` named no capabilities gets none (an old Mac).
     private func pipelineAttaches(_ connection: AcpmuxConnection, timeout: Duration) async {
-        guard !capabilities.isEmpty else { return }
-        let kinds = AcpmuxSessionSource.kinds(self)
+        guard !capabilities.isEmpty || !capabilitiesKnown else { return }
+        let kinds = capabilitiesKnown ? AcpmuxSessionSource.kinds(self) : AcpmuxSessionSource.chatKindsWithElevation
         for source in liveSources {
             guard let params = source.pipelineAttachParams(kinds: kinds),
                   let id = try? await connection.submit("_acpmux/attach", .object(params), timeout: timeout)

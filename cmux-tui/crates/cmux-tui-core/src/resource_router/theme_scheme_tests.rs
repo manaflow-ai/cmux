@@ -41,6 +41,33 @@ fn export_reads_an_installed_theme_by_name() {
 }
 
 #[test]
+fn resolve_slots_keeps_shipped_variants_and_names_the_rest() {
+    let text = r#"{
+  "appearance.accent": "not-a-color-name",
+  "slots": { "chat.thinkingIndicator": "pulse", "chat.jumpToBottom": "spin", "chat.x": "default" }
+}"#;
+    let out = resolve_slots(&fields(json!({ "text": text, "name": "pack" }))).unwrap();
+    assert_eq!(out["slots"], json!({ "chat.thinkingIndicator": "pulse" }));
+    let diagnostics = out["diagnostics"].as_array().unwrap();
+    // Only the slots' problems: the accent is the settings reader's business.
+    assert_eq!(diagnostics.len(), 2, "{out}");
+    assert_eq!(diagnostics[0]["path"], "slots.chat.jumpToBottom");
+    assert_eq!(diagnostics[0]["kind"], "invalid_value");
+    assert!(diagnostics[0]["message"].as_str().unwrap().starts_with("themes/pack.json:3: "));
+    assert_eq!(diagnostics[1]["path"], "slots.chat.x");
+
+    let none = resolve_slots(&fields(json!({ "text": "{}" }))).unwrap();
+    assert_eq!(none, json!({ "slots": {}, "diagnostics": [] }));
+    let broken = resolve_slots(&fields(json!({ "text": "{ \"slots\": " }))).unwrap();
+    assert_eq!(broken["slots"], json!({}));
+    assert_eq!(broken["diagnostics"][0]["kind"], "unreadable_file");
+    let garbage = resolve_slots(&fields(json!({ "text": "{ \"slots\": [1, 2] }" }))).unwrap();
+    assert_eq!(garbage["slots"], json!({}));
+    assert_eq!(garbage["diagnostics"][0]["path"], "slots");
+    assert!(resolve_slots(&fields(json!({}))).is_err());
+}
+
+#[test]
 fn from_image_gives_a_readable_scheme() {
     let mut data = Vec::new();
     for i in 0..64u32 {

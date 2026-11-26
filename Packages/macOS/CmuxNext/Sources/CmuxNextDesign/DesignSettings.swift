@@ -323,6 +323,11 @@ public final class DesignSettings {
     public var terminalConfigFontFamilies: [String] = [] {
         didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// The active theme file's `slots` (slot id to variant id), as the daemon resolved them
+    /// (`theme.slots.resolve`). Pages get them with the theme as is (``WebTheme/slots``).
+    public var themeSlots: [String: String] = [:] {
+        didSet { if themeSlots != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
