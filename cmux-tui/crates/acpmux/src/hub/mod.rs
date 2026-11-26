@@ -80,6 +80,7 @@ pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -305,6 +306,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod queue_origin;
+mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
 mod rediscover;
@@ -499,6 +501,7 @@ pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use bg_tasks::{BgScope, bg_owner_words};
+pub use cloud_offload::HistoryOffloadRequest;
 pub(crate) use cold_archive::COLD_CHANGED;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
@@ -506,6 +509,7 @@ pub use file_uploads::window as file_put_window;
 pub use fork::Retarget;
 pub(crate) use fork::offers_fork;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use history_delete::HistoryDeleteRequest;
 pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
@@ -2615,6 +2619,7 @@ impl Hub {
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
+            queued_prompt: StdMutex::new(Default::default()),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
