@@ -202,11 +202,11 @@ test("a section drags anywhere, lifted while held, and the order stays", async (
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, the line included, with Progress (no plan here), Also working
-  // here (no other chat here) and Carried memory (no read here) in their slots, none drawn.
+  // The saved order is the drawn one, the line included, with Also working here (no other chat here)
+  // and Carried memory (no read here) in their slots, none drawn.
   expect(
     (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter(
-      (id) => id !== "progress" && id !== "alsoHere" && id !== "carried",
+      (id) => id !== "alsoHere" && id !== "carried",
     ),
   ).toEqual(order(container));
   await act(async () => root.unmount());
@@ -342,7 +342,6 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "context",
     "outputs",
     "sources",
-    "progress",
     "tasks",
     "subagents",
     "alsoHere",
@@ -368,7 +367,6 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "changes",
     "sources",
     "outputs",
-    "progress",
     "tasks",
     "alsoHere",
     "subagents",
@@ -384,7 +382,7 @@ test("another pane's drag reaches this one", async () => {
     dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: ORDER_KEY, newValue: value }));
   });
   // A section the saved order lacks takes the place after the one it follows by default: Context after
-  // Environment, Subagents after Context (Progress, not drawn, between), the line's sections after it.
+  // Environment, Subagents after Context, the line's sections after it.
   // Environment is pinned first, so Outputs lands right under it.
   expect(order(container)).toEqual([
     "environment",
@@ -465,7 +463,6 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
     "environment",
     "subagents",
-    "progress",
     "context",
     "tasks",
     "sources",

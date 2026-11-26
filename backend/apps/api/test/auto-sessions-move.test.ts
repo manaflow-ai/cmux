@@ -153,6 +153,44 @@ describe("auto sessions: moving a chat by hand", { timeout: 60_000 }, () => {
     expect((await off(a.installToken, "home")).body.session).toMatchObject({ auto: false })
   })
 
+  it("the holder's lease answer says when the person asked, so a move asked again after a refused give is a new one", async () => {
+    const a = await person("asked-again")
+    await fakeCloud(a.user)
+    await setMachine(a)
+    const vm = await vmBearer(a, M)
+    await takenOver(a, "home")
+    expect((await post(vm, "home", "assignment/ack", { holder: VM, epoch: 2 })).status).toBe(200)
+    const standBy = async () => (await lease(a.installToken, "home", LAPTOP, 1, { standby: true })).body
+    const renewed = async () => (await lease(vm, "home", VM, 2, { needsRun: true })).body
+    // With no wish the answer names no time.
+    const quiet = await renewed()
+    expect(quiet.move).toBeUndefined()
+    expect(quiet.moveAt).toBeUndefined()
+    expect((await standBy()).role).toBe("standby")
+    const first = (await move(a.installToken, "home", { to: "local" })).body.session.move.at as number
+    expect(await renewed()).toMatchObject({ role: "holder", move: "local", moveAt: first })
+    // Only the holder is told: a standby's answer names neither the wish nor its time.
+    const waits = await standBy()
+    expect(waits.move).toBeUndefined()
+    expect(waits.moveAt).toBeUndefined()
+    // The laptop stops standing by, so the give is refused. The wish still waits, with the time it was asked.
+    await lapse(a.user, "home")
+    expect((await snap(vm, "home", VM, 2, 0)).status).toBe(200)
+    expect(refused(await give(vm, "home", VM, 2))).toEqual([409, "auto.no_laptop"])
+    expect(await renewed()).toMatchObject({ role: "holder", move: "local", moveAt: first })
+    // The laptop is open again and the person asks again: the same wish, with a new time.
+    expect((await standBy()).role).toBe("standby")
+    const second = (await move(a.installToken, "home", { to: "local" })).body.session.move.at as number
+    expect(second).toBeGreaterThan(first)
+    expect(await renewed()).toMatchObject({ role: "holder", move: "local", moveAt: second })
+    expect((await give(vm, "home", VM, 2)).body.session).toMatchObject({ holder: LAPTOP, epoch: 3 })
+    // The chat is another holder's: neither answer names a wish.
+    const lost = await renewed()
+    expect(lost.role).toBe("lost")
+    expect(lost.moveAt).toBeUndefined()
+    expect((await standBy()).moveAt).toBeUndefined()
+  })
+
   it("a parked chat has no holder to give it: to the Cloud it is a takeover at once, and needs a snapshot; to a laptop it goes to the one that stands by", async () => {
     const a = await person("parked")
     await fakeCloud(a.user)
