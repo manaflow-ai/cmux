@@ -1105,6 +1105,11 @@ lane = "linux-guard"
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
 
+
 [[test]]
 path = "tests/test_ci_unix_only_on_windows.py"
 lane = "linux-guard"
+[[test]]
+path = "tests/test_ci_light_jobs_pool_mirror_checkout.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py"
