@@ -71,7 +71,7 @@ extension CloudStartCore {
         struct Reply: Decodable { var `do`: String, diskMb: Int?, size: String? }
         let wire = answer.map { answer -> Answer in
             if case .locked(let plan, let largest) = answer { return Answer(answer: "locked", planMax: plan, largest: largest) }
-            return Answer(answer: "failed")
+            return Answer(answer: "failed", planMax: nil, largest: nil)
         }
         let asked = Request(sizes: Sizes(floor: floor, needed: needed, maxDisk: maxDisk), answer: wire, retried: retried)
         let reply = call("cloud_launch_grow_step", asked, as: Reply.self)
@@ -194,12 +194,12 @@ public struct CloudLaunchApproval: Sendable {
         let ms = { (value: Int) in JSONValue.number(Double(max(value, 0))) }
         return switch event {
         case .start(let confirmed, let earlier, let patience, let now):
-            .object(["event": "start", "confirmed": .bool(confirmed), "earlier": earlier.map(JSONValue.string) ?? .null, "patience_ms": ms(patience), "now_ms": ms(now)])
-        case .answered: .object(["event": "answered"])
-        case .pending(let request, let now): .object(["event": "pending", "request": request.map(JSONValue.string) ?? .null, "now_ms": ms(now)])
-        case .asked(let yes): .object(["event": "asked", "yes": .bool(yes)])
-        case .approved(let outcome, let now): .object(["event": "approved", "outcome": .string(outcome), "now_ms": ms(now)])
-        case .paused: .object(["event": "paused"])
+            .object(["event": .string("start"), "confirmed": .bool(confirmed), "earlier": earlier.map(JSONValue.string) ?? .null, "patience_ms": ms(patience), "now_ms": ms(now)])
+        case .answered: .object(["event": .string("answered")])
+        case .pending(let request, let now): .object(["event": .string("pending"), "request": request.map(JSONValue.string) ?? .null, "now_ms": ms(now)])
+        case .asked(let yes): .object(["event": .string("asked"), "yes": .bool(yes)])
+        case .approved(let outcome, let now): .object(["event": .string("approved"), "outcome": .string(outcome), "now_ms": ms(now)])
+        case .paused: .object(["event": .string("paused")])
         }
     }
 }
