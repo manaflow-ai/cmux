@@ -920,6 +920,25 @@ class LandHandoffOnlyTests(unittest.TestCase):
         finally:
             head_tier.head_facts = old
 
+    def test_the_merge_trains_tip_starts_it(self) -> None:
+        """lane/merge-train carries `hold`, never ready-to-land: its pushes are the one head a merge's tree can match
+        while every member's own head is behind the base (0 of 18 merges matched their head, 2026-11-26 11-13Z)."""
+        for action in ("opened", "reopened", "synchronize"):
+            with self.subTest(action=action):
+                ev = land_event(labels=("hold",), action=action)
+                ev["pull_request"]["head"]["ref"] = "lane/merge-train"
+                self.assertEqual(self.route(ev), ["mc.yml"])
+        ev = land_event(labels=("hold",))
+        ev["pull_request"]["head"]["ref"] = "lane/merge-train"
+        self.assertEqual(pr_router.route(ev, {"mc.yml": dict(self.CALLEES["mc.yml"], skip_docs_only=True)},
+                                         ["docs/a.md"])[0], [])
+        fork = land_event(labels=("hold",), head_repo="someone/cmux")
+        fork["pull_request"]["head"]["ref"] = "lane/merge-train"
+        self.assertEqual(self.route(fork), [])
+        other = land_event(labels=("hold",))
+        other["pull_request"]["head"]["ref"] = "lane/merge-train-2"
+        self.assertEqual(self.route(other), [])
+
     def test_the_machine_channel_callee_is_land_handoff_only(self) -> None:
         self.assertTrue(pr_router.load_manifest()["cmux-machine-channel.yml"].get("land_handoff_only"))
 
