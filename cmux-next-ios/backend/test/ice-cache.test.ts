@@ -92,14 +92,14 @@ it("includes a slow shared lookup in the cold deadline and reuses its eventual h
 })
 
 it("mints credentials for our own relay without calling Cloudflare", async () => {
-  const env = { ...bindings(), TURN_SELF_URLS: "turn:relay.test:3478?transport=udp, turns:relay.test:443?transport=tcp", TURN_SELF_SECRET: "s3cret" } as Env
+  const env = { ...bindings(), TURN_SELF_URLS: "turn:relay.test:3478?transport=udp, turn:relay.test:443?transport=udp, turns:relay.test:443?transport=tcp", TURN_SELF_SECRET: "s3cret" } as Env
   const fetcher = vi.spyOn(globalThis, "fetch")
   const now = Date.now()
   const answer = await cachedIceServers(env, createExecutionContext())
   expect(fetcher).not.toHaveBeenCalled()
   expect(answer.turn).toBe(true)
   const own = answer.iceServers.find((s) => s.urls.some((u) => u.startsWith("turns:")))!
-  expect(own.urls).toEqual(["turn:relay.test:3478?transport=udp", "turns:relay.test:443?transport=tcp"])
+  expect(own.urls).toEqual(["turn:relay.test:3478?transport=udp", "turn:relay.test:443?transport=udp", "turns:relay.test:443?transport=tcp"])
   const [exp] = own.username!.split(":")
   expect(Number(exp)).toBeGreaterThan(Math.floor(now / 1000) + 299)
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("s3cret"), { name: "HMAC", hash: "SHA-1" }, false, ["verify"])
