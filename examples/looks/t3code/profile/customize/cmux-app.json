@@ -1,0 +1,62 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": {
+    "en": "Thread workspace"
+  },
+  "version": "1.0.0",
+  "description": "Project and thread rows beside a 736-point chat column, with settlement, editor and project actions, attachments and a searchable model picker.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.hovercard/1": {
+      "export": "renderThreadCard"
+    },
+    "cmux.section/1": {
+      "export": "renderProjectPicker",
+      "title": "Project picker",
+      "symbol": "folder",
+      "options": {
+        "defaultRegion": "top"
+      }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderEditor",
+      "title": "Open in editor",
+      "symbol": "chevron.left.forwardslash.chevron.right"
+    },
+    "cmux.composer.toolbar/1": {
+      "options": {
+        "buttons": [
+          {
+            "action": "composer.attachFiles",
+            "label": "Attach files"
+          }
+        ]
+      }
+    },
+    "cmux.composer.model.picker/1": {
+      "options": {
+        "modelMenu": "search",
+        "reasoningMenu": "column"
+      }
+    }
+  },
+  "scopes": {
+    "project:read": "Search available project folders.",
+    "actions:run": "Start a chat in the selected project, choose a folder, or open the active local folder in an editor."
+  },
+  "activation": [
+    "onInterface:cmux.hovercard/1",
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.session.info.section/1"
+  ],
+  "files": [
+    "main.js"
+  ]
+}
