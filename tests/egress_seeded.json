@@ -1,12 +1,12 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 42,
+ "todo_max": 41,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
   },
   "acpmux::hub::forum_hosted": {
-   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted_seeded_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "acpmux::range_fetch": {
    "todo": true
@@ -47,6 +47,24 @@
   "cmux_git_cache::server": {
    "test": "cmux-tui/crates/cmux-git-cache/src/server_seeded_tests.rs::a_callers_credential_rides_only_in_authorization"
   },
+  "cmux_mobile_host::auth": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
+  },
+  "cmux_mobile_host::services::acpmux": {
+   "none": "a WebSocket to the Mac's own acpmux listener only: connect_acpmux_as refuses any host that is not loopback, so its bearer never leaves the machine"
+  },
+  "cmux_mobile_link::api": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::api_bearer_rides_only_in_authorization"
+  },
+  "cmux_mobile_link::dial::relay": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::relay_join_sends_the_token_only_in_authorization"
+  },
+  "cmux_mobile_link::hub": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::hub_join_sends_the_token_only_in_authorization_and_the_secret_nowhere"
+  },
+  "cmux_mobile_link::signaling": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::signaling_upgrade_sends_the_token_only_in_authorization"
+  },
   "cmux_projection::peers": {
    "todo": true
   },
@@ -84,10 +102,10 @@
    "todo": true
   },
   "cmux_tui::cli::autocloud": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_seeded_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
   "cmux_tui::cli::automation_webhook_fire": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire_seeded_tests.rs::the_signing_secret_never_rides_and_the_payload_only_in_the_body"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs::the_seeded_secret_never_leaves_the_machine"
   },
   "cmux_tui::cli::cloud_client_session": {
    "todo": true
@@ -126,7 +144,7 @@
    "todo": true
   },
   "cmux_tui::cli::mcp_servers": {
-   "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_seeded_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
+   "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
   "cmux_tui::cli::runnable_link": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_seeded_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
@@ -171,7 +189,7 @@
    "todo": true
   },
   "cmux_tui_core::server::forum_routed": {
-   "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_seeded_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+   "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "cmux_vm_pool::http": {
    "todo": true

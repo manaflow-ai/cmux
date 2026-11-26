@@ -305,6 +305,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod queue_origin;
+mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
 mod rediscover;
@@ -397,6 +398,7 @@ mod subsession_send;
 pub mod subsessions;
 mod successors;
 mod surge_triage;
+mod urgent_steer;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
 pub mod synced;
@@ -1267,6 +1269,9 @@ pub struct Hub {
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
     pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
+    /// Each agent's reasoning levels per model, from the level variants its model list names
+    /// (`model_catalog::variant_efforts`): the `efforts` of its rows in `_acpmux/models`.
+    pub(super) known_efforts: StdMutex<HashMap<String, HashMap<String, Vec<String>>>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1830,6 +1835,7 @@ impl Hub {
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
+            known_efforts: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
@@ -2610,6 +2616,7 @@ impl Hub {
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
+            queued_prompt: StdMutex::new(Default::default()),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),

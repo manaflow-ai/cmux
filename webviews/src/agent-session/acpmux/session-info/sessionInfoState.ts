@@ -41,7 +41,6 @@ export type SessionInfoSectionId =
   | "servers"
   | "subagents"
   | "tasks"
-  | "alsoHere"
   | "outputs"
   /// Not a section: the panel's Show more line, an item of the order (sectionOrder.ts `MORE_LINE`).
   | "more"
@@ -69,7 +68,6 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   servers: true,
   subagents: true,
   tasks: true,
-  alsoHere: true,
   outputs: true,
 };
 

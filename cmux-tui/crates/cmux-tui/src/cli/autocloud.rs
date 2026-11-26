@@ -1393,7 +1393,3 @@ fn put(v: &mut Value, key: &str, value: Value) {
 #[cfg(test)]
 #[path = "autocloud_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "autocloud_seeded_tests.rs"]
-mod seeded_tests;

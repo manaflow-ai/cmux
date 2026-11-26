@@ -596,7 +596,3 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 #[cfg(test)]
 #[path = "mcp_servers_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "mcp_servers_seeded_tests.rs"]
-mod seeded_tests;

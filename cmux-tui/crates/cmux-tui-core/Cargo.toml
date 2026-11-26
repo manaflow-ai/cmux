@@ -16,6 +16,9 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+# What a Cloud machine state frame means (machine_state_push.rs, apps-machine-state-watch).
+cmux-cloud-machine.workspace = true
+cmux-presence.workspace = true
 cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true
@@ -120,7 +123,7 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
-# Seeded-secret tests: the gate sends each payload path's request to a local capture server.
+# Seeded-secret tests: gated clients send to a local capture server (server/forum_routed.rs).
 cmux-egress = { workspace = true, features = ["capture"] }
 # The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
 cmux-output-paint.workspace = true

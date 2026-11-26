@@ -108,16 +108,17 @@ impl ForumOwner {
 
     /// The forum the env sets up, or none.
     fn from_env() -> Self {
-        Self::from_vars(&|k| std::env::var(k).ok())
-    }
-
-    /// The forum `env`'s variables set up, or none.
-    fn from_vars(env: &dyn Fn(&str) -> Option<String>) -> Self {
-        let var = |k: &str| env(k).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        let var =
+            |k: &str| std::env::var(k).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let (Some(team), Some(key)) = (var(TEAM_ENV), var(KEY_ENV)) else {
             return Self::not_set_up();
         };
         let url = var(URL_ENV).unwrap_or_else(|| cmux_forum_hosted::DEVELOPMENT_BASE_URL.into());
+        Self::at(url, &team, &key)
+    }
+
+    /// The forum at `url` for `team`, signing with the agent key `key`.
+    fn at(url: String, team: &str, key: &str) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let Ok(headers) = cmux_build_space::headers() else {
             return Self { forum: Err("build_space"), runtime: OnceLock::new() };
@@ -132,7 +133,7 @@ impl ForumOwner {
             return Self { forum: Err("http_client"), runtime: OnceLock::new() };
         };
         let transport = AnyTransport::new(cmux_forum_hosted::HttpTransport::new(url, http));
-        Self::new(transport, &team, &key)
+        Self::new(transport, team, key)
     }
 
     /// Runs `call` to its end on the owner's runtime, within [`CALL_TIMEOUT`].
@@ -448,7 +449,3 @@ fn comment_json(comment: &Comment, thread: u64) -> Value {
 #[cfg(test)]
 #[path = "forum_routed_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "forum_routed_seeded_tests.rs"]
-mod seeded_tests;
