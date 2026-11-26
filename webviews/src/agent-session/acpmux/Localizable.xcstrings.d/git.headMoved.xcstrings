@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.headMoved" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تحرّك HEAD منذ قراءة هذا العرض. حدّث لرؤية الحالة الحالية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD se pomjerio otkako je ovaj prikaz učitan. Osvježite da vidite trenutno stanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD er flyttet, siden denne visning blev indlæst. Opdater for at se den aktuelle tilstand."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD hat sich seit dem Laden dieser Ansicht bewegt. Aktualisiere, um den aktuellen Stand zu sehen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HEAD moved since this view was read. Refresh to see the current state."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD se ha movido desde que se leyó esta vista. Actualiza para ver el estado actual."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD a changé depuis la lecture de cette vue. Actualisez pour voir l’état actuel."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD è cambiato da quando questa vista è stata letta. Aggiorna per vedere lo stato attuale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表示を読み込んだ後に HEAD が移動しました。更新して現在の状態を確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD បានផ្លាស់ទីតាំងចាប់តាំងពីទិដ្ឋភាពនេះត្រូវបានអាន។ សូមផ្ទុកឡើងវិញដើម្បីមើលស្ថានភាពបច្ចុប្បន្ន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 보기를 읽은 후 HEAD가 이동했습니다. 새로 고쳐 현재 상태를 확인하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD er flyttet siden denne visningen ble lest. Oppdater for å se gjeldende tilstand."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD przesunął się od odczytania tego widoku. Odśwież, aby zobaczyć bieżący stan."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O HEAD mudou desde que esta visualização foi lida. Atualize para ver o estado atual."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD сместился после загрузки этого вида. Обновите, чтобы увидеть текущее состояние."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD ย้ายไปหลังจากอ่านมุมมองนี้ รีเฟรชเพื่อดูสถานะปัจจุบัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu görünüm okunduktan sonra HEAD değişti. Güncel durumu görmek için yenileyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD змістився після зчитування цього подання. Оновіть, щоб побачити поточний стан."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD đã thay đổi kể từ khi đọc chế độ xem này. Làm mới để xem trạng thái hiện tại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "读取此视图后 HEAD 已移动。请刷新以查看当前状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "讀取此顯示畫面後 HEAD 已移動。請重新整理以查看目前狀態。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

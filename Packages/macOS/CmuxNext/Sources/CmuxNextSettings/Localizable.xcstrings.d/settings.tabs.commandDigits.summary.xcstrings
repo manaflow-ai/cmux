@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tabs.commandDigits.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspaces or tabs on Command-1 to 9"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مساحات العمل أو علامات التبويب على Command-1 إلى 9"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radni prostori ili kartice na Command-1 do 9"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arbejdsområder eller faner på Command-1 til 9"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arbeitsbereiche oder Tabs auf Befehl-1 bis 9"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espacios de trabajo o pestañas en Comando-1 a 9"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espaces de travail ou onglets sur Commande-1 à 9"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spazi di lavoro o schede su Comando-1 a 9"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command-1〜9 でワークスペースかタブ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងធ្វើការ ឬផ្ទាំងនៅលើ Command-1 ដល់ 9"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command-1~9에 작업 공간 또는 탭"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arbeidsområder eller faner på Kommando-1 til 9"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obszary robocze lub karty pod Command-1 do 9"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espaços de trabalho ou abas em Command-1 a 9"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочие пространства или вкладки на Command-1…9"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "พื้นที่ทำงานหรือแท็บบน Command-1 ถึง 9"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command-1 ile 9 arasında çalışma alanları veya sekmeler"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Робочі простори або вкладки на Command-1…9"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không gian làm việc hoặc thẻ trên Command-1 đến 9"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command-1 至 9 切换工作区或标签页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command-1 至 9 切換工作區或標籤頁"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

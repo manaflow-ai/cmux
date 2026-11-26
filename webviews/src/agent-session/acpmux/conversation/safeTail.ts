@@ -96,7 +96,7 @@ export function safeTail(tail: string): string {
     // yet holds the same way until its line ends.
     lines.pop();
     last = lines.at(-1)!;
-  } else if (/^\s*`{1,3}[^`]*$/.test(last)) last = "";
+  } else if (/^\s*`+[^`]*$/.test(last)) last = "";
   else if (fence === 0) {
     if (!display.closesLast) last = closedMath(last);
     if (MARKER_LINE.test(last)) last = "";
