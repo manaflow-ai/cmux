@@ -1270,8 +1270,22 @@ jobs:
           log="$RUNNER_TEMP/cmux-config-tests.log"
           if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tee "$log" | tail -60); then
             if python3 scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
-            echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
-            exit 1
+            # A test that fails with the base's own schema too is a base red, not this schema's:
+            # theme contrast and shader-name reds held every base autofix from 15:20Z on 2026-11-25.
+            # The schema is blamed only for failures it adds; a build that runs no test stays a refusal.
+            failed() { sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p' "$1" | sort -u; }
+            schema=schemas/settings/settings-schema.json
+            cp "$schema" "$RUNNER_TEMP/settings-schema.regenerated.json"
+            git show "HEAD~1:$schema" > "$schema"
+            (cd cmux-tui && cargo test --locked -p cmux-config > "$RUNNER_TEMP/cmux-config-tests.base.log" 2>&1) || true
+            cp "$RUNNER_TEMP/settings-schema.regenerated.json" "$schema"
+            new_failures=$(comm -23 <(failed "$log") <(failed "$RUNNER_TEMP/cmux-config-tests.base.log"))
+            if [[ -z "$(failed "$log")" || -n "$new_failures" ]]; then
+              [[ -n "$new_failures" ]] && printf 'fails only with the regenerated schema: %s\n' $new_failures
+              echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
+              exit 1
+            fi
+            echo "::warning title=Base autofix::cmux-config tests also fail with the base's own schema (a base red, not this schema's): $(failed "$log" | paste -sd ' ')"
           fi
 
       # The push token: an App push starts the push workflows (Push identity, above).
