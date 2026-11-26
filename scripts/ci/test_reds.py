@@ -238,6 +238,8 @@ RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
 # A unittest run (verbose `name (module.Class...) ... ok` lines, or a FAIL/ERROR block) ends with `Ran N tests`.
 UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: \.\.\.|$)")
+UNITTEST_PENDING = re.compile(r"^\w+ \([\w.]+\) \.\.\. (?!\s*(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$)")
+UNITTEST_VERDICT = re.compile(r"(?: \.\.\. |^\s+)?(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
@@ -1184,6 +1186,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     named: list[str] = []
     crashed = False
     console = False  # inside a vitest console block (VITEST_CONSOLE)
+    unit_output = False  # inside a unittest -v test's own output (its `name (mod.Cls.name) ... ` line has no verdict yet)
     for passing, text in shown:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
@@ -1192,6 +1195,18 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             continue
         if console and not text.strip():
             console = False
+        # unittest -v prints `test_x (m.C.test_x) ... ` and the verdict (`ok`, FAIL, ERROR, skipped) after whatever the
+        # test printed, so its indented lines are that test's output: a probe quoting `crash report x.ips: EXC_BAD_ACCESS`
+        # is not the process dying (hq#26226, run 45717138906 job 139565977393: four named module failures read as a
+        # crash). Only the quoted-diagnostic patterns are muted; `Fatal Python error`, a signal exit and a shell kill
+        # still count.
+        if UNITTEST_PENDING.match(text):
+            unit_output = True
+        elif unit_output and not text[:1].isspace():
+            unit_output = False
+        elif unit_output and UNITTEST_VERDICT.search(text):
+            unit_output = False
+        quoted = unit_output and (text[:1].isspace() or bool(UNITTEST_PENDING.match(text)))
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -1205,7 +1220,8 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             signals.append(str(signal_exit))
         killed = SHELL_SIGNAL.search(text) and not passing
         runtime = HELPER_KILLED.search(text) or killed or (
-            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text)
+            (CRASH.search(text) or (not quoted and (CRASH_AT_START.search(text) or SIGNALED.search(text))))
+            and not TEST_LINE.search(text) and not HEADING.match(text)
             and not console and not WORKERD_UNCAUGHT.match(text))
         if runtime:
             crashed = True
@@ -1685,6 +1701,12 @@ WEB_RETRY = "--- retry, alone ---"
 # guards_new_reds.py --label "Webview test": the tests a base replay charged to the change (errors) or found red on
 # the merge parent too (warnings), as GitHub prints the annotations.
 WEB_CHARGED = re.compile(r"^##\[(error|warning)\]" + WEB_FILE + r"(?: > (.+))?$")
+# guards_new_reds.py's `webview test red step (unknown): NAME`: a head red the base replay never reached (its first
+# replay stopped at CMUX_WEB_TEST_STOP_AT, webviews_test_results.py --mark-unreached), deferred to the merge gate. Its
+# annotation is a warning ("base result unavailable"), which WEB_CHARGED alone read as cleared on the merge parent:
+# cmux#54692's replay (job 138764620789) had 593 such tests, 0 charged, and the merge gate compared only its head
+# re-run's one file. An unknown test is compared with the base's runs here like a charged one, never cleared.
+WEB_UNKNOWN = re.compile(r"^webview test red step \(unknown\): " + WEB_FILE + r"(?: > (.+))?$")
 # A base replay's log is two runs (2026-11-08, ci-web.yml react-apps-base-check): first the merge parent's run of the
 # head's red files, then, after this line, the files it charged re-run alone on the head, and guards_new_reds.py's
 # verdict again with that re-run (a test that passed alone there is a warning now, no longer charged). Only the part
@@ -1727,6 +1749,7 @@ class WebFailures:
         self.crashed: set = set()
         self.charged: set = set()
         self.shared: set = set()
+        self.unknown: set = set()  # WEB_UNKNOWN: no base result, compared with the base like a charged test
         self.truncated: list = []
 
 
@@ -1766,6 +1789,9 @@ def web_failures(log: str | None) -> WebFailures:
                 if match := WEB_CHARGED.match(text):
                     (found.charged if match.group(1) == "error" else found.shared).add(
                         match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+                elif match := WEB_UNKNOWN.match(text):
+                    found.unknown.add(match.group(1) + (f" > {match.group(2)}" if match.group(2) else ""))
+            found.shared -= found.unknown
             return found
         texts = lines_of(web_head_part(log))
     for text in texts:
@@ -1799,6 +1825,9 @@ def web_failures(log: str | None) -> WebFailures:
         if match := WEB_CHARGED.match(text):
             (found.charged if match.group(1) == "error" else found.shared).add(
                 match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+            continue
+        if match := WEB_UNKNOWN.match(text):
+            found.unknown.add(match.group(1) + (f" > {match.group(2)}" if match.group(2) else ""))
             continue
         if current is None:
             continue
@@ -1846,7 +1875,7 @@ def web_failures(log: str | None) -> WebFailures:
                              and not text.startswith("(pass) ")), bun=False)
     found.crashed.update(runtime.crashes)
     found.truncated.extend(runtime.truncated)
-
+    found.shared -= found.unknown  # its "base result unavailable" warning is no base verdict
     return found
 
 
@@ -1862,6 +1891,7 @@ def merged_web(logs: list) -> WebFailures:
         out.crashed |= got.crashed
         out.charged |= got.charged
         out.shared |= got.shared
+        out.unknown |= got.unknown
         out.truncated.extend(got.truncated)
     return out
 
@@ -1873,14 +1903,16 @@ def web_head(head_logs: list, job: str = "", base: str = "the base"):
     if not head_logs or any(log is None for log in head_logs):
         return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
     red = web_failures(head_logs[0])
-    names = sorted(red.charged) if red.charged else sorted(red.failed)
+    # The replay's verdict: what it charged, and what it had no base result for (WEB_UNKNOWN), both compared here.
+    replayed = red.charged | red.unknown
+    names = sorted(replayed) if replayed else sorted(red.failed)
     if not names and not red.timed_out and not red.crashed and not red.truncated:
         return None
     # A replay's own log holds the merge parent's runs of those files, never the head's: the head's errors come from
     # the head's other jobs then.
-    head = merged_web([log for log in (head_logs[1:] if red.charged else head_logs) if log is not None])
-    if red.charged:
-        files = {name.split(" > ", 1)[0] for name in red.charged}
+    head = merged_web([log for log in (head_logs[1:] if replayed else head_logs) if log is not None])
+    if replayed:
+        files = {name.split(" > ", 1)[0] for name in replayed}
         # Replay annotations need not name an unhandled error that the head emitted
         # outside a test. Every head diagnostic in the charged files must be compared.
         # A named test the final verdict cleared (a warning: red on the merge parent too, flaky there, or passed alone

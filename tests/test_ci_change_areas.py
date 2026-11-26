@@ -2113,6 +2113,7 @@ def run_web_status(
     event: str = "",
     base_ref: str = "",
     workflow: str = "",
+    land_tier: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -2158,6 +2159,9 @@ def run_web_status(
         "WEB_BASE_REF": base_ref,
         "WEB_WORKFLOW": workflow,
     }
+    env.pop("WEB_LAND_TIER", None)
+    if land_tier is not None:
+        env["WEB_LAND_TIER"] = land_tier
     return subprocess.run(
         ["bash", "-c", script],
         cwd=ROOT,
@@ -3337,11 +3341,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
     # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
-    # A fork head takes CI_FORK_LINUX_RUNNER, since fork code never reaches
+    # A fork head takes GitHub-hosted Ubuntu, since fork code never reaches
     # the owned label the map names for manaflow-ai.
     runs_on = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
     assert runs_on.endswith("|| fromJSON(needs.runners.outputs.map).linux_16 }}"), runs_on
-    assert "head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')" in runs_on, runs_on
+    assert "head.repo.full_name != github.repository && 'ubuntu-24.04'" in runs_on, runs_on
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
@@ -5125,6 +5129,24 @@ def test_web_status_allows_the_typecheck_skip_only_on_a_feat_cmux_next_pull_requ
     assert result.returncode != 0
     block = workflow_job_block("web-typecheck", WEB_WORKFLOW)
     assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_web_status_allows_the_land_tier_skips_only_on_a_cheap_head() -> None:
+    # A feat-cmux-next head not handed to land (#54886, WEB_LAND_TIER false) skips webviews-typecheck; react-apps-check
+    # still runs and passes the skipped shards. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    result = run_web_status(results={"webviews-typecheck": "skipped"}, event="pull_request", base_ref="feat-cmux-next",
+                            land_tier="false")
+    assert result.returncode == 0, result.stderr
+    for land_tier in ("true", None, ""):
+        result = run_web_status(results={"webviews-typecheck": "skipped"}, event="pull_request",
+                                base_ref="feat-cmux-next", land_tier=land_tier)
+        assert result.returncode != 0, land_tier
+    for outcome in ("failure", "cancelled"):
+        result = run_web_status(results={"webviews-typecheck": outcome}, event="pull_request",
+                                base_ref="feat-cmux-next", land_tier="false")
+        assert result.returncode != 0, outcome
+    block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
+    assert 'required = required and os.environ.get("WEB_LAND_TIER") != "false"' in block
 
 
 def test_web_status_allows_the_web_tests_and_production_build_skips_only_on_a_feat_cmux_next_pull_request() -> None:
