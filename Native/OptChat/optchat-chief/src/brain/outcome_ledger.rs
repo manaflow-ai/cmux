@@ -72,13 +72,13 @@ impl Brain {
     pub(super) fn outcome_resumed(&mut self, id: &str) {
         // Nor does the running turn owe it now (landed_told.rs).
         self.turn_landed.retain(|(i, _)| i != id);
-        let was_told = self.state.sub(id).is_some_and(|(_, sub)| sub.told_ms != 0);
+        let reopened = self.state.sub(id).is_some_and(|(_, sub)| sub.reopened);
         if let Some(sub) = self.state.sub_mut(id) {
-            sub.told_ms = 0;
+            sub.reopened = false;
         }
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
-        if was_told || self.state.untold.len() != before {
+        if reopened || self.state.untold.len() != before {
             self.save();
         }
     }

@@ -602,6 +602,12 @@ pub(super) fn notice_only(events: &[AcpmuxEvent]) -> bool {
     prompts.peek().is_some() && prompts.all(|e| is_notice(&e.msg))
 }
 
+pub(super) fn has_task_prompt(events: &[AcpmuxEvent]) -> bool {
+    events.iter().any(|event| {
+        event.dir == "mux" && event.kind == "user_message" && !is_notice(&event.msg)
+    })
+}
+
 fn is_notice(msg: &serde_json::Map<String, Value>) -> bool {
     let Some(provenance) = msg.get("_meta").and_then(|m| m.get("provenance")) else {
         return false;

@@ -58,12 +58,6 @@ pub enum Decision {
     Move { reason: String },
 }
 
-/// Prefix shared by the host-generated terminal retry notices. A notice is a
-/// new outcome only after the subagent was explicitly sent back to work.
-pub const RETRYABLE_STOP_NOTICE_PREFIX: &str = "stopped after a retryable";
-pub const RETRYABLE_EXHAUSTED_NOTICE: &str =
-    "stopped after a retryable error; automatic retries are exhausted.";
-
 /// Limits of auto-resume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResumePolicy {
@@ -311,7 +305,7 @@ pub fn decide(kind: &StopKind, attempts: u32, policy: &ResumePolicy, online: boo
 pub fn chief_note(d: &Decision) -> Option<String> {
     match d {
         Decision::Report { gave_up: Some(_) } => {
-            Some(RETRYABLE_EXHAUSTED_NOTICE.to_owned())
+            Some("stopped after a retryable error; automatic retries are exhausted.".to_owned())
         }
         Decision::Report { gave_up: None } => None,
         Decision::Retry {
