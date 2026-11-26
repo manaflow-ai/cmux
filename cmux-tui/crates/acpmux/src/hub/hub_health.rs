@@ -154,7 +154,9 @@ mod tests {
         assert!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS).is_empty());
         h.answered("a", Some(json!({"cpus": 4})), 2_000);
         assert!(h.due(&hosts(&["a"]), 2_000).is_empty(), "asked within the minute");
-        assert_eq!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS), hosts(&["a"]));
+        // A reading under a minute old is not asked again either: due a minute after it came.
+        assert!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS).is_empty(), "its reading is fresh");
+        assert_eq!(h.due(&hosts(&["a"]), 2_000 + EVERY_MS), hosts(&["a"]));
         assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
         // No answer keeps the last reading.
         h.answered("a", None, 3_000);
