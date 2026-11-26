@@ -382,6 +382,18 @@ def web_bundle_input_matcher(root: str):
         return key.pathspec_matcher(key.INPUTS)
 
 
+def is_react_input(path: str, repo_root: Path) -> bool:
+    """True when a change to `path` runs react-apps-check: the one test classify_paths applies, so a content-addressed
+    key over these paths (react_shard_receipt.py) names exactly the files whose change the router already runs the
+    check for."""
+    if path in ALL_SUBAREA_INPUTS or path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+        return True
+    matcher = web_bundle_input_matcher(str(repo_root.resolve()))
+    if matcher is None:
+        raise RuntimeError("web bundle inputs unavailable")
+    return bool(matcher(path))
+
+
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
     root = Path.cwd() if repo_root is None else repo_root
     db = False
