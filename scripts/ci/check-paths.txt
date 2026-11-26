@@ -49,6 +49,7 @@ scripts/ci/cmux_next_fast_gates.py
 scripts/ci/fast_gate_webviews_checks.py
 scripts/web_lint_prepush.py
 scripts/ci/crash_ratchet_compare.py
+scripts/ci/egress_new_sites.py
 scripts/cmux-next/crash_ratchet.py
 scripts/ci/defaults_guard.py
 scripts/cmux-next/prepush-gate.py
