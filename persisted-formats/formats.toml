@@ -185,6 +185,9 @@ key = "cmux.acpmux.addedGitHubRepos.v1"
 key = "cmux.acpmux.backgroundFocus"
 
 [[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
 key = "cmux.acpmux.cloud.signedIn"
 
 [[storage_key]]
@@ -210,6 +213,9 @@ key = "cmux.acpmux.modelCatalog"
 
 [[storage_key]]
 key = "cmux.acpmux.modelChipIcon"
+
+[[storage_key]]
+key = "cmux.acpmux.modelPickerOrder"
 
 [[storage_key]]
 key = "cmux.acpmux.newTab.chats"
@@ -326,6 +332,9 @@ key = "cmux.agentPane.lastNewChatPlace"
 key = "cmux.agentPane.promptTops.v1"
 
 [[storage_key]]
+key = "cmux.agentPane.railCountOffset.v1"
+
+[[storage_key]]
 key = "cmux.agentPane.threadBookmarks.v1"
 
 [[storage_key]]
@@ -336,6 +345,9 @@ key = "cmux.autoWhere.cloudLanding."
 
 [[storage_key]]
 key = "cmux.browser.appLink"
+
+[[storage_key]]
+key = "cmux.chief.chunkReloadAt"
 
 [[storage_key]]
 key = "cmux.chiefViews.layout"
@@ -379,6 +391,12 @@ key = "cmux.editor.keySequence"
 
 [[storage_key]]
 key = "cmux.experiments"
+
+[[storage_key]]
+key = "cmux.guest.chunkReloadAt"
+
+[[storage_key]]
+key = "cmux.home.detail"
 
 [[storage_key]]
 key = "cmux.home.presentation:"

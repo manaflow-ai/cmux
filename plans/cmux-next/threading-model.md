@@ -154,6 +154,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 
 - Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
+- Hang reports: `com.cmuxterm.app.next.hang-resolve` (HangReportCollector's stack resolution, utility, serial:
+  started by a user-data-or source the main thread signals at a sampled stall's end, no allocation on main; it
+  blocks on nothing but dyld reads; at most 16 samples wait, more are dropped)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
@@ -241,7 +244,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
   serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never
   a system call; one item per new posting process, so no back-pressure)
-- Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
+- Diagnostics: `cmux-next.starvation-reports` (MainThreadWatchdog, serial utility queue for starvation-probe bookkeeping;
+  the timer skips new probes until the outstanding answer has been recorded), `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
   `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file
