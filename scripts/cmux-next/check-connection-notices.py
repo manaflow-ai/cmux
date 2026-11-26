@@ -390,6 +390,8 @@ def scan(tree: Tree) -> list[Unit]:
     bound = policy_bound_ms(tree)
     units: dict[str, Unit] = {}
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
+    presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
+    opaque_modules: set[str] = set()
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
@@ -397,11 +399,21 @@ def scan(tree: Tree) -> list[Unit]:
         source = strip_comments(tree.read(path))
         lines = source.split("\n")
         if path.endswith((".ts", ".tsx")):
-            imports[path] = [
-                (binding.strip().split(" as ")[-1].strip(), resolve_spec(path, m.group(2)))
-                for m in TS_IMPORT.finditer(source) if m.group(2).startswith(".")
-                for binding in m.group(1).split(",") if binding.strip() and binding.strip() != "type"
-            ]
+            imports[path] = []
+            for match in TS_IMPORT.finditer(source):
+                if not match[2].startswith("."):
+                    continue
+                target = resolve_spec(path, match[2])
+                for binding in match[1].split(","):
+                    names = binding.strip().split(" as ")
+                    if not names[0] or names[0].startswith("type "):
+                        continue
+                    imports[path].append((names[-1], target))
+                    presenter_imports.setdefault(target, []).append((path, names[0], names[-1]))
+            # A default, namespace, re-export or dynamic module edge cannot identify every drawing.
+            other_imports = TS_IMPORT.sub("", source)
+            for match in re.finditer(r"""(?:\bfrom\s*|\bimport\s*\(\s*)["'](\.[^"']+)["']""", other_imports):
+                opaque_modules.add(resolve_spec(path, match[1]))
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
@@ -433,6 +445,7 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         if unit.hits and not unit.acted and unit.path.endswith(".tsx"):
             unit.acted = has_local_button_action(unit, units)
+    attribute_presenters(units, presenter_imports, opaque_modules)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
@@ -542,6 +555,75 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
             unit.hits = []
             moved = True
+        if not moved:
+            break
+
+
+# Inline text can share its containing row's action. A notice, alert, live region or stateful view
+# owns its own connection state even when a larger page also contains a button.
+INLINE_TAGS = {"span", "small", "strong", "em", "b", "i"}
+OPEN_TAG = re.compile(r"<([A-Za-z]\w*)(?=[\s/>])")
+RETURN_TAG = re.compile(r"(?:\breturn|=>)\s*\(?\s*<([A-Za-z]\w*)(?=[\s/>])")
+
+
+def inline_presenter(unit: Unit) -> bool:
+    if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
+        return False
+    body = "\n".join(unit.lines)
+    root = RETURN_TAG.search(body)
+    if not root or re.search(r"""\baria-live\s*=|\brole\s*=|\buse(?!\w*Strings\b|T\b)\w+\(""", body):
+        return False
+    tags = set(OPEN_TAG.findall(body))
+    # A pure forwarding wrapper may render the very child from which it just received the hit.
+    children = {hit.text.split(": ", 1)[0] for hit in unit.hits if hit.hops}
+    return tags <= INLINE_TAGS | children and root[1] in tags
+
+
+def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
+                         opaque_modules: set[str]) -> None:
+    """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
+    recursive mount or unresolved import keeps the leaf finding. A slot such as pill={<Pill />}
+    belongs to the caller composing that card and its controls."""
+    by_file: dict[str, list[Unit]] = {}
+    for unit in units.values():
+        by_file.setdefault(unit.path, []).append(unit)
+    for _ in range(4):  # same bounded depth as copy propagation; longer chains retain a finding
+        moved = False
+        for unit in units.values():
+            if unit.ok or not inline_presenter(unit) or max(h.hops for h in unit.hits) >= 4:
+                continue
+            stem = unit.path[:-len(".tsx")]
+            targets = {stem, stem.removesuffix("/index")}
+            if targets & opaque_modules:
+                continue
+            bindings = {(unit.path, unit.name)}
+            bindings.update((path, local) for target in targets for path, exported, local in imports.get(target, ())
+                            if exported == unit.name)
+            consumers = []
+            unresolved = False
+            for path, local in sorted(bindings):
+                name = re.escape(local)
+                reference = re.compile(rf"(?P<tag></?)?\b{name}\b")
+                for other in by_file.get(path, []):
+                    lines = other.lines
+                    if other.name == "<file>":
+                        lines = TS_IMPORT.sub(lambda m: "\n" * m[0].count("\n"), "\n".join(lines)).split("\n")
+                    for index, line in enumerate(lines):
+                        if other is unit and index == 0:
+                            # The declaration introduces this name; retain recursive uses on the very same line.
+                            line = re.sub(rf"\b(function|const|let)\s+{name}\b", "", line, count=1)
+                        for ref in reference.finditer(line):
+                            if ref["tag"] == "<" and other is not unit and other.name != "<file>":
+                                consumers.append((other, index, local))
+                            elif ref["tag"] != "</":
+                                unresolved = True
+            if consumers and not unresolved:
+                for other, index, local in consumers:
+                    for hit in unit.hits:
+                        other.hits.append(Hit(other.numbers[index], f"{local}: {hit.text}", index,
+                                              hit.hops + 1, hit.origin))
+                unit.hits = []
+                moved = True
         if not moved:
             break
 
