@@ -82,11 +82,16 @@ export function AgentCard({
   // has none, else the session icon in the card's own stable tone.
   const tone = agentTone(identity ?? sessionId ?? name);
   const avatar = useAgentAvatar(sessionId);
-  const stateText = state
+  // Working is its spinner, never a word (Leo, 2026-11-23: "\"running\" doesn't need text. it can usually
+  // just be. you can put symbols for state."); the card's hover and VoiceOver still name it.
+  const stateWord = state
     ? slot
       ? t("subsession.state.slot")
       : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))
     : undefined;
+  const quiet = state === "working" && !slot && !stateLabel;
+  const stateText = state ? (quiet ? "" : stateWord) : undefined;
+  const join = (parts: readonly (string | false | undefined | 0)[]) => parts.filter(Boolean).join(" · ");
   if (disclosure) {
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (
@@ -109,14 +114,11 @@ export function AgentCard({
         label={disclosureLabel ?? name}
         meta={model}
         status={
-          stateText && (
-            <>
+          stateText !== undefined && (
+            <span title={stateWord} aria-label={stateWord}>
               {state === "working" && !slot && <Spinner size={12} loading />}
-              {stateText}
-              {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
-              {time ? ` · ${time}` : ""}
-              {liveDetail ? ` · ${liveDetail}` : ""}
-            </>
+              {join([stateText, queued && t("subsession.queued", { n: queued }), time, liveDetail])}
+            </span>
           )
         }
         openLabel={openLabel ?? t("subagents.open", { name })}
@@ -156,11 +158,9 @@ export function AgentCard({
       )}
       {model && <span className="cv-agent-card__model">{model}</span>}
       {state && (
-        <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
+        <span className="cv-agent-card__state" data-state={slot ? "slot" : state} title={stateWord}>
           {state === "working" && <Spinner size={12} loading />}
-          {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
-          {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
-          {time ? ` · ${time}` : ""}
+          {join([stateText, queued && t("subsession.queued", { n: queued }), time])}
         </span>
       )}
       {actions}
