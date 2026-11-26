@@ -209,7 +209,7 @@ async fn dropping_an_unaccepted_turn_lock_wait_retires_its_queue_count() {
         replaced: &replaced,
         no_queue: false,
         admitted: false,
-        after_turn: false,
+        after_turn: None,
         steer_on_start: false,
         answer_due: None,
     };

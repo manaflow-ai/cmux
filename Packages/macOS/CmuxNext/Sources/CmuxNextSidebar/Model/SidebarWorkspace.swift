@@ -87,9 +87,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentStep: String?
     /// Prompts held for gateway capacity in this workspace's agent chats.
     public var capacityWaitCount = 0
-    /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
-    /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
-    public var usageWarnings: [String] = []
     /// The user's icon or color, else the shown tab's page icon or favicon (``iconFromShownTab``). When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
