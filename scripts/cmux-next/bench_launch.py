@@ -350,7 +350,7 @@ def bundle_executable(app):
     app" in every perf-budgets run on a bench build), and the first file in Contents/MacOS can be another executable;
     only a bundle with no Info.plist falls back to those guesses. Every bench that starts or checks the app's
     executable reads it here (test_bench_launch_executable.py refuses a hard-coded `Contents/MacOS/cmux DEV` in the
-    perf-budgets benches)."""
+    perf-budgets benches and the modules they load)."""
     try:
         with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
             info = plistlib.load(f)
@@ -1298,7 +1298,7 @@ class BenchApp:
         pid = self.process.pid if self.process else None
 
         def found():
-            return crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
+            return crash_reports(self.launched_at - 1, name=os.path.basename(self.binary), pid=pid, binary=self.binary)
 
         if exit_code is None or exit_code >= 0:
             return found()
@@ -1314,7 +1314,7 @@ class BenchApp:
             while True:
                 # Each report file seen is watched before the read below, so one whose body is still being written
                 # wakes the wait when it grows; reading after the watches are armed misses nothing written meanwhile.
-                for path in crash_report_candidates(self.launched_at - 1):
+                for path in crash_report_candidates(self.launched_at - 1, os.path.basename(self.binary)):
                     events.watch_file(path)
                 reports = found()
                 left = deadline - time.monotonic()

@@ -13,8 +13,9 @@ was missing, took the first file in Contents/MacOS, which can be another executa
    and the tag teardown is a no-op, so nothing is signalled).
 3. The perf-budgets gate's idle and home benches take that executable too. On a bench build, bench_idle.py stopped
    with "no app at" after 0.1 s (it checked `Contents/MacOS/cmux DEV`), so the gate had no idle CPU row, and
-   home-perf.py started `Contents/MacOS/cmux DEV` (FileNotFoundError). No bench perf-budgets.py runs names
-   `Contents/MacOS/cmux DEV` itself: bench_launch.bundle_executable is the one reader.
+   home-perf.py started `Contents/MacOS/cmux DEV` (FileNotFoundError), as did activation-perf.py's App, which
+   burst-bench.py (the gate's tab_close bench) launches. No bench perf-budgets.py runs, nor any module it loads,
+   names `Contents/MacOS/cmux DEV`: bench_launch.bundle_executable is the one reader.
 
 No app, build or GUI session: fake bundles with Info.plist files, run anywhere with
     python3 -I scripts/cmux-next/tests/test_bench_launch_executable.py
@@ -155,7 +156,9 @@ class PerfBudgetsBenchTests(unittest.TestCase):
 
     def setUp(self):
         self.folder = tempfile.mkdtemp(prefix="budgets-exe-")
-        self.app = fake_bundle(self.folder, "budgets", "cmux", ("a-helper", "cmux"))
+        # A tag no running app has: home-perf.py removes /tmp/cmux-debug-<tag>.sock before its launch.
+        self.tag = f"budgets-exe-{os.getpid()}-{os.path.basename(self.folder)[-8:]}"
+        self.app = fake_bundle(self.folder, self.tag, "cmux", ("a-helper", "cmux"))
 
     def test_bench_idle_launches_a_bench_bundle(self):
         """On the base it exited "bench-idle: no app at" before launching (the gate run's 0.1 s idle bench)."""
@@ -168,7 +171,7 @@ class PerfBudgetsBenchTests(unittest.TestCase):
             launched.append(app_self.binary)
             raise Started()
 
-        argv = ["bench_idle.py", "--tag", "budgets", "--app", self.app, "--scenarios", "terminals",
+        argv = ["bench_idle.py", "--tag", self.tag, "--app", self.app, "--scenarios", "terminals",
                 "--out", os.path.join(self.folder, "idle"), "--no-fail"]
         with mock.patch.object(bench.BenchApp, "launch", launch), mock.patch.object(sys, "argv", argv):
             with self.assertRaises(Started):
@@ -186,7 +189,7 @@ class PerfBudgetsBenchTests(unittest.TestCase):
             started.append(list(argv))
             raise Started()
 
-        argv = ["home-perf.py", "--tag", "budgets", "--app", self.app, "--out", os.path.join(self.folder, "home.json")]
+        argv = ["home-perf.py", "--tag", self.tag, "--app", self.app, "--out", os.path.join(self.folder, "home.json")]
         with mock.patch.object(subprocess, "Popen", popen), mock.patch.object(sys, "argv", argv), \
                 mock.patch.object(bl, "require_gui_session", lambda *_a, **_k: OK_SESSION), \
                 mock.patch.object(bl, "finder_limits", lambda: contextlib.nullcontext({})):
@@ -194,14 +197,51 @@ class PerfBudgetsBenchTests(unittest.TestCase):
                 runpy.run_path(str(HERE / "home-perf.py"), run_name="__main__")
         self.assertEqual(started, [[os.path.join(self.app, "Contents/MacOS/cmux")]])
 
+    def test_activation_perf_app_starts_the_info_plist_executable(self):
+        """burst-bench.py's App (the gate's tab_close bench). On the base it started `Contents/MacOS/cmux DEV`."""
+        spec = importlib.util.spec_from_file_location("activation_perf_under_test", HERE / "activation-perf.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        started: list[list[str]] = []
+        real_popen = subprocess.Popen
+
+        def popen(argv, **kwargs):
+            if not str(argv[0]).startswith(self.app + "/"):
+                return real_popen(argv, **kwargs)
+            started.append(list(argv))
+            raise Started()
+
+        out = os.path.join(self.folder, "activation")
+        os.makedirs(out)
+        app = bench.App(self.app, out, 250)
+        with mock.patch.object(subprocess, "Popen", popen), \
+                mock.patch.dict(sys.modules, {"tag_teardown": None}):  # no teardown: nothing runs, nothing is signalled
+            with self.assertRaises(Started):
+                app.launch()
+        self.assertEqual(started, [[os.path.join(self.app, "Contents/MacOS/cmux")]])
+
     def test_no_perf_budgets_bench_names_the_debug_executable(self):
-        """Every bench perf-budgets.py runs reads the executable through bench_launch (one reader, one rule)."""
+        """Every bench perf-budgets.py runs, and every module of this folder it imports or loads by file, reads the
+        executable through bench_launch (one reader, one rule). On the base: activation-perf.py, bench_idle.py,
+        daemon_teardown.py, home-perf.py."""
         source = (HERE / "perf-budgets.py").read_text()
-        benches = sorted(set(re.findall(r'S\("([^"]+\.py)"\)', source)))
-        self.assertIn("bench_idle.py", benches)
-        self.assertIn("home-perf.py", benches)
-        named = [b for b in benches if "Contents/MacOS/cmux DEV" in (HERE / b).read_text()]
-        self.assertEqual(named, [], "these benches guess `cmux DEV`; use bench_launch.bundle_executable")
+        todo = sorted(set(re.findall(r'S\("([^"]+\.py)"\)', source)))
+        self.assertIn("bench_idle.py", todo)
+        self.assertIn("home-perf.py", todo)
+        seen: set[str] = set()
+        while todo:
+            name = todo.pop()
+            if name in seen or not (HERE / name).is_file():
+                continue
+            seen.add(name)
+            text = (HERE / name).read_text()
+            for line in text.splitlines():
+                if re.search(r"spec_from_file_location|\bload\(|run_path|import_module", line):
+                    todo.extend(m for m in re.findall(r'["\']([\w.-]+\.py)["\']', line) if (HERE / m).is_file())
+            todo.extend(m + ".py" for m in re.findall(r"^\s*(?:from|import)\s+(\w+)", text, re.M) if (HERE / (m + ".py")).is_file())
+        self.assertIn("activation-perf.py", seen)  # burst-bench.py loads it by file
+        named = sorted(n for n in seen if n != "bench_launch.py" and "MacOS/cmux DEV" in (HERE / n).read_text())
+        self.assertEqual(named, [], "these guess `cmux DEV`; use bench_launch.bundle_executable")
 
 
 if __name__ == "__main__":
