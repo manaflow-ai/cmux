@@ -1296,7 +1296,7 @@ fn route_storage_error(error: std::io::Error) -> RouteError {
 fn prepare_backups(home: &Path) -> Result<PathBuf, RouteError> {
     let backups = backups_dir(home);
     // The backup goes through the folder this daemon holds, even if the home is replaced.
-    crate::config::refuse_lost_home(&backups).map_err(route_storage_error)?;
+    crate::config::refuse_lost_home(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
     crate::home_fs::create_dir_all(&backups, 0o777).map_err(route_storage_error)?;
     Ok(backups)
 }
