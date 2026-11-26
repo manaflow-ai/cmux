@@ -81,6 +81,24 @@ export function sendWindow(frames: readonly Sample[]): Sample[] {
   return end < 0 ? [...frames] : frames.slice(0, end);
 }
 
+/// Whether a finite animation still moves the transcript: the follow glide a streamed line starts
+/// on the thread (conversation/followGlide.ts), a row's tail glide (tailGlide.ts), a fold. Fades and
+/// a spinner's endless turn move no box the play samples.
+function transcriptMoving(doc: Document): boolean {
+  const thread = doc.querySelector(".acpmux-thread");
+  if (!thread) return false;
+  return doc.getAnimations().some((animation) => {
+    if (animation.playState !== "running") return false;
+    const effect = animation.effect as KeyframeEffect | null;
+    const target = effect?.target;
+    if (!(target instanceof Element) || !(target === thread || thread.contains(target))) return false;
+    if (!Number.isFinite(effect!.getComputedTiming().endTime)) return false;
+    return effect!
+      .getKeyframes()
+      .some((frame) => ["translate", "transform", "clipPath", "top", "height"].some((key) => key in frame));
+  });
+}
+
 async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
@@ -122,6 +140,10 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       scroller.scrollTop = Math.max(0, scroller.scrollTop - 260);
       await pause(busy ? 250 : 600);
     }
+    // The send starts from rows at rest. With a turn running, the reply's last streamed line is
+    // still gliding the thread up (followGlide.ts, the 180 ms move step) when a short draft is typed:
+    // its tail read as the send's first phase, and the send turning it back as a second.
+    await ctx.waitFor(() => !transcriptMoving(doc));
     // The agent echoes the prompt a little late, as acpmux does.
     Object.assign(doc.defaultView!, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 40 });
     const frames = sample(doc, "line 1");
