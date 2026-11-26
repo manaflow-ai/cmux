@@ -51,10 +51,9 @@ public struct B8bIOSHarnessRoot: View {
                 .accessibilityIdentifier("b8b.harness.annotation")
 
             TabView(selection: $selectedSurface) {
-                NavigationStack(path: $feedPath) {
-                    FeedScreen(path: $feedPath) {
-                        B8bHarnessToolbar()
-                    }
+                // FeedScreen owns its NavigationStack and chat destinations.
+                FeedScreen(path: $feedPath) {
+                    B8bHarnessToolbar()
                 }
                 .tabItem { Label("Feed", systemImage: "bubble.left.and.text.bubble.right") }
                 .tag(Surface.feed)
