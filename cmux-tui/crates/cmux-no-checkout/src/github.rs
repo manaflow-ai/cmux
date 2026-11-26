@@ -160,7 +160,7 @@ impl GitHub {
             bail!("{api} is not an https API; the token goes only to one");
         }
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let mut builder = reqwest::Client::builder()
+        let mut builder = cmux_egress::client_builder("cmux_no_checkout::github")
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(CALL_TIMEOUT)
