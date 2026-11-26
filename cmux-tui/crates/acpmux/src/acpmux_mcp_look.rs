@@ -30,12 +30,13 @@ pub(super) fn answer(reply: &Value) -> Value {
     };
     let moved = reply.get("movedBits").and_then(Value::as_u64).unwrap_or(0);
     let tab = reply.get("tab").and_then(Value::as_str).unwrap_or("?");
+    let location = reply.get("url").and_then(Value::as_str).unwrap_or(tab);
     let kept = match reply.get("kept").and_then(Value::as_u64) {
         Some(i) => format!("kept as frame {i} in the chat's strip"),
         None => "same picture as the last frame".to_owned(),
     };
     let line = format!(
-        "tab {tab}, {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
+        "tab {tab} ({location}), {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
         reply["width"], reply["height"]
     );
     json!({
@@ -64,12 +65,22 @@ mod tests {
 
     #[test]
     fn a_look_hands_back_one_picture_and_one_line() {
-        let reply = json!({"image": {"mimeType": "image/png", "data": "AAAA"}, "width": 512, "height": 320, "tab": "t1", "movedBits": 12, "kept": 3});
+        let reply = json!({"image": {"mimeType": "image/png", "data": "AAAA"}, "width": 512, "height": 320, "tab": "t1", "url": "http://localhost:5173/settings", "movedBits": 12, "kept": 3});
         let out = answer(&reply);
         assert_eq!(out["content"][0]["type"], "image");
         assert_eq!(out["content"][0]["data"], "AAAA");
         let line = out["content"][1]["text"].as_str().unwrap();
         assert!(line.contains("12/64") && line.contains("frame 3"), "{line}");
+        assert!(line.contains("http://localhost:5173/settings"), "{line}");
+        assert!(line.contains("tab t1"), "{line}");
+    }
+
+    #[test]
+    fn a_window_or_older_daemon_without_a_url_still_answers() {
+        let out = answer(&json!({"image": {"mimeType": "image/png", "data": "AAAA"},
+            "width": 512, "height": 320, "tab": "window", "movedBits": 0}));
+        assert_eq!(out["isError"], false);
+        assert!(out["content"][1]["text"].as_str().unwrap().contains("window"));
     }
 
     #[test]

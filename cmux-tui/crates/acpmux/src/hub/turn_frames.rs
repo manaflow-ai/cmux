@@ -21,7 +21,7 @@
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
 
 use super::Session;
-use super::turn_shots::{capture_page, prune, segment};
+use super::turn_shots::{CapturedPage, capture_page, prune, segment};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -435,14 +435,14 @@ fn ask(session: &str, trigger: &'static str) {
 /// Takes one frame of `session`'s current turn and keeps it unless it is the same picture as the
 /// last kept. The kept frame, or none. Blocking.
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
-    let (turn_id, _, dir, picture) = shoot(session, repl)?;
-    keep(session, &turn_id, &dir, &picture, trigger, None)
+    let (turn_id, page, dir, picture) = shoot(session, repl)?;
+    keep(session, &turn_id, &dir, &picture, trigger, page.url)
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
-/// customizes the app, the app's window. The turn, what was shot (a tab id or `window`), the turn's
+/// customizes the app, the app's window. The turn, captured tab metadata (or `window`), the turn's
 /// folder and the picture. Blocking.
-fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
+fn shoot(session: &str, repl: &str) -> Option<(String, CapturedPage, PathBuf, Rgb)> {
     let (turn_id, workspace, chrome) = {
         let all = turns();
         let turn = all.get(session)?;
@@ -454,7 +454,7 @@ fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
     let raw = dir.join(format!("{repl}.capture.png"));
     let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
     if shown.is_none() && chrome && window_shot(&raw) {
-        shown = Some("window".to_owned());
+        shown = Some(CapturedPage { id: "window".to_owned(), url: None });
     }
     let bytes = shown.as_ref().and_then(|_| std::fs::read(&raw).ok());
     let _ = crate::home_fs::remove_file(&raw);
@@ -632,10 +632,10 @@ fn look_now(session: &str) -> Value {
     if let Some(turn) = turns().get_mut(session) {
         turn.chrome = true;
     }
-    let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
+    let Some((turn_id, page, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
         return json!({"error": "no agent-driven page is showing in this chat's workspace and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
-    let kept = keep(session, &turn_id, &dir, &picture, "look", None);
+    let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone());
     let hash = dhash(&picture);
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));
@@ -647,7 +647,8 @@ fn look_now(session: &str) -> Value {
         "image": picture_value(&png),
         "width": small.width,
         "height": small.height,
-        "tab": tab,
+        "tab": page.id,
+        "url": page.url,
         "movedBits": moved,
         "kept": kept.map(|f| f.index),
         "turnId": turn_id,
