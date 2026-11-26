@@ -111,7 +111,10 @@ extension AgentPaneTailCache {
     }
 
     /// Bridged params as ``JSONValue``: the one walk in, which the store needs to keep a tail anyway.
+    /// Member by member, as the Foundation path read them: a member that is not JSON is dropped
+    /// alone, never taking `sessionId` or `tail` with it.
     private static func json(_ params: [String: Any]?) -> JSONValue {
-        params.flatMap { JSONValue(foundation: $0) } ?? .null
+        guard let params else { return .null }
+        return .object(params.compactMapValues { JSONValue(foundation: $0) })
     }
 }

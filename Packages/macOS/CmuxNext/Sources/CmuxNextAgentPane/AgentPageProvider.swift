@@ -447,7 +447,7 @@ public final class AgentPageProvider: PageProvider {
         AgentPaneTailCache.keepHandOver(of: method, params: params, pageGeneration: tailGeneration)
         // A kept hand-over's tail is the store's, never the model's: it is not walked into Foundation
         // on the main actor for a request that never reads it (cmuxterm-hq#19028).
-        let request = AgentPaneRequest(body: ["method": method, "params": Self.withoutHandOver(params).foundationObject])
+        let request = AgentPaneRequest(body: ["method": method, "params": Self.withoutHandOver(params, of: method).foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
         if request == .ready { onHandshake?() }
@@ -457,9 +457,11 @@ public final class AgentPageProvider: PageProvider {
         return try Self.value(of: await model.respond(to: request, userGesture: context.userGesture))
     }
 
-    /// `params` less a `chat.subagentPane`'s `handOver` (``AgentPaneTailCache/keepHandOver(of:params:pageGeneration:)``).
-    nonisolated static func withoutHandOver(_ params: JSONValue) -> JSONValue {
-        guard case .object(var members) = params, members.removeValue(forKey: "handOver") != nil else { return params }
+    /// `params` less a `chat.subagentPane`'s `handOver` (``AgentPaneTailCache/keepHandOver(of:params:pageGeneration:)``);
+    /// every other method's params as they are.
+    nonisolated static func withoutHandOver(_ params: JSONValue, of method: String) -> JSONValue {
+        guard method == "chat.subagentPane", case .object(var members) = params,
+              members.removeValue(forKey: "handOver") != nil else { return params }
         return .object(members)
     }
 

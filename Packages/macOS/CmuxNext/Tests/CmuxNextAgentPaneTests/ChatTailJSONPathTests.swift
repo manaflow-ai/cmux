@@ -74,10 +74,22 @@ struct ChatTailJSONPathTests {
         AgentPaneTailCache.keepHandOver(of: "chat.subagentPane", params: params, pageGeneration: AgentPaneTailCache.shared.generation)
         #expect(AgentPaneTailCache.shared.tail(for: "s-3") == tail)
 
-        let request = AgentPageProvider.withoutHandOver(params)
+        let request = AgentPageProvider.withoutHandOver(params, of: "chat.subagentPane")
         #expect(request == .object(["subagent": .string("a1"), "focus": .bool(true)]))
         #expect(AgentPaneRequest(body: ["method": "chat.subagentPane", "params": request.foundationObject])
             == AgentPaneRequest(body: ["method": "chat.subagentPane", "params": params.foundationObject]))
-        #expect(AgentPageProvider.withoutHandOver(.object(["a": .null])) == .object(["a": .null]))
+        #expect(AgentPageProvider.withoutHandOver(.object(["a": .null]), of: "chat.subagentPane") == .object(["a": .null]))
+        // Only a subagent pane's hand-over is the store's: another method's `handOver` reaches its model.
+        #expect(AgentPageProvider.withoutHandOver(params, of: "chat.openTab") == params)
+    }
+
+    @Test func aBridgedMemberThatIsNotJSONLeavesTheTailItsOwn() throws {
+        Self.reset()
+        defer { Self.reset() }
+        let params: [String: Any] = ["sessionId": "s-4", "tail": ChatTailCacheTests.tail(3), "stray": Date()]
+        _ = ChatTailCacheTests.value(AgentPaneTailCache.reply(to: "chat.tail", params: params))
+        #expect(AgentPaneTailCache.shared.tail(for: "s-4") == Self.page(3))
+        let read = AgentPaneTailCache.reply(to: "chat.tail.get", params: ["sessionId": "s-4", "stray": Date()])
+        #expect(ChatTailCacheTests.seqs(ChatTailCacheTests.value(read)) == [1, 2, 3])
     }
 }

@@ -9,7 +9,9 @@ import Testing
 /// every core is kept busy, timed on the main actor. "before" is the Foundation path the page host
 /// took (params and answer walked into Foundation and back), still the pane bridge's own edge;
 /// "after" is the page host now.
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] == "901"))
+/// Run it with `CMUX_CHAT_TAIL_BENCH=1`; the bench tier (suite timeout 901, as `AgentPageProviderBridgeGapBench`) runs it too.
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_CHAT_TAIL_BENCH"] == "1"
+    || ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] == "901"))
 @MainActor
 struct ChatTailJSONPathBench {
     private static let rounds = 40
