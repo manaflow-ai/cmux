@@ -9,19 +9,19 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
-  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
+  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -55,7 +55,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
+import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -148,6 +148,15 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
+/// A turn's time on its "Worked for" / "Working for" line: as `formatDuration`, but "<1s" under one
+/// second, never "0s" (Leo, 2026-11-25, on the line that read 0s: "let's just fix forward and improve
+/// it all"). The running line reads "Working for <1s" from its first frame, so its words keep one shape
+/// from the prompt to "Worked for": no "Working" that swaps to a time, and no fold that vanishes at
+/// the end because the turn was quick.
+export function turnSpan(ms: number): string {
+  return ms < 1000 ? "<1s" : formatDuration(ms);
+}
+
 /// A finished span's own time: "856ms" under a second, else as `formatDuration`; none for a span
 /// whose start and end were stamped at one moment, which measured nothing, so no row reads a
 /// floored "0s" (Leo, 2026-11-05: "it always only shows 0s?").
@@ -183,7 +192,7 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
     if (row.toolCount) return toolCalls(t, row.toolCount) + messages;
     return messages.slice(t("toolRun.separator").length);
   }
-  const time = formatDuration(row.durationMs);
+  const time = turnSpan(row.durationMs);
   return turnTimeLabel(t, row, time) + workedCallsText(t, row) + workedMessagesText(t, row);
 }
 
@@ -489,10 +498,16 @@ const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 /// visible assistant rows of `previous` from the first changed row on, read from those rows: no set
 /// of every reply id in the chat is copied per update (a god chat's thousands of replies made each
 /// streamed token cost more the longer the chat, CMUX-571).
+///
+/// A reply older than `heldFromAt` (the oldest record the chat holds) is not in a gap: the chat let go of it with its
+/// records (direct.ts `shedOlderHeld`), and it stays gone. Kept, a running turn that never ends put back every reply
+/// it ever streamed: each snapshot's source held the last one's kept replies, so the turn's drawn rows grew with
+/// every record (chat-100k-flat running_x1: 34,000 drawn rows over a chat holding 1,300, and every row's caches).
 const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
   supersededReplyIds: ReadonlySet<string> | undefined,
+  heldFromAt = Number.NEGATIVE_INFINITY,
 ): readonly AcpmuxRow[] => {
   if (!previous) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
@@ -502,7 +517,12 @@ const retainVisibleReplies = (
   const missingReplyIds = new Set<string>();
   for (let index = changedAt; index < previous.length; index += 1) {
     const row = previous[index]!;
-    if (row.kind === "assistant" && !supersededReplyIds?.has(row.id) && !isVisiblyEmptyMessage(row))
+    if (
+      row.kind === "assistant" &&
+      row.at >= heldFromAt &&
+      !supersededReplyIds?.has(row.id) &&
+      !isVisiblyEmptyMessage(row)
+    )
       missingReplyIds.add(row.id);
   }
   for (const row of changedRows)
@@ -598,6 +618,7 @@ export function turnViewFrom(
     messageBreaks = NO_MESSAGE_BREAKS,
     trayAgents = 0,
     supersededReplyIds,
+    heldFromAt,
   }: {
     now?: number;
     working?: boolean;
@@ -614,6 +635,8 @@ export function turnViewFrom(
     trayAgents?: number;
     /// Reply row ids explicitly removed by a message_superseded event; refresh retention must not resurrect them.
     supersededReplyIds?: ReadonlySet<string>;
+    /// The time of the oldest record the chat holds (snapshot `heldFromAt`): refresh retention keeps no reply older.
+    heldFromAt?: number;
   } = {},
   previous?: TurnView,
   /// At most this many of `previous`'s turns are reused (a Retry that moved onto or off one of them).
@@ -633,7 +656,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, supersededReplyIds, heldFromAt);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -648,6 +671,7 @@ export function turnViewFrom(
         messageBreaks,
         trayAgents,
         supersededReplyIds,
+        heldFromAt,
       },
       previous,
     );
@@ -1491,8 +1515,9 @@ function steadyRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
   // One map for the turn's life, written only where a row changed: a record into a turn of
   // thousands of rows looks up and compares only the rows it handed over as new objects (a row
   // drawn last time in the same place as the same object is passed by), never rebuilding the map.
-  // An id that left keeps its last row, which only ever stands in for an equal one.
-  const byId = before?.byId ?? new Map<string, AcpmuxRow>();
+  // An id that left keeps its last row, which only ever stands in for an equal one, until the ids
+  // that left outnumber the rows drawn (below).
+  let byId = before?.byId ?? new Map<string, AcpmuxRow>();
   const drawn = before?.drawn;
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < shaped.length; at += 1) {
@@ -1505,9 +1530,19 @@ function steadyRows(user: AcpmuxRow, shaped: AcpmuxRow[]): AcpmuxRow[] {
     else byId.set(row.id, row);
   }
   const result = out ?? shaped;
+  // A turn that never ends (a coordinator's) lets go of its oldest records (direct.ts `shedOlderHeld`), and their
+  // rows leave the drawn ones for good. Kept here, every row the turn ever drew stayed alive, and with it each
+  // row's entries in the caches keyed by row or tool (messageRuns.ts, acpmuxMcpSends.ts, toolNames.ts ...): a
+  // running turn of 100k records held about 40 MB of renderer heap no row on screen used (chat-100k-flat
+  // running_x1). Once the map holds twice the rows drawn it is made again from them: O(rows drawn) once per as
+  // many rows that left, so O(1) a record, and the map stays within twice the turn's held rows.
+  if (byId.size > 2 * result.length + LIVE_ROWS_SLACK) byId = new Map(result.map((row) => [row.id, row]));
   drawnTurnRows.set(user, { byId, drawn: result });
   return result;
 }
+
+/// The ids that left the running turn's drawn rows its map keeps before it is made again (`steadyLiveRows`).
+const LIVE_ROWS_SLACK = 64;
 
 /// How deep `sameShape` compares: a row, its fields' objects and arrays (a group's rows, a tool
 /// call's content), and theirs. Deeper values must be the same object.
@@ -2326,10 +2361,10 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place (`outside`). Nor does a turn whose only work was
-    // subagents and that took under a second, which read "Worked for 0s" (no news, `footerSays`) with
-    // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
-    // Claude's and Codex's apps draw a lone subagent.
+    // alone: it draws no fold, its rows in place (`outside`), nor does a turn of subagents alone with
+    // no recorded time. A quick one keeps its fold, "Worked for <1s" (`turnSpan`): the "Working for"
+    // that stood over it while it ran stays, so the end swaps no line for loose rows (Leo, 2026-11-25:
+    // "i think it was replacing the "worked for" as it went", after cmux#55191 dropped its fold).
     const shown = shownAgentNames(body);
     // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
     // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
@@ -2345,8 +2380,7 @@ function shapeTurn(
       compactOnly ||
       (previous === undefined &&
         messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
-          ((durationMs === undefined || durationMs < 1000) && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
     } else if (lone) {
