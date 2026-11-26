@@ -316,9 +316,11 @@ pub async fn connect_websocket(
 
 /// The HTTP client of the link's API calls: the OS trust store, and the
 /// system's proxy for each request (the cached answer; [`proxy::warm`]
-/// asks ahead of time).
-pub fn http_client_builder() -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder().proxy(reqwest::Proxy::custom(|url| {
+/// asks ahead of time). Every connection passes the egress gate
+/// (`cmux_egress`, docs/privacy.md) as `site`; with a proxy set, the proxy's
+/// host is the one checked.
+pub fn http_client_builder(site: &'static str) -> reqwest::ClientBuilder {
+    let builder = cmux_egress::client_builder(site).proxy(reqwest::Proxy::custom(|url| {
         let host = url.host_str()?.trim_start_matches('[').trim_end_matches(']').to_owned();
         let secure = url.scheme() == "https";
         let port = url.port_or_known_default()?;
@@ -333,6 +335,11 @@ pub fn http_client_builder() -> reqwest::ClientBuilder {
         }
         None
     }));
+    // The seeded-secret capture trusts its own CA (set by the gate's builder);
+    // the OS store would replace it.
+    if cmux_egress::capturing() {
+        return builder;
+    }
     match tls::client_config(&TlsTrust::System) {
         Ok(config) => builder.use_preconfigured_tls((*config).clone()),
         Err(error) => {
