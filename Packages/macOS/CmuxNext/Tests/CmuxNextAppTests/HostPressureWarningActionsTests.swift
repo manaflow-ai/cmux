@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 import CmuxNextSettingsWindow
 import CmuxNextTestSupport
 import Testing
