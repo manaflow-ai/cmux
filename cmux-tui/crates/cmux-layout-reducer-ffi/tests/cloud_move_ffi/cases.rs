@@ -548,3 +548,76 @@ fn a_session_moves_run_says_what_the_tab_opens() {
         json!({"kind": "failed", "message": "nope"})
     );
 }
+
+#[test]
+fn a_machine_update_outcome_names_its_kind() {
+    let body = ok(
+        c"cloud_move_machine_update_outcome",
+        json!({"answer": {"ok": true, "updated": true, "build": "f".repeat(40)}, "build": "0".repeat(40)}),
+    );
+    assert_eq!(body["outcome"]["kind"], "failed");
+    assert_eq!(body["restarted"], true);
+    let busy = ok(
+        c"cloud_move_machine_update_outcome",
+        json!({"timedOut": true, "build": "0".repeat(40)}),
+    );
+    assert_eq!(busy["outcome"], json!({"kind": "busy"}));
+    let binary = ok(
+        c"cloud_move_machine_update_outcome",
+        json!({"answer": {"ok": false, "errorCode": "machine_update_unavailable"}, "build": "0".repeat(40)}),
+    );
+    assert_eq!(
+        binary["outcome"],
+        json!({"kind": "needsBinary", "target": "x86_64-unknown-linux-gnu"})
+    );
+    let judged = ok(
+        c"cloud_move_machine_update_legacy_judged",
+        json!({"ok": false, "errorCode": "machine_update_unsupported", "build": "c".repeat(40)}),
+    );
+    assert_eq!(judged["judged"], "c".repeat(40));
+    let stop = ok(
+        c"cloud_move_machine_update_stop",
+        json!({"ok": false, "errorCode": "x", "error": "it broke"}),
+    );
+    assert_eq!(stop, json!({"stop": "failed", "detail": "it broke"}));
+    assert_eq!(ok(c"cloud_move_machine_update_stop", json!({"ok": true})), json!({"stop": "none"}));
+}
+
+#[test]
+fn a_legacy_run_steps_through_its_execs() {
+    let pin = json!({"commit": "b".repeat(40), "sha256": "a".repeat(64)});
+    let start = ok(
+        c"cloud_move_legacy_run",
+        json!({"plan": {"pin": pin, "script": "echo guest\n", "nonce": "0123456789abcdef"}}),
+    );
+    assert_eq!(start["step"], "exec");
+    assert_eq!(start["timeoutMs"], 60_000);
+    assert!(start["command"].as_str().unwrap().ends_with("echo started"));
+    let wait = ok(
+        c"cloud_move_legacy_run",
+        json!({"state": start["state"], "ran": {"exitCode": 0, "stdout": "started\n", "stderr": ""}}),
+    );
+    assert_eq!(wait["step"], "exec");
+    assert_eq!(wait["timeoutMs"], 290_000);
+    let done = ok(
+        c"cloud_move_legacy_run",
+        json!({"state": wait["state"], "ran": {"exitCode": 0, "stdout": "OK upgraded\n", "stderr": ""}}),
+    );
+    assert_eq!(done["step"], "done");
+    assert_eq!(done["answer"]["ok"], true);
+    assert_eq!(done["answer"]["build"], "b".repeat(40));
+    let (code, _) = call(c"cloud_move_legacy_run", &json!({}));
+    assert_eq!(code, ERR_INVALID);
+
+    let commands = ok(c"cloud_move_legacy_commands", json!({"pin": pin, "nonce": "n"}));
+    assert_eq!(commands["unit"], "cmux-app-tui-update-n");
+    assert_eq!(
+        commands["url"],
+        format!(
+            "https://files.cmux.com/cmux-tui/{}/cmux-tui-x86_64-unknown-linux-musl",
+            "b".repeat(40)
+        )
+    );
+    assert!(commands["wait"].as_str().unwrap().contains("r=/var/lib/cmux-tui-upgrade/app-n"));
+    assert!(commands["install"].as_str().unwrap().ends_with("--version\n"));
+}
