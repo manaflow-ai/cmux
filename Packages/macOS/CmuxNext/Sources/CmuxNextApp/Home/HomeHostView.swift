@@ -19,6 +19,7 @@ import CmuxNextLayout
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
+import CmuxNextSettings
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
