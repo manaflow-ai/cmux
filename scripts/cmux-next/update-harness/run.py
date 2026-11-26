@@ -1066,6 +1066,7 @@ def main():
             return None if r is None else r["unix_ms"] - click
 
         timeline = {
+            "click_unix_ms": click,  # the click's wall clock, for logs kept beside the marks (update-click-ab.sh frames=1)
             "socket_send_to_click_ms": click - t_send * 1000,
             "socket_reply_ms": (t_reply - t_send) * 1000,
             "click_to": {n: at(n, v1_pid) for n in ["install_started", "install_handed_to_sparkle", "phase.installing",

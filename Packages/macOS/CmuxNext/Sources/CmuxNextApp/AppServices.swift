@@ -238,9 +238,10 @@ final class AppServices {
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
+    private(set) lazy var paletteUsage = DaemonPaletteUsageStore(services: self)
     private(set) lazy var palette: PaletteController = {
         let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
-                                        usage: DaemonPaletteUsageStore(services: self))
+                                        usage: paletteUsage)
         palette.hiddenActionIDs = {
             AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
         }
