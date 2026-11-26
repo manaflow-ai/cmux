@@ -259,11 +259,11 @@ extension CEFRuntime {
             return
         }
         // Off-screen pages (approach 5 prototype): a tab's own windowless browser, or one an off-screen page opened.
-        if let tab = CEFOffscreenPages.shared.takePendingTab(request: request) {
+        if let tab = CEFRuntime.shared.offscreenPages.takePendingTab(request: request) {
             tab.host.offscreenTabCreated(tab, browser: browser)
             return
         }
-        if CEFOffscreenPages.shared.calls?.isOffscreen(browser) == 1, let opener = tabsByBrowser[created.opener] {
+        if CEFRuntime.shared.offscreenPages.calls?.isOffscreen(browser) == 1, let opener = tabsByBrowser[created.opener] {
             opener.host.adoptOffscreenPopup(browser: browser, created: created)
             return
         }

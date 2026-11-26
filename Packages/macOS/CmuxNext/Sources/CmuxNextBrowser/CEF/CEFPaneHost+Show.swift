@@ -11,7 +11,7 @@ extension CEFPaneHost {
     func showBrowser(of tab: CEFTab, activate: Bool = true) {
         guard let browser = tab.browserID else { return }
         // An off-screen page has no Chromium tab strip to activate in: its page view shows, the pane's others hide.
-        if CEFOffscreenPages.shared.calls?.isOffscreen(browser) == 1 {
+        if CEFRuntime.shared.offscreenPages.calls?.isOffscreen(browser) == 1 {
             lastActivated = browser
             hostView.offscreen.pageShown(browser: browser)
             tab.sidePanel.scheduleRefresh()

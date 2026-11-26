@@ -32,6 +32,8 @@ final class CEFRuntime {
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
+    /// Off-screen pages (approach 5 prototype): windowless browsers whose frames their pane shows.
+    let offscreenPages = CEFOffscreenPages()
     /// The pump's gate for requests from Chromium threads (read off the main thread).
     nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -727,7 +729,7 @@ final class CEFRuntime {
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
         // Off-screen pages (approach 5 prototype): windowless rendering is a CefInitialize setting.
-        CEFOffscreenPages.shared.enable(shim: shim)
+        offscreenPages.enable(shim: shim)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(

@@ -153,7 +153,7 @@ final class CEFSpareWindow {
     @discardableResult
     func prepare(runtime: CEFRuntime) -> Bool {
         // Off-screen pages (approach 5 prototype) are Alloy browsers: no Chromium window to keep spare, no tab to move.
-        guard !CEFOffscreenPages.shared.isOn else { return false }
+        guard !CEFRuntime.shared.offscreenPages.isOn else { return false }
         guard !released, runtime.state == .ready, runtime.acceptsNewBrowsers,
               !runtime.hosts.values.contains(where: \.isCreatingWindow) else { return false }
         if let host { return preparePage(in: host, runtime: runtime) }

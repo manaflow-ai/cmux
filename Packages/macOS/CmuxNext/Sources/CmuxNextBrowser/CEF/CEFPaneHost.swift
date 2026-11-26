@@ -279,7 +279,7 @@ final class CEFPaneHost {
             let create = {
                 CEFStartSteps.shared.createWindow {
                     // Off-screen pages (approach 5 prototype): a windowless browser over the host view, no Chromium window.
-                    if let offscreen = CEFOffscreenPages.shared.calls {
+                    if let offscreen = CEFRuntime.shared.offscreenPages.calls {
                         return offscreen.create(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
                                                 max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
                                                 initialURL, contextKey, 0)
@@ -320,10 +320,10 @@ final class CEFPaneHost {
         }
         // Off-screen pages have no tab strip: each tab is a windowless browser of its own over this host view, which
         // comes up asynchronously (`CEFRuntime.browserCreated`, `offscreenTabCreated`).
-        if CEFOffscreenPages.shared.isOn {
+        if CEFRuntime.shared.offscreenPages.isOn {
             tab.isCreationPending = true
             let url = tab.takeInitialURLString()
-            if !CEFOffscreenPages.shared.createTab(tab, in: self, url: url, contextKey: runtime.contextKey(for: key)) {
+            if !CEFRuntime.shared.offscreenPages.createTab(tab, in: self, url: url, contextKey: runtime.contextKey(for: key)) {
                 tab.creationFailed()
             }
             return false

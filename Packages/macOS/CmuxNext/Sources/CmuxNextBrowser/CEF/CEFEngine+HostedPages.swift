@@ -7,6 +7,10 @@ extension CEFEngine {
     /// window and each docked DevTools page window in a window. Read on demand by the debug socket only.
     @MainActor public var hostedPageFields: [String: Double] {
         var fields: [String: Double] = drawOnInputFields
+        // Off-screen pages (approach 5 prototype): frames, resize waits and the shim's copies, as `osr.*`.
+        if CEFRuntime.shared.offscreenPages.isOn {
+            for (name, value) in CEFRuntime.shared.offscreenPages.debugNumbers { fields["osr.\(name)"] = value }
+        }
         for host in CEFRuntime.shared.hosts.values {
             guard let tab = host.visibleTab, host.hostView.window != nil else { continue }
             fields["hosted.\(tab.id.rawValue)"] = host.hostView.layerHosting.page != nil ? 1 : 0

@@ -18,6 +18,7 @@ import os
 private let offscreenLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-offscreen")
 
 /// The shim's off-screen calls (`cmux_cef_shim.h`, "Off-screen pages"); nil in a shim without them.
+// crash-allow: immutable C function pointers resolved once on the library-load thread, only read after (as CEFShimLibrary)
 nonisolated struct CEFOffscreenShim: @unchecked Sendable {
     let enable: @convention(c) (Int32, Int32) -> Void
     let setHandlers: @convention(c) (UnsafeRawPointer?, UnsafeMutableRawPointer?) -> Void
@@ -114,24 +115,28 @@ nonisolated struct CEFOffscreenFrame {
 
 // MARK: C entries (the CEF UI thread, which is the main thread)
 
-private let osrViewRect: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<Int32>?,
-                                         UnsafeMutablePointer<Int32>?) -> Void = { _, browser, width, height in
-    guard Thread.isMainThread else { return }
-    let size = MainActor.assumeIsolated { CEFOffscreenPages.shared.page(browser)?.pageSize } ?? .zero // main-proof: guarded by Thread.isMainThread above
-    width?.pointee = Int32(max(1, size.width))
-    height?.pointee = Int32(max(1, size.height))
-}
+/// The shim's handlers (`cmux_shim_osr_handlers`): C entries that reach the runtime's off-screen pages on the main
+/// thread. Chromium calls them on its UI thread, which is the main thread; off it they answer nothing.
+enum CEFOffscreenCallbacks {
+    private static var pages: CEFOffscreenPages { CEFRuntime.shared.offscreenPages }
 
-private let osrScreenInfo: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<Float>?,
+    static let viewRect: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<Int32>?,
+                                         UnsafeMutablePointer<Int32>?) -> Void = { _, browser, width, height in
+        guard Thread.isMainThread else { return }
+        let size = MainActor.assumeIsolated { pages.page(browser)?.pageSize } ?? .zero // main-proof: guarded by Thread.isMainThread above
+        width?.pointee = Int32(max(1, size.width))
+        height?.pointee = Int32(max(1, size.height))
+    }
+
+    /// The screen is the page's own view, as cefclient's: Chromium keeps its popups (<select>, the date picker) inside
+    /// it, so they are drawn into this page's frames' popup layer and move with the pane.
+    static let screenInfo: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutablePointer<Float>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32 = {
-    _, browser, scale, rect, available in
-    guard Thread.isMainThread else { return 0 }
-    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        guard let page = CEFOffscreenPages.shared.page(browser) else { return 0 }
-        scale?.pointee = Float(page.backingScale)
-        // The screen is the page's own view, as cefclient's: Chromium keeps its popups (<select>, the date picker)
-        // inside it, so they are drawn in this layer and move with the pane.
-        let size = page.pageSize
+        _, browser, scale, rect, available in
+        guard Thread.isMainThread else { return 0 }
+        let read = MainActor.assumeIsolated { pages.page(browser).map { ($0.backingScale, $0.pageSize) } } // main-proof: guarded by Thread.isMainThread above
+        guard let (backing, size) = read else { return 0 }
+        scale?.pointee = Float(backing)
         for target in [rect, available] {
             target?[0] = 0
             target?[1] = 0
@@ -140,84 +145,80 @@ private let osrScreenInfo: @convention(c) (UnsafeMutableRawPointer?, Int32, Unsa
         }
         return 1
     }
-}
 
-private let osrScreenPoint: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, Int32, UnsafeMutablePointer<Int32>?,
+    static let screenPoint: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, Int32, UnsafeMutablePointer<Int32>?,
                                             UnsafeMutablePointer<Int32>?) -> Int32 = { _, browser, x, y, screenX, screenY in
-    guard Thread.isMainThread else { return 0 }
-    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        guard let point = CEFOffscreenPages.shared.page(browser)?.screenPoint(x: Int(x), y: Int(y)) else { return 0 }
+        guard Thread.isMainThread else { return 0 }
+        let point = MainActor.assumeIsolated { pages.page(browser)?.screenPoint(x: Int(x), y: Int(y)) } // main-proof: guarded by Thread.isMainThread above
+        guard let point else { return 0 }
         screenX?.pointee = Int32(point.x.rounded())
         screenY?.pointee = Int32(point.y.rounded())
         return 1
     }
-}
 
-private let osrFrame: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeRawPointer?) -> Void = { _, browser, raw in
-    guard Thread.isMainThread, let raw else { return }
-    let frame = CEFOffscreenFrame(raw)
-    MainActor.assumeIsolated { CEFOffscreenPages.shared.frameArrived(frame, browser: browser) } // main-proof: guarded by Thread.isMainThread above
-}
+    static let frame: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeRawPointer?) -> Void = { _, browser, raw in
+        guard Thread.isMainThread, let raw else { return }
+        let frame = CEFOffscreenFrame(raw)
+        MainActor.assumeIsolated { pages.frameArrived(frame, browser: browser) } // main-proof: guarded by Thread.isMainThread above
+    }
 
-private let osrPopupShow: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Void = { _, browser, show in
-    guard Thread.isMainThread else { return }
-    MainActor.assumeIsolated { CEFOffscreenPages.shared.page(browser)?.popupShown(show != 0) } // main-proof: guarded by Thread.isMainThread above
-}
+    static let popupShow: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Void = { _, browser, show in
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated { pages.page(browser)?.popupShown(show != 0) } // main-proof: guarded by Thread.isMainThread above
+    }
 
-private let osrPopupRect: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32) -> Void = {
-    _, browser, x, y, width, height in
-    guard Thread.isMainThread else { return }
-    let rect = CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height))
-    MainActor.assumeIsolated { CEFOffscreenPages.shared.page(browser)?.popupRect = rect } // main-proof: guarded by Thread.isMainThread above
-}
+    static let popupRect: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32) -> Void = {
+        _, browser, x, y, width, height in
+        guard Thread.isMainThread else { return }
+        let rect = CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height))
+        MainActor.assumeIsolated { pages.page(browser)?.popupRect = rect } // main-proof: guarded by Thread.isMainThread above
+    }
 
-private let osrImeRange: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, Int32, UnsafePointer<Int32>?, Int32) -> Void = {
-    _, browser, from, to, rects, count in
-    guard Thread.isMainThread else { return }
-    var bounds: [CGRect] = []
-    if let rects, count > 0 {
-        for index in 0..<Int(count) {
-            let base = index * 4
-            bounds.append(CGRect(x: Int(rects[base]), y: Int(rects[base + 1]), width: Int(rects[base + 2]),
-                                 height: Int(rects[base + 3])))
+    static let imeRange: @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, Int32, UnsafePointer<Int32>?, Int32) -> Void = {
+        _, browser, from, to, rects, count in
+        guard Thread.isMainThread else { return }
+        var bounds: [CGRect] = []
+        if let rects, count > 0 {
+            for index in 0..<Int(count) {
+                let base = index * 4
+                bounds.append(CGRect(x: Int(rects[base]), y: Int(rects[base + 1]), width: Int(rects[base + 2]),
+                                     height: Int(rects[base + 3])))
+            }
+        }
+        MainActor.assumeIsolated { pages.page(browser)?.compositionChanged(from: Int(from), to: Int(to), bounds: bounds) } // main-proof: guarded by Thread.isMainThread above
+    }
+
+    static let cursor: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?) -> Void = { _, browser, cursor in
+        guard Thread.isMainThread, let cursor else { return }
+        let address = UInt(bitPattern: cursor)
+        MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
+            guard let pointer = UnsafeMutableRawPointer(bitPattern: address) else { return }
+            pages.page(browser)?.cursorChanged(Unmanaged<NSCursor>.fromOpaque(pointer).takeUnretainedValue())
         }
     }
-    MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        CEFOffscreenPages.shared.page(browser)?.compositionChanged(from: Int(from), to: Int(to), bounds: bounds)
-    }
-}
 
-private let osrCursor: @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?) -> Void = { _, browser, cursor in
-    guard Thread.isMainThread, let cursor else { return }
-    let address = UInt(bitPattern: cursor)
-    MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-        guard let pointer = UnsafeMutableRawPointer(bitPattern: address) else { return }
-        CEFOffscreenPages.shared.page(browser)?.cursorChanged(Unmanaged<NSCursor>.fromOpaque(pointer).takeUnretainedValue())
+    /// Hands the eight entries to the shim in `cmux_shim_osr_handlers`' field order (the shim copies the struct).
+    static func install(_ calls: CEFOffscreenShim) {
+        let table = UnsafeMutablePointer<UnsafeRawPointer?>.allocate(capacity: 8)
+        defer { table.deallocate() }
+        table[0] = unsafeBitCast(viewRect, to: UnsafeRawPointer.self)
+        table[1] = unsafeBitCast(screenInfo, to: UnsafeRawPointer.self)
+        table[2] = unsafeBitCast(screenPoint, to: UnsafeRawPointer.self)
+        table[3] = unsafeBitCast(frame, to: UnsafeRawPointer.self)
+        table[4] = unsafeBitCast(popupShow, to: UnsafeRawPointer.self)
+        table[5] = unsafeBitCast(popupRect, to: UnsafeRawPointer.self)
+        table[6] = unsafeBitCast(imeRange, to: UnsafeRawPointer.self)
+        table[7] = unsafeBitCast(cursor, to: UnsafeRawPointer.self)
+        calls.setHandlers(UnsafeRawPointer(table), nil)
     }
-}
-
-/// `cmux_shim_osr_handlers`: eight function pointers in its field order (the shim copies the struct).
-private func makeHandlerTable() -> UnsafeMutablePointer<UnsafeRawPointer?> {
-    let table = UnsafeMutablePointer<UnsafeRawPointer?>.allocate(capacity: 8)
-    table[0] = unsafeBitCast(osrViewRect, to: UnsafeRawPointer.self)
-    table[1] = unsafeBitCast(osrScreenInfo, to: UnsafeRawPointer.self)
-    table[2] = unsafeBitCast(osrScreenPoint, to: UnsafeRawPointer.self)
-    table[3] = unsafeBitCast(osrFrame, to: UnsafeRawPointer.self)
-    table[4] = unsafeBitCast(osrPopupShow, to: UnsafeRawPointer.self)
-    table[5] = unsafeBitCast(osrPopupRect, to: UnsafeRawPointer.self)
-    table[6] = unsafeBitCast(osrImeRange, to: UnsafeRawPointer.self)
-    table[7] = unsafeBitCast(osrCursor, to: UnsafeRawPointer.self)
-    return table
 }
 
 // MARK: The process's off-screen pages
 
-/// Every off-screen page of the process: the shim's handlers, the page views by browser, the tabs whose browser is
-/// being made, and the resize wait (each resize step's frame at the new size, waited for before Core Animation commits
-/// the step).
+/// Every off-screen page of the process (the runtime's ``CEFRuntime/offscreenPages``): the shim's handlers, the page
+/// views by browser, the tabs whose browser is being made, and the resize wait (each resize step's frame at the new
+/// size, waited for before Core Animation commits the step).
 final class CEFOffscreenPages {
-    static let shared = CEFOffscreenPages()
-
     init() {}
 
     private(set) var calls: CEFOffscreenShim?
@@ -228,7 +229,8 @@ final class CEFOffscreenPages {
     /// Tabs whose off-screen browser is being made, by the request their AFTER_CREATED reports.
     private var pendingTabs: [Int32: WeakCEFTab] = [:]
     private var resizeObserver: MainRunLoopObserver?
-    private var displayLink: CADisplayLink?
+    /// External begin frames: one frame client on the first page's window scheduler, ticking while pages draw.
+    private var frameClient: FrameClient?
 
     /// How long a resize step waits, before Core Animation commits it, for each resized page's frame at the new size
     /// (`CMUX_OSR_RESIZE_WAIT_MS`, 0 to 100; default 16). 0 shows the last frame, pinned top-left, until the new one.
@@ -266,9 +268,7 @@ final class CEFOffscreenPages {
         }
         externalBeginFrames = ProcessInfo.processInfo.environment["CMUX_OSR_BEGIN_FRAMES"] == "external"
         calls.enable(1, externalBeginFrames ? 1 : 0)
-        let table = makeHandlerTable()
-        calls.setHandlers(UnsafeRawPointer(table), nil)
-        table.deallocate()
+        CEFOffscreenCallbacks.install(calls)
         self.calls = calls
         offscreenLogger.info("off-screen pages on (begin frames \(self.externalBeginFrames ? "external" : "internal", privacy: .public), resize wait \(self.resizeWaitMs, privacy: .public) ms)")
     }
@@ -279,12 +279,12 @@ final class CEFOffscreenPages {
 
     func register(_ page: CEFOffscreenPageView) {
         pages[page.browser] = WeakOffscreenPage(page)
-        updateDisplayLink()
+        updateFrameClient()
     }
 
     func unregister(_ page: CEFOffscreenPageView) {
         if pages[page.browser]?.page === page { pages[page.browser] = nil }
-        updateDisplayLink()
+        updateFrameClient()
     }
 
     /// A tab of a live pane window: its own off-screen browser (Alloy pages have no tab strip to join).
@@ -345,9 +345,12 @@ final class CEFOffscreenPages {
         let started = CACurrentMediaTime()
         let deadline = started + resizeWaitMs / 1_000
         if resizeWaitMs > 0 {
+            // blocking-allow: the resize wait under measurement (approach 5): it holds this turn's Core Animation commit
+            // on the main thread until each resized page's frame at the new size is in its layer, as Chrome's own Mac
+            // pre-commit wait does (ui::CATransactionCoordinator); bounded by CMUX_OSR_RESIZE_WAIT_MS, 0 turns it off.
+            // Chromium's frame reaches this process as a UI-thread task, so the loop runs Chromium's work until then.
             while waiting.contains(where: \.awaitsFrame), CACurrentMediaTime() < deadline {
                 CEFRuntime.shared.pump?.pumpNow()
-                if waiting.contains(where: \.awaitsFrame) { usleep(250) }
             }
         }
         stats.waitMsTotal += (CACurrentMediaTime() - started) * 1_000
@@ -368,25 +371,31 @@ final class CEFOffscreenPages {
         stats.beginFrames += 1
     }
 
-    private func updateDisplayLink() {
+    private func updateFrameClient() {
         guard externalBeginFrames else { return }
         let live = pages.values.compactMap(\.page)
-        if live.isEmpty {
-            displayLink?.invalidate()
-            displayLink = nil
+        guard let first = live.first(where: { $0.window != nil }) else {
+            frameClient?.deactivate()
+            frameClient = nil
             return
         }
-        guard displayLink == nil, let view = live.first(where: { $0.window != nil }) else { return }
-        let link = view.displayLink(target: CEFOffscreenDisplayTick.shared, selector: #selector(CEFOffscreenDisplayTick.tick(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
+        if frameClient == nil {
+            frameClient = FrameClient(owner: "cef.offscreen-begin-frames", isAnimation: false,
+                                      scheduler: { [weak first] in first.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
+                self?.displayTicked() ?? false
+            }
+        }
+        frameClient?.activate()
     }
 
-    fileprivate func displayTicked() {
-        for page in pages.values.compactMap(\.page) where page.isDrawing { beginFrame(page.browser) }
+    /// One begin frame to each drawing page; false (the client idles) when none draws.
+    private func displayTicked() -> Bool {
+        let drawing = pages.values.compactMap(\.page).filter(\.isDrawing)
+        for page in drawing { beginFrame(page.browser) }
+        return !drawing.isEmpty
     }
 
-    /// `debug.cef` `offscreen`: numbers by name (nil percentiles are left out).
+    /// `debug.cef` `tracker` `osr.*`: numbers by name (nil percentiles are left out).
     var debugNumbers: [String: Double] {
         var shim: [UInt64] = Array(repeating: 0, count: 8)
         shim.withUnsafeMutableBufferPointer { calls?.counters($0.baseAddress, 8) }
@@ -424,15 +433,6 @@ final class CEFOffscreenPages {
     }
 }
 
-/// The display link's target (a display link holds its target strongly).
-final class CEFOffscreenDisplayTick: NSObject {
-    static let shared = CEFOffscreenDisplayTick()
-
-    @objc func tick(_ link: CADisplayLink) {
-        CEFOffscreenPages.shared.displayTicked()
-    }
-}
-
 struct WeakOffscreenPage {
     weak var page: CEFOffscreenPageView?
     init(_ page: CEFOffscreenPageView) { self.page = page }
@@ -448,12 +448,12 @@ final class CEFOffscreenHosting {
     private(set) var shown: Int32?
 
     /// Whether this host's pages are off screen (the process's switch).
-    var isActive: Bool { CEFOffscreenPages.shared.isOn }
+    var isActive: Bool { CEFRuntime.shared.offscreenPages.isOn }
 
     /// A browser of this pane came up; true when it is off screen (it gets a page view).
     @discardableResult
     func pageCreated(browser: Int32) -> Bool {
-        guard let calls = CEFOffscreenPages.shared.calls, calls.isOffscreen(browser) == 1 else { return false }
+        guard let calls = CEFRuntime.shared.offscreenPages.calls, calls.isOffscreen(browser) == 1 else { return false }
         _ = page(for: browser, calls: calls)
         return true
     }
@@ -461,7 +461,7 @@ final class CEFOffscreenHosting {
     /// The shown tab's page: its view shows (made when this pane never had it: a page another page opened), the rest
     /// hide (Chromium hears `WasHidden` for each).
     func pageShown(browser: Int32) {
-        guard let calls = CEFOffscreenPages.shared.calls, calls.isOffscreen(browser) == 1 else { return }
+        guard let calls = CEFRuntime.shared.offscreenPages.calls, calls.isOffscreen(browser) == 1 else { return }
         shown = browser
         let page = page(for: browser, calls: calls)
         for (id, other) in pages where id != browser { other.isHidden = true }
@@ -508,7 +508,7 @@ final class CEFOffscreenHosting {
         }
         made.isHidden = shown != nil && shown != browser
         pages[browser] = made
-        CEFOffscreenPages.shared.register(made)
+        CEFRuntime.shared.offscreenPages.register(made)
         return made
     }
 }
@@ -523,7 +523,6 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
     private let content = CALayer()
     private let popupLayer = CALayer()
     private var tracking: NSTrackingArea?
-    private var occlusionObserver: (any NSObjectProtocol)?
     private var cursor: NSCursor?
     private var closed = false
 
@@ -564,19 +563,17 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
 
     var backingScale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
-    /// Whether Chromium should draw this page now (shown, in a window that is on screen).
+    /// Whether Chromium should draw this page now: shown, in a window. A covered window's pages keep drawing (the
+    /// prototype observes no occlusion).
     var isDrawing: Bool {
-        guard !closed, let window, !isHiddenOrHasHiddenAncestor else { return false }
-        return window.occlusionState.contains(.visible)
+        !closed && window != nil && !isHiddenOrHasHiddenAncestor
     }
 
     var awaitsFrame: Bool { awaitedPixels != nil }
 
     func close() {
         closed = true
-        CEFOffscreenPages.shared.unregister(self)
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
+        CEFRuntime.shared.offscreenPages.unregister(self)
         removeFromSuperview()
     }
 
@@ -599,7 +596,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         guard pixels != shownPixels else { return }
         if awaitedPixels == nil { resizeStarted = CACurrentMediaTime() }
         awaitedPixels = pixels
-        CEFOffscreenPages.shared.awaitFrame(self)
+        CEFRuntime.shared.offscreenPages.awaitFrame(self)
     }
 
     override func viewDidChangeBackingProperties() {
@@ -616,13 +613,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
-        if let window {
-            occlusionObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
-                                                                       object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateHidden() } // main-proof: queue .main
-            }
+        if window != nil {
             content.contentsScale = backingScale
             popupLayer.contentsScale = backingScale
             calls.screenInfoChanged(browser)
@@ -642,8 +633,8 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
 
     private var reportedHidden: Bool?
 
-    /// Chromium draws only a page on screen: hidden, out of a window or in a covered window, it hears `WasHidden`. The
-    /// last frame stays in this layer, so the page shows at once when it comes back.
+    /// Chromium draws only a shown page: hidden or out of a window, it hears `WasHidden`. The last frame stays in this
+    /// layer, so the page shows at once when it comes back.
     private func updateHidden() {
         guard !closed else { return }
         let hidden = !isDrawing
@@ -675,7 +666,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         shownPixels = CGSize(width: width, height: height)
         if let awaited = awaitedPixels, awaited == shownPixels {
             awaitedPixels = nil
-            CEFOffscreenPages.shared.resizeReachedFrame(afterMs: (CACurrentMediaTime() - resizeStarted) * 1_000)
+            CEFRuntime.shared.offscreenPages.resizeReachedFrame(afterMs: (CACurrentMediaTime() - resizeStarted) * 1_000)
         }
     }
 
@@ -738,13 +729,19 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
     }
 
     override func mouseDown(with event: NSEvent) {
-        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        takeKeyboardOnPress()
         mouse(event, kind: 2, button: 0)
     }
     override func mouseUp(with event: NSEvent) { mouse(event, kind: 3, button: 0) }
     override func rightMouseDown(with event: NSEvent) {
-        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        takeKeyboardOnPress()
         mouse(event, kind: 2, button: 2)
+    }
+
+    /// A press in the page gives it the keyboard, through the focus route (the person's own press).
+    private func takeKeyboardOnPress() {
+        guard let window, window.firstResponder !== self else { return }
+        _ = FocusRoute(.person, "a press in an off-screen page").moveKeyboard(in: window, to: self)
     }
     override func rightMouseUp(with event: NSEvent) { mouse(event, kind: 3, button: 2) }
     override func otherMouseDown(with event: NSEvent) { mouse(event, kind: 2, button: 1) }
