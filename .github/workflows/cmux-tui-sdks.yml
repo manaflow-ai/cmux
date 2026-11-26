@@ -105,6 +105,7 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
@@ -194,9 +195,12 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
       - "schemas/design-scale/design-scale.json"
       - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -287,6 +291,7 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
@@ -376,9 +381,12 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
       - "schemas/design-scale/design-scale.json"
       - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
   workflow_dispatch:
 
 concurrency:
@@ -407,7 +415,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 8
     outputs:
       sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
@@ -517,8 +525,8 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
-      - name: Test and check the seven SDK capability descriptors
-        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+      - name: Check SDK descriptors and schema hashes have one source
+        run: python3 cmux-tui/scripts/test_check_sdk_single_source.py
 
       - name: Test deterministic SDK generator
         env:
@@ -573,7 +581,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'packages') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -826,7 +834,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'consumers') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -1058,7 +1066,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'rust-msrv') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1135,8 +1143,8 @@ jobs:
     # After merge (CI 10x, 2026-11-21: 1.57% of pull request runner-minutes, 0.05% of heads it alone caught): a
     # pull request runs it only when it changes the SDK and protocol inputs (sdk_inputs: bindings/, spec/, the
     # workspace manifests) or carries full-ci; every post-merge batch the graph reaches runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false')))) && (github.event_name != 'pull_request' || needs.contract.result == 'success' || needs.contract.result == 'skipped') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1164,8 +1172,13 @@ jobs:
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config cmake
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config cmake >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config cmake: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config cmake
+          fi
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1383,7 +1396,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'code-mode') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1408,8 +1421,13 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v bwrap >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y bubblewrap
+            # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+            if dpkg -s bubblewrap >/dev/null 2>&1; then
+              echo "bubblewrap: already installed"
+            else
+              sudo apt-get update
+              sudo apt-get install -y bubblewrap
+            fi
           fi
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
