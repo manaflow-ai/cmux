@@ -131,13 +131,14 @@ pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
 
 /// Runs one call.
 pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Value, Failure> {
-    // The GitHub App status and repository list send Authorization alone: their team is in the
-    // query. Connect GitHub names its team in the team header, as every op does.
+    // The GitHub App status, repository list and clone token send Authorization alone: their team
+    // is in the query or the body. Connect GitHub names its team in the team header, as every op
+    // does: `team` when given, else the request's.
     let http = match request.call.as_str() {
-        "owner.github_app" | "owner.github_repos" => {
+        "owner.github_app" | "owner.github_repos" | "owner.github_clone_token" => {
             Http::new(&Request { team: None, ..request.clone() })?
         }
-        "owner.github_connect" => {
+        "owner.github_connect" if request.args.contains_key("team") => {
             let team = owner::team_id(text(&request.args, "team")?)?;
             Http::new(&Request { team: Some(team.to_owned()), ..request.clone() })?
         }
@@ -208,7 +209,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 45] = [
+pub const CALLS: [&str; 48] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -241,6 +242,9 @@ pub const CALLS: [&str; 45] = [
     "owner.github_app",
     "owner.github_repos",
     "owner.github_connect",
+    "owner.github_complete",
+    "owner.github_list",
+    "owner.github_clone_token",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",
