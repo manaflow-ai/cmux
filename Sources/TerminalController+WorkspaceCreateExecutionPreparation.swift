@@ -184,7 +184,7 @@ extension TerminalController {
             if let caller = manager.tabs.first(where: { $0.id == callerID }) {
                 if v2HasNonNullParam(params, "surface_id") {
                     guard let surfaceID = v2UUID(params, "surface_id"),
-                          caller.panels[surfaceID] != nil || caller.containsDockPanel(surfaceID) else {
+                          caller.controlSurfaceTarget(for: surfaceID) != nil else {
                         return .failure(.err(
                             code: "not_found",
                             message: controlSurfaceNotFoundMessage(),
