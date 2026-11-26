@@ -748,7 +748,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false, false)
+        crate::dt!("summary_whole", self.summary_with_tools(session, false, false))
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -770,31 +770,40 @@ impl Hub {
         };
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
-        let m = session.meta();
-        let waiting = self.waiting_on(session);
-        let turn = session.turn();
+        let m = crate::dt!("meta", session.meta());
+        let waiting = crate::dt!("waiting_on", self.waiting_on(session));
+        let turn = crate::dt!("turn", session.turn());
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
         let notice = turn.as_ref().is_some_and(|t| t.notice);
-        let lineage = self.lineage_of(&m);
-        let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
+        let lineage = crate::dt!("lineage", self.lineage_of(&m));
+        let stall_after =
+            crate::dt!("stall_cfg", self.config.try_read().ok().and_then(|c| c.stalled_turn()));
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
-        let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let (retry, retry_deciding) =
+            crate::dt!("retry_row", self.retry_row(session, m.last_turn.as_ref()));
         let loop_episode = if m.status == SessionStatus::Closed
             || turn.as_ref().is_none_or(|current| {
-                session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                crate::dt!("stalled_counted", session.stalled_counted.lock())
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_deref()
                     != Some(current.turn_id.as_str())
             }) {
             None
         } else {
-            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+            crate::dt!("loop_detector", session.loop_detector.lock())
+                .unwrap_or_else(|e| e.into_inner())
+                .active()
+                .cloned()
         };
         // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
         // running turn and is reported separately as `loopEpisode`.
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
-            session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+            crate::dt!("stopping", session.stopping.lock())
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref()
                 == Some(t.turn_id.as_str())
         });
         let summary = SessionSummary {
@@ -843,8 +852,8 @@ impl Hub {
             parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
-            forks_any_turn: self.forks_any_turn(&m),
-            spawned_by: self.spawned_by(&m),
+            forks_any_turn: crate::dt!("forks_any_turn", self.forks_any_turn(&m)),
+            spawned_by: crate::dt!("spawned_by", self.spawned_by(&m)),
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
             spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
@@ -853,36 +862,36 @@ impl Hub {
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: lineage.as_ref().map_or(0, |l| l.depth),
-            children: self.subsessions.open_count(&m.id),
+            children: crate::dt!("open_count", self.subsessions.open_count(&m.id)),
             title: if with_tools { m.title.clone() } else { m.title.as_deref().map(summary_title) },
             title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
             approved_plan: m.approved_plan.clone(),
-            queued: session.queued(),
+            queued: crate::dt!("queued", session.queued()),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
             pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
-            working_below: self.holds_work_below_read(session),
+            working_below: crate::dt!("work_below", self.holds_work_below_read(session)),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
-            queue_paused: session.queue_paused(),
+            queue_paused: crate::dt!("queue_paused", session.queue_paused()),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
-            person_hold: self.person_hold(session),
+            person_hold: crate::dt!("person_hold", self.person_hold(session)),
             // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
             rate_limited_until: session.rate_hold.until(),
             // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
             rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
-            waits_for_slot: self.waits_for_slot(&m),
+            waits_for_slot: crate::dt!("waits_for_slot", self.waits_for_slot(&m)),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
             // session/new or session/load): the busy("starting") of `stop_if_idle.rs`. So is a
             // prompt's start that waits to be tried again (`start_retry.rs`).
             starting: session.spawn_lock.try_lock().is_err()
                 || session.start_retry_waits.load(Ordering::SeqCst),
             // A launch credential only this daemon's memory holds (`credentials.rs`).
-            credential_only_here: self.credential_only_here(session, &m),
+            credential_only_here: crate::dt!("cred", self.credential_only_here(session, &m)),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -911,8 +920,7 @@ impl Hub {
                 turn_seq: t.turn_seq,
                 activity: t.doing.activity,
             }),
-            queue: session
-                .queue()
+            queue: crate::dt!("queue", session.queue())
                 .into_iter()
                 .map(|q| QueuedPromptSummary {
                     prompt_id: q.prompt_id,
@@ -965,7 +973,7 @@ impl Hub {
                     .collect(),
                 })
                 .collect(),
-            pending_permissions: session.pending_permissions().len() as u64,
+            pending_permissions: crate::dt!("pending", session.pending_permissions().len() as u64),
             waiting_on: waiting.as_ref().map(|w| w.0.to_owned()),
             waiting_prompt: waiting.and_then(|w| w.1),
             // Since when it waits on the person (`lane`); null while it does not.
@@ -982,7 +990,7 @@ impl Hub {
             model: current_model(&m),
             effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
             policy: m.permission_policy.clone(),
-            enforcement: self.session_enforcement(&m),
+            enforcement: crate::dt!("enforcement", self.session_enforcement(&m)),
             rules: m.permission_rules.is_some(),
             // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
             tools: with_tools.then(|| m.tools.rows.iter().map(Into::into).collect()),
@@ -1013,18 +1021,18 @@ impl Hub {
             retry_deciding,
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
-            shown: self.shown(session),
+            shown: crate::dt!("shown", self.shown(session)),
             // Set from the summary's own fields by `decide`.
             indicator: None,
             lane: None,
             lifecycle_receipt: None,
             peer: None,
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
-            usage_stats: self.usage_stats_of(session, &m),
+            usage_stats: crate::dt!("usage_stats", self.usage_stats_of(session, &m)),
             // A detail/attach read seeds this lazily; census rows never scan journals.
             time_breakdown: match (with_tools, change_row) {
                 (false, _) => None,
-                (true, false) => self.cached_time_breakdown(session),
+                (true, false) => crate::dt!("time_bd", self.cached_time_breakdown(session)),
                 (true, true) => session
                     .time_breakdown
                     .lock()
@@ -1040,7 +1048,8 @@ impl Hub {
             m.agent_session_id.clone(),
             self.started_at,
         );
-        let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        let mut summary =
+            crate::dt!("to_value", serde_json::to_value(summary).unwrap_or(Value::Null));
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
         // Where its journal's own recovery at the end begins, while it ends the journal: the
@@ -1051,7 +1060,7 @@ impl Hub {
         }
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        summary.set("gitBranch", json!(crate::dt!("git_branch", self.git_branch_now(&m))));
         // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
@@ -1073,30 +1082,44 @@ impl Hub {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        summary.set(
+            "subagentsWorkingSince",
+            json!(crate::dt!("work_below_since", self.work_below_since(session))),
+        );
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
-        summary.set("heldMessages", super::native_messaging::held_messages(session));
+        summary.set(
+            "heldMessages",
+            crate::dt!("held_messages", super::native_messaging::held_messages(session)),
+        );
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
         // a message past its deadline red, from this field in one `ls` call.
-        let (overdue, due_at) = super::inbox::deadline_row(session);
+        let (overdue, due_at) = crate::dt!("deadline_row", super::inbox::deadline_row(session));
         summary.set("inboxOverdue", json!(overdue));
         summary.set("inboxDueAt", json!(due_at));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
-        let waiting = self.subsessions_waiting(session);
+        let waiting = crate::dt!("subs_waiting", self.subsessions_waiting(session));
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
         summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
         let turn_runs = summary.get("turn").is_some_and(Value::is_object);
-        let work = running_work(session, turn_runs, self.running_processes_read(session));
+        let work = crate::dt!(
+            "running_work",
+            running_work(
+                session,
+                turn_runs,
+                crate::dt!("procs_read", self.running_processes_read(session))
+            )
+        );
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         // Its latest subagents, live and finished, and how many it started: the sidebar nests them
         // under the chat's row (`subagents_recent.rs`; Leo 2026-11-19: "the nested sessions").
         // A chat that never started one carries neither key, so its row costs what it did.
         {
-            let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            let tree = crate::dt!("subagents", session.subagents.lock())
+                .unwrap_or_else(|e| e.into_inner());
             if tree.seen() > 0 {
                 summary.set("recentSubagents", json!(tree.recent(turn_runs)));
                 summary.set("subagentsSeen", json!(tree.seen()));
@@ -1105,7 +1128,7 @@ impl Hub {
         summary.set("commandsRunning", json!(work.commands));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
-        let host_build = host_build::live_host_build(session);
+        let host_build = crate::dt!("host_build", host_build::live_host_build(session));
         summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
         summary.set("hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
@@ -1123,7 +1146,8 @@ impl Hub {
             ),
         );
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
-        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let limits = *crate::dt!("usage_limits", self.usage_limits.lock())
+            .unwrap_or_else(|e| e.into_inner());
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
@@ -1200,6 +1224,7 @@ impl Hub {
     /// disk walk, held status, and every pane said "Waiting for the agent service" at once
     /// (Leo, 2026-11-12, ask-64cfa32e34).
     pub async fn status(&self) -> Value {
+        let d = crate::diag_timing::Span::new("status.cfg1");
         let loading = !self.store_loaded() || !self.startup_complete();
         let low = self
             .config
@@ -1210,8 +1235,12 @@ impl Hub {
         // Only the sessions that are not closed: a close ends a session's agent and its turn
         // before its status (`Hub::live_session_handles`), so the closed ones hold no agent and
         // none is stuck. Status costs the same beside 11k closed chats as beside none.
+        d.end_wall(0);
+        let d = crate::diag_timing::Span::new("status.sessions");
         let sessions = self.indexed_live_sessions();
         let (all, live_ids) = self.session_counts();
+        d.end(sessions.len() as u64);
+        let d = crate::diag_timing::Span::new("status.join");
         let (host_pressure, disk, agents) = tokio::join!(
             within_status_budget(async {
                 if loading { Value::Null } else { self.host_pressure_status().await }
@@ -1228,6 +1257,8 @@ impl Hub {
             }),
             within_status_budget(live_agents(&sessions)),
         );
+        d.end_wall(0);
+        let d = crate::diag_timing::Span::new("status.stuck");
         let (host_pressure, disk) =
             (host_pressure.unwrap_or(Value::Null), disk.unwrap_or(Value::Null));
         // Counts that missed the budget are null, never 0: readers take a missing count as busy
@@ -1237,7 +1268,7 @@ impl Hub {
         let stuck: Vec<Value> = sessions
             .iter()
             .filter_map(|s| {
-                let m = s.meta();
+                let m = crate::dt!("status_meta", s.meta());
                 let (reason, since, error) = (m.status != SessionStatus::Closed)
                     .then(|| m.harness_failures.stuck())
                     .flatten()?;
@@ -1246,8 +1277,11 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
+        d.end(0);
+        let d = crate::diag_timing::Span::new("status.cfg2");
         // Read after every wait above and held through no other.
         let cfg = self.config.read().await;
+        d.end_wall(0);
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
         let (now, evictions, rehydrations) = self.eviction_counts();

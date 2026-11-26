@@ -135,17 +135,25 @@ async fn whole_read(
     let raw = conn.raw_text;
     let text = {
         // A peer's page is masked, which parses it: one of a few at once (`parse_budget.rs`).
+        let d = crate::diag_timing::Span::new("ls.permit");
         let _parse = crate::parse_budget::permit().await;
-        within_limit(raw, LIST_PAGE_BYTES, |budget| {
+        d.end_wall(0);
+        let d = crate::diag_timing::Span::new("ls.build");
+        let built = within_limit(raw, LIST_PAGE_BYTES, |budget| {
             let text = hub.session_list_text(params, tools, own_only, budget)?;
             // `page_text` writes a page's cursor first.
             if own_only && text.starts_with("{\"nextCursor\"") {
                 return hub.session_list_text(params, tools, false, budget);
             }
             Ok(text)
-        })?
+        });
+        d.end(u64::from(raw));
+        built?
     };
-    send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
+    let d = crate::diag_timing::Span::new("ls.send");
+    let r = send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await;
+    d.end_wall(0);
+    r
 }
 
 fn with_tools(params: &Value) -> Result<bool, RpcError> {

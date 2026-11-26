@@ -375,10 +375,30 @@ impl Hub {
         own_only: bool,
         budget: usize,
     ) -> Result<String, RpcError> {
+        let d = crate::diag_timing::Span::new("ls.list_rows");
         let mut list = self.list_rows(excludes_closed(params), own_only);
+        d.end(list.rows().len() as u64);
         list.mark_top_level(self, params)?;
-        let text = |row: &Unbuilt| list.text(self, row, with_tools);
-        super::list_guard::bounded(list.rows(), text, params, budget)
+        let built = std::cell::Cell::new((0_u64, 0_u64, 0_u64, 0_u64));
+        let text = |row: &Unbuilt| {
+            let (w, c) = (std::time::Instant::now(), crate::diag_timing::thread_cpu_us());
+            let t = list.text(self, row, with_tools);
+            let (n, ws, cs, b) = built.get();
+            built.set((
+                n + 1,
+                ws + w.elapsed().as_micros() as u64,
+                cs + crate::diag_timing::thread_cpu_us().saturating_sub(c),
+                b + t.len() as u64,
+            ));
+            t
+        };
+        let d = crate::diag_timing::Span::new("ls.bounded");
+        let r = super::list_guard::bounded(list.rows(), text, params, budget);
+        let (n, ws, cs, b) = built.get();
+        d.end(n);
+        crate::diag_timing::line("ls.rows_text", ws, cs, n);
+        crate::diag_timing::line("ls.rows_bytes", 0, 0, b);
+        r
     }
 }
 
