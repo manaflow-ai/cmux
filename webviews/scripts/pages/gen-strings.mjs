@@ -212,6 +212,11 @@ export const PAGES = {
       },
       // Settings > Integrations > Connections: the shared connect card and All connections.
       { file: "webviews/src/pages/shared/connect/Localizable.xcstrings" },
+      {
+        // Settings > Accounts' GitHub CLI fallback, for hosts that predate the localized state fields.
+        file: `${sources}/CmuxNextAccounts/Resources/GitHubConnection.xcstrings`,
+        keys: (all) => all.filter((key) => ["github.cliSignIn", "github.cliSignInDetail"].includes(key)),
+      },
     ],
   },
   history: {
@@ -415,11 +420,6 @@ export const PAGES = {
   "chief-views": {
     out: "webviews/src/pages/chief-views/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
-  },
-  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
-  coderouter: {
-    out: "webviews/src/pages/coderouter/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
   },
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {

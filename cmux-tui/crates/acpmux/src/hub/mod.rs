@@ -39,6 +39,8 @@ pub(crate) mod audit_log;
 mod auto_background;
 // Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
 pub(crate) mod auto_evacuate;
+// A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
+mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
@@ -76,7 +78,9 @@ mod closed_tmp;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
+mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -124,7 +128,11 @@ pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
 mod git_watch;
-mod github_owner;
+// RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
+mod cache_alarm;
+// The dynamic CPU class's controller (`cpu_class/pressure.rs`).
+mod cpu_pressure;
+pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
@@ -147,6 +155,7 @@ mod host_level;
 #[cfg(test)]
 mod host_notice_tests;
 mod hosts;
+pub(crate) mod transcript_offload;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
 pub(crate) mod hub_health;
@@ -210,6 +219,7 @@ mod meta_save;
 mod model_alias;
 pub(crate) mod model_availability;
 mod model_hint;
+mod model_lists;
 mod model_options;
 mod model_probe;
 mod models_view;
@@ -234,6 +244,7 @@ pub(crate) mod outbox_stats;
 mod own_host;
 #[cfg(test)]
 mod owned_scope_bench_tests;
+pub(crate) mod owner_return;
 mod page_first;
 pub(crate) mod page_replies;
 mod paging;
@@ -251,6 +262,7 @@ mod peer_flap_soak;
 mod peer_grace;
 #[cfg(test)]
 mod peer_grace_tests;
+mod peer_idle;
 mod peer_lease;
 #[cfg(test)]
 mod peer_notice_cost_tests;
@@ -268,6 +280,7 @@ mod person_prompt_at;
 mod personal_stats;
 #[cfg(test)]
 mod phone_floor_tests;
+mod place_migrate;
 pub mod plan_build;
 mod policy_gate;
 mod policy_mode;
@@ -275,7 +288,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
-mod prefetch;
+pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
 mod profile_respawn;
@@ -299,6 +312,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod queue_origin;
+mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
 mod rediscover;
@@ -391,13 +405,16 @@ mod subsession_send;
 pub mod subsessions;
 mod successors;
 mod surge_triage;
+mod urgent_steer;
+// A task's spend burn-rate warnings during its turn.
+mod spend_burn;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
+mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
 mod tap;
-pub(crate) mod task_list;
 mod task_names;
 pub(crate) mod tasks;
 mod team_information;
@@ -491,8 +508,10 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+pub(crate) use auto_give::TurnStop;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use bg_tasks::{BgScope, bg_owner_words};
+pub use cloud_offload::HistoryOffloadRequest;
 pub(crate) use cold_archive::COLD_CHANGED;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
@@ -500,6 +519,7 @@ pub use file_uploads::window as file_put_window;
 pub use fork::Retarget;
 pub(crate) use fork::offers_fork;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use history_delete::HistoryDeleteRequest;
 pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
@@ -525,6 +545,7 @@ pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
+pub use transcript_offload::TranscriptOffloadRequest;
 /// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
 pub fn prompt_attribution_lead(block: &Value) -> bool {
     prompt_attribution::is_lead(block)
@@ -552,11 +573,6 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
-/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
-/// characters (`task_list.rs`'s steps).
-pub(crate) fn masked_step(s: &str, max: usize) -> String {
-    session::masked_preview(s, max)
-}
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -1047,12 +1063,7 @@ pub(super) struct StreamState {
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
-    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
-    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
-    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
-    pub(super) plan_turn: Option<String>,
-    pub(super) plan_shown: bool,
-    /// This turn's agent thought, planned or called a tool (`stream.rs`), and how much reply
+    /// This turn's agent thought or called a tool (`stream.rs`), and how much reply
     /// text it streamed (`after_agent_update`): what `unstored_turn_worked` reads.
     pub(super) agent_worked: bool,
     pub(super) reply_chars: usize,
@@ -1100,6 +1111,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
+    /// The live sessions' last rendered rows, reused while their inputs are equal (`live_rows.rs`).
+    pub(super) live_row_cache: StdMutex<live_rows::LiveRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
     pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
@@ -1113,6 +1126,9 @@ pub struct Hub {
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Live rows rendered because their inputs moved or none were kept (tests).
+    #[cfg(test)]
+    pub(super) live_row_renders: AtomicU64,
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
     pub(crate) summaries_built: AtomicU64,
@@ -1178,6 +1194,7 @@ pub struct Hub {
     /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
     /// lock and never holds up a writer; writers (peer notices, purges) take turns.
     pub(super) remote_sessions: remote_table::RemoteTable,
+    pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
@@ -1228,6 +1245,8 @@ pub struct Hub {
     /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
     /// swaps the configured rules for the defaults (`usage_warnings.rs`).
     pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
+    /// Names in the active page rule. Inbox admission can read them while config is being written.
+    page_rule_sessions: StdMutex<HashSet<String>>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// Agent byte channels: listeners and open channels (`server/channels.rs`).
@@ -1257,29 +1276,30 @@ pub struct Hub {
     /// `SAVE_EVERY_MS` in tests that wait for a put-off save (`peer_cache.rs`).
     #[cfg(test)]
     pub(super) cache_test_save_every_ms: AtomicU64,
-    /// Models each agent has advertised, keyed by agent profile name. Filled
-    /// whenever a session starts, so the picker can list a harness that has
-    /// no live session.
-    pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// Every harness's model lists, ACP and live, in one tagged cache (`hub/model_lists.rs`):
+    /// the ACP lists agents advertise (a session start, a probe) and the lists of Claude Code's
+    /// and Codex's own CLIs (`hub/live_models.rs`, richer: efforts, fast). A refresh, a profile
+    /// change or a CLI update marks lists stale; a stale list is served until its probe answers.
+    pub(super) model_lists: model_lists::ModelLists,
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
-    /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
+    /// `model_lists`, stale, for a profile with the same key until its probe answers
+    /// (`model_probe.rs`).
     pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
-    /// The harnesses whose `known_models` entry is that disk copy, not a report of this
-    /// daemon's: the probe still runs for them.
-    pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
     /// What each ACP harness's startup probe's `session/new` answered about a new chat's choices,
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
     pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
-    /// Model lists from Claude Code's and Codex's own CLIs, by profile name
-    /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
-    pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
+    /// Each agent's reasoning levels per model, from the level variants its model list names
+    /// (`model_catalog::variant_efforts`): the `efforts` of its rows in `_acpmux/models`.
+    pub(super) known_efforts: StdMutex<HashMap<String, HashMap<String, Vec<String>>>>,
     /// The model ids Codex chats reported that each live list lacked, by profile name, each
     /// already probed again for once (`recheck_live_models`).
     pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
     /// When each live list's probe last started (`hub/live_ages.rs`): a read probes an old one again.
     pub(super) live_ages: StdMutex<live_ages::LiveAges>,
+    /// A check of the live lists' programs is running (`revalidate_live_models`): one at a time.
+    pub(super) live_binary_check: std::sync::atomic::AtomicBool,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -1519,6 +1539,8 @@ pub struct Hub {
     pub(super) settings_changes: tokio::sync::watch::Sender<u64>,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
+    /// Whether `dynamic` sessions yield the CPU now (`cpu_pressure.rs`).
+    pub(super) cpu_pressure: StdMutex<crate::cpu_class::pressure::Controller>,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
     pub chatgpt: Arc<crate::chatgpt::Service>,
@@ -1602,6 +1624,10 @@ pub struct Hub {
     /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
     /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
     pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// The running relay's heartbeat on demand, so a chat moved here is in the hub's address
+    /// book before its move answers (`transfer_pull.rs` `list_on_mesh_now`); dangling
+    /// once the relay's loops end.
+    pub(crate) mesh_beat: StdMutex<std::sync::Weak<crate::server::mesh_relay::Beat>>,
     /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
     /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
     /// reads the join's state on disk once it holds it, so none acts on what another changed.
@@ -1727,6 +1753,8 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
+        let page_rule_sessions =
+            StdMutex::new(inbox::page_rule::session_names(config.page_rule.as_ref()));
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let peer_wake = Arc::new(StdMutex::new(config.peer_wake.as_ref().map(|w| w.argv.clone())));
         #[cfg(feature = "hub-carrier")]
@@ -1736,6 +1764,7 @@ impl Hub {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
+            page_rule_sessions,
             wireguard,
             #[cfg(feature = "hub-carrier")]
             hub_carrier,
@@ -1755,6 +1784,7 @@ impl Hub {
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
+            live_row_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
             book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
@@ -1762,6 +1792,8 @@ impl Hub {
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            live_row_renders: AtomicU64::new(0),
             #[cfg(test)]
             summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
@@ -1789,6 +1821,7 @@ impl Hub {
             started_at: now_ms(),
             peers: Default::default(),
             remote_sessions: Default::default(),
+            pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
@@ -1829,13 +1862,13 @@ impl Hub {
             peer_cache_kick: Notify::new(),
             #[cfg(test)]
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
-            known_models: StdMutex::new(HashMap::new()),
+            model_lists: model_lists::ModelLists::default(),
             acp_cached: StdMutex::new(HashMap::new()),
-            acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
-            live_models: StdMutex::new(HashMap::new()),
+            known_efforts: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
+            live_binary_check: std::sync::atomic::AtomicBool::new(false),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             local_ready: tokio::sync::watch::channel(start_peers).0,
@@ -1955,6 +1988,7 @@ impl Hub {
             settings_watch: Default::default(),
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
+            cpu_pressure: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             claude_token: Arc::new(crate::claude_token::Service::default()),
@@ -1997,6 +2031,7 @@ impl Hub {
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
+            mesh_beat: Default::default(),
             join_transition: Default::default(),
             join_start: Default::default(),
             watches: Default::default(),
@@ -2612,6 +2647,7 @@ impl Hub {
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
+            queued_prompt: StdMutex::new(Default::default()),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
@@ -2620,6 +2656,7 @@ impl Hub {
             inbox_load: StdMutex::new(()),
             hub_ref: std::sync::OnceLock::new(),
             last_active: AtomicU64::new(self.clock_now()),
+            evict_tried_at: AtomicU64::new(0),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -2631,6 +2668,7 @@ impl Hub {
             subagents: Default::default(),
             fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
+            awaiting_reply: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),
             background_turns: Default::default(),
@@ -3147,10 +3185,6 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
-        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
-        if dir == "mux" && kind == "user_message" {
-            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
-        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
@@ -3621,14 +3655,19 @@ impl Hub {
     /// The daemon calls it after metadata loads and before startup releases spawns.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let mut metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        let mut metas: Vec<(String, SessionStatus)> = self
+            .sessions()
+            .iter()
+            .map(|session| session.read_meta(|m| (m.id.clone(), m.status)))
+            .collect();
         // An evicted chat keeps its folder as it did in memory (`evict.rs`).
-        metas.extend(self.evicted.rows().iter().map(|row| row.meta.clone()));
-        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
+        metas.extend(self.evicted.rows().iter().map(|row| (row.keys.id.clone(), row.keys.status)));
+        let known: std::collections::HashSet<&str> =
+            metas.iter().map(|(id, _)| id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()
-            .filter(|m| m.status == SessionStatus::Closed)
-            .map(|m| m.id.as_str())
+            .filter(|(_, status)| *status == SessionStatus::Closed)
+            .map(|(id, _)| id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
         let stored = |id: &str| {
