@@ -25,8 +25,11 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). It starts from a cleared
-// environment, so the bench's knobs are kept by name or every run takes the defaults.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+// environment, so the bench's knobs are kept by name or every run takes the defaults. Every
+// NETCOND_ name this file reads is here: `every_bench_knob_survives_the_hermetic_restart` fails
+// on one that is not (the send and attach knobs were missing, so `attach_bytes=286107` still
+// sent 5 MiB and `n=20 send_rows=idle,lte,duress` still ran 25 sends on five rows).
+const KEPT: &[&str] = &[
     "NETCOND_PROFILES",
     "NETCOND_PROFILES_FILE",
     "NETCOND_RELAY",
@@ -37,11 +40,46 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_BW_TURNS",
     "NETCOND_BW_SECS",
     "NETCOND_BW_APPS",
+    "NETCOND_DELTA_TURNS",
+    "NETCOND_SENDS",
+    "NETCOND_SEND_ROWS",
+    "NETCOND_SEND_BLACKOUT_MS",
+    "NETCOND_SEND_BOUND_S",
+    "NETCOND_ATTACH_SENDS",
+    "NETCOND_ATTACH_BYTES",
+    "NETCOND_ATTACH_ROWS",
     "NETCOND_AWAY",
     "NETCOND_LOADS",
     "NETCOND_CHAT_MAX_TURNS",
     "NETCOND_DEBUG",
-]);
+];
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(KEPT);
+
+/// The process restarts itself with a cleared environment (`daemon_env::enter`), keeping only
+/// `KEPT`: a knob read here but not kept silently takes its default in every run.
+#[test]
+fn every_bench_knob_survives_the_hermetic_restart() {
+    let _ = HERMETIC;
+    let source = include_str!("mobile_link_conditions.rs");
+    let quote = '"';
+    let needle = format!("{quote}NETCOND_");
+    let mut missing = Vec::new();
+    for (at, _) in source.match_indices(needle.as_str()) {
+        let rest = &source[at + 1..];
+        let len = rest.find(|c: char| !c.is_ascii_uppercase() && c != '_').unwrap_or(rest.len());
+        let name = &rest[..len];
+        let whole = name.len() > "NETCOND_".len() && rest[len..].starts_with(quote);
+        if whole && !KEPT.contains(&name) {
+            missing.push(name.to_owned());
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "read but not kept across the hermetic restart, add to KEPT: {missing:?}"
+    );
+}
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
