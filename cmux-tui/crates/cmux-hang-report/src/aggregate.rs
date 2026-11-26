@@ -50,9 +50,9 @@ impl StallAggregate {
 
     pub fn keep(&mut self, sample: HangSample) {
         if sample.kind == Kind::Hang {
-            insert(sample, &mut self.hangs)
+            insert(sample, &mut self.hangs);
         } else {
-            insert(sample, &mut self.stalls)
+            insert(sample, &mut self.stalls);
         }
     }
 
