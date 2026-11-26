@@ -43,6 +43,7 @@ WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps  # noqa: E402
 from test_seed_derived_data import evaluate  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -1608,7 +1609,7 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         # the grace 120).
         script = (ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh").read_text()
         hold = int(re.search(r'pending_max_min="\$\{REPIN_PENDING_MAX_MIN:-(\d+)\}"', script).group(1))
-        checks = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        checks = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         grace = int(re.search(r"check-app-ffi-pin\.sh --verify-release --stale-grace (\d+)", checks).group(1)) // 60
         build = int(self.jobs["build"]["timeout-minutes"])
         self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
