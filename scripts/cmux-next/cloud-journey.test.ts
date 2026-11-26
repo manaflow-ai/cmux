@@ -14,12 +14,25 @@ import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbe
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
+import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("a missed idle pause names what held the machine", async () => {
+    const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
+    expect(await idleHeldBy(api({ status: "running", last_active_at: null, idle_policy: { idle_seconds: 120 } }), "vm_x", 1_000_000))
+      .toBe("idle clock not running (last_active_at null: no report speaks for its activity); idle policy 120 s");
+    expect(await idleHeldBy(api({ status: "running", last_active_at: 940_000, idle_policy: { idle_seconds: 120 }, activity: { active_sessions: 1 } }), "vm_x", 1_000_000))
+      .toBe('idle clock started 60 s ago; idle policy 120 s; activity {"active_sessions":1}');
+    expect(await idleHeldBy(api({ status: "running", last_active_at: 1_000_000, idle_policy: { idle_seconds: 120 }, idle_kept: { why: "workload", running_s: 900, report_age_s: 20, daemon: "1.0.0", workload: { busy: 0, listening: 1, ports: [5173] } } }), "vm_x", 1_000_000))
+      .toBe('idle clock started 0 s ago; idle policy 120 s; kept by {"why":"workload","workload":{"busy":0,"listening":1,"ports":[5173]}}');
+    const failing = { read: async () => { throw new Error("HTTP 503"); } } as unknown as Api;
+    expect(await idleHeldBy(failing, "vm_x")).toBe("idle facts unreadable: HTTP 503");
+  });
+
   test("parses claimed reserved-home markers", () => {
     expect(parseClaimedMarkers(".claimed-surface-2\nnoise\n.claimed-surface-1\n.claimed-surface-2\n")).toEqual([".claimed-surface-1", ".claimed-surface-2"]);
     expect(parseClaimedMarkers("\nno marker\n")).toEqual([]);
@@ -51,6 +64,19 @@ describe("cloud journey", () => {
     await expect(sessionModelVerdict(fake(line("claude-haiku-5-5") + line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("claude-sonnet-5-5");
     await expect(sessionModelVerdict(fake("").exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("names no model");
     await expect(sessionModelVerdict(fake("", '{"model":"claude-haiku-5-5"}').exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("no agentSessionId");
+  });
+
+  test("the default idle walk waits out the machine's own policy, not 900 s", async () => {
+    const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
+    expect(await machineIdleSeconds(api({ idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(1800);
+    expect(await machineIdleSeconds(api({ idle_seconds: 120 }), "vm_x")).toBe(120);
+    expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
+    expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
+    expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
+    // A record with both fields: the top-level idle_seconds wins.
+    expect(await machineIdleSeconds(api({ idle_seconds: 120, idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(120);
+    // No policy fails at once instead of waiting out the 24 h backstop.
+    expect(() => idlePauseDeadlineMs(null, 600)).toThrow(/names no idle policy/);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -674,6 +700,18 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
   });
 
+  test("takes the Auto mode journey's leftovers (auto journey aj-<tag>), by the same age and name rules", () => {
+    const now = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    const ids = staleJourneyMachines([
+      { id: "vm_aj_old", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)}`, status: "running" },
+      { id: "vm_aj_young", name: `auto journey ${aj(now - STALE_JOURNEY_MS + 60_000)}`, status: "running" },
+      { id: "vm_aj_suffix", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)} kept`, status: "paused" },
+      { id: "vm_aj_person", name: "my auto journey", status: "paused" },
+    ], now).map((m) => m.id);
+    expect(ids).toEqual(["vm_aj_old"]);
+  });
+
   test("reads every page of the machine list", async () => {
     const pages: Record<string, any> = {
       "": { machines: [{ id: "a" }], next_cursor: "c1" },
@@ -708,6 +746,16 @@ describe("cloud journey: leaked install sweep", () => {
       inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
       inst("i_nottime", "cloud journey jr-zz"),
     ], now)).toEqual(["i_old"]);
+  });
+
+  test("takes the Auto mode journey's live cli install (auto journey aj-<tag>) once it is older than any run", () => {
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    expect(staleJourneyInstalls([
+      inst("i_aj_old", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`),
+      inst("i_aj_young", `auto journey ${aj(now - LONG_JOURNEY_MS + 60_000)}`),
+      inst("i_aj_revoked", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`, { revoked_at: now - 1000 }),
+      inst("i_aj_jr", `auto journey ${old}`),
+    ], now)).toEqual(["i_aj_old"]);
   });
 
   test("a malformed list row is skipped, never thrown on", () => {
@@ -935,6 +983,27 @@ describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
       await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "tag-start")).rejects.toThrow("owner.unreachable");
       expect(sent.length).toBe(2);
     });
+  });
+
+  test("op() asks a keyed op again under its key after the client timeout, and an unkeyed op not at all", async () => {
+    const real = globalThis.fetch;
+    const sent: any[] = [];
+    // The first request never answers in time (what AbortSignal.timeout throws); the next answers.
+    globalThis.fetch = (async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      if (sent.length === 1) throw new DOMException("The operation timed out.", "TimeoutError");
+      return new Response(JSON.stringify(ok.body), { status: 200 });
+    }) as typeof fetch;
+    try {
+      expect(await api().op("cloud.machine.create", { name: "n" }, "tag-parent-1")).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+      sent.length = 0;
+      await expect(api().op("cloud.machine.create", { name: "n" })).rejects.toThrow("timed out");
+      expect(sent.length).toBe(1);
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 
   test("no retry on other codes, on owner.unreachable not marked retryable, or on an op without a key", async () => {
@@ -3503,5 +3572,18 @@ describe("send trace after the first token", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("requestTimedOut", () => {
+  test("is a client timeout, so a keyed op is asked again under its key", () => {
+    expect(requestTimedOut(new DOMException("The operation timed out.", "TimeoutError"))).toBe(true);
+    expect(requestTimedOut(new Error("The operation timed out."))).toBe(true);
+    expect(requestTimedOut(new Error("wrapped", { cause: new DOMException("x", "TimeoutError") }))).toBe(true);
+  });
+  test("is not any other failure", () => {
+    expect(requestTimedOut(new DOMException("aborted", "AbortError"))).toBe(false);
+    expect(requestTimedOut(Object.assign(new Error("reset"), { code: "ECONNRESET" }))).toBe(false);
+    expect(requestTimedOut(undefined)).toBe(false);
   });
 });

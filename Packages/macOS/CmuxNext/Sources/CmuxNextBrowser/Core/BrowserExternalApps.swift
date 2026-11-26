@@ -75,6 +75,36 @@ public final class BrowserExternalApps {
         return true
     }
 
+    /// An own-scheme link that returns from a flow the app opened a tab for (Settings > Connections'
+    /// `<scheme>://settings/integrations`): handed off without a prompt only from that tab
+    /// (``noteFlowPage(_:)``), which then closes.
+    public var isFlowReturn: (@MainActor (URL) -> Bool)?
+    /// Pages the app opened a tab for to run a flow (the cmux sign-in, a connection's authorize page),
+    /// newest last. A vendor's page need not look like a ``SignInPage``, so the tab is known by the
+    /// address it was opened at, not guessed from it.
+    private var flowPages: [String] = []
+    private static let flowPageLimit = 16
+
+    /// Records that the app is opening a tab at `url` for a flow whose return hands back to the app,
+    /// so that tab's return goes straight to the app and the tab closes (``openOwn``).
+    public func noteFlowPage(_ url: URL) {
+        flowPages.removeAll { $0 == url.absoluteString }
+        flowPages.append(url.absoluteString)
+        if flowPages.count > Self.flowPageLimit { flowPages.removeFirst(flowPages.count - Self.flowPageLimit) }
+    }
+
+    /// Whether a tab that first loaded `requested` (and first showed `first`) was opened for a flow.
+    func startedFlow(first: URL?, requested: URL?) -> Bool {
+        if closesHandoffTab?(first) == true || closesHandoffTab?(requested) == true { return true }
+        return [first, requested].contains { page in page.map { flowPages.contains($0.absoluteString) } ?? false }
+    }
+
+    /// Forgets a flow's page once its tab handed back (a later tab at the same address is a new flow).
+    private func endFlow(first: URL?, requested: URL?) {
+        let ended = Set([first, requested].compactMap { $0?.absoluteString })
+        flowPages.removeAll { ended.contains($0) }
+    }
+
     init(defaults: UserDefaults = .standard, ownSchemes: Set<String>? = nil) {
         self.defaults = defaults
         self.ownSchemes = ownSchemes ?? Self.schemes(in: Bundle.main.infoDictionary)
@@ -88,13 +118,17 @@ public final class BrowserExternalApps {
 
     /// Hands a link in this app's own scheme to the app itself. False: not
     /// ours (or no route installed), the caller goes on to Launch Services.
-    func openOwn(_ url: URL, from page: URL?, firstPage: URL?, userGesture: Bool,
+    func openOwn(_ url: URL, from page: URL?, firstPage: URL?, requestedPage: URL? = nil, userGesture: Bool,
                  ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void,
                  close: (() -> Void)?) -> Bool {
         guard let scheme = url.scheme?.lowercased(), ownSchemes.contains(scheme), let route = openOwnURL else { return false }
-        if isOwnHandoff?(url) == true {
+        let flowTab = startedFlow(first: firstPage, requested: requestedPage)
+        if isOwnHandoff?(url) == true || (flowTab && isFlowReturn?(url) == true) {
             route(url)
-            if closesHandoffTab?(firstPage) == true { close?() }
+            if flowTab {
+                endFlow(first: firstPage, requested: requestedPage)
+                close?()
+            }
             return true
         }
         let site = userGesture ? page.flatMap(PageInfoSite.origin(of:)) ?? "" : ""
@@ -123,9 +157,9 @@ public final class BrowserExternalApps {
     /// `firstPage`: the first page of the tab's history; `close` closes the
     /// tab (both for an own-scheme handoff, ``openOwn``).
     func open(_ url: URL, from page: URL?, engine: BrowserEngineKind = .webkit, userGesture: Bool, firstPage: URL? = nil,
-              close: (() -> Void)? = nil,
+              requestedPage: URL? = nil, close: (() -> Void)? = nil,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
-        if openOwn(url, from: page, firstPage: firstPage, userGesture: userGesture, ask: ask, close: close) { return }
+        if openOwn(url, from: page, firstPage: firstPage, requestedPage: requestedPage, userGesture: userGesture, ask: ask, close: close) { return }
         guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         // A non-gesture navigation can be a redirect whose source is the
         // previously committed page, so it cannot safely inherit that site's

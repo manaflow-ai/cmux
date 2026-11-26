@@ -66,6 +66,9 @@ on:
       - ".github/workflows/cmux-next-ios-kit.yml"
       - "scripts/ci/ios_app_package_paths.py"
       - "scripts/ci/ios_link_ffi_key.py"
+      # The pool phone's runner for the kit's simulator tests (the sim-linux steps run it at this commit).
+      - "scripts/ci/ios-sim-linux-test.sh"
+      - "scripts/ci/ios_sim_logic_xctestrun.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
@@ -132,6 +135,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
             scripts/ci/same_tree_reuse.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -282,7 +286,7 @@ jobs:
     needs: runner
     if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
     permissions:
       contents: read
@@ -600,13 +604,19 @@ jobs:
       # that bound wall-clock time or the process footprint: among 2580 parallel tests in one process
       # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
       # on base runs 45081481908 and 45081946888), each run a different one.
+      # Every test step runs after a red step (`!cancelled()`), so a red Connection notices lint, which reads
+      # webviews/ as well, never skips the kit tests: from 2026-11-25 a web-only finding (GitHubConnectCard.tsx)
+      # skipped every base run's tests, so the kit's own reds went unseen. The job stays red from the step that
+      # failed (tests/test_ios_kit_bench_runs_after_red_step.py).
       - name: swift test (macOS)
+        if: ${{ !cancelled() }}
       # CmuxMobileAuthTests, CmuxMobileDesignCoreTests, CmuxMobileModelTests, CmuxMobileNotificationsTests, CmuxMobileRealtimeTests and
       # CmuxMobileTransportTests run on Linux (swift-linux-packages.yml, group ios-kit); the simulator run below skips Realtime and Transport
       # too, and keeps Model for the one test Linux disables and Notifications for its UserNotifications tests.
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests --skip CmuxMobileAuthTests --skip CmuxMobileDesignCoreTests --skip CmuxMobileModelTests --skip CmuxMobileNotificationsTests --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests
 
       - name: swift test (macOS, measured suites alone)
+        if: ${{ !cancelled() }}
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
 
 
@@ -618,7 +628,7 @@ jobs:
         # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
         # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
         # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (vars.CMUX_IOS_SIM_LINUX || 'shadow') != 'on' }}
+        if: ${{ !cancelled() && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (vars.CMUX_IOS_SIM_LINUX || 'shadow') != 'on' }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
@@ -698,7 +708,7 @@ jobs:
       # With the pool as the check ("on"), this Mac runs the simulator tests only when the pool gave no verdict.
       - name: xcodebuild test (iOS simulator, Mac fallback)
         id: ios-sim-fallback
-        if: ${{ (vars.CMUX_IOS_SIM_LINUX || 'shadow') == 'on' && steps.sim-linux.outputs.verdict == 'none' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
+        if: ${{ !cancelled() && (vars.CMUX_IOS_SIM_LINUX || 'shadow') == 'on' && steps.sim-linux.outputs.verdict == 'none' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
@@ -865,12 +875,23 @@ jobs:
           ATTEMPT: ${{ github.run_attempt }}
           REPO: ${{ github.repository }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           # One jobs read a minute: the upload step's outcome, or the kit job's end without one.
+          # curl and python3, not gh: this job has no checkout, and the first base run (45594390658)
+          # died on its first gh read with no output. A failed read is logged and retried, never fatal.
           for _ in $(seq 1 50); do
-            state="$(gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=50" --jq '
-              .jobs[] | select(.name | startswith("CmuxMobileKit tests")) |
-              ((.steps[]? | select(.name == "Upload the iOS simulator test build") | "\(.status)/\(.conclusion)") // "none/none") + " " + .status' 2>/dev/null | head -1)"
+            state="$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=50" |
+              python3 -c '
+          import json, sys
+          for job in json.load(sys.stdin).get("jobs", []):
+              if job["name"].startswith("CmuxMobileKit tests"):
+                  step = next((s for s in job.get("steps") or [] if s["name"] == "Upload the iOS simulator test build"), None)
+                  print("%s/%s" % (step["status"], step["conclusion"]) if step else "none/none", job["status"])
+                  break
+          else:
+              print("absent")')"
+            [ -n "$state" ] || state="read-failed"
             echo "$(date -u +%H:%M:%S) $state"
             case "$state" in
               completed/success*) echo "uploaded=true" >> "$GITHUB_OUTPUT"; exit 0 ;;

@@ -222,7 +222,8 @@ function tmpLeftovers(dirs: readonly string[]): string {
  * The last step before snapshot-ready: anything under /tmp or /var/tmp now was written after clean and tmp-empty
  * (image roll 42888042827: /tmp/opencode), and would ship in every clone. Fail, naming the writer: for each
  * leftover its owner and mtime, the processes that hold it open (fuser, /proc/<pid>/fd) or name it on their
- * command line, then every process of the daemon user. `dirs` is for tests.
+ * command line, then every process of the daemon user, and the leftovers' names again on the last line. psmisc's
+ * fuser takes no `--` (it printed its usage for every leftover in roll 45608292358). `dirs` is for tests.
  */
 export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]): string {
   const script = [
@@ -230,7 +231,7 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     'if [ -z "$left" ]; then echo tmp-no-writer; exit 0; fi',
     'printf \'%s\\n\' "$left" | while IFS= read -r p; do',
     '  echo "written after clean: $p $(stat -c \'owner=%U:%G mtime=%y\' -- "$p" 2>&1)"',
-    '  if command -v fuser >/dev/null 2>&1; then fuser -v -- "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
+    '  if command -v fuser >/dev/null 2>&1; then fuser -v "$p" 2>&1 | sed \'s/^/  fuser: /\'; fi',
     '  for fd in /proc/[0-9]*/fd/*; do',
     '    t="$(readlink "$fd" 2>/dev/null)" || continue',
     '    case "$t" in "$p"|"$p"/*) pid="${fd#/proc/}"; pid="${pid%%/*}"; [ "$pid" = "$$" ] || echo "  open by pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)";; esac',
@@ -243,7 +244,8 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     "done",
     'echo "processes of $CMUX_TUI_USER:"',
     'ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" 2>&1 | sed \'s/^/  /\'',
-    'echo "files under /tmp or /var/tmp were written after clean (see above)" >&2',
+    // Last, so the step log's 3000-character tail always keeps the names (image roll 45608292358 lost them).
+    'echo "files under /tmp or /var/tmp were written after clean: $(printf \'%s \' $left)(writers above)" >&2',
     "exit 1",
   ].join("\n");
   return `${cmuxTuiLayoutSelector()} && { ${script}\n} 2>&1`;
@@ -1036,7 +1038,7 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
 async function installGraduated(ctx: Ctx): Promise<void> {
   const g = readGraduated();
   if (g.apt.length + g.npm.length === 0) return;
-  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 540_000)).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
@@ -1109,6 +1111,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
+  await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand());
 }
 
 /**
@@ -1151,6 +1154,32 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
     `i=0; while [ "$i" -lt ${limitSeconds} ] && [ ! -s "$health" ]; do i=$((i + 1)); sleep 1; done`,
     `if [ ! -s "$health" ]; then echo "acpmux's harness check did not finish in ${limitSeconds}s (no $health); its processes:" >&2; ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" >&2; exit 1; fi`,
     'echo "acpmux-harness-checks-done after ${i}s"',
+  ].join(" && ");
+}
+
+/**
+ * harness-health.json marks the end of the `--version` and sign-in checks, not of the model probes the same start
+ * runs (hub/model_probe.rs for the ACP harnesses, hub/live_models.rs for Claude and Codex): each spawns its CLI,
+ * which writes under /tmp (/tmp/opencode, /tmp/claude-<uid>, /tmp/cursor-agent-logs-<uid>), for up to 60 s before
+ * acpmux kills it. A probe still running at clean writes again after tmp-empty and fails tmp-no-writer. Every probe
+ * runs in `<acpmux home>/unattended` (protected_folders.rs unattended_cwd), so wait until no process of the daemon
+ * user has its cwd there. On timeout, name the probes still running. `unattended` is for tests.
+ */
+export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
+  const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
+  // One find over /proc (a readlink per process forks hundreds of times); -lname matches the cwd link's target.
+  const probes = [
+    'find /proc -mindepth 2 -maxdepth 2 -name cwd \\( -lname "$dir" -o -lname "$dir/*" \\) 2>/dev/null | while IFS= read -r c; do',
+    '  pid="${c#/proc/}"; pid="${pid%%/*}"; echo "  probe pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)"',
+    "done",
+  ].join("\n");
+  return [
+    ...(unattended === undefined ? [cmuxTuiLayoutSelector(), 'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-probes-no-service; exit 0; fi'] : []),
+    `dir=${dir}`,
+    `probes() {\n${probes}\n}`,
+    `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
+    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes still run after ${limitSeconds}s:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
+    'echo "acpmux-probes-quiet after ${i}s"',
   ].join(" && ");
 }
 

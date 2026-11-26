@@ -143,6 +143,7 @@ pub(super) fn create_workspace(
     name: Option<String>,
     key: Option<String>,
     first_tab: Option<frontend_browser_history::FirstTabParams>,
+    explicit_name: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -160,6 +161,7 @@ pub(super) fn create_workspace(
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,
+        explicit_name,
     )?;
     // `workspace-first-tab-v1`: the first tab in the same request. A replayed
     // create replays a keyed tab and makes no second unkeyed one; a tab that

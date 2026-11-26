@@ -78,4 +78,13 @@ import Testing
         _ = try await page.call(SettingsConnections.runOp, params: ["action": "remove", "id": "mcs_1"], context: Self.click)
         #expect(recorder.calls.contains(["mcp-servers", "remove", "mcs_1", "--json"]))
     }
+
+    /// The return link a provider's sign-in sends back is this page's settings link and nothing else.
+    @Test func theReturnLinkIsThisPagesSettingsLink() {
+        #expect(SettingsConnections.isReturn(URL(string: "cmux://settings/integrations")!))
+        #expect(SettingsConnections.isReturn(URL(string: "cmux-nightly://settings/connections")!))
+        #expect(SettingsConnections.isReturn(URL(string: "cmux-dev://settings/integrations?connected=linear")!))
+        #expect(!SettingsConnections.isReturn(URL(string: "cmux://settings/account")!))
+        #expect(!SettingsConnections.isReturn(URL(string: "cmux://auth-callback?stack_refresh=r")!))
+    }
 }

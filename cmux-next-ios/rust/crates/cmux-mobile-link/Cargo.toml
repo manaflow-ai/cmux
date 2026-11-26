@@ -22,8 +22,10 @@ async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true
 cmux-braid-carrier.workspace = true
+cmux-braid-class.workspace = true
 cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
+cmux-bundle.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 # The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
@@ -42,6 +44,10 @@ p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 reqwest.workspace = true
 rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
+# The OS trust store for the link's own TLS (signaling, `/v1/ice`, TURN over TLS): the Apple
+# Security framework on iOS and macOS, so a root an MDM profile installed (a company network that
+# inspects TLS) is trusted like Safari trusts it (src/egress/tls.rs).
+rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 # The local ad's key tag (local.rs); already in the graph.
@@ -57,14 +63,24 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 tokio-tungstenite.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+url.workspace = true
 uuid.workspace = true
 webpki-roots = "1"
 webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# The system's proxy settings (manual, PAC, WPAD, MDM) through CFNetwork (src/egress/apple.rs);
+# already in the graph through rustls-platform-verifier.
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
 [dev-dependencies]
 cmux-fault.workspace = true
+# The Mac's relay publisher for the pair matrix's `relay-cache` path (tests/pair_matrix_mac_asleep.rs). A
+# dev-dependency cycle: cmux-mobile-host depends on this crate, which Cargo allows for tests.
+cmux-mobile-host = { path = "../cmux-mobile-host" }
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true

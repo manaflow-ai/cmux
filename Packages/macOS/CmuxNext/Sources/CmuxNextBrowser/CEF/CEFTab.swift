@@ -150,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// When ``pendingFocus`` last became true.
     @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
+    /// Re-asks of a grant kept while the window was not on screen (`grantFocus`).
+    @ObservationIgnored var offscreenGrantRetries = 0
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
@@ -260,6 +262,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
     @ObservationIgnored var firstCommittedURL: URL?
+    /// The first address the tab was asked to load, before any redirect: the page the app opened it for
+    /// (``BrowserExternalApps/noteFlowPage(_:)``), which a redirect may never commit.
+    @ObservationIgnored var firstRequestedURL: URL?
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -656,6 +661,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        if firstRequestedURL == nil { firstRequestedURL = url }
         automaticDownloads.userGesture()
         refusesDownloadsUntilGesture = false
         guard browserID != nil || isCreationPending else {

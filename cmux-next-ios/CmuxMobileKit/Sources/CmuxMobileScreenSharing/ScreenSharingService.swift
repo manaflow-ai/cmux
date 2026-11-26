@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxDeviceHub
+public import CmuxMobileBrowserStream
 import enum CmuxMobileModel.UserFacingError
 public import Foundation
 public import Observation
@@ -77,6 +78,20 @@ public final class ScreenSharingService {
     public private(set) var hub: DeviceHub?
     /// The viewer on screen: one session at a time from this phone.
     public private(set) var viewer: ScreenSharingViewer?
+    /// A Mac's screen shown over its link instead (Settings → Transport → Mac Screen over Link);
+    /// at most one of this and `viewer` is set.
+    public private(set) var linkViewer: ScreenSharingLinkViewer?
+
+    /// The Macs this phone holds a link to, with their `version` capabilities (the shell fills
+    /// it; none: Screen Sharing always uses the device hub).
+    @ObservationIgnored public var linkedMacs: @MainActor () -> [ScreenSharingLinkedMac] = { [] }
+    /// Whether Mac Screen over Link is on (tests replace it).
+    @ObservationIgnored var linkSetting: @MainActor () -> Bool = { ScreenSharingLinkRoute.settingOn() }
+    /// Opens the main display of the link Mac `macID` (`d~0`), view only; nil when not linked.
+    @ObservationIgnored var openMacDisplay: @MainActor (_ macID: String, _ refused: @escaping @MainActor @Sendable (String) -> Void)
+        -> StreamedBrowserModel? = { macID, refused in
+            StreamedBrowserDirectory.shared.macDisplayModel(display: 0, macID: macID, refused: refused)
+        }
     /// Why the tapped Mac can't be shared, shown as an alert over the list (nil: none).
     public internal(set) var alert: ScreenSharingMacAlert?
     /// The person's viewer choices (input mode, quality, stats), kept on this phone.
@@ -249,6 +264,7 @@ public final class ScreenSharingService {
         startTask = nil
         viewer?.close(reason: .signedOut)
         viewer = nil
+        closeLinkViewer()
         alert = nil
         pendingSelection = nil
         endShare()
@@ -428,10 +444,49 @@ public final class ScreenSharingService {
         dismissViewer()
     }
 
-    /// Asks `mac` for a session and puts its viewer on screen.
+    /// Shows `mac`: over its link when Mac Screen over Link is on and the Mac streams its screen
+    /// there (`mac-display-v1`), else asks the hub for a session and puts its viewer on screen.
     @discardableResult
     public func connect(to mac: HubDevice, scope: SessionScope) -> ScreenSharingViewer? {
+        if showOverLink(mac, scope: scope) { return nil }
+        return connectOverHub(to: mac, scope: scope)
+    }
+
+    /// The link path (`d~0` on the paired Mac's link, view only); false leaves `mac` to the hub.
+    private func showOverLink(_ mac: HubDevice, scope: SessionScope) -> Bool {
+        if let current = linkViewer, current.hostID == mac.id, current.failure == nil { return true }
+        guard let macID = ScreenSharingLinkRoute.linkMac(named: mac.name, settingOn: linkSetting(), linked: linkedMacs()) else {
+            return false
+        }
+        let refusals = LinkRefusals()
+        guard let stream = openMacDisplay(macID, { code in refusals.viewer?.refused(code) }) else { return false }
+        viewer?.close(reason: .viewerDisconnected)
+        viewer = nil
+        closeLinkViewer()
+        let link = ScreenSharingLinkViewer(mac: mac, scope: scope, stream: stream)
+        refusals.viewer = link
+        link.onFailure = { [weak self] failed in self?.linkFailed(failed) }
+        linkViewer = link
+        return true
+    }
+
+    /// The link stream failed: the same Mac goes to the WebRTC path, as if the setting were off.
+    func linkFailed(_ failed: ScreenSharingLinkViewer) {
+        guard linkViewer === failed else { return }
+        closeLinkViewer()
+        connectOverHub(to: failed.mac, scope: failed.scope)
+    }
+
+    private func closeLinkViewer() {
+        linkViewer?.close()
+        linkViewer = nil
+    }
+
+    /// Asks `mac` for a session on the device hub and puts its viewer on screen.
+    @discardableResult
+    func connectOverHub(to mac: HubDevice, scope: SessionScope) -> ScreenSharingViewer? {
         guard let hub else { return nil }
+        closeLinkViewer()
         let viewer: ScreenSharingViewer
         if let current = self.viewer, current.hostID == mac.id {
             viewer = current
@@ -461,6 +516,13 @@ public final class ScreenSharingService {
     public func dismissViewer() {
         viewer?.close(reason: .viewerDisconnected)
         viewer = nil
+        closeLinkViewer()
+    }
+
+    /// What shows full screen: a Mac's screen over its link, else the hub's viewer once shown.
+    var screenOnScreen: ScreenSharingScreen? {
+        if let linkViewer { return .link(linkViewer) }
+        return viewerOnScreen.map { .hub($0) }
     }
 
     /// A `session.*` push: the viewer on screen takes the ones about its session.
@@ -498,5 +560,10 @@ public struct ScreenSharingMacAlert: Identifiable, Equatable, Sendable {
 extension HubDevice {
     /// Sharing and online first, then online, then the rest.
     fileprivate var rank: Int { macScreenShared && online ? 0 : online ? 1 : 2 }
+}
+/// Carries the link stream's refusals (they arrive from its sink) to the viewer made after it opened.
+@MainActor
+private final class LinkRefusals {
+    weak var viewer: ScreenSharingLinkViewer?
 }
 #endif

@@ -5,6 +5,8 @@
 //! - [`signaling`]: the backend signaling WebSocket client.
 //! - [`api`]: the backend HTTP API.
 //! - [`build_space`]: a dev build's `x-cmux-build-space` header.
+//! - [`egress`]: how the link's own TCP connections leave this device: the
+//!   system's proxy (PAC included) and the OS trust store.
 //! - [`dial`]: the WebRTC and WireGuard dialers behind one [`dial::Dialer`]
 //!   trait, selected by [`TransportKind`].
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
@@ -22,15 +24,18 @@
 
 pub mod api;
 pub mod build_space;
+pub mod bundle_link;
 pub mod class_queue;
 pub mod classes;
 pub mod dial;
+pub mod egress;
 pub mod frame;
 pub mod hold_route;
 pub mod hub;
 pub mod hybrid;
 pub mod keepalive;
 pub mod key_echo;
+pub mod key_paint;
 pub mod lan;
 pub mod link;
 pub mod link_stat;
