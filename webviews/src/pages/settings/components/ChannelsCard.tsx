@@ -1,7 +1,7 @@
 // Settings > Updates' Channels card: every release channel's recent builds from the host's
 // `cmux.settings.channels.state` (the feed's notes index, canary verdicts and pulls), read once
 // when the card shows. Following tracks the Channel row above it at once. Each build says how it fared, whether this Mac runs or kept it, and links
-// to its commit, its PRs and the changes since the installed build; every text is the host's.
+// to its commit, every PR in it (a count that opens the list of #N and title) and the changes since the installed build; every text is the host's.
 // Picking a slower channel the running build is not on shows the way back: Go Back restarts
 // once into the build this Mac kept from it (the host's rollback path), or a line says the
 // running build stays until that channel passes it. Every other build (older or newer, kept or
@@ -96,6 +96,9 @@ const BuildRow = memo(function BuildRow({
   onStart: (target: Target) => void;
 }) {
   const target: Target = { kind: "switch", ring, build: build.build };
+  // Which PRs went into this build (Leo: "hm do we display which prs go into which nightly maybe
+  // that'd be useful per thing?"): the host's count toggles the whole list, each "#N title".
+  const [prsOpen, setPrsOpen] = useState(false);
   return (
     <div
       className="row channel-build"
@@ -120,12 +123,27 @@ const BuildRow = memo(function BuildRow({
                 </WithFacts>
               </>
             )}
-            {build.prs.map((pr) => (
-              <span key={pr.number}>
+            {build.prs_label === undefined ? (
+              build.prs.map((pr) => (
+                <span key={pr.number}>
+                  {" · "}
+                  <a href={pr.url} className="channel-link" data-channel-pr={pr.number}>{`#${pr.number}`}</a>
+                </span>
+              ))
+            ) : build.prs_label && build.prs.length > 0 ? (
+              <>
                 {" · "}
-                <a href={pr.url} className="channel-link" data-channel-pr={pr.number}>{`#${pr.number}`}</a>
-              </span>
-            ))}
+                <button
+                  type="button"
+                  className="channel-link channel-prs-toggle"
+                  data-channel-prs-toggle=""
+                  aria-expanded={prsOpen}
+                  onClick={() => setPrsOpen((open) => !open)}
+                >
+                  {build.prs_label}
+                </button>
+              </>
+            ) : null}
             {build.compare_url && (
               <>
                 {" · "}
@@ -135,6 +153,18 @@ const BuildRow = memo(function BuildRow({
               </>
             )}
           </div>
+          {prsOpen && build.prs_label && (
+            <ul className="row-help channel-prs" data-channel-prs="">
+              {build.prs.map((pr) => (
+                <li key={pr.number}>
+                  <a href={pr.url} className="channel-link" data-channel-pr={pr.number}>
+                    <span className="font-mono">{`#${pr.number}`}</span>
+                  </a>
+                  {pr.title && <span className="selectable">{` ${pr.title}`}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
           {build.pulled_reason && <div className="row-error">{build.pulled_reason}</div>}
           {failure && <div className="row-error">{failure}</div>}
         </div>
