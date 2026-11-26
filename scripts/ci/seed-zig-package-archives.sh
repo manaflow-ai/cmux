@@ -282,6 +282,15 @@ if [[ -f "$lock" ]]; then
   done < "$lock"
 fi
 (( mirror_wanted > 0 )) && run_round
+# A mirror round GitHub refused (403s or a spent rate limit: nightly run 45776501690, job 139764481921)
+# leaves packages missing; the CI cache bucket holds the same sha256-checked archives (zig-packages-r2.sh).
+mirror_missing=0
+while read -r hash _url _sha; do
+  [[ -n "$hash" && ! -e "$cache/p/$hash.tar.gz" ]] && mirror_missing=$((mirror_missing + 1))
+done <<<"$todo"
+if (( mirror_missing > 0 )); then
+  CMUX_ZIG_LOCK="$lock" bash "$(dirname "${BASH_SOURCE[0]}")/zig-packages-r2.sh" restore "$cache" || true
+fi
 while read -r hash _url _sha; do
   [[ -n "$hash" && -e "$cache/p/$hash.tar.gz" ]] && mirror_seeded=$((mirror_seeded + 1))
 done <<<"$todo"

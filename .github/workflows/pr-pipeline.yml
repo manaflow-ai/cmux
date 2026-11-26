@@ -34,7 +34,10 @@ env:
 jobs:
   linux:
     name: linux
-    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
+    # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next
+    # runs this job only once it is handed to land (`ready-to-land` or `full-ci`), not on every push; then the label guard.
+    # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
@@ -177,11 +180,14 @@ jobs:
   # sudo, which the pool's runners grant as they did for ci-web.yml's jobs).
   web-browser:
     name: web-browser
-    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser') }}
+    # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next
+    # runs this job only once it is handed to land (`ready-to-land` or `full-ci`), not on every push; then the label guard.
+    # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
     # step, then each `alone` step (tests/test_ci_step_table.py holds this).
-    timeout-minutes: 70
+    timeout-minutes: 88
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -226,6 +232,17 @@ jobs:
             echo "::notice::No merge commit to diff: every web-browser step runs."
           fi
       - name: Run the routed web-browser steps (ci/steps.toml)
+        # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
+        env:
+          CI_PR_BASE_REF: ${{ github.base_ref }}
+          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
+          CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
+          CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
+          CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
+          CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
+          CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
         run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
       - name: Upload the agent pane measurements
@@ -234,6 +251,15 @@ jobs:
         with:
           name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/agent-pane-real-acpmux
+          if-no-files-found: ignore
+          retention-days: 3
+      # The react-apps-check step's pick, lane logs and test results (scripts/ci/react-apps-check-fleet.sh).
+      - name: Upload the react-apps-check logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-apps-check-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/react-apps-check
           if-no-files-found: ignore
           retention-days: 3
   # The `ios` job's Mac: an idle owned simulator Mac first (scripts/ci/ios_runner_pool.py, the `pipeline` lane: one
@@ -435,23 +461,21 @@ jobs:
           fi
           bash scripts/ci/ios-sim-pool.sh pack
           echo "packed=1" >> "$GITHUB_OUTPUT"
+      # The products go to the fleet pool's own store (for this run's pool step only), not to an artifact here.
       - name: Fleet pool, upload the products
+        id: sim-pool-upload
         if: ${{ steps.sim-pool.outputs.packed == '1' }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/sim-pool/products/
-          retention-days: 1
-          compression-level: 0
-          if-no-files-found: error
+        timeout-minutes: 10
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/ios-sim-pool.sh upload
       - name: Fleet pool, submit
-        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        if: ${{ steps.sim-pool.outputs.packed == '1' && steps.sim-pool-upload.outcome == 'success' }}
         continue-on-error: true
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PRODUCTS: ${{ github.run_id }}/kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash scripts/ci/ios-sim-pool.sh submit
       - name: Run the routed ios steps (ci/steps.toml)
         env:
