@@ -26,6 +26,7 @@ the shared chat.\n\n\
   cmux share decline SHARE_ID ACCOUNT\n";
 
 /// `share requests|approve|decline …` from the full argv; None for any other command.
+#[cfg(unix)] // `ext::daemon_call` is unix-only; so is the dispatch that calls this.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command) = super::parse_globals(args).ok()?;
     let is_share_request = command.first().is_some_and(|scope| scope == "share")
@@ -101,6 +102,7 @@ fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
     }
 }
 
+#[cfg(unix)] // `ext::daemon_call` is unix-only; so is the dispatch that calls this.
 fn run(global: &GlobalArgs, ask: &Ask) -> i32 {
     let request = match ask {
         Ask::List { .. } => json!({"cmd": "agent-session-share-list"}),
