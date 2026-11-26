@@ -52,6 +52,21 @@ public struct ResizeStepTimes {
         return ResizeStepLog.begin(kind, input: input())
     }
 
+    /// Runs at the start of every resize step, after it opened and before its layout (every build; nil: none). The CEF
+    /// host runs the message pump work CEF already asked for here (`CEFMessagePump.runIfDueAtStep`, lever 4e).
+    public var stepWillLayOut: (@MainActor (StepKind) -> Void)?
+
+    /// Passes running now (``pass(_:_:)``), and the steps and timed phases that ran inside one: a pass's callbacks that
+    /// reached cmux's views mid-step. Counted, logged, never hidden.
+    public internal(set) var nestedInPass = 0
+
+    /// Runs `body`, another component's work inside a step (a CEF message pump pass), as the phase `name`: the line
+    /// says how long it took and how many steps and timed phases ran inside it (`nested=`). `body` returns the line's
+    /// detail when it ran (` key=value` pairs), nil when it had nothing to do (no line).
+    public static func pass(_ name: @autoclosure () -> String, _ body: () -> String?) {
+        _ = body()
+    }
+
     /// Keeps a divider's pointer event (its `NSEvent.timestamp`) for the drag's next step, which reports how long the
     /// newest and the oldest one waited (`input_age`, `input_wait`).
     public static func noteInput(_ timestamp: Double) {

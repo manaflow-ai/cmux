@@ -99,4 +99,13 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
 
     /// Delayed cross-thread requests kept with no main wake because an earlier fire was armed.
     var kept: UInt64 { keptRequests.load(ordering: .relaxed) }
+
+    /// Any thread: an immediate request was posted to the main run loop (its block delivers it to the pump).
+    func immediatePosted() {}
+
+    /// Main thread: a posted immediate request reached the pump.
+    func immediateDelivered() {}
+
+    /// Whether an immediate request is on its way to the main thread's pump: CEF asked for work now.
+    var immediatePending: Bool { false }
 }
