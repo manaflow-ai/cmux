@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.customizeChecklist.enabled.help" : {
+      "comment" : "Help under the Show the Customize cmux Checklist toggle.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the steps for making cmux your own at the top of Settings, with how many are done."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض في أعلى الإعدادات خطوات جعل cmux خاصًا بك، مع عدد ما أُنجز منها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje na vrhu postavki korake za prilagodbu cmuxa, s brojem završenih."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser øverst i indstillingerne trinnene til at gøre cmux til din egen, med hvor mange der er udført."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt oben in den Einstellungen die Schritte, mit denen Sie cmux zu Ihrem eigenen machen, und wie viele erledigt sind."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra arriba en Ajustes los pasos para hacer tuyo cmux, con cuántos llevas hechos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche en haut des réglages les étapes pour personnaliser cmux, avec le nombre déjà faites."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra in cima alle impostazioni i passi per rendere cmux tuo, con quanti ne hai completati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmuxを自分好みにするためのステップを設定の上部に表示し、完了数も示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញជំហានសម្រាប់ធ្វើឱ្យ cmux ជារបស់អ្នកនៅផ្នែកខាងលើនៃការកំណត់ ព្រមទាំងចំនួនដែលបានបញ្ចប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux를 나에게 맞게 만드는 단계를 설정 상단에 완료 개수와 함께 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser øverst i innstillingene stegene for å gjøre cmux til din egen, med hvor mange som er fullført."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyświetla na górze ustawień kroki dostosowywania cmux wraz z liczbą ukończonych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra no topo dos Ajustes os passos para deixar o cmux do seu jeito, com quantos já foram concluídos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает вверху настроек шаги, которые помогут сделать cmux своим, и сколько из них выполнено."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงขั้นตอนการทำให้ cmux เป็นของคุณไว้ที่ด้านบนของการตั้งค่า พร้อมจำนวนที่ทำเสร็จแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ayarların üstünde cmux'u kendinize göre yapma adımlarını ve kaçının tamamlandığını gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує вгорі налаштувань кроки, що допоможуть зробити cmux своїм, і скільки з них виконано."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện các bước để biến cmux thành của riêng bạn ở đầu Cài đặt, kèm số bước đã xong."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在设置顶部显示让 cmux 成为你专属工具的步骤，以及已完成的数量。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在設定頂部顯示讓 cmux 成為你專屬工具的步驟，以及已完成的數量。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

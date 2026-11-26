@@ -29,7 +29,7 @@ import PackageDescription
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextAgentPane -> CmuxNextAgentPanePlacement (pure right-column placement, no dependency; re-exported)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
-//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
+//   CmuxNextSettings -> Design, Actions, CCmuxAppFFI (cmux.json load/watch/apply, SettingsSchema; the reads in Rust)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 79529ff9f00a2df72861f8d4b4744b65ad7459db930a55dcfe4f62d2d6382af8
+// app-ffi-pin-checksum: fefa81d9e791bca5db95e24619b05b90169288d2848a990274b76aad742bba26
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -509,6 +509,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [
                 .process("Resources"),
@@ -2090,15 +2091,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Live code in the app: loads a patch of the app's own Swift functions without a rebuild or
-        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift).
+        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift). The engine
+        // is Packages/Shared/CmuxLiveCode, which the iPhone app runs in the iOS Simulator too.
         .target(
             name: "CmuxNextLiveCode",
-            dependencies: ["CmuxNextCompat"],
-            swiftSettings: uiSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextLiveCodeTests",
-            dependencies: ["CmuxNextLiveCode"],
+            dependencies: [.product(name: "CmuxLiveCode", package: "CmuxLiveCode")],
             swiftSettings: uiSwiftSettings
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
@@ -2760,21 +2757,26 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettings",
+            // CCmuxAppFFI: cmux-next.json's reads in Rust (cmux-config's app_ops, module
+            // CCmuxSettingsFFI, SettingsRust).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
             swiftSettings: daemonSwiftSettings,
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
-            plugins: [.plugin(name: "SettingsSchemaPlugin")]
+            plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
+        // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
+        // per key, so two PRs adding strings never conflict) into <Table>.xcstrings in its work directory.
+        .plugin(name: "StringCatalogsPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2796,10 +2798,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
-            swiftSettings: uiSwiftSettings
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "StringCatalogsPlugin")]
         ),
         .target(
             name: "CmuxNextControl",
@@ -3092,6 +3094,7 @@ let package = !targetsLinux ? Package(
     dependencies: [
         .package(path: "../../Shared/CmuxEgress"),
         .package(path: "../../Shared/CmuxGhosttyKit"),
+        .package(path: "../../Shared/CmuxLiveCode"),
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
