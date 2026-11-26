@@ -243,6 +243,91 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
            "cmux-machine-channel.py names <FILES>/<commit>/<name> without --machine-path")
 
 
+def coalesce_marks_only_a_window_without_a_tree(all_jobs):
+    """coalesce-failed re-opens a window only when its run published no tree.
+
+    The marker lets the window's next push build again (base-coalesce.yml, RETRIES a
+    window). On 2026-11-26 the 01:00Z window's runs 45733047134, 45737327859,
+    45738040164 and 45739215246 each published their tree (publish-tree jobs
+    139634472081, 139646177676, 139646593847) and failed only
+    cmux-next-daemon-tests, so every one marked the window failed and the next push
+    rebuilt the whole tree on the nightly pool: four full builds for one window,
+    and a window whose retries were spent then built nothing for its newest head.
+    A daemon-test or Windows red is not fixed by rebuilding the tree; the next
+    window's run tests the key again (tree-preflight daemon_tested).
+    """
+    job = all_jobs["coalesce-failed"]
+    names = needs(job)
+    expression = str(job["if"]).replace("needs.*.result", "needs.ALL.result")
+    held_expression = str(job.get("with", {}).get("held", "false"))
+
+    def outcome(claimed="true", **results):
+        """(marks, held): whether the job runs, and whether it saves a held marker."""
+        values = {"needs.coalesce.outputs.claimed": claimed}
+        for name in names:
+            values[f"needs.{name}.result"] = results.get(name.replace("-", "_"), "success")
+        values["needs.ALL.result"] = [values[f"needs.{name}.result"] for name in names]
+        marks = evaluate(expression, values)
+        held = held_expression not in ("false", "False") and evaluate(held_expression, values)
+        return marks, held
+
+    _check("publish-tree" in names, "coalesce-failed waits for publish-tree")
+    _check(not outcome()[0], "a green claimed run leaves its window as it is")
+    _check(not outcome(claimed="false", build_linux="failure", publish_tree="skipped")[0],
+           "a run that did not claim the window never marks it")
+    for result in ("failure", "cancelled"):
+        for leg in ("cmux_next_daemon_tests", "build_windows"):
+            _check(outcome(**{leg: result}) == (True, True),
+                   f"{leg} {result} after the tree published: a held marker, so no full rebuild and no REST fallback")
+        _check(outcome(build_linux=result, publish_tree="skipped") == (True, False),
+               f"Linux build {result}, no tree: the window's next push builds again")
+        _check(outcome(build=result, publish_tree="skipped") == (True, False),
+               f"macOS build {result}, no tree: the window's next push builds again")
+        _check(outcome(tree_preflight=result, build_linux="skipped", build="skipped", publish_tree="skipped")
+               == (True, False), f"tree-preflight {result}: the window's next push builds again")
+        _check(outcome(publish_tree=result) == (True, False),
+               f"publish-tree {result}: the window's next push builds again")
+    base_coalesce_holds_a_held_window()
+
+
+def _step(workflow_jobs_, job, name):
+    for step in workflow_jobs_[job]["steps"]:
+        if step.get("name") == name:
+            return step["run"]
+    raise KeyError(f"{job}: no step {name!r}")
+
+
+def base_coalesce_holds_a_held_window():
+    """base-coalesce saves held-RUNID for `held`, and the window's next push reads it as held."""
+    import subprocess
+    import tempfile
+
+    coalesce = workflow_jobs.jobs(Path(ROOT, ".github", "workflows", "base-coalesce.yml"))
+    name_marker = _step(coalesce, "mark", "Name the marker")
+    read_marker = _step(coalesce, "coalesce", "Did this window's run fail?")
+
+    def run(script, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "out")
+            out.write_text("")
+            full = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "GITHUB_RUN_ID": "45738040164",
+                    "RETRIES": "3", **env}
+            done = subprocess.run(["bash", "-c", script], cwd=tmp, env=full, capture_output=True, text=True)
+            return done.returncode, out.read_text(), done.stdout
+
+    for held, want in (("true", "key=29400060-held-45738040164"), ("false", "key=29400060-1-45738040164")):
+        rc, out, _ = run(name_marker, WINDOW="29400060", ROUND="1", HELD=held)
+        _check(rc == 0 and want in out, f"mark with held={held} names {want} ({out.strip()!r})")
+    rc, out, said = run(read_marker, WINDOW="29400060", MARKER="base-coalesce-cmux-tui-artifacts-f-29400060-held-45738040164",
+                        START="", WORKFLOW_REF="", GH_TOKEN="")
+    _check(rc == 0 and "retry=" not in out and "holds" in said,
+           f"a held marker holds the window: no retry, no REST lookup ({out.strip()!r} {said.strip()!r})")
+    rc, out, _ = run(read_marker, WINDOW="29400060", MARKER="base-coalesce-cmux-tui-artifacts-f-29400060-0-45733047134",
+                     START="", WORKFLOW_REF="", GH_TOKEN="")
+    _check(rc == 0 and "retry=45733047134" in out and "round=1" in out,
+           f"a failed marker still lets the next push build again ({out.strip()!r})")
+
+
 def main():
     all_jobs = jobs()
     tree_publishers = publishers(all_jobs)
@@ -379,6 +464,7 @@ def main():
            "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
 
     machine_channel_follows_an_adopted_manifest(all_jobs)
+    coalesce_marks_only_a_window_without_a_tree(all_jobs)
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
