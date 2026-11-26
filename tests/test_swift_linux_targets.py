@@ -116,6 +116,9 @@ let package = Package(name: "P", targets: [
     // A `//` in a string (a binary target's URL) is not a comment: the targets after it count.
     .binaryTarget(name: "Bin", url: "https://example.com/Bin.xcframework.zip", checksum: "00"),
     .target(name: "AfterBin", dependencies: ["Bin"]),
+    // A dependency only some other platform links is no Linux dependency; one that names .linux is.
+    .target(name: "Gated", dependencies: ["Core", .target(name: "Bin", condition: .when(platforms: [.iOS])),
+        .product(name: "Lx", package: "lx", condition: .when(platforms: [.linux, .macOS]))]),
 ])
 """
     with tempfile.TemporaryDirectory() as tmp:
@@ -134,6 +137,7 @@ let package = Package(name: "P", targets: [
             "CoreTests": ("testTarget", "./Tests/CoreTests", ["Core"]),
             "Bin": ("binaryTarget", "./Sources/Bin", []),
             "AfterBin": ("target", "./Sources/AfterBin", ["Bin"]),
+            "Gated": ("target", "./Sources/Gated", ["Core", "product:lx:Lx"]),
         }
         if got != want:
             failures.append(f"parse_manifest: {got} != {want}")

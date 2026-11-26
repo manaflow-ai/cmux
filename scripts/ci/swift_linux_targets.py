@@ -117,6 +117,22 @@ def strip_comments(text: str) -> str:
                   lambda m: m.group(0) if m.group(0).startswith('"') else "", text, flags=re.S)
 
 
+def drop_off_linux(dbody: str) -> str:
+    """A dependency list without the entries whose `condition: .when(platforms: ...)` leaves out Linux
+    (`.target(name: "FFI", condition: .when(platforms: (.iOS)))`): a Linux build never links them."""
+    out, i = [], 0
+    for m in re.finditer(r"\.(?:product|target|byName)\(", dbody):
+        if m.start() < i:
+            continue
+        call = balanced(dbody, m.end() - 1)
+        cond = re.search(r"\.when\(\s*platforms:\s*\(([^)]*)\)", call)
+        if cond and ".linux" not in cond.group(1):
+            out.append(dbody[i:m.start()])
+            i = m.end() - 1 + len(call)
+    out.append(dbody[i:])
+    return "".join(out)
+
+
 def balanced(text: str, start: int) -> str:
     """The text from the `(` at `start` to its matching `)`, string literals respected."""
     depth, i, in_str = 0, start, False
@@ -180,7 +196,7 @@ def parse_manifest(path: Path) -> tuple[list[Target], dict[str, list[str]], dict
         deps = []
         dm = re.search(r"\bdependencies:\s*\[", body)
         if dm:
-            dbody = balanced(body.replace("[", "(").replace("]", ")"), dm.end() - 1)
+            dbody = drop_off_linux(balanced(body.replace("[", "(").replace("]", ")"), dm.end() - 1))
             for prod in re.finditer(r'\.product\(\s*name:\s*"([^"]+)"\s*,\s*package:\s*"([^"]+)"', dbody):
                 deps.append(f"product:{prod.group(2)}:{prod.group(1)}")
             dbody_no_prod = re.sub(r"\.product\([^)]*\)", "", dbody)
