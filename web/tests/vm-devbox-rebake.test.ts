@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { readDevboxAwaitingRebake, repoRoot, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -149,5 +149,33 @@ describe("rebake inputs", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
     // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.
     expect(workflow.jobs.rebake.if).toContain("github.ref == 'refs/heads/feat-cmux-next'");
+  });
+});
+
+describe("retryFreestyleOverload", () => {
+  const overloaded = Object.assign(new Error("infrastructure overloaded: VM start capacity queue wait expired"), { status: 429, code: "INFRASTRUCTURE_OVERLOADED" });
+
+  test("asks again after a 429 overload and returns the VM", async () => {
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) throw overloaded;
+      return "vm-1";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
+  });
+
+  test("rethrows any other error at once", async () => {
+    let calls = 0;
+    const other = Object.assign(new Error("bad snapshot"), { status: 400 });
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw other; }, 1_000, 1)).rejects.toBe(other);
+    expect(calls).toBe(1);
+  });
+
+  test("gives up with the overload once the budget is spent", async () => {
+    let calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
+    expect(calls).toBeGreaterThan(1);
   });
 });
