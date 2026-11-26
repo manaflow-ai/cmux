@@ -64,7 +64,14 @@ pub struct Machine {
     pub idle_pause_minutes: Option<i64>,
     pub ipv4: Option<String>,
     pub ipv6: Option<String>,
+    /// When the server made it, unix seconds (its record's `created_at`).
+    pub created_at: Option<f64>,
 }
+
+/// How long before the request a returned machine may have been made and still be the
+/// request's own: the server's and this Mac's clocks and the create's own trip differ by
+/// seconds. A machine made minutes before was not booted for this request.
+pub const REUSE_SLACK_SECONDS: f64 = 60.0;
 
 /// A created machine's answer: its id, title, status, target and, once open, its workspace.
 pub fn created_machine(machine: &Machine, workspace_id: Option<&str>) -> Fields {
@@ -76,6 +83,18 @@ pub fn created_machine(machine: &Machine, workspace_id: Option<&str>) -> Fields 
         fields.insert("workspace_id".into(), json!(workspace));
     }
     fields
+}
+
+/// The machine's `created_at` and, when the request's time is known, `reused`: whether the
+/// server answered a machine it made before this request (a warm spare it handed out, a same-key
+/// replay) instead of one it booted for it. A `cmux vm new` that got an older machine says so
+/// (2026-11-25: a `vm new --json` answered a VM made 7 minutes earlier as if it were new).
+pub fn note_reuse(fields: &mut Fields, machine: &Machine, asked_at: Option<f64>) {
+    let Some(created) = machine.created_at.filter(|seconds| seconds.is_finite()) else { return };
+    fields.insert("created_at".into(), json!(time::iso8601(created)));
+    if let Some(asked) = asked_at.filter(|seconds| seconds.is_finite()) {
+        fields.insert("reused".into(), json!(created < asked - REUSE_SLACK_SECONDS));
+    }
 }
 
 /// The request's facts next to the machine's. `persistent` is what the server stored, not what
@@ -180,6 +199,8 @@ pub struct Created {
     pub bootstrap: Option<Outcome>,
     /// The machine config's start (answered only when the request asked for one).
     pub machine_config: Option<Outcome>,
+    /// When the request was made, unix seconds: whether the machine is `reused` ([`note_reuse`]).
+    pub asked_at: Option<f64>,
 }
 
 /// The answer of a `cloud new-machine` with options: the machine's facts, the request's,
@@ -187,6 +208,7 @@ pub struct Created {
 /// `enrollment`.
 pub fn created(request: &NewMachine, made: &Created) -> Fields {
     let mut fields = created_machine(&made.machine, made.workspace_id.as_deref());
+    note_reuse(&mut fields, &made.machine, made.asked_at);
     fields.extend(new_machine(request, Some(&made.machine)));
     let mut bootstrap = object(json!({"status": "none"}));
     if let (Some(kind), Some(outcome)) = (&made.script_kind, &made.bootstrap) {

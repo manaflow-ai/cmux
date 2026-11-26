@@ -27,6 +27,7 @@ cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 # The WebRTC screen stream's rules (src/screen.rs: `screen_*`).
 cmux-rd-screen = { path = "../cmux-rd-screen" }
 cmux-tab-discard = { path = "../cmux-tab-discard" }
+cmux-browser-rules = { path = "../cmux-browser-rules" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 cmux-window-rules = { path = "../cmux-window-rules" }
 serde = { version = "1", features = ["derive"] }
