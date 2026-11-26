@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// The Mac's workspace colors (cmux-next `GroupColor`): the palette names its
 /// Set Workspace Color… menu offers and `set-workspace-metadata` stores.
@@ -173,24 +176,32 @@ public struct SidebarArrangement: Equatable, Sendable {
     /// neighbour has no personal row.
     public func personalIndex(moving workspace: Workspace, by offset: Int, among visible: [Workspace],
                               registryID: String) -> Int? {
-        guard let rows, let position = visible.firstIndex(where: { $0.id == workspace.id }),
-              visible.indices.contains(position + offset) else { return nil }
-        let anchor = visible[position + offset]
-        let order = rows.sorted { $0.index < $1.index }.map { "\($0.session)/\($0.key)" }
-            .filter { $0 != "\(registryID)/\(workspace.id)" }
-        guard let anchorIndex = order.firstIndex(of: "\(registryID)/\(anchor.id)") else { return nil }
-        return offset > 0 ? anchorIndex + 1 : anchorIndex
+        // The rule is Rust's (`personal_index_moving`); Swift maps in and out.
+        #if os(iOS)
+        guard let rows else { return nil }
+        return personalIndexMoving(
+            rows: rows.map(\.phone), workspaceId: workspace.id, offset: Int64(offset),
+            visibleIds: visible.map(\.id), registryId: registryID
+        ).map { Int($0) }
+        #else
+        return nil
+        #endif
     }
 
     /// The personal index that puts `workspace` right before (`after` false) or right after
     /// `anchor` (Move Workspace to Top / to Bottom, each step of Sort Workspaces): the anchor's
     /// place in the person's order without the workspace. Nil when either has no personal row.
     public func personalIndex(placing workspace: Workspace, next anchor: Workspace, after: Bool, registryID: String) -> Int? {
-        guard let rows, anchor.id != workspace.id else { return nil }
-        let order = rows.sorted { $0.index < $1.index }.map { "\($0.session)/\($0.key)" }
-        let without = order.filter { $0 != "\(registryID)/\(workspace.id)" }
-        guard let anchorIndex = without.firstIndex(of: "\(registryID)/\(anchor.id)") else { return nil }
-        return after ? anchorIndex + 1 : anchorIndex
+        // The rule is Rust's (`personal_index_placing`); Swift maps in and out.
+        #if os(iOS)
+        guard let rows else { return nil }
+        return personalIndexPlacing(
+            rows: rows.map(\.phone), workspaceId: workspace.id, anchorId: anchor.id, after: after,
+            registryId: registryID
+        ).map { Int($0) }
+        #else
+        return nil
+        #endif
     }
 }
 
@@ -248,22 +259,32 @@ public enum WorkspaceNeighborMove: String, CaseIterable, Hashable, Sendable {
     /// The rows `workspace` can go next to on this side, in `order` (its container): every other
     /// row except the one it already sits right after (above) or right before (below).
     public func targets(for workspace: Workspace, in order: [Workspace]) -> [Workspace] {
-        guard let position = order.firstIndex(where: { $0.id == workspace.id }) else { return [] }
-        return order.enumerated().compactMap { index, row in
-            guard row.id != workspace.id else { return nil }
-            switch self {
-            case .above: return index == position + 1 ? nil : row
-            case .below: return index == position - 1 ? nil : row
-            }
-        }
+        // The rule is Rust's (`neighbor_move_targets`); Swift maps ids back to workspaces.
+        #if os(iOS)
+        return Self.workspaces(
+            neighborMoveTargets(above: self == .above, workspaceId: workspace.id, order: order.map(\.id)), in: order)
+        #else
+        return []
+        #endif
     }
 
     /// `order` once `workspace` sits on this side of `target`.
     public func reordered(_ workspace: Workspace, next target: Workspace, in order: [Workspace]) -> [Workspace] {
-        var rows = order.filter { $0.id != workspace.id }
-        guard let at = rows.firstIndex(where: { $0.id == target.id }) else { return order }
-        rows.insert(workspace, at: self == .above ? at : at + 1)
-        return rows
+        // The rule is Rust's (`neighbor_move_reordered`).
+        #if os(iOS)
+        let ids = neighborMoveReordered(
+            above: self == .above, workspaceId: workspace.id, targetId: target.id, order: order.map(\.id))
+        return Self.workspaces(ids, in: order + [workspace])
+        #else
+        return order
+        #endif
+    }
+
+    /// `ids` as the workspaces of `pool` carrying them.
+    static func workspaces(_ ids: [String], in pool: [Workspace]) -> [Workspace] {
+        var byID: [String: Workspace] = [:]
+        for workspace in pool where byID[workspace.id] == nil { byID[workspace.id] = workspace }
+        return ids.compactMap { byID[$0] }
     }
 }
 
@@ -336,16 +357,17 @@ public enum WorkspaceSortKey: String, CaseIterable, Hashable, Sendable {
     /// places them: the first row before the container's current first row, each next one right
     /// after the one before it. Rows already in place are not moved.
     public static func steps(from order: [Workspace], to sorted: [Workspace]) -> [(workspace: Workspace, anchor: Workspace, after: Bool)] {
-        var current = order
-        var steps: [(Workspace, Workspace, Bool)] = []
-        for (offset, workspace) in sorted.enumerated() {
-            guard let at = current.firstIndex(where: { $0.id == workspace.id }), at != offset else { continue }
-            let anchor = offset == 0 ? current[0] : sorted[offset - 1]
-            steps.append((workspace, anchor, offset != 0))
-            current.remove(at: at)
-            current.insert(workspace, at: offset)
+        // The rule is Rust's (`workspace_sort_steps`); Swift maps ids back to workspaces.
+        #if os(iOS)
+        let pool = order + sorted
+        return workspaceSortSteps(order: order.map(\.id), sorted: sorted.map(\.id)).compactMap { step in
+            guard let moved = WorkspaceNeighborMove.workspaces([step.workspace], in: pool).first,
+                  let anchor = WorkspaceNeighborMove.workspaces([step.anchor], in: pool).first else { return nil }
+            return (moved, anchor, step.after)
         }
-        return steps
+        #else
+        return []
+        #endif
     }
 }
 
@@ -720,3 +742,12 @@ public struct WorkspaceFolderPath: Hashable, Sendable {
         }
     }
 }
+
+#if os(iOS)
+extension SidebarArrangement.Row {
+    /// The row as the Rust rules take it.
+    var phone: PhoneSidebarRow {
+        PhoneSidebarRow(session: session, key: key, index: Int64(index), group: group)
+    }
+}
+#endif

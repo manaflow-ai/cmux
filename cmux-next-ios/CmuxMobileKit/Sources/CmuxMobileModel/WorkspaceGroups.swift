@@ -134,7 +134,7 @@ extension SidebarArrangement {
         #if os(iOS)
         let byID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let slots = workspaceGroupSlots(
-            rows: (rows ?? []).map { PhoneSidebarRow(session: $0.session, key: $0.key, index: Int64($0.index), group: $0.group) },
+            rows: (rows ?? []).map(\.phone),
             groups: groups.map(\.phone), workspaceIds: workspaces.map(\.id), registryId: registryID)
         for (i, slot) in zip(workspaces.indices, slots) {
             workspaces[i].sidebarIndex = Int(slot.sidebarIndex)

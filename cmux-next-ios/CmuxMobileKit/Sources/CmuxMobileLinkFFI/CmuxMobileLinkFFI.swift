@@ -13251,6 +13251,67 @@ public func FfiConverterTypeWorkspaceGroupSlot_lower(_ value: WorkspaceGroupSlot
 
 
 /**
+ * One move of a sort: `workspace` goes right before (`after` false) or after `anchor`.
+ */
+public struct WorkspaceSortStep: Equatable, Hashable {
+    public var workspace: String
+    public var anchor: String
+    public var after: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(workspace: String, anchor: String, after: Bool) {
+        self.workspace = workspace
+        self.anchor = anchor
+        self.after = after
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceSortStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceSortStep: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceSortStep {
+        return
+            try WorkspaceSortStep(
+                workspace: FfiConverterString.read(from: &buf), 
+                anchor: FfiConverterString.read(from: &buf), 
+                after: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceSortStep, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.workspace, into: &buf)
+        FfiConverterString.write(value.anchor, into: &buf)
+        FfiConverterBool.write(value.after, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortStep_lift(_ buf: RustBuffer) throws -> WorkspaceSortStep {
+    return try FfiConverterTypeWorkspaceSortStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortStep_lower(_ value: WorkspaceSortStep) -> RustBuffer {
+    return FfiConverterTypeWorkspaceSortStep.lower(value)
+}
+
+
+/**
  * Why a call failed.
  */
 public enum AutoChatError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
@@ -18560,6 +18621,31 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceGroupSlot: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceSortStep: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceSortStep]
+
+    public static func write(_ value: [WorkspaceSortStep], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceSortStep.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceSortStep] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceSortStep]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceSortStep.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePaneKind: FfiConverterRustBuffer {
     typealias SwiftType = [PaneKind]
 
@@ -19759,6 +19845,82 @@ public func workspaceGroupSlots(rows: [PhoneSidebarRow], groups: [PhoneWorkspace
     )
 })
 }
+/**
+ * `order` once `workspace_id` sits right before (`above`) or after
+ * `target_id`; `order` unchanged when the target is not in it.
+ */
+public func neighborMoveReordered(above: Bool, workspaceId: String, targetId: String, order: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_neighbor_move_reordered(
+        FfiConverterBool.lower(above),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(targetId),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * The rows `workspace_id` can go next to (Move Workspace Above…, `above`
+ * true, or Below…) in `order` (its container): every other row except the
+ * one it already sits right after (above) or right before (below). Empty
+ * when it is not in `order`.
+ */
+public func neighborMoveTargets(above: Bool, workspaceId: String, order: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_neighbor_move_targets(
+        FfiConverterBool.lower(above),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * Move Workspace Up (`offset` -1) / Down (+1) among `visible_ids` (the Mac's
+ * sidebar order, pinned tiles left out), as the Mac's `movePersonalWorkspace`:
+ * the personal index next to its neighbour. None at either end, or when the
+ * neighbour has no personal row.
+ */
+public func personalIndexMoving(rows: [PhoneSidebarRow], workspaceId: String, offset: Int64, visibleIds: [String], registryId: String) -> Int64?  {
+    return try!  FfiConverterOptionInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_personal_index_moving(
+        FfiConverterSequenceTypePhoneSidebarRow.lower(rows),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterInt64.lower(offset),
+        FfiConverterSequenceString.lower(visibleIds),
+        FfiConverterString.lower(registryId),$0
+    )
+})
+}
+/**
+ * The personal index that puts `workspace_id` right before (`after` false) or
+ * right after `anchor_id` (Move Workspace to Top / to Bottom, each step of
+ * Sort Workspaces). None when either has no personal row.
+ */
+public func personalIndexPlacing(rows: [PhoneSidebarRow], workspaceId: String, anchorId: String, after: Bool, registryId: String) -> Int64?  {
+    return try!  FfiConverterOptionInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_personal_index_placing(
+        FfiConverterSequenceTypePhoneSidebarRow.lower(rows),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(anchorId),
+        FfiConverterBool.lower(after),
+        FfiConverterString.lower(registryId),$0
+    )
+})
+}
+/**
+ * The moves that turn `order` (one container) into `sorted`, one row at a
+ * time as the Mac places them: the first row before the container's current
+ * first row, each next one right after the one before it. Rows already in
+ * place are not moved.
+ */
+public func workspaceSortSteps(order: [String], sorted: [String]) -> [WorkspaceSortStep]  {
+    return try!  FfiConverterSequenceTypeWorkspaceSortStep.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_sort_steps(
+        FfiConverterSequenceString.lower(order),
+        FfiConverterSequenceString.lower(sorted),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -20001,6 +20163,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_slots() != 48426) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_neighbor_move_reordered() != 10289) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_neighbor_move_targets() != 31307) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_personal_index_moving() != 566) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_personal_index_placing() != 56176) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_sort_steps() != 4292) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
