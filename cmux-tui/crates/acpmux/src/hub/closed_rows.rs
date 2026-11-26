@@ -108,11 +108,18 @@ impl Hub {
     /// `session`'s row as a list page sends it, serialized: a closed one's cached bytes, not
     /// parsed; any other built now.
     pub(crate) fn own_row_text(&self, session: &Session, with_tools: bool) -> Arc<str> {
+        let __t = std::time::Instant::now();
         if let Some(bytes) = self.closed_row_bytes(session, with_tools) {
+            crate::ls_prof::inc(11, 1);
             return bytes;
         }
         let row = self.build_closed_summary(session, with_tools);
-        serde_json::to_string(&row).unwrap_or_default().into()
+        let __t9 = std::time::Instant::now();
+        let s: Arc<str> = serde_json::to_string(&row).unwrap_or_default().into();
+        crate::ls_prof::add(9, __t9);
+        crate::ls_prof::add(3, __t);
+        crate::ls_prof::inc(4, 1);
+        s
     }
 
     /// A closed `session`'s cached bytes in `with_tools`'s form, when they are current.

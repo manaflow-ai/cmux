@@ -770,7 +770,10 @@ impl Hub {
         };
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
+        let __t5 = std::time::Instant::now();
         let m = session.meta();
+        crate::ls_prof::add(5, __t5);
+        let __t6 = std::time::Instant::now();
         let waiting = self.waiting_on(session);
         let turn = session.turn();
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
@@ -1040,7 +1043,11 @@ impl Hub {
             m.agent_session_id.clone(),
             self.started_at,
         );
+        crate::ls_prof::add(6, __t6);
+        let __t7 = std::time::Instant::now();
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        crate::ls_prof::add(7, __t7);
+        let __t8 = std::time::Instant::now();
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
         // Where its journal's own recovery at the end begins, while it ends the journal: the
@@ -1131,6 +1138,7 @@ impl Hub {
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         set_composer_status(&mut summary, with_tools);
+        crate::ls_prof::add(8, __t8);
         summary
     }
 
