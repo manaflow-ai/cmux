@@ -2638,6 +2638,11 @@ async fn receive_upload(
             Some(value) => value.as_u64(),
         }
         .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
+        // Validate the request before either completed-upload replay or dedup
+        // can return a path without consuming a payload.
+        if offset > size {
+            return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
+        }
         let sha256 = match args.get("sha256") {
             None => None,
             Some(value) => Some(
@@ -2689,9 +2694,6 @@ async fn receive_upload(
             let _ =
                 sender.send(Bytes::from(format!("{{\"error\":\"resume_gap\",\"have\":{length}}}\n"))).await;
             return Err(Refusal::new("resume_gap", format!("the upload has {length} bytes")));
-        }
-        if offset > size {
-            return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
         }
         file.set_len(offset).await.map_err(io_error)?;
         file.seek(SeekFrom::Start(offset)).await.map_err(io_error)?;

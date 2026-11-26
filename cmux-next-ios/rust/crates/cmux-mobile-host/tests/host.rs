@@ -1138,6 +1138,17 @@ async fn resumable_upload_reports_have_acks_and_path() {
         assert_eq!(done["path"], path.to_string_lossy().as_ref());
     }
     assert!(!path.with_file_name("whole 2.bin").exists());
+    let mut invalid_offset = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id, "offset": MIB + 4
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut invalid_offset).await.1, "bad_request");
     let mut changed = connected
         .link
         .open(
