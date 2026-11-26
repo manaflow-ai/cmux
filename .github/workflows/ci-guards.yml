@@ -845,6 +845,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ci_release_helper_archs.py
 
+      - name: Validate Classic Release compile script with isolated stubs
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_classic_release_compile_script.py
+
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
