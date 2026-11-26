@@ -16,7 +16,7 @@
 //! Linux only: a Cloud host is a Linux machine (`cloud_fs::is_cloud_host`).
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};

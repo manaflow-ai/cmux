@@ -22,13 +22,16 @@
 # run's labelled containers, network and volume, deletes every node from headscale, and runs
 # `tailnet-move-vms.ts down` (logout, delete both VMs). It never touches the host's tailscaled.
 #
-# Usage: stable-node-vm-move.sh ACPMUX_BINARY
+# Usage: stable-node-vm-move.sh ACPMUX_BINARY [CMUX_BINARY]
 # env: CMUX_DOGFOOD_STACK_EMAIL, CMUX_DOGFOOD_STACK_PASSWORD, PRODUCT_TEAM (tailnet-move-vms.ts);
 #      RUN (machine name part, default GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT); OUT (rows file);
 #      PROBE_S (default 20), MOVE_AT_S (default 8), INTERVAL_S (default 0.1); KEEP=1
 set -euo pipefail
 
-ACPMUX=$(readlink -f "${1:?usage: stable-node-vm-move.sh ACPMUX_BINARY}")
+ACPMUX=$(readlink -f "${1:?usage: stable-node-vm-move.sh ACPMUX_BINARY [CMUX_BINARY]}")
+# The cmux CLI (cmux-tui) mints VM B's key (`cmux vm tailnet mint-key --headscale-api`): the Mac's
+# path, where only a single-use key ever reaches a VM and the admin credential stays home.
+CMUX_CLI=${2:+$(readlink -f "$2")}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../../.." && pwd)
 HEADSCALE_IMAGE=${HEADSCALE_IMAGE:-headscale/headscale:0.27.1}
@@ -256,8 +259,29 @@ mint() { # mint NAME [--ephemeral]: one single-use key, 1 h, in keys/NAME (0600)
   [[ -n ${GITHUB_ACTIONS:-} ]] && echo "::add-mask::$(cat "$WORK/keys/$name")"
   return 0
 }
-for n in a b uplink client; do mint "$n" --ephemeral; done
+for n in a uplink client; do mint "$n" --ephemeral; done
 mint front
+# VM B's key comes from cmux itself: a throwaway headscale API key goes to `cmux vm tailnet mint-key`
+# on stdin, which asks headscale's API for one single-use ephemeral key (10 min) and writes it 0600.
+MINTED_BY_CMUX=""
+if [[ -n $CMUX_CLI ]]; then
+  APIKEY=$(hs apikeys create --expiration 1h 2>/dev/null | tail -1)
+  [[ -n ${GITHUB_ACTIONS:-} && -n $APIKEY ]] && echo "::add-mask::$APIKEY"
+  if (umask 077; printf '%s' "$APIKEY" | "$CMUX_CLI" --json vm tailnet mint-key --key-stdin --headscale-api \
+        --login-server http://127.0.0.1:8080 --allow-http --headscale-user "$USER_ID" --ephemeral \
+        --out "$WORK/keys/b" >"$WORK/mint.json" 2>"$WORK/mint.err") && [[ -s $WORK/keys/b ]]; then
+    [[ -n ${GITHUB_ACTIONS:-} ]] && echo "::add-mask::$(cat "$WORK/keys/b")"
+    MODE=$(stat -c %a "$WORK/keys/b")
+    MINTED_BY_CMUX=$(cat "$WORK/keys/b")
+    result PASS mint "cmux vm tailnet mint-key wrote VM B's key ($MODE, $(jq -c '{reusable,ephemeral,expiresInSecs}' "$WORK/mint.json")) from a headscale API key; the API key stays on the runner"
+  else
+    redact <"$WORK/mint.err"
+    result FAIL mint "cmux vm tailnet mint-key did not mint VM B's key"; exit 1
+  fi
+  unset APIKEY
+else
+  mint b --ephemeral
+fi
 log "headscale up behind $CONTROL; user cmux id=$USER_ID; 5 single-use keys (front not ephemeral)"
 
 # ---------------------------------------------------------------- backends: two staging VMs
@@ -275,6 +299,20 @@ if [[ ! -s $WORK/vms.json ]]; then
 fi
 IP_A=$(jq -r .a.ip "$WORK/vms.json")
 IP_B=$(jq -r .b.ip "$WORK/vms.json")
+if [[ -n $MINTED_BY_CMUX ]]; then
+  # The one key cmux minted is spent: headscale lists it used, single-use, and B is on the tailnet. (It is
+  # the newest key: headscale versions that list only a key's prefix still find it.) Headscale's JSON is
+  # protobuf's, which leaves a false bool out, so a missing reusable or ephemeral reads as false.
+  KEYROW=$(hs preauthkeys list --user "$USER_ID" -o json 2>/dev/null | jq -c --arg k "$MINTED_BY_CMUX" \
+    '(map(select(.key == $k)) + [max_by(.id | tostring | tonumber)])[0]
+     | {id, used: (.used // false), reusable: (.reusable // false), ephemeral: (.ephemeral // false)}')
+  if [[ $(jq -r '.used == true and .reusable == false and .ephemeral == true' <<<"$KEYROW") == true ]]; then
+    result PASS mint-used "VM B joined with the cmux-minted key; headscale lists it $KEYROW"
+  else
+    result FAIL mint-used "headscale lists the cmux-minted key as ${KEYROW:-missing}"
+  fi
+  unset MINTED_BY_CMUX
+fi
 result PASS vms "staging machines $(jq -r '.a.machine + " (A " + .a.ip + ") and " + .b.machine + " (B " + .b.ip + ")"' "$WORK/vms.json") joined in $(awk -v a="$T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.0f", b-a}')s"
 
 # ---------------------------------------------------------------- uplink: the front's route to the VMs
