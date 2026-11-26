@@ -335,10 +335,11 @@ fn a_window_covers_reads_inside_it_only() {
     let d = Dedupe::default();
     let now = Instant::now();
     seeded(&d, &prefetch_block(dir.path(), "see b.rs:200"), now);
-    assert_eq!(call(&d, "1", "", &read(&f, None, None), "x", now), None, "the whole file runs");
-    assert_eq!(call(&d, "2", "", &read(&f, Some(100), Some(50)), "x", now), None, "outside runs");
-    let s = call(&d, "3", "", &read(&f, Some(150), Some(50)), "x", now).expect("inside");
+    // Each Read that runs is entered itself, so the order matters: inside, outside, whole.
+    let s = call(&d, "1", "", &read(&f, Some(150), Some(50)), "x", now).expect("inside");
     assert_eq!(s, prefetch_stub());
+    assert_eq!(call(&d, "2", "", &read(&f, Some(100), Some(50)), "x", now), None, "outside runs");
+    assert_eq!(call(&d, "3", "", &read(&f, None, None), "x", now), None, "the whole file runs");
 }
 
 #[test]
