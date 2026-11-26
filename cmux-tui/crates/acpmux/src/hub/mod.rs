@@ -241,6 +241,7 @@ pub(crate) mod outbox_stats;
 mod own_host;
 #[cfg(test)]
 mod owned_scope_bench_tests;
+pub(crate) mod owner_return;
 mod page_first;
 pub(crate) mod page_replies;
 mod paging;
