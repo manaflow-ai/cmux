@@ -43,7 +43,8 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
@@ -83,6 +84,7 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_handoff;
 mod cloud_hybrid;
+mod cloud_launch;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
@@ -607,6 +609,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_sequence::respond(operation, request)?
             }
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            operation if cloud_launch::handles(operation) => {
+                cloud_launch::respond(operation, request)?
+            }
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
