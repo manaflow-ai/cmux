@@ -1902,7 +1902,9 @@ secret = "keychain:work"
         .unwrap();
         let row = connection_state(dir, &d.home, "work", &ProfileSources::none());
         assert_eq!(row["connection"]["serves_cloud"], true);
+        // A directory where the lock file goes makes every route write fail.
         let lock = d.routes.join(".route-write.lock");
+        let _ = std::fs::remove_file(&lock);
         std::fs::create_dir(&lock).unwrap();
         assert!(credential_plan(dir, &d.home, "work").unwrap().4.is_none());
         std::fs::remove_dir(&lock).unwrap();

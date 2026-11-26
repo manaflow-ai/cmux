@@ -457,8 +457,10 @@ async fn kimi_disconnect_reports_keychain_delete_failure_and_can_retry() {
     let store = provider.store(&places.home);
     store.refuse_test_delete(id, crate::subscription_store::Error::KeychainOtherBuild);
     let service = Service::default();
+    let instance =
+        routes::find(places.routes.as_deref(), id).unwrap().file.credential_instance.unwrap();
     assert_eq!(
-        service.remove(provider, places.clone(), id.into()).await,
+        service.remove(provider, places.clone(), id.into(), instance.clone()).await,
         Err("keychain_other_build")
     );
     assert!(provider.path(&places.home, id).unwrap().exists());
@@ -466,8 +468,6 @@ async fn kimi_disconnect_reports_keychain_delete_failure_and_can_retry() {
     assert!(store.has_test_item(id));
 
     store.allow_test_item(id);
-    let instance =
-        routes::find(places.routes.as_deref(), id).unwrap().file.credential_instance.unwrap();
     service.remove(provider, places.clone(), id.into(), instance).await.unwrap();
     assert!(!store.has_test_item(id));
     assert!(!provider.path(&places.home, id).unwrap().exists());

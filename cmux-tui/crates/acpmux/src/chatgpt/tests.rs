@@ -806,7 +806,9 @@ async fn chatgpt_can_disconnect_after_signing_in_again_with_a_refused_old_item()
     ));
 
     assert_eq!(sign_in_again(&s, Some(id), &[("code", "c2")]).await.0, Status::Done(id.into()));
-    assert!(s.service.remove(home, id).await.unwrap());
+    let route = crate::routes::find(s.places.routes.as_deref(), id).unwrap();
+    let instance = route.file.credential_instance.as_deref().unwrap();
+    assert!(s.service.remove(&s.places, id, instance).await.unwrap());
     assert!(store::read(home, id).unwrap().is_none());
     assert_eq!(s.fake.state.lock().unwrap().revoke_forms[0]["token"], "refresh-0");
 }
