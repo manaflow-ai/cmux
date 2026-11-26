@@ -173,9 +173,9 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { KeyHint } from "../../../ui/KeyHint";
 import type { EvacuateState } from "../place/placeModel";
 import type { ComputerUsePlace } from "../computerUse/computerUseState";
-import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -3272,23 +3272,12 @@ export function NewTabScreen(props: Props) {
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                 {row.type === "action" && !!row.keycaps?.length && (
-                  <span className="nt-row-shortcut" data-popup-skip>
-                    {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
-                      <React.Fragment key={strokeIndex}>
-                        {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
-                        {stroke.map((cap, index) => (
-                          <kbd key={index}>{cap}</kbd>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </span>
+                  <KeyHint keys={row.keycaps} className="nt-row-shortcut" data-popup-skip />
                 )}
                 {/* Return's row says so: a "return" cap at its end. The Ask row needs none: it is what
                     Return does with plain text, as its name says. */}
                 {index === current && row.type !== "ask" && (
-                  <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                    {keycapLegend("↩")}
-                  </kbd>
+                  <KeyHint keys="↩" className="nt-row-return" aria-hidden="true" data-popup-skip />
                 )}
               </div>
             ))}
