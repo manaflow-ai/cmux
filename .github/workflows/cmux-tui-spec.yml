@@ -124,6 +124,10 @@ on:
         description: Run only this job id (a bisect probe); empty runs every job.
         type: string
         default: ""
+      base:
+        description: "clippy and fmt: the commit to compare with (the post-merge batch's last tested tip); empty lints the whole workspace"
+        type: string
+        default: ""
     # Base-side callers (post-merge batch, feat-cmux-next pushes) pass the R2 write secrets so base-comparison
     # logs go to R2: the GitHub cache is over its 10 GB cap and evicts them before pull requests read them.
     # Pull request callers pass none; they only read, which needs no credentials.
@@ -592,11 +596,6 @@ jobs:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     permissions:
       contents: read
-    # The R2 write credentials (cmux-ci-cache-next) enter only on feat-cmux-next, through next-cache-writer
-    # (deployment branch feat-cmux-next only); the caller passes them only there (cache-receipts guard).
-    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
-    env:
-      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1118,7 +1117,7 @@ jobs:
         id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.base || github.event_name == 'push' && github.event.before || '' }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
@@ -1198,13 +1197,15 @@ jobs:
           test "$(git rev-parse HEAD)" = "$COMMIT"
 
       # Pull requests compare with the base their merge commit was made on (its first
-      # parent), pushes with the commit before them, a replay with its `base`; with none
-      # (or a new branch) the whole workspace is linted.
+      # parent), pushes with the commit before them, a replay or the post-merge batch
+      # (workflow_call) with its `base` input; with none (or a new branch) the whole workspace
+      # is linted. The batch passed none until 2026-11-26, so each batch linted every crate and
+      # the panic ratchet put crates no merge touched over their baseline.
       - name: Fetch the comparison base
         id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event_name == 'workflow_dispatch' && inputs.base || '' }}
+          BASE_SHA: ${{ inputs.base || github.event_name == 'push' && github.event.before || '' }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')

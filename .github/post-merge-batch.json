@@ -155,7 +155,7 @@
       ],
       "jobs": {
         "cargo": "fast tier (cargo and script entries)",
-        "swift": "fast tier (Swift entries, build fleet)"
+        "swift-fleet": "fast tier (Swift entries, build fleet)"
       }
     },
     "tooling-tests": {
