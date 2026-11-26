@@ -89,13 +89,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/header/HeaderNewButton.tsx#HeaderNewButton",
     "agent-session/acpmux/newtab/ChatCards.tsx#ChatCards",
   ],
-  styles: () =>
-    Promise.all([
-      import("./styles.css"),
-      import("./keys.css"),
-      import("./header/header.css"),
-      import("./newtab/screen.css"),
-    ]),
+  styles: () => Promise.all([import("./styles.css"), import("./header/header.css"), import("./newtab/screen.css")]),
   load: async () => KeycapButtons,
   variants: {
     off: {

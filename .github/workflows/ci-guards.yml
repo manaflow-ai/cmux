@@ -190,6 +190,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_test_products.py
 
+      # The fleet iOS build client the Linux kit job calls: token, submit, poll, artifact.
+      - name: Test the fleet iOS build client
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_ios_build.py
+
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
       # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
@@ -236,6 +241,14 @@ jobs:
       - name: Validate the Cloud capture account provisioning
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cloud_capture_provision.py
+
+      - name: Validate the Cloud chat proof script
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_chat_proof.py
+
+      - name: Validate the Cloud chat proof failure evidence
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_chat_proof_failure_evidence.py
 
       - name: Validate the cloud overflow switch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -774,6 +787,12 @@ jobs:
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+
+      # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
+      # network, no secret).
+      - name: Validate the staging test account sweep picker
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/cloud-test-sweep.test.ts
 
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
@@ -1783,6 +1802,10 @@ jobs:
       - name: Validate the Zig tarball restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_tarball_r2.sh
+
+      - name: Validate the Zig package archives restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_zig_packages_r2.sh
 
       - name: Validate the Node, Bun and Rust restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
