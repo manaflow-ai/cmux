@@ -30,7 +30,7 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 - `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
   billing files in the app.
 - Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
-  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+  `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
 
 ## Try a PR on the person's phone: cmux Dev
 
@@ -180,15 +180,16 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Landing an iOS PR
 
-A PR that changes iOS code waits for Aziz's review. It lands without him only when it's proven
-correct and fully functional, with its implications written in the PR. merge_hold reads one line in
-the PR body:
+An iOS PR lands like any other `feat-cmux-next` PR: green CI and a review SHIP at the exact head. Nobody
+waits on Aziz or tells him after (Leo, 2026-11-23: "i already told interim-coord: do not hold. if you can
+argue for it strongly, then just merge it. we do not hold on people and arbitrary things and blockers than
+can be solved. ever."; "you dont have to keep telling aziz"). His reviews are welcome as follow-ups.
 
-- `iOS-hold: strict fix`: a basic correctness fix, plus an independent review SHIP at the exact head
-  that confirms it.
-- `iOS-hold: proven`: a test that fails without the change and passes with it (run links), the flow
-  working end to end in a simulator or on a device, a `## Implications` section, and a review SHIP at
-  the exact head that confirms all three.
+land-judge still asks a PR that changes iOS UI code for its case, one of these lines in the body:
 
-A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` hold nothing.
-Either way, post a comment on the PR that mentions Aziz so he knows it's coming.
+- `Merge-case: <why it should merge now>` (at least 8 words), the usual route.
+- `iOS-hold: strict fix` with a one-paragraph `## ELI5` section (at most 120 words).
+- `iOS-hold: proven` with a test that fails without the change, the flow working in a simulator or on a
+  device, a `## Implications` section, and a review SHIP at the head that confirms them.
+
+A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` need no case.
