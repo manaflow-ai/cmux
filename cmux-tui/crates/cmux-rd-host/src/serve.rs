@@ -454,6 +454,36 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// What this session shares, for the app and for checks that compare the viewer's pick with
+/// the picture that arrives (`capturing`): the setup line's pick, the source it resolved to and
+/// the streamed size, in the mode this host applies (a `view` scope is view whatever the viewer
+/// asked).
+fn capturing_line(
+    setup: &Setup,
+    rect: Option<[u32; 4]>,
+    (width, height): (u32, u32),
+    mode: Mode,
+) -> AppLine {
+    AppLine {
+        capturing: Some(cmux_rd_proto::app_line::LineCapturing {
+            source: if setup.window.is_some() { "window" } else { "display" }.into(),
+            display: setup.display.clone(),
+            window: setup.window,
+            rect,
+            width,
+            height,
+            max_width: setup.max_width,
+            mode: match mode {
+                Mode::Control => "control",
+                Mode::View => "view",
+            }
+            .into(),
+            scope: setup.scope.clone(),
+        }),
+        ..AppLine::default()
+    }
+}
+
 /// When `candidates_done` goes to the app, which answers then: at the first host candidate
 /// (one is known at once, so a session never waits for STUN or TURN), or when gathering ends
 /// for a side with none (relay only). Once.
@@ -748,6 +778,7 @@ fn serve_session(
         caps: negotiated.caps.clone(),
     })?;
     carrier.send_control(&Control::Started { session })?;
+    say(capturing_line(setup, media.source_rect(), (width, height), mode));
     let reason = media.run(carrier, &mut table, session, &principal);
     media.release_input();
     media.close_upstreams();
@@ -810,6 +841,29 @@ mod tests {
         assert_eq!(stats.queue_datagrams, 1);
         assert_eq!(stats.dropped_replaced_frames, 1);
         assert_eq!(stats.dropped_replaced_datagrams, 2);
+    }
+
+    #[test]
+    fn the_capturing_line_names_the_pick_the_source_and_the_applied_mode() {
+        let setup: Setup = serde_json::from_str(
+            r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"view","display":"2","max_width":480}"#,
+        )
+        .expect("setup");
+        let line = capturing_line(&setup, Some([960, 0, 960, 1080]), (480, 540), Mode::View);
+        assert_eq!(
+            line.to_json(),
+            r#"{"capturing":{"source":"display","display":"2","window":null,"rect":[960,0,960,1080],"width":480,"height":540,"max_width":480,"mode":"view","scope":"view"}}"#
+        );
+        let window: Setup = serde_json::from_str(
+            r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","window":4194305}"#,
+        )
+        .expect("setup");
+        let line = capturing_line(&window, None, (800, 600), Mode::Control);
+        let got = line.capturing.expect("capturing");
+        assert_eq!(
+            (got.source.as_str(), got.window, got.mode.as_str()),
+            ("window", Some(4194305), "control")
+        );
     }
 
     #[test]
