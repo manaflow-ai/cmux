@@ -423,7 +423,7 @@ impl ForkLink for CloudLink {
         let (host, port, user, host_key) = ssh_route(&endpoint)?;
         let known = dir.path().join("known_hosts");
         let name = if port == 22 { host.clone() } else { format!("[{host}]:{port}") };
-        std::fs::write(&known, format!("{name} {host_key}\n"))
+        crate::home_fs::write(&known, format!("{name} {host_key}\n"))
             .map_err(|e| format!("known hosts: {e}"))?;
         let mut ssh = cmux_process::Command::new("ssh");
         ssh.arg("-i").arg(&key);
@@ -494,7 +494,7 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Owned<R> {
     }
 }
 
-// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
+// Forks are git checkouts whose executable bits the tests compare: unix only.
 #[cfg(all(test, unix))]
 #[path = "sub_fork_run_tests.rs"]
 mod tests;

@@ -1535,6 +1535,7 @@ mod tests {
     /// rewrites of `machine-credential.json` (a new inode per atomic replace) over 10 minutes.
     #[test]
     #[cfg(unix)] // counts inodes
+    #[cfg(unix)]
     fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty() {
         use std::os::unix::fs::MetadataExt as _;
         let dir = tempfile::tempdir().unwrap();

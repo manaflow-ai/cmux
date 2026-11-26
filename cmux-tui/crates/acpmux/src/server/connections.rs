@@ -1335,6 +1335,7 @@ mod tests {
     /// nor `wait`'s answer nor the route file carries the token.
     #[tokio::test(flavor = "multi_thread")]
     #[cfg(unix)] // claude_token runs on unix only
+    #[cfg(unix)]
     async fn claude_token_begin_and_wait_add_a_connection_by_reference_only() {
         use crate::claude_token::{self, store};
         const TOKEN: &str = "sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOp";
