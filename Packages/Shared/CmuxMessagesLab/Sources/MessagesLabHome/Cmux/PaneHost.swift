@@ -131,6 +131,8 @@ final class HostView: NSView {
         // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
+        // cmux: the field's width waits through this pane's live resizes, the window's and its divider drags.
+        demo.compose.textView.liveResizing = { [weak self] in self?.isLiveResizing ?? false }
         // cmux: above the text view's clip (the text leaves its slot free).
         addSubview(sendButton)
         addSubview(listeningLine)
@@ -240,45 +242,84 @@ final class HostView: NSView {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
-        restoreClipMaskOutsideLiveResize()
+        // The view left its window (or came to another) during a live resize: no viewDidEndLiveResize comes from the
+        // old one. It follows the new window's live resize, and out of any window no divider drag's end may reach it
+        // (its layout can go first), as a terminal host's.
+        windowLiveResize = window?.inLiveResize == true
+        if window == nil { paneLiveResize = false }
+        syncLiveResize()
     }
 
     // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)
 
-    /// While the window is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
+    /// While the pane is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
     /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
     /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
     /// view's own bounds do not, except a bare top's fade (HeaderGlass.swift `useBareTop`), which pauses during the
-    /// drag. Both come back when the resize ends (the still pixels are the resting ones).
+    /// drag. The empty field keeps its text width (ComposeTextView `deferWidth`). All of it comes back when the resize
+    /// ends (the still pixels are the resting ones).
+    ///
+    /// cmux: the live resizes this pane follows: its window's (AppKit's `viewWillStartLiveResize` to
+    /// `viewDidEndLiveResize`) and a person's drag of the pane's divider or edge (`followPaneResize`, from the cmux
+    /// layout's resize gesture). Either resizes the pane on every display frame, and both take the same paths.
+    private var windowLiveResize = false
+    private(set) var paneLiveResize = false
+    /// Whether a live resize, the window's or a divider drag, resizes this pane now.
+    var isLiveResizing: Bool { windowLiveResize || paneLiveResize }
+    /// Whether the live-resize paths are on (`liveResizeBegan` ran and `liveResizeEnded` has not).
+    private var liveApplied = false
     private var restingClipMask: CALayer?
+
+    /// cmux: a divider or edge drag of this pane began (true) or ended and its layout landed (false).
+    func followPaneResize(_ active: Bool) {
+        paneLiveResize = active
+        syncLiveResize()
+    }
+
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
-        guard let demo, restingClipMask == nil, let m = demo.clip.layer.mask else { demo?.chrome.liveResizing = true; return }
+        windowLiveResize = true
+        syncLiveResize()
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        windowLiveResize = false
+        // A divider drag still under way keeps the paths until its own end.
+        syncLiveResize()
+    }
+
+    private func syncLiveResize() {
+        guard liveApplied != isLiveResizing else { return }
+        if isLiveResizing { liveResizeBegan() } else { liveResizeEnded() }
+    }
+
+    /// A live resize began: the clip's mask comes off and the chrome draws its nine-part border.
+    private func liveResizeBegan() {
+        guard let demo else { return }
+        liveApplied = true
+        demo.chrome.liveResizing = true
+        guard restingClipMask == nil, let m = demo.clip.layer.mask else { return }
         restingClipMask = m
         CATransaction.begin(); CATransaction.setDisableActions(true)
         demo.clip.layer.mask = nil
         CATransaction.commit()
-        demo.chrome.liveResizing = true
     }
-    /// The view left its window (or came to another) during a live resize, so no viewDidEndLiveResize comes: the mask
-    /// is put back unless the new window is itself in a live resize (a pane closed or a tab moved during the drag).
-    private func restoreClipMaskOutsideLiveResize() {
-        guard let demo, let m = restingClipMask, window?.inLiveResize != true else { return }
-        restingClipMask = nil
-        demo.chrome.liveResizing = false
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        demo.clip.layer.mask = m
-        CATransaction.commit()
-    }
-    override func viewDidEndLiveResize() {
-        super.viewDidEndLiveResize()
+
+    /// The live resize ended: the mask and the chrome's border come back, and the field takes the width that waited
+    /// (a window's own end also reaches the text view, `FieldTextView.viewDidEndLiveResize`; a divider drag's comes
+    /// only here).
+    private func liveResizeEnded() {
+        liveApplied = false
         guard let demo else { return }
         demo.chrome.liveResizing = false
-        guard let m = restingClipMask else { return }
-        restingClipMask = nil
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        demo.clip.layer.mask = m
-        CATransaction.commit()
+        demo.compose.textView.placeWaitingWidth()
+        if let m = restingClipMask {
+            restingClipMask = nil
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            demo.clip.layer.mask = m
+            CATransaction.commit()
+        }
     }
 
     /// A backing scale change (the window moved to a display with another scale or colour space): the transcript
