@@ -509,6 +509,11 @@ jobs:
   # tests/daemon_list_order_start.rs (the start task sorts the list order before any chat log
   # is read) runs here too: no pull request check ran it.
   acpmux-tests:
+    # The R2 write credentials for the base-log save below: only a feat-cmux-next run enters next-cache-writer
+    # (deployment branches feat-cmux-next only), which writes only NEXT's own bucket; elsewhere it saves nothing.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     name: acpmux tests (lib, hub_integration)
     needs: changes
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
