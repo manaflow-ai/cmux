@@ -684,8 +684,12 @@ learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
 upgrade, about three round trips to the edge) waited behind the Mac's gather
 and answer. Now it asks for the ticket at once:
 
-- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
-  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true` when it sends
+  `relay: "now"`, or `relay: "first"` (RFD 0142 R1: its join then starts as
+  the hub forwards the offer, beside the direct race and the Mac's own join,
+  not after `wg-resp`). Absent means false; an older Mac ignores the field.
+  A `first` dialer whose Mac answers `ready` (a build before relay first)
+  lets the early join go and keeps the 3 s rule.
 - **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
   own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
   "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
