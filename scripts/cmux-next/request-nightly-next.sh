@@ -150,11 +150,71 @@ strings_fresh() { # <sha>
 # waiting request, so a stale request would evict a newer one.
 # One read gives nightly-next and the commit its feed last published (the publish moves the
 # nightly-next tag to it, scripts/ci/update-release-tag.py): no second round trip.
-promoted="" promoted_unknown="" published=""
-if refs="$(git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+# origin_git <git args...>: one bounded read of origin (ls-remote or fetch).
+# The tick's checkout keeps no credentials, so these reads went to github.com
+# anonymously, and GitHub held anonymous smart-HTTP reads 50-107 s before its
+# first byte (measured 2026-11-25), while the same read with a token answered
+# in 2-5 s. Tick 45696501186 spent 29 minutes refusing 35 commits, with gaps
+# of 60-215 s, three such reads per commit. So GH_TOKEN goes along as an
+# Authorization header, through git's environment config (never argv), only to
+# https://github.com/ and only when the checkout has no header of its own.
+# A read with a token stalled too, once in eight (cut at 30 s, its retry took
+# 4 s), so each attempt is cut at CMUX_NIGHTLY_NEXT_GIT_SECONDS (default 15; a
+# fetch, CMUX_NIGHTLY_NEXT_FETCH_SECONDS, default 60) and a failed attempt is
+# tried again, three attempts in all (without the token after a failure that
+# was not the cut, in case the token is what failed).
+origin_git() {
+  local secs="${CMUX_NIGHTLY_NEXT_GIT_SECONDS:-15}" url auth="" _ rc=0 out
+  [[ "$1" == fetch ]] && secs="${CMUX_NIGHTLY_NEXT_FETCH_SECONDS:-60}"
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  if [[ -n "${GH_TOKEN:-}" && "$url" == https://github.com/* ]] \
+      && ! git config --get-regexp '^http\..*\.extraheader$' >/dev/null 2>&1; then
+    auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+  fi
+  local -a cut=()
+  command -v timeout >/dev/null 2>&1 && cut=(timeout -k 5 "$secs")
+  for _ in 1 2 3; do
+    rc=0
+    out="$(
+      export GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME="$secs"
+      if [[ -n "$auth" ]]; then
+        n="${GIT_CONFIG_COUNT:-0}"
+        export GIT_CONFIG_COUNT=$((n + 1)) "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader" "GIT_CONFIG_VALUE_$n=$auth"
+      fi
+      ${cut[@]+"${cut[@]}"} git "$@"
+    )" || rc=$?
+    if (( rc == 0 )); then
+      [[ -z "$out" ]] || printf '%s\n' "$out"
+      return 0
+    fi
+    (( rc == 124 || rc == 137 )) || auth=""
+  done
+  return "$rc"
+}
+# origin_refs: nightly-next (branch and tag) and the feat-cmux-next tip in one
+# read. The tick (GH_TICK_CACHE set) walks up to 120 commits, each a call of
+# this script: the first call's read is kept for the whole tick, so a walk over
+# many commits reads origin once, not three times a commit. A failed read is
+# never kept. The tick decides in minutes, and a branch that moves meanwhile is
+# the next tick's (the tick also reads the branch once, when it checks it out).
+origin_refs() {
+  local file="" out
+  if [[ -n "${GH_TICK_CACHE:-}" ]]; then
+    file="$GH_TICK_CACHE/origin-refs"
+    [[ -s "$file" ]] && { cat "$file"; return 0; }
+  fi
+  out="$(origin_git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' refs/heads/feat-cmux-next 2>/dev/null)" || return 1
+  if [[ -n "$file" && -n "$out" ]] && mkdir -p "$GH_TICK_CACHE" 2>/dev/null; then
+    printf '%s\n' "$out" > "$file.$$" && mv "$file.$$" "$file"
+  fi
+  printf '%s\n' "$out"
+}
+promoted="" promoted_unknown="" published="" origin_tip=""
+if refs="$(origin_refs)"; then
   while read -r oid ref; do
     [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || continue
     case "$ref" in
+      refs/heads/feat-cmux-next) origin_tip="$oid" ;;
       refs/heads/nightly-next) promoted="$oid" ;;
       refs/tags/nightly-next) [[ -n "$published" ]] || published="$oid" ;;
       'refs/tags/nightly-next^{}') published="$oid" ;;  # an annotated tag's commit
@@ -228,15 +288,23 @@ app_unchanged() { # <sha>
 #          nothing that reaches the app changed since (same_app: the nightly's input classifier and
 #          the cmux-tui tree key), so the same app compiled;
 #   red    that verdict failed;
-#   none   no verdict yet (queued, superseded by a newer tip, never checked): an older commit is tried,
-#          and the next tick tries this one again;
+#   covered  its record is superseded (the controller checked a newer push tip instead, and that check
+#          covers this push's commits) and the first checked tip after it passed. Most feat-cmux-next
+#          commits are superseded, and the tree publisher also keeps only one push per window, so
+#          requiring both on the same commit left the dedicated Macs idle for hours with commits waiting
+#          (11-25: 77, 132 and 100+ minute gaps, every tick "N refused"; Leo, 2026-11-25: "Just keep
+#          the train going like 24/7, constantly"). A commit between it and that tip could have fixed
+#          its compile; then its nightly fails at the Mac build, which the next commit replaces;
+#   none   no verdict yet (queued, never checked, or superseded by a tip not checked yet or red): an
+#          older commit is tried, and the next tick tries this one again;
 #   down   the results service did not answer: promoted as before, with a warning (the feed must not
 #          stop on an outage of a cache).
 # NIGHTLY_NEXT_PRECHECK=0 turns it off. CMUX_NIGHTLY_NEXT_PRECHECK_DEPTH (default 30) ancestors are read
 # at most; each verdict is read once a tick (the tick runs this script once per commit it walks).
 precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.com/compile-checks/v1}"
 precheck_reason=""
-# fleet_verdict <sha>: pass, fail, pending, none (no usable record) or down.
+# fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it), none (no
+# usable record) or down.
 fleet_verdict() { # <sha>
   local cache="" body code word
   if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
@@ -266,6 +334,8 @@ elif r.get("state") in ("pass", "fail"):
     print(r["state"])
 elif r.get("state") in ("queued", "running", "deferred", "", None):
     print("pending")
+elif r.get("state") == "superseded":
+    print("superseded")
 else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
@@ -295,6 +365,20 @@ precheck() { # <sha>
       echo "::warning title=nightly-next precheck::the compile results service did not answer for ${1:0:12}; promoting it unprechecked" >&2
       precheck_reason="the results service did not answer, so it is not prechecked"
       return 0 ;;
+    superseded)
+      # The check that covers it is the first checked push tip after it on feat-cmux-next.
+      local later
+      while read -r later; do
+        [[ "$later" =~ ^[0-9a-f]{40}$ ]] || continue
+        word="$(fleet_verdict "$later")"
+        case "$word" in
+          pass)
+            precheck_reason="its push was superseded by ${later:0:12}, whose Release compile on the build fleet covers it and passed"
+            return 0 ;;
+          fail|pending|down) break ;;
+        esac
+      done < <(git rev-list --first-parent --ancestry-path --reverse "$1..${tip:-$1}" 2>/dev/null | head -n "$depth")
+      ;;
   esac
   # No verdict of its own: the nearest ancestor with one stands for it when the app is the same.
   while read -r ancestor; do
@@ -430,9 +514,9 @@ starved_runs() { # <commit>
 # key) is requested at once: its nightly compiles the app while the tree builds.
 # Returns request()'s codes, or 1 when it does not apply.
 request_tree_pending() {
-  local tip_line tip_key verify=0 commit runs active=""
-  tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" || return 1
-  [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] || return 1
+  local tip_key verify=0 commit runs active=""
+  # The tip from origin_refs: empty when that read failed, as before.
+  [[ -n "$origin_tip" && "$origin_tip" == "$sha" ]] || return 1
   # The whole file first: `git show | grep -q` fails under pipefail on an early match.
   local workflow
   workflow="$(git show "$sha:.github/workflows/nightly.yml" 2>/dev/null)" || return 1
@@ -500,16 +584,15 @@ backfill() { # <reason>
     echo "backfill: already dispatched in this job; not dispatching again ($1)"
     return 0
   fi
-  local state count dispatch_tip tip_line
+  local state count dispatch_tip
   # This function also repairs older candidates' markers, but the dispatch
   # always builds feat-cmux-next. Bind the duplicate check to that source,
   # rather than the candidate or every publisher on the branch.
-  if ! tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" \
-      || ! [[ "${tip_line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
+  if ! [[ "$origin_tip" =~ ^[0-9a-f]{40}$ ]]; then
     echo "backfill: could not read the feat-cmux-next tip; not dispatching ($1)"
     return 0
   fi
-  dispatch_tip="${tip_line%%[[:space:]]*}"
+  dispatch_tip="$origin_tip"
   active=0
   # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
   # (a run held behind its concurrency group).
@@ -568,7 +651,7 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   # if it published nothing, re-dispatching it every tick would not help.
   # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
   # exit 1), never on a read failure.
-  if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
+  if [[ -n "$origin_tip" && "$origin_tip" == "$sha" ]] \
       && tip_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$sha" 2>/dev/null)"; then
     tip_verify=0
     bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
@@ -607,9 +690,18 @@ key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 # local feat-cmux-next branch, else <sha> alone, is the history.
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window * 4))")
-tip=""
-if git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null; then
+# In the tick (GH_TICK_CACHE) the first fetch's tip is kept: the walk's later
+# calls share the repository it deepened, so they fetch nothing again.
+tip="" fetched_file=""
+[[ -n "${GH_TICK_CACHE:-}" ]] && fetched_file="$GH_TICK_CACHE/feat-cmux-next-fetched"
+if [[ -n "$fetched_file" && -s "$fetched_file" ]] && tip="$(cat "$fetched_file")" \
+    && [[ "$tip" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$tip^{commit}" 2>/dev/null; then
+  :
+elif tip="" && origin_git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null; then
   tip="$(git rev-parse FETCH_HEAD)"
+  if [[ -n "$fetched_file" ]] && mkdir -p "$GH_TICK_CACHE" 2>/dev/null; then
+    printf '%s\n' "$tip" > "$fetched_file.$$" && mv "$fetched_file.$$" "$fetched_file"
+  fi
 else
   echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
   tip="$(git rev-parse --verify -q refs/heads/feat-cmux-next^{commit} 2>/dev/null || true)"
