@@ -83,14 +83,26 @@
      static let timeSize: CGFloat = 12
      static let timeGap: CGFloat = 6
  
-@@ -268,16 +286,28 @@
+@@ -260,24 +278,44 @@
+     static let pinColumns = 3
+     static let pinInsetX: CGFloat = 10
+     static let pinTopPad: CGFloat = 12
+-    static let pinMaxAvatar: CGFloat = 76
++    static let pinMaxAvatar: CGFloat = 88 // cmux: Messages (macOS 26) at a wide list, measured at 2x
+     static let pinAvatarSideInset: CGFloat = 14
+     static let pinNameSize: CGFloat = 11
+     static let pinNameGap: CGFloat = 6
+     static let pinNameHeight: CGFloat = 16
      static let pinBottomPad: CGFloat = 8
      static let pinSelectionRadius: CGFloat = 12
++    /// cmux: the selection runs this far past the avatar on the top and the sides, at every width (Messages, macOS 26,
++    /// measured at 2x: an 88 pt avatar in a 108 pt slab); the tile's own width only caps it.
++    static let pinSelectionPad: CGFloat = 10
      static let pinSectionBottom: CGFloat = 6
-+    /// cmux: the compact list's pinned ring, this far outside the avatar (inside the 4 pt
-+    /// selection-disc margin) and this thick.
-+    static let compactPinRingGap: CGFloat = 2.5
-+    static let compactPinRingWidth: CGFloat = 1.5
++    /// cmux: Messages' avatar strip parts its pinned avatars from the rest with a line in a 10 pt gap (macOS 26,
++    /// measured at 2x): 54 x 2 pt, centred, the separator's colour.
++    static let compactDividerGap: CGFloat = 10
++    static let compactDivider = CGSize(width: 54, height: 2)
  
      var width: CGFloat
  
@@ -98,14 +110,19 @@
 -    var rowAvatarX: CGFloat { compact ? ((width - Self.avatar) / 2).rounded() : Self.avatarX }
 -    var dotCenterX: CGFloat { compact ? max(Self.dotDiameter / 2 + 1, rowAvatarX - 9) : Self.dotCenterX }
 +    var rowAvatarX: CGFloat { compact ? ((width - compactAvatar) / 2).rounded() : Self.avatarX }
-+    /// The compact list's avatar, pinned or not: the row's (Messages' narrow list).
-+    var compactAvatar: CGFloat { Self.avatar }
-+    /// A row's height: the measured row, in the compact list too.
-+    var listRowHeight: CGFloat { Self.rowHeight }
++    /// cmux: how much a compact list wider than the narrowest is scaled: the whole strip (avatar, row, slab, divider)
++    /// grows with the width, so a wider strip is the narrowest one zoomed, never small avatars in an empty band (the
++    /// user, 2026-11-24: "make them bigger here"). 1 in the full list.
++    var compactScale: CGFloat { compact ? max(1, width / Self.minimumWidth) : 1 }
++    /// The compact list's avatar, pinned or not: the row's (Messages' narrow list), scaled with the strip (cmux).
++    var compactAvatar: CGFloat { (Self.avatar * compactScale).rounded() }
++    /// A row's height: the measured row; in the compact list scaled with the strip (cmux), on the half point.
++    var listRowHeight: CGFloat { compact ? (Self.rowHeight * compactScale * 2).rounded() / 2 : Self.rowHeight }
 +    /// A row's avatar in the row's own coordinates (`rowHeight`: the row's height), centred on the
 +    /// row; in the compact list centred across it too.
 +    func rowAvatar(rowHeight: CGFloat) -> CGRect {
-+        CGRect(x: rowAvatarX, y: ((rowHeight - Self.avatar) / 2).rounded(), width: Self.avatar, height: Self.avatar)
++        let a = compact ? compactAvatar : Self.avatar
++        return CGRect(x: rowAvatarX, y: ((rowHeight - a) / 2).rounded(), width: a, height: a)
 +    }
      /// The row text's width (name, preview) at this list width.
      var textWidth: CGFloat { max(0, width - Self.textX - Self.textRightInset) }
@@ -115,7 +132,7 @@
      var compact: Bool { width < Self.compactBelow }
      /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
      var columns: Int {
-@@ -286,20 +316,23 @@
+@@ -286,29 +324,79 @@
      }
      var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
      /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
@@ -133,18 +150,77 @@
      var tileHeight: CGFloat {
 -        compact ? Self.pinTopPad / 2 + pinAvatar + Self.pinBottomPad
 -            : Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
-+        if compact { return Self.rowHeight } // cmux: a compact tile is a row: avatar only
++        if compact { return listRowHeight } // cmux: a compact tile is a row: avatar only
 +        return Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
      }
      func pinnedHeight(count: Int) -> CGFloat {
          guard count > 0 else { return 0 }
          let rows = (count + columns - 1) / columns
 -        return CGFloat(rows) * tileHeight + Self.pinSectionBottom
-+        return CGFloat(rows) * tileHeight + (compact ? 0 : Self.pinSectionBottom)
++        return CGFloat(rows) * tileHeight + (compact ? compactDividerGapScaled : Self.pinSectionBottom)
      }
-     func tileRect(_ i: Int) -> CGRect {
+-    func tileRect(_ i: Int) -> CGRect {
++    /// cmux: the compact list's slab: the narrowest list's (its row less the insets) scaled with the strip, centred on the
++    /// avatar, never a bar across the strip (the user, 2026-11-24).
++    /// The avatar plus an even margin, so the slab shares the avatar's centre on the point grid.
++    var compactSelectionWidth: CGFloat {
++        compactAvatar + 2 * (((Self.minimumWidth - 2 * Self.selectionInsetX - Self.avatar) / 2) * compactScale).rounded()
++    }
++    /// cmux: the compact selection's x in list coordinates, centred on the avatar.
++    var compactSelectionX: CGFloat { ((width - compactSelectionWidth) / 2).rounded() }
++    /// cmux: the compact slab's corner, scaled with the strip.
++    var compactSelectionRadius: CGFloat { (Self.selectionRadius * compactScale).rounded() }
++    /// cmux: the line under the pinned avatars and its gap, scaled with the strip (the line stays 2 pt thick).
++    var compactDividerSize: CGSize {
++        // The avatar plus an even margin, as the slab, so the line shares the avatar's centre.
++        CGSize(width: compactAvatar + 2 * (((Self.compactDivider.width - Self.avatar) / 2) * compactScale).rounded(), height: Self.compactDivider.height)
++    }
++    /// Even, so the 2 pt line in its middle sits on whole points.
++    var compactDividerGapScaled: CGFloat { 2 * (Self.compactDividerGap / 2 * compactScale).rounded() }
++    /// cmux: the compact list's unread dot centre: as far left of the avatar as in the narrowest list, so the dot stays
++    /// with its avatar in a wider strip.
++    var compactDotCenterX: CGFloat { rowAvatarX - (((Self.minimumWidth - Self.avatar) / 2).rounded() - Self.dotCenterX) }
++    /// cmux: a tile's selection in tile coordinates: the avatar and its name with `pinSelectionPad` around the avatar,
++    /// never the tile's whole width (the user, 2026-11-23: in a wide list it was a wide slab); the compact tile is a row.
++    var tileSelection: CGRect {
++        if compact {
++            let w = min(tileWidth, compactSelectionWidth)
++            return CGRect(x: ((tileWidth - w) / 2).rounded(), y: 0, width: w, height: tileHeight)
++        }
++        let w = min(tileWidth - 4, pinAvatar + 2 * Self.pinSelectionPad)
++        let avatarX = ((tileWidth - pinAvatar) / 2).rounded()
++        let x = max(2, avatarX - ((w - pinAvatar) / 2).rounded())
++        return CGRect(x: x, y: Self.pinTopPad - Self.pinSelectionPad, width: w, height: tileHeight - 2 * (Self.pinTopPad - Self.pinSelectionPad))
++    }
++    /// cmux: the width a tile's name is fitted to (`SidebarDraw.tileNameKeyWidth`): the selection's, so a selected
++    /// name stays 2 pt inside it.
++    var tileNameWidth: CGFloat { compact ? tileWidth : tileSelection.width + 4 }
++    /// cmux: tile `i` of a grid of `count`. A last row with fewer tiles than columns is centred in the list (Messages'
++    /// pinned grid; the user, 2026-11-25: one pinned Chief sat in the left column), so a resize keeps it centred.
++    func tileRect(_ i: Int, count: Int) -> CGRect {
          let cols = columns
-@@ -323,6 +356,8 @@
+         let r = i / cols, c = i % cols
+         let tw = tileWidth
+-        let used = tw * CGFloat(cols)
+-        let x0 = ((width - used) / 2).rounded()
++        let inRow = max(1, min(cols, count - r * cols))
++        let x0 = ((width - tw * CGFloat(inRow)) / 2).rounded()
+         return CGRect(x: x0 + CGFloat(c) * tw, y: CGFloat(r) * tileHeight, width: tw, height: tileHeight)
+     }
++    /// cmux: the slot under `p` in a grid of `count` (`tileRect(_:count:)`'s layout), clamped to the grid.
++    func tileSlot(at p: CGPoint, count: Int) -> Int {
++        guard count > 0 else { return 0 }
++        let cols = columns, rows = (count + cols - 1) / cols
++        // no trap on NaN (a zero tile size) or a huge position
++        let r = min(rows - 1, max(0, CrashGuard.int(p.y / tileHeight, in: CrashGuard.rowRange)))
++        let inRow = min(cols, count - r * cols)
++        let c = min(inRow - 1, max(0, CrashGuard.int((p.x - tileRect(r * cols, count: count).minX) / tileWidth, in: CrashGuard.rowRange)))
++        return r * cols + c
++    }
+ }
+ 
+ /// Colors resolved for one appearance and window state (CGColors: the background renderer
+@@ -323,6 +411,8 @@
      var selectionActive: CGColor
      var selectionInactive: CGColor
      var selectedText: CGColor
@@ -153,7 +229,7 @@
      var monogramTop: CGColor
      var monogramBottom: CGColor
      var groupDisc: CGColor
-@@ -349,17 +384,21 @@
+@@ -349,17 +439,21 @@
              }
              return SidebarPalette(
                  dark: dark,

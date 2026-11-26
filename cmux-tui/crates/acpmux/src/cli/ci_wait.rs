@@ -113,9 +113,20 @@ pub fn pr_state(pull: &Value, runs: &[Value], status: &Value, waited: Duration) 
     if pull["state"].as_str() == Some("closed") {
         return State::Red { note: "closed without merging".into() };
     }
+    // Each check by its newest run: a cancel a newer run of the same check replaced is no red.
+    let newest = crate::acpmux_mcp::pr::newest_runs(runs);
+    let runs: Vec<Value> = newest.into_iter().cloned().collect();
+    let runs = runs.as_slice();
+    let completed = |r: &&Value| r["status"].as_str() == Some("completed");
+    let cancelled = |r: &&Value| r["conclusion"].as_str() == Some("cancelled");
     let failing: Vec<&str> = runs
         .iter()
-        .filter(|r| r["status"].as_str() == Some("completed") && failed(&r["conclusion"]))
+        .filter(|r| completed(r) && failed(&r["conclusion"]) && !cancelled(r))
+        .filter_map(|r| r["name"].as_str())
+        .collect();
+    let cancelled_names: Vec<&str> = runs
+        .iter()
+        .filter(|r| completed(r) && cancelled(r))
         .filter_map(|r| r["name"].as_str())
         .collect();
     let statuses = status["statuses"].as_array().map_or(&[][..], Vec::as_slice);
@@ -138,6 +149,11 @@ pub fn pr_state(pull: &Value, runs: &[Value], status: &Value, waited: Duration) 
             State::Green { note: "no checks on the head".into() }
         } else {
             State::Pending { done: 0, total: 0 }
+        };
+    }
+    if done == total && !cancelled_names.is_empty() {
+        return State::Red {
+            note: format!("cancelled, no newer run: {}", cancelled_names.join(", ")),
         };
     }
     if done == total {
@@ -244,7 +260,7 @@ enum Read {
 impl Reader {
     pub fn new(api: String, token: String, cache: Cache) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("acpmux-ci-wait/", env!("CARGO_PKG_VERSION")))
             .build()?;
@@ -493,7 +509,7 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
     }
     let repo = match args.repo {
         Some(repo) => repo,
-        None => run_bounded("git", &["remote", "get-url", "origin"], Some(Path::new(".")))
+        None => run_bounded("git", &["config", "--get", "remote.origin.url"], Some(Path::new(".")))
             .await
             .as_deref()
             .and_then(repo_from_remote)

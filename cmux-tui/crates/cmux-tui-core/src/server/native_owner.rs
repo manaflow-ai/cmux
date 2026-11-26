@@ -103,6 +103,7 @@ const COMMANDS: &[&str] = &[
     "set-tab-pinned",
     "read-screen",
     "read-scrollback",
+    "terminal-find",
     "send-key",
     "list-terminals",
     "set-attach-visibility",
@@ -173,6 +174,9 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[0],
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[1],
     agent_inventory::CAPABILITY,
     agent_inventory::OWNER_CAPABILITY,
     agent_inventory::REFRESH_CAPABILITY,
@@ -192,6 +196,7 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+    crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     // A projected folder on the owner's own machine: its stream dial passes
     // `fs_wire::remote_dial_admits` for the owner's Native dial only.
@@ -355,6 +360,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::SetTabPinned { .. }
         | Command::ReadScreen { .. }
         | Command::ReadScrollback { .. }
+        | Command::TerminalFind { .. }
         | Command::SendKey { .. }
         | Command::ListTerminals
         | Command::SetAttachVisibility { .. }

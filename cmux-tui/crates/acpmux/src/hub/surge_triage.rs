@@ -80,7 +80,7 @@ pub(super) fn resume_after_restore(session: &Session) {
         return;
     }
     let Some(hub) = session.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
-    let held = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned();
+    let held = hub.session_get(&session.id);
     if let Some(session) = held {
         hub.schedule_surge_triage(&session);
     }

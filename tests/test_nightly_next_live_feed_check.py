@@ -30,8 +30,8 @@ if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import nightly_next_ring as ring  # noqa: E402
 
-UPDATE_RING = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift"
-FEED_RESOLVER = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateFeedResolver.swift"
+UPDATE_RING = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift"
+FEED_RESOLVER = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateFeedResolver.swift"
 # The settings source the app's UpdatesSettings.channelDefault is generated from (gen-settings-sources.py).
 SETTINGS = ROOT / "schemas/settings/source/updates.json"
 

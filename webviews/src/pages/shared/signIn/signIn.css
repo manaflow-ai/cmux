@@ -152,3 +152,116 @@
 .signin[data-look="strip"] .signin-paste {
   flex: 1;
 }
+
+/* A ChatGPT account that signed in (`ChatGPTSignedIn`, experiment chatgpt-signed-in). OpenAI's Sign in
+ * with ChatGPT guidance: the mark white on near-black (inverted in dark), never recolored. */
+.signin-chatgpt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+
+.signin[data-look="sheet"] .signin-chatgpt {
+  gap: var(--ds-space-3, 12px);
+}
+
+.signin-chatgpt-tile {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-radius-md, 6px);
+  /* The page text colour as the tile, the page background as the mark: a dark tile in light mode, a light one in dark. */
+  background: var(--cmux-text, CanvasText);
+  color: var(--cmux-elevated-background, Canvas);
+}
+
+.signin-chatgpt-tile[data-size="20"] {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--ds-radius-sm, 4px);
+}
+
+.signin-chatgpt-tile[data-size="32"] {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ds-radius-lg, 8px);
+}
+
+.signin-chatgpt-badge {
+  position: absolute;
+  inset-inline-end: -4px;
+  inset-block-end: -4px;
+  display: inline-flex;
+  border-radius: 50%;
+  background: var(--page-bg, Canvas);
+  box-shadow: 0 0 0 1px var(--page-bg, Canvas);
+}
+
+.signin-chatgpt .signin-head {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--ds-space-3, 12px);
+}
+
+.signin[data-look="sheet"] .signin-chatgpt .signin-head {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.signin-chatgpt[data-arm="account"] .signin-head,
+.signin[data-look="sheet"] .signin-chatgpt[data-arm="account"] .signin-head {
+  flex-direction: row;
+  align-items: center;
+}
+
+.signin-chatgpt-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.signin-chatgpt-sub,
+.signin-chatgpt-account,
+.signin-chatgpt-body {
+  color: var(--signin-muted);
+}
+
+.signin-chatgpt-account {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signin-chatgpt-body {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.signin-chatgpt .signin-line {
+  color: inherit;
+}
+
+.signin-chatgpt .signin-actions {
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-3, 12px);
+}
+
+.signin-chatgpt[data-arm="row"] {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--ds-space-3, 12px);
+}
+
+.signin-chatgpt[data-arm="row"] .signin-chatgpt-who {
+  flex: 1;
+}
+
+.signin-manage {
+  text-decoration: none;
+  white-space: nowrap;
+}

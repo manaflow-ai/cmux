@@ -36,6 +36,7 @@ struct MacScreenRdView: View {
         switch model.phase {
         case .connecting:
             label(String(localized: "Connecting to \(title)…"))
+                .placeholderBound("screenSharing.rd.connecting", .milliseconds(2000))
         case let .waiting(reason):
             label(reason)
         case .live, .unavailable:
@@ -73,7 +74,7 @@ struct MacScreenRdView: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(title)
         .accessibilityIdentifier(id)

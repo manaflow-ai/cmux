@@ -56,6 +56,7 @@ use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod app_build;
 mod copy;
+pub(in crate::cli) mod cu_upgrade;
 mod daemon_updates;
 mod helper;
 mod live;
@@ -1065,22 +1066,56 @@ fn run_try(
         }
         Plan::Live { files, helper, .. } => {
             let daemon = app_daemon(&app);
-            let result = try_live(
-                &app,
-                &files,
-                helper.as_ref(),
-                store,
-                &daemon,
-                &helper::SystemSigning,
-                &mut phases,
-            );
+            // The nightly-live channel into a Team-signed app (its own bin/cmux runs this, from the
+            // daemon updater) takes the tree's Team-signed set and checks each file's Team ID.
+            let team = live_only && cmux_link::app_caller::signed_app_build();
+            let result =
+                if team { team_files(files, &live, &base) } else { Ok(files) }.and_then(|files| {
+                    try_live_checked(
+                        &app,
+                        &files,
+                        helper.as_ref(),
+                        store,
+                        &daemon,
+                        &helper::SystemSigning,
+                        &mut phases,
+                        &|path| if team { same_team(path) } else { Ok(()) },
+                    )
+                });
             finish(global, store, receipt, result, phases, started, &commit, &app, changed_out)
         }
     }
 }
 
+/// `files` from the tree's Team-signed set the live file names (`tree_key`), else why not.
+fn team_files(files: Vec<Wanted>, live: &Live, base: &str) -> Result<Vec<Wanted>, String> {
+    let Live::Found(payload) = live else {
+        return Err("the live file is missing".to_owned());
+    };
+    let key = live::tree_key(payload.tree_key.as_deref()).ok_or(
+        "this Team-signed app takes only a Team-signed build, and the live file names no tree",
+    )?;
+    let body = live::get_small(&live::team_signed_url(base, key), live::LIVE_MAX_BYTES)?
+        .ok_or_else(|| format!("tree {key} has no Team-signed set yet"))?;
+    let completion: Value = serde_json::from_slice(&body)
+        .map_err(|error| format!("the Team-signed set of tree {key}: {error}"))?;
+    live::team_signed(files, key, &completion, base)
+}
+
+/// Refuses a file not signed with this build's Team ID.
+fn same_team(path: &Path) -> Result<(), String> {
+    match cmux_link::app_caller::same_team_as_this_build(path) {
+        Ok(cmux_link::app_caller::TeamMatch::SameTeam) => Ok(()),
+        Ok(cmux_link::app_caller::TeamMatch::UnsignedBuild) => {
+            Err(format!("{}: this build has no Team ID to check it against", path.display()))
+        }
+        Err(error) => Err(format!("{}: not signed by this app's team ({error})", path.display())),
+    }
+}
+
 /// Fetches and checks every file and the Screen Sharing helper, then swaps them
 /// in: nothing in the app changes before every byte is here and checked.
+#[cfg(test)]
 fn try_live(
     app: &Path,
     files: &[Wanted],
@@ -1090,10 +1125,28 @@ fn try_live(
     signing: &dyn Signing,
     phases: &mut Phases,
 ) -> Result<live::Applied, String> {
+    try_live_checked(app, files, helper, store, daemon, signing, phases, &|_| Ok(()))
+}
+
+/// As [`try_live`], every fetched file passing `check` (the Team ID) before any is swapped in.
+#[allow(clippy::too_many_arguments)]
+fn try_live_checked(
+    app: &Path,
+    files: &[Wanted],
+    helper: Option<&WantedHelper>,
+    store: &Store,
+    daemon: &dyn Daemon,
+    signing: &dyn Signing,
+    phases: &mut Phases,
+    check: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<live::Applied, String> {
     let t = Instant::now();
     let mut changes = Vec::new();
     for wanted in files {
         let to = store.fetch(wanted)?;
+        if let Some(path) = &to {
+            check(path)?;
+        }
         let sha = wanted.binary.as_ref().map(|binary| binary.sha256.clone());
         changes.push(Change { file: wanted.file.clone(), to: to.zip(sha), expect: None });
     }

@@ -16,10 +16,14 @@ import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { EventRecord } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
+import { playbackAt, playbackWindow } from "../../src/agent-session/acpmux/sim/playback";
+import { runSimulationAsync, type SimResult, createSimulation } from "../../src/agent-session/acpmux/sim/run";
+import { runLayoutCase } from "./layoutCaseRunner";
+import { watchChurn, type ChurnReport } from "./chatChurnWatch";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../../src/agent-session/acpmux/sim/scenarios";
+import { seekPlan, type SeekOptions } from "../../src/agent-session/acpmux/sim/seek";
 import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -34,17 +38,19 @@ import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/markdownField.css";
 
 const query = new URLSearchParams(location.search);
+// `?motion=on` (the churn lane, `live`): the pane's own motion plays, as in the app.
 if (query.get("motion") !== "on") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";
 }
 
-type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number };
+type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number; sessionId?: string };
 let show: (next: PaneState) => void = () => {};
 const expanded = new Set<string>();
 
 function Pane() {
   const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
+  const sessionId = state.sessionId ?? "chat-sim";
   // The page drives the pane through `show`; it is set after the first render, not during one.
   useLayoutEffect(() => {
     show = setState;
@@ -56,7 +62,7 @@ function Pane() {
           <header className="acpmux-header" />
           <VirtualTranscript
             rows={state.rows as AcpmuxRow[]}
-            sessionId="chat-sim"
+            sessionId={sessionId}
             working={state.working}
             sends={state.sends}
             onToggleActivity={() => {}}
@@ -83,10 +89,25 @@ async function measure(rows: readonly AcpmuxRow[], working: boolean, sends: numb
   return rows.map((row) => boxes.get(row.id));
 }
 
+const FIXTURES = import.meta.glob<string>("../fixtures/chat-sim/*.ndjson", { query: "?raw", import: "default" });
+
 async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
+  }
+  // `fixture/NAME` replays test/fixtures/chat-sim/NAME.ndjson (a sanitized chat, `--sanitize`).
+  const fixture = /^fixture\/([\w.-]+)$/.exec(name);
+  if (fixture) {
+    const load = FIXTURES[`../fixtures/chat-sim/${fixture[1]}.ndjson`];
+    if (!load) throw new Error(`no fixture ${fixture[1]}`);
+    return replayScenario(fixture[1]!, parseRecords(await load()));
+  }
+  // `file:PATH` (the churn lane): a recorded chat the dev server serves from under webviews/.
+  if (name.startsWith("file:")) {
+    const path = name.slice("file:".length);
+    const text = await (await fetch(`/${path}`)).text();
+    return replayScenario(path.replace(/^.*\//, "").replace(/\.ndjson$/, ""), parseRecords(text));
   }
   const long = /^long:(\d+)$/.exec(name);
   if (long) return longRun(Number(long[1]));
@@ -168,6 +189,14 @@ async function at(name: string, until: number) {
   return dump();
 }
 
+/** Plays one case of the layout-shift case space (sim/layoutCases.ts) with motion on; see layoutCaseRunner.ts. */
+const runCase = (id: string) =>
+  runLayoutCase(id, {
+    root,
+    show: (next) => flushSync(() => show(next)),
+    simulate: createSimulation,
+  });
+
 export type WatchOptions = {
   /** A scenario name (as `run` takes), unless `records` is given. */
   name?: string;
@@ -183,7 +212,16 @@ export type WatchOptions = {
   shotEvery?: number;
   /** Stop after this many seconds of real time. */
   maxSeconds?: number;
+  /** Start the playback here, s of the full playback (as a whole run's video reads, at this speed and
+   *  gap bound; `playbackAt`): the steps before it are drawn at once, then the view settles
+   *  (WINDOW_SETTLE_MS) and `__chatSimWindow("start")` marks where the window's video begins. */
+  startS?: number;
+  /** Stop the playback here, s of the full playback (as startS). */
+  endS?: number;
 };
+
+/** After the steps before a window are drawn at once, the view settles this long before the window plays. */
+export const WINDOW_SETTLE_MS = 1500;
 
 export type WatchShot = { step: number; label: string; why: "turn-start" | "turn-end" | "every" | "end"; turn: number };
 
@@ -200,7 +238,7 @@ export type WatchResult = {
   violations: number;
 };
 
-// fixed-wait: watch plays the scenario on real time for a person or a video; the wait is the playback.
+// fixed-wait: watch and live play a scenario on real time (for a person, a video, or the churn lane's per-frame watcher); the wait is the playback.
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Plays a scenario on scaled real time with the pane's motion as the page has it, drawing each step
@@ -239,8 +277,37 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   let played = 0;
   let stoppedEarly = false;
   let lastAt = scenario.steps[0]?.at ?? 0;
-  for (let index = 0; index < scenario.steps.length; index += 1) {
-    if (performance.now() > deadline) {
+  const playback = playbackAt(
+    scenario.steps.map((step) => step.at),
+    speed,
+    minGap,
+    maxGap,
+  );
+  const startMs = (options.startS ?? 0) * 1000;
+  const endMs = options.endS === undefined ? Number.POSITIVE_INFINITY : options.endS * 1000;
+  const windowHook = (window as unknown as { __chatSimWindow?: (mark: "start") => Promise<void> }).__chatSimWindow;
+  // The steps before the window: drawn at once (the last of them shown), then the view settles.
+  const { first, end } = playbackWindow(playback, startMs, endMs);
+  if (first > 0) {
+    let rows: ReturnType<typeof sim.advance> = undefined;
+    for (let index = 0; index < first; index += 1) {
+      const drawn = sim.advance(index);
+      if (drawn) sim.check(index);
+      rows = drawn ?? rows;
+      played += 1;
+    }
+    lastAt = virtualAt = scenario.steps[first - 1]!.at;
+    realAt = performance.now();
+    const state = sim.state();
+    turn = state.turn;
+    sends = state.turn;
+    if (rows) flushSync(() => show({ rows: rows!, working: state.working, sends }));
+    // fixed-wait: the drawn-at-once history settles (its folds and follow) before the window plays.
+    await sleep(WINDOW_SETTLE_MS);
+  }
+  if (windowHook) await windowHook("start");
+  for (let index = first; index < scenario.steps.length; index += 1) {
+    if (performance.now() > deadline || index >= end) {
       stoppedEarly = true;
       break;
     }
@@ -290,4 +357,60 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   };
 }
 
-Object.assign(window, { __chatSim: { run, at, dump, watch } });
+/** Applies the steps before the seek (sim/seek.ts) at once, draws the chat there in one frame, and returns
+ *  where playback goes on: a recorder starts its clip at the interesting state instead of a minute in. */
+async function seek(name: string, options: SeekOptions) {
+  const scenario = await scenarioNamed(name);
+  const plan = seekPlan(scenario.steps, options);
+  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  let rows: readonly AcpmuxRow[] | undefined;
+  let sends = 0;
+  let turn = 0;
+  for (let index = 0; index < plan.start; index += 1) {
+    rows = sim.advance(index) ?? rows;
+    if (sim.state().turn !== turn) {
+      turn = sim.state().turn;
+      sends += 1;
+    }
+  }
+  if (rows) await measure(rows, sim.state().working, sends);
+  return { start: plan.start, startAt: plan.startAt, steps: scenario.steps.length, rows: dump() };
+}
+
+/** Plays `name` in real time (each step at its virtual time; a wait over `maxWaitMs` is cut to it) with
+ *  the pane's motion as the page has it, while a per-frame watcher (chatChurnWatch.ts) reads every drawn
+ *  row: the layout shifts above the reader's anchor and the rows drawn under a second. */
+async function live(name: string, { maxWaitMs = 3_000 }: { maxWaitMs?: number } = {}): Promise<ChurnReport> {
+  if (name.startsWith("file:")) maxWaitMs = Math.min(maxWaitMs, 1_500);
+  const scenario = await scenarioNamed(name);
+  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  // A clean pane first: the last scenario's rows leaving are not this one's.
+  flushSync(() => show({ rows: [], working: false, sends: 0 }));
+  await frame();
+  await frame();
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll") ?? document.body;
+  const watch = watchChurn(scroller);
+  let sends = 0;
+  let turn = 0;
+  let last = scenario.steps[0]?.at ?? 0;
+  for (let index = 0; index < scenario.steps.length; index += 1) {
+    const step = scenario.steps[index]!;
+    // fixed-wait: each step lands at its own virtual time, so motion between steps plays as it would live.
+    await sleep(Math.min(Math.max(0, step.at - last), maxWaitMs));
+    last = step.at;
+    watch.mark(step.label);
+    const rows = sim.advance(index);
+    if (!rows) continue;
+    const state = sim.state();
+    if (state.turn !== turn) {
+      turn = state.turn;
+      sends += 1;
+    }
+    show({ rows, working: state.working, sends });
+  }
+  // fixed-wait: rows drawn in the last step must outlive the 1 s flash window to be judged.
+  await sleep(2_000);
+  return watch.stop();
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, watch, live, seek, runCase } });

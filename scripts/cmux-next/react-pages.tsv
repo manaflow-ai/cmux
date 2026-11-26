@@ -11,7 +11,6 @@ chief-usage	page	a full tab page
 chief-views	page	a full tab page
 cloud	page	a full tab page
 cloud-progress	review	a progress view hosted in native chrome
-coderouter	page	a full tab page
 cookie-import	page	a full tab page
 debug-settings	page	a full tab page
 diff	page	a full tab page
@@ -19,6 +18,7 @@ editor	page	a full tab page
 feed	debt	draws Home's Needs you section inside the native Home (#37378)
 glass-parity	page	a full tab page
 files	page	a full tab page
+forum	page	a full tab page (cmux-page://cmux.forum/, #50003)
 github	page	a full tab page
 glass-parity	page	a debug playground tab (debug.glass_parity, DEV and NIGHTLY)
 group-editor	review	an editor opened from a sidebar row
@@ -39,4 +39,5 @@ site-settings	page	a full tab page
 stash	page	a full tab page
 stats	page	a full tab page
 task-manager	page	a full tab page
+terminal-history	page	read-only transcript viewer for terminal agents
 tasks	page	a full tab page

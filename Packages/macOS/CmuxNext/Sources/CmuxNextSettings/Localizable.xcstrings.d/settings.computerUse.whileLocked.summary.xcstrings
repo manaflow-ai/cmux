@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.computerUse.whileLocked.summary" : {
+      "comment" : "One-line summary of the Keep Working While Locked setting, shown in search and the command palette.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يتيح للوكلاء استخدام نوافذ التطبيقات أثناء قفل الـ Mac"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenten können App-Fenster nutzen, während der Mac gesperrt ist"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets agents use app windows while the Mac is locked"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permite a los agentes usar ventanas de apps con el Mac bloqueado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permet aux agents d’utiliser les fenêtres des apps quand le Mac est verrouillé"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac のロック中もエージェントがアプリのウインドウを使えるようにします"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac이 잠겨 있어도 에이전트가 앱 윈도우를 사용할 수 있음"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenti koriste prozore aplikacija dok je Mac zaključan"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lader agenter bruge appvinduer, mens Mac er låst"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consente agli agenti di usare le finestre delle app con il Mac bloccato"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អនុញ្ញាតឱ្យភ្នាក់ងារប្រើបង្អួចកម្មវិធីពេល Mac ចាក់សោ"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lar agenter bruke appvinduer mens Mac er låst"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenci mogą używać okien aplikacji przy zablokowanym Macu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permite que agentes usem janelas de apps com o Mac bloqueado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агенты могут использовать окна приложений при заблокированном Mac"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ให้เอเจนต์ใช้หน้าต่างแอปได้ขณะ Mac ล็อกอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac kilitliyken aracıların uygulama pencerelerini kullanmasına izin verir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агенти можуть використовувати вікна програм, коли Mac заблоковано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cho phép tác tử dùng cửa sổ ứng dụng khi máy Mac bị khóa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让代理在 Mac 锁定时使用 App 窗口"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "讓代理在 Mac 鎖定時使用 App 視窗"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

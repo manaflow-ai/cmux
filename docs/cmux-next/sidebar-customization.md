@@ -104,7 +104,7 @@ is an action id (`cmux action list` names them), optionally followed by a title 
 The rows draw in the built-in look (an icon and a label, no fill at rest, the hover fill), above
 Home, and follow `sidebar.sectionLook`. A row with no title or symbol takes the action's own. Rust
 checks the list (`cmux-layout-reducer` `sidebar_nav.rs`): an unknown id, a debug-only or destructive
-action, a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
+action (or one that quits, closes, signs out, clears, resets or removes), a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
 rows are never written to the sidebar document, so removing the key, or the look that set it, leaves
 your sidebar as it was. Empty (the default) draws no block. Together with `sidebar.groupBy: recents`
 (Projects and Recents headers) and Pinned, this gives a sidebar the shape of the Codex app's.

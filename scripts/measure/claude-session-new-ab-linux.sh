@@ -38,7 +38,9 @@ if ! command -v claude >/dev/null; then
   export PATH="$out/npm/bin:$PATH"
 fi
 echo "claude-session-new-ab: $(claude --version)"
-git fetch -q --depth=50 origin "${base#origin/}" 2>/dev/null || true
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=50)
+git fetch -q ${depth[@]+"${depth[@]}"} origin "${base#origin/}" 2>/dev/null || true
 base_sha="$(git rev-parse "$base")"
 echo "claude-session-new-ab: A=$base ($base_sha) B=HEAD ($(git rev-parse HEAD))"
 cd "$root/cmux-tui"

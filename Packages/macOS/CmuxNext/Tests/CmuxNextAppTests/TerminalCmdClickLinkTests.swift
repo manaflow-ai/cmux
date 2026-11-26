@@ -190,6 +190,28 @@ import enum CmuxNextBrowser.TerminalLinkTarget
         #expect(h.opens.texts == [url, url])
     }
 
+    /// Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont move when i
+    /// scroll?" Output scrolls the screen a row while Command is held over a URL the program broke
+    /// onto two rows: the underlines move up with the link, never staying on the rows it left.
+    @Test func aWrappedLinksUnderlinesMoveWithItWhenTheScreenScrolls() async throws {
+        let h = try Harness()
+        defer { h.close() }
+        let width = h.columns - 2
+        let url = "https://example.com/scrolled/" + String(repeating: "segment-", count: width / 8 + 2) + "end"
+        let first = String(url.prefix(width)), second = String(url.dropFirst(width))
+        try await h.output("\u{1b}[2;3H\(first)\u{1b}[3;3H\(second)", showing: "end")
+        // The still pointer is over the link's first row now, its second after the scroll.
+        try await h.hover(10, 1)
+        #expect(h.session.linkPointerStateForTesting.wrapped == url)
+        #expect(h.session.linkUnderlineRowsForTesting == [1, 2])
+        // One new row at the bottom: the screen, the link with it, moves up a row.
+        try await h.output("\u{1b}[999;1H\nscrolled-marker", showing: "scrolled-marker")
+        try await h.wait { h.session.linkUnderlineRowsForTesting != [1, 2] }
+        let rows = h.session.surfaceView.viewportText()?.components(separatedBy: "\n") ?? []
+        #expect(rows.count > 2 && rows[0].contains(first) && rows[1].contains(second), "the screen scrolled one row: \(rows.prefix(3))")
+        #expect(h.session.linkUnderlineRowsForTesting == [0, 1], "the underlines stayed on the rows the link left")
+    }
+
     @Test func aPrintedPathKeepsItsLineAndColumn() {
         let code = TerminalLinkResolver().location("src/app.ts:3:5")
         #expect(code?.line == 3 && code?.column == 5)
