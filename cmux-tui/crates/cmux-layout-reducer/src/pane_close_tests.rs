@@ -81,7 +81,7 @@ fn a_lone_pinned_dock_stays_and_unpinned_docks_scroll_again() {
 
     let mut loose = column("e", 0.25, leaf("e"));
     loose.dock = dock(Edge::Right, false, None);
-    let layout = Layout::Columns(vec![pinned.clone(), column("c", 0.5, leaf("a")), loose.clone()]);
+    let layout = Layout::Columns(vec![pinned.clone(), column("c", 0.5, leaf("a")), loose]);
     let Some(Layout::Columns(after)) = removing_split_pane("a", &layout) else { panic!("columns") };
     assert_eq!(after[0].dock, pinned.dock);
     assert_eq!(after[1].dock, None);
@@ -101,7 +101,7 @@ fn a_lone_pinned_dock_stays_and_unpinned_docks_scroll_again() {
 fn the_chat_panes_close_releases_its_role() {
     let mut chat = column("d", 0.3, v("s", 0.5, leaf("chat"), leaf("b")));
     chat.dock = dock(Edge::Right, true, Some(AGENT_CHAT));
-    let layout = Layout::Columns(vec![column("c", 0.7, leaf("a")), chat.clone()]);
+    let layout = Layout::Columns(vec![column("c", 0.7, leaf("a")), chat]);
     let Some(Layout::Columns(after)) = removing_split_pane("chat", &layout) else {
         panic!("columns")
     };
@@ -244,7 +244,7 @@ fn landed_closes_are_noted_then_flushed_once_nothing_is_pending() {
         column("c3", 0.4, leaf("c")),
     ]);
     let daemon = removing_split_pane("a", &before).unwrap_or_else(|| before.clone());
-    let old = [Screen { id: "w".into(), zoomed: false, layout: before.clone() }];
+    let old = [Screen { id: "w".into(), zoomed: false, layout: before }];
     let new = [Screen { id: "w".into(), zoomed: false, layout: daemon.clone() }];
     let mut landed = Landed::default();
     note_landed_closes(&old, &new, &["a".into()], &["a".to_owned()].into(), &mut landed, FITS);
@@ -271,7 +271,7 @@ fn landed_closes_are_noted_then_flushed_once_nothing_is_pending() {
 fn close_sizing_skips_landed_closes_and_zoomed_screens() {
     let before = Layout::Splits(h("s1", 0.2, leaf("a"), h("s2", 0.3, leaf("b"), leaf("c"))));
     let after = removing_split_pane("a", &before).unwrap_or_else(|| before.clone());
-    let old = [Screen { id: "w".into(), zoomed: false, layout: before.clone() }];
+    let old = [Screen { id: "w".into(), zoomed: false, layout: before }];
     let new = [Screen { id: "w".into(), zoomed: false, layout: after.clone() }];
     let intents = close_sizing(&old, &new, &BTreeSet::new(), EVEN);
     assert_eq!(intents.ratios, vec![RatioChange { split: "s2".into(), ratio: 0.5 }]);

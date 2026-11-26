@@ -68,7 +68,8 @@
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
 //! requests and replies, no JSON), and the column scroll reducer
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
-//! per scroll event and frame).
+//! per scroll event and frame), and the pane close rules (`pane_close_*`:
+//! what a close shows, the overlay of pending closes, their landed sizes).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
@@ -92,6 +93,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod pane_close;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -620,6 +622,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if pane_close::handles(operation) => pane_close::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
