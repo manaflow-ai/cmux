@@ -19,8 +19,9 @@ function PageviewTracker() {
   const searchParams = useSearchParams();
   const lastCapturedUrl = useRef<string | null>(null);
   const pendingCaptures = useRef<CaptureResult[]>([]);
-  // Off by default: nothing is identified or captured until the visitor accepts.
-  const enabled = useAnalyticsConsent() === "granted";
+  // On by default; off only for a visitor who declined earlier.
+  const consent = useAnalyticsConsent();
+  const enabled = consent !== "denied" && consent !== "server";
 
   useLayoutEffect(() => {
     if (!enabled || !pathname || !posthog) return;

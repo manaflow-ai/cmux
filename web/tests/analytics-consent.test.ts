@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 import { fakePostHog, installFakeBrowser } from "./analytics-consent-fake-browser";
 
-// Website analytics are off by default: posthog-js is never initialized (no
-// cookie, no identify, no capture) until the visitor accepts.
+// Website analytics are on by default with cookies and no banner; a visitor
+// who declined earlier keeps them off.
 const browser = installFakeBrowser();
 const { client, calls } = fakePostHog();
 mock.module("posthog-js", () => ({ default: client }));
@@ -10,14 +10,13 @@ mock.module("posthog-js", () => ({ default: client }));
 const consent = await import("../app/lib/posthog-client");
 
 describe("website analytics consent", () => {
-  test("does not initialize PostHog for a visitor who has not chosen", () => {
+  test("initializes PostHog for a visitor who has not chosen", () => {
     expect(consent.readAnalyticsConsent()).toBeNull();
-    expect(consent.analyticsEnabled()).toBe(false);
-    expect(calls).toEqual([]);
-    expect(browser.cookies.size).toBe(0);
+    expect(consent.analyticsEnabled()).toBe(true);
+    expect(calls).toEqual(["init"]);
   });
 
-  test("initializes PostHog only once the visitor allows it", () => {
+  test("an explicit allow keeps PostHog running without a second init", () => {
     consent.setAnalyticsConsent("granted");
     expect(calls).toEqual(["init"]);
     expect(consent.analyticsEnabled()).toBe(true);
