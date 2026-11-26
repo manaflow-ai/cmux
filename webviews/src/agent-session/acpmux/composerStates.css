@@ -248,6 +248,13 @@
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-transient-web-tint), transparent);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
 }
+/* An opaque window paints New Tab's card in the 4.5% theme surface, solid, with no backdrop blur (cmux#57406),
+   and its suggestions with it: they hang under the card as one material (NewTabScreen.gallery.ts, suggestions-ff). */
+:root:not([data-cmux-see-through]) :is(.nt-composer > .nt-box, .ui-popup.nt-popover).nt-composer-surface.ui-glass {
+  /* glass-opaque-allow: opaque windows paint the New Tab 4.5% theme surface solid, with no backdrop blur */
+  --glass-tint: var(--acpmux-composer-solid);
+  --glass-backdrop: none;
+}
 /* Previous glass keeps New Tab's numbers from before: the popover level, its art share over art. */
 :root[data-glass-levels="previous"]:not([data-cmux-see-through])
   :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface).ui-glass {
