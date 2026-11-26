@@ -66,12 +66,22 @@ def main_thread(events: list[dict]) -> tuple[int, int] | None:
     return max(names, key=lambda pt: count.get(pt, 0))
 
 
+def detail(e: dict) -> str:
+    """The event's name plus what its args say it ran (function, event type, URL), so time no sample covers still names
+    its owner."""
+    d = (e.get("args") or {}).get("data") or {}
+    bits = [str(d[k]) for k in ("functionName", "type", "name") if d.get(k)]
+    if not bits and d.get("url"):
+        bits.append(str(d["url"]).rsplit("/", 1)[-1][:40])
+    return f"{e['name']} {' '.join(bits)}".strip() if bits else e["name"]
+
+
 def exclusive(task: dict, children: list[tuple[int, dict]]) -> list[tuple[int, int, str, str]]:
     """(start, end, kind, event name) of each slice of the task's exclusive time: each event's own time (its span less
     its children's), of the innermost known kind on its chain; an unknown event names the slice and keeps its parent's
     kind. Trace events on one thread nest, so one pass over them sorted by start does it."""
     nodes = [(task["ts"], task["ts"] + task["dur"], task["name"])] + \
-        [(e["ts"], e["ts"] + e.get("dur", 0), e["name"]) for _d, e in children]
+        [(e["ts"], e["ts"] + e.get("dur", 0), detail(e)) for _d, e in children]
     kids: dict[int, list[int]] = {i: [] for i in range(len(nodes))}
     stack = [0]
     for i in range(1, len(nodes)):
@@ -83,7 +93,7 @@ def exclusive(task: dict, children: list[tuple[int, dict]]) -> list[tuple[int, i
 
     def walk(i: int, kind: str, in_script: bool) -> None:
         a, b, name = nodes[i]
-        k = kind_of(name)
+        k = kind_of(name.split(" ", 1)[0])
         kind = k or kind
         in_script = in_script or k == "script"
         label = f"{kind}-forced" if kind in ("style", "layout") and in_script else kind
@@ -185,10 +195,12 @@ def analyze(doc: dict, min_ms: float) -> dict:
                 # Split by the samples in this slice; a forced style/layout run belongs to the script that forced it.
                 j, k = bisect.bisect_left(times, s_a), bisect.bisect_right(times, s_b)
                 owners: Counter = Counter()
+                idle: Counter = Counter()
                 for i in range(j, k):
                     frames = stack_of(samples[i][1], by_id, parent)
                     if not frames or frames[0] in IDLE:
                         if kind == "script" or kind == "other":
+                            idle[frames[0] if frames else "(root)"] += 1
                             continue
                     if frames:
                         owners[script_owner(frames)] += weight[i]
@@ -201,7 +213,8 @@ def analyze(doc: dict, min_ms: float) -> dict:
                         label = o if kind in ("script", "other") else f"{kind.split('-')[0]} forced by {o}"
                         mine[label] += ms * w / total
                     continue
-                mine[f"{kind} ({name})" if kind == "other" else kind] += ms
+                seen = f"; samples {'/'.join(idle)}" if idle else ""
+                mine[f"{kind} unsampled ({name}{seen})"] += ms
             else:
                 mine[kind] += ms
         for o, ms in mine.items():
