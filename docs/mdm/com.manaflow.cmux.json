@@ -6555,7 +6555,8 @@
         "cmux",
         "claude",
         "codex",
-        "studio"
+        "studio",
+        "rex"
       ],
       "title" : "Sidebar Look",
       "type" : "string"
@@ -6686,12 +6687,6 @@
       "default" : false,
       "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
       "title" : "Show Sessions Started by Agents",
-      "type" : "boolean"
-    },
-    "sidebar.showAutomaticSessions" : {
-      "default" : false,
-      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
-      "title" : "Show Automatic Sessions",
       "type" : "boolean"
     },
     "sidebar.showChats" : {
