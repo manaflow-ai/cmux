@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -72,7 +73,7 @@ public actor CloudCarrierServe {
     private let connectDeadline: Duration
     private var supervisor: ChildProcess?
     private var waiters: [UInt64: CheckedContinuation<String, any Error>] = [:]
-    private var waiterDeadlines: [UInt64: Task<Void, Never>] = [:]
+    private var waiterDeadlines: [UInt64: DemandTimer] = [:]
     private var lastWaiter: UInt64 = 0
     private var stopped = false
     /// The supervisor's hold in its connector's ``CloudCarrierStreams``: an account end tells it at once.
@@ -116,9 +117,9 @@ public actor CloudCarrierServe {
         let waiter = lastWaiter
         return try await withCheckedThrowingContinuation { continuation in
             waiters[waiter] = continuation
-            waiterDeadlines[waiter] = Task { [weak self] in
-                try? await Task.sleep(for: self?.connectDeadline ?? .zero)
-                guard !Task.isCancelled else { return }
+            let timer = DemandTimer(owner: "cloud.carrier.connect")
+            waiterDeadlines[waiter] = timer
+            timer.schedule(after: connectDeadline) { [weak self] in
                 await self?.connectTimedOut(waiter)
             }
             guard let supervisor = running() else { return }
