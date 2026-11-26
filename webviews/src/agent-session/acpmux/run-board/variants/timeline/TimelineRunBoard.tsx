@@ -1,5 +1,6 @@
 // l10n-allow-file: DEV gallery Run board timeline prototype, not shipped UI.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { KeyHint } from "../../../../../ui/KeyHint";
 import { sessionSummary } from "../../../summary/sessionSummary";
 import {
   canApprove,
@@ -224,7 +225,7 @@ function SelectedPreview({ attempt }: { attempt: RunAttempt }) {
           <i /> <i /> <i />
         </span>
         <small>{attempt.label.toLowerCase().replaceAll(" ", "-")}.workspace</small>
-        <span>⌘ K</span>
+        <KeyHint keys="⌘K" />
       </div>
       <div className="timeline-preview-content">
         <aside>
