@@ -14,6 +14,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// What a list changes: the machines to add, and the ones to remove.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Listed {
+    pub add: Vec<String>,
+    pub removals: Vec<String>,
+}
+
 /// The read tickets: the last one handed out, the one-record reads still in flight, the ticket
 /// each machine's record came from, and the omissions waiting on a newer read.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +74,27 @@ impl Reads {
             *waiting = (*waiting).max(read);
         }
         self.settle(disabled)
+    }
+
+    /// A list from `read` named `listed`, and the app holds sessions for `held`: answers the listed
+    /// machines to add (no session yet, and newer than any read that removed them) and the held
+    /// ones whose omission is released now.
+    pub fn listed(
+        &mut self,
+        listed: &[String],
+        held: &[String],
+        read: i64,
+        disabled: bool,
+    ) -> Listed {
+        let add = listed
+            .iter()
+            .filter(|machine| !held.contains(machine))
+            .filter(|machine| self.admit(machine, read))
+            .cloned()
+            .collect();
+        let omitted: Vec<String> =
+            held.iter().filter(|machine| !listed.contains(machine)).cloned().collect();
+        Listed { add, removals: self.omitted(&omitted, read, disabled) }
     }
 
     /// The app removed `machine` (a destroyed record, or an omission answered here): nothing

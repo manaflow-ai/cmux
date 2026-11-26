@@ -105,9 +105,10 @@ fn the_read_order_round_trips_its_state() {
         call(c"cloud_machine_reads_begin", &json!({"state": list["state"], "machine": "vm_a"}));
     assert_eq!(status["read"], 2);
     let (_, omitted) = call(
-        c"cloud_machine_reads_omitted",
-        &json!({"state": status["state"], "machines": ["vm_a"], "read": 1}),
+        c"cloud_machine_reads_listed",
+        &json!({"state": status["state"], "machines": ["vm_c"], "held": ["vm_a"], "read": 1}),
     );
+    assert_eq!(omitted["add"], json!(["vm_c"]));
     assert_eq!(omitted["removals"], json!([]), "a newer read of vm_a holds the removal");
     assert_eq!(omitted["state"]["deferred"], json!({"vm_a": 1}));
     let (_, stale) = call(

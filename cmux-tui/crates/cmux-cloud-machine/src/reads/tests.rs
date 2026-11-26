@@ -185,3 +185,26 @@ fn the_state_round_trips_as_camel_case_json() {
         serde_json::from_value(serde_json::json!({})).expect("an empty state decodes");
     assert_eq!(empty, Reads::default());
 }
+
+#[test]
+fn a_list_adds_new_machines_and_releases_omissions() {
+    let mut reads = Reads::default();
+    let held = vec!["vm_a".to_owned(), "vm_gone".to_owned()];
+    let list = reads.begin(None);
+    let listed = vec!["vm_a".to_owned(), "vm_new".to_owned()];
+    let answer = reads.listed(&listed, &held, list, false);
+    assert_eq!(answer, Listed { add: vec!["vm_new".into()], removals: vec!["vm_gone".into()] });
+    assert_eq!(reads.applied.get("vm_new"), Some(&list));
+    assert_eq!(reads.applied.get("vm_a"), None, "a held machine is admitted by the app's apply");
+}
+
+#[test]
+fn an_older_list_does_not_resurrect_a_machine_a_newer_read_removed() {
+    let mut reads = Reads::default();
+    let older = reads.begin(None);
+    let detail = reads.begin(Some(VM));
+    assert!(reads.admit(VM, detail));
+    reads.removed(VM);
+    assert!(reads.finish(detail, false).is_empty());
+    assert_eq!(reads.listed(&vm(), &[], older, false), Listed::default());
+}

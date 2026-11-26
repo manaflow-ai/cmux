@@ -48,8 +48,12 @@ struct ReadsRequest {
     read: i64,
     #[serde(default)]
     machine: String,
+    /// A list's machines.
     #[serde(default)]
     machines: Vec<String>,
+    /// The machines the app holds sessions for.
+    #[serde(default)]
+    held: Vec<String>,
     /// Cloud is off: tickets retire, no omission is released.
     #[serde(default)]
     disabled: bool,
@@ -239,10 +243,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let admitted = state.admit(&machine, ticket);
             json!({"state": state, "admitted": admitted})
         }
-        b"cloud_machine_reads_omitted" => {
-            let ReadsRequest { mut state, read: ticket, machines, disabled, .. } = read(request)?;
-            let removals = state.omitted(&machines, ticket, disabled);
-            json!({"state": state, "removals": removals})
+        b"cloud_machine_reads_listed" => {
+            let ReadsRequest { mut state, read: ticket, machines, held, disabled, .. } =
+                read(request)?;
+            let listed = state.listed(&machines, &held, ticket, disabled);
+            json!({"state": state, "add": listed.add, "removals": listed.removals})
         }
         b"cloud_machine_reads_removed" => {
             let ReadsRequest { mut state, machine, .. } = read(request)?;
