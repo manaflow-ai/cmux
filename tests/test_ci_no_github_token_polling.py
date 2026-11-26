@@ -149,6 +149,12 @@ ALLOWED: dict[str, str] = {
         "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
+    'cas-replay.yml: Replay the newest web bundle publishes (W1)':
+        'retry only: web_ota_replay.py gh() sleeps only through a 429 or rate-limit 403 (retry-after or the reset), 8 tries, and raises on any other status',
+    'cmux-next.yml: Jobs red on the base right now':
+        'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
+    'pr-pipeline.yml: Tooling tests red on the base right now?':
+        'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
 }
 
 

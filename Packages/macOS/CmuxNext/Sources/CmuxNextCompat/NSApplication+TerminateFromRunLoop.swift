@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 import Foundation
 
@@ -28,3 +29,4 @@ public extension NSApplication {
     /// Call sites whose quit `terminateFromRunLoop` refused because the app never ran (tests).
     @MainActor static var refusedTerminations: [String] = []
 }
+#endif

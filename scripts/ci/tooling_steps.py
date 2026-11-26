@@ -278,6 +278,28 @@ def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | No
     return None
 
 
+def gate_under_test(repo: Repo, walker: Walker, tests: list[str], changed: set[str]) -> str:
+    """Why a step runs when one of its own tests spells out a changed script by its whole repository path, or ''.
+
+    A test that runs its script as a subprocess (`ROOT / "scripts/ci/package-test-lane.sh"`, `"$ROOT/scripts/..."`)
+    gives the walker no import to follow, so the script is found only by the later "names" or "reads directory"
+    reasons, and --pr-scope (narrow) defers those to the post-merge batch: the pull request that edits a gate script
+    did not run the gate's own test, and its red first showed on the base (cmux#57119's class; a sweep of
+    cmux-next-guards.yml under --pr-scope found 97 changed-script/step pairs deferred, 49 after this, among them tt-package-lane-prebuild for
+    scripts/ci/package-test-lane.sh and tt-origin-net for generate-third-party-notices.sh). This reason is not
+    BROAD_REASON's, so a pull request keeps the step. Only code that is not itself a test counts, and only the step's
+    own tests (not every file of its closure), so a registry test that lists other tests stays deferred."""
+    scripts = sorted(name for name in changed if is_code(repo, walker, name) and not is_test(name))
+    if not scripts:
+        return ""
+    for test in tests:
+        text = read_text(repo, test)
+        for name in scripts:
+            if name in text:
+                return f"its test {test} runs {name} by its path"
+    return ""
+
+
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
                changed: set[str], declared: list[str] | None = None,
                added_deleted: set[str] | None = None, traced: bool = False) -> tuple[bool, str]:
@@ -325,6 +347,9 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     hit = sorted(changed & inputs)
     if hit:
         return True, f"reads {hit[0]}" + (f" and {len(hit) - 1} more" if len(hit) > 1 else "")
+    gate = gate_under_test(repo, walker, tests, changed)
+    if gate:
+        return True, gate
     if traced and declared:
         return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
                        f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
