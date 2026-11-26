@@ -859,6 +859,40 @@ class DisplayTests(OneRunRule):
         self.assertIn("display 60 Hz", body)
 
 
+    def test_the_issue_carries_each_ranges_stage_as_json(self):
+        a, b, c, d = "a" * 40, "b" * 40, "c" * 40, "d" * 40
+        state = cron.empty_state(T0)
+        state["last_good"] = {"sha": a, "rows": {}, "run_url": "g"}
+        reg = {"p95": 30.0, "base": 16.7, "unit": "ms", "target": 20.8, "why": "worse than last good"}
+        state["regressions"] = [
+            {**reg, "name": "p.one", "range": {"good": a, "bad": b, "skip": [], "steps": 2},
+             "first_bad": {"sha": b, "measured_at": cron.iso(at(2))}},
+            {**reg, "name": "p.two", "range": {"good": a, "bad": b, "skip": [], "steps": 2},
+             "first_bad": {"sha": b, "measured_at": cron.iso(at(1))}},
+            {**reg, "name": "p.three", "range": {"good": c, "bad": d, "skip": [], "steps": 5, "culprit": d},
+             "first_bad": {"sha": d, "measured_at": cron.iso(at(3))}},
+            {**reg, "name": "p.four", "range": {"good": a, "bad": d, "skip": [], "steps": 0},
+             "first_bad": {"sha": d}, "recovering": [{"sha": d, "p95": 16.0}]},
+        ]
+        state["culprits"] = [{"sha": d, "pr": 123}]
+        body = cron.issue_body(state, "o/r", at(4))
+        self.assertIn(cron.TASK_MARK, body)
+        block = body.split(cron.TASK_MARK, 1)[1].split("```json\n", 1)[1].split("\n```", 1)[0]
+        tasks = {t["id"]: t for t in json.loads(block)["tasks"]}
+        open_range = tasks[f"{a[:11]}..{b[:11]}"]
+        self.assertEqual(open_range["stage"], "needs investigation")
+        self.assertEqual(open_range["rows"], ["p.one", "p.two"])
+        self.assertEqual(open_range["opened_at"], cron.iso(at(1)), "the group opened with its earliest row")
+        named = tasks[f"{c[:11]}..{d[:11]}"]
+        self.assertEqual((named["stage"], named["culprit"], named["pr"]), ("culprit named", d, 123))
+        self.assertIn("disprove", named["next"])
+        self.assertEqual(tasks[f"{a[:11]}..{d[:11]}"]["stage"], "recovering")
+        self.assertIsNone(tasks[f"{a[:11]}..{d[:11]}"]["opened_at"])
+
+    def test_no_regression_writes_no_task_block(self):
+        self.assertNotIn(cron.TASK_MARK, cron.issue_body(cron.empty_state(T0), "o/r", T0))
+
+
 FIXTURES = os.path.join(HERE, "fixtures")
 
 
@@ -1289,9 +1323,31 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
-        # web-ui-god's paired rounds stop starting at GOD_PAIRED_DEADLINE_S, and the last may run one round more.
+        # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one
+        # round more, and the suite runs after them under its own cap.
         self.assertGreaterEqual(cron.linux_job_minutes("web-ui-god") * 60,
-                                cron.GOD_PAIRED_DEADLINE_S + cron.GOD_PAIRED_ROUND_TIMEOUT_S)
+                                cron.GOD_PAIRED_PANE_BUILD_S + cron.GOD_PAIRED_DEADLINE_S
+                                + cron.GOD_PAIRED_ROUND_TIMEOUT_S + cron.linux_run_seconds("web-ui-god"))
+
+    def test_the_paired_god_rounds_run_first_and_fit_their_minimum(self):
+        # 2026-11-21..25: the suite ran first and the paired rounds' deadline left room for one 600 s round, cut at
+        # 600 s, so no run reached GOD_PAIRED_MIN_ROUNDS and god_chat_replay_ratio_max read nothing.
+        self.assertEqual(list(cron.linux_bench_runs("/r", "web-ui-god")), ["paired", "suite"])
+        self.assertGreaterEqual(cron.GOD_PAIRED_DEADLINE_S,
+                                (cron.GOD_PAIRED_MIN_ROUNDS - 1) * cron.GOD_PAIRED_ROUND_TIMEOUT_S * 3 // 4,
+                                "MIN rounds of three quarters of the cut each start before the deadline")
+
+    def test_the_paired_rounds_share_one_pane_build(self):
+        with tempfile.TemporaryDirectory() as out:
+            def built(argv, **kw):
+                open(os.path.join(argv[-1], ".shared-build-done"), "w").close()
+                return mock.Mock(returncode=0)
+            env, line = cron.paired_pane_build("/r", {}, out, run=built)
+            self.assertEqual(env, {"CMUX_BENCH_PANE_DIR": out})
+            self.assertIn("paired pane build", line)
+        env, line = cron.paired_pane_build("/r", {}, "/nonexistent", run=lambda argv, **kw: mock.Mock(returncode=1))
+        self.assertEqual(env, {}, "a failed build leaves each round to build its own")
+        self.assertIn("each round builds its own", line)
 
     def test_every_web_ui_bench_times_out_inside_its_part_run_cap(self):
         # chat-100k-flat's suite timeout (1200 s) killed it in long_x20, and the grown run timed out at 1770 s against a
@@ -1762,11 +1818,12 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual((len(got["rounds"]), got["stopped"]), (cron.GOD_PAIRED_MIN_ROUNDS, "settled"))
         self.assertEqual(len(got["rounds"][0]["rows"]), 6)
         now[0] = 0.0
-        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 300)
+        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 600)
         with contextlib.redirect_stdout(io.StringIO()):
-            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, -900.0, clock=clock, run=run)
+            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, 0.0, clock=clock, run=run)
         self.assertEqual(got["stopped"], "deadline", "a noisy run stops at the deadline, inside the job's cap")
-        self.assertLessEqual(900 + 300 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
+        self.assertLessEqual(600 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
+        self.assertGreaterEqual(len(got["rounds"]), cron.GOD_PAIRED_MIN_ROUNDS, "600 s rounds still reach MIN")
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
@@ -5016,6 +5073,49 @@ class UnreadPartFirstTests(unittest.TestCase):
         d = cron.decide(state, at(1 + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
         self.assertIn("build failed", d["reason"])
+
+    def test_a_build_that_never_ran_is_no_broken_base(self):
+        # 2026-11-26: tip c2b1760e's checkout was refused (HTTP 403, source download failed 3 times, before the job
+        # started) and ended build_failed; the next tip 60a23ed3's source fetch got 503 from the controller's git
+        # proxy, and it held the Mac behind 21 Linux parts as if the base were broken (tabs, chat-snappy, typing and
+        # the launch rows stayed stale).
+        why = ("step checkout: GitHub refused the fetch (HTTP 403) (exit status 128) "
+               "(source download failed 3 times, before the job started)")
+        state = cron.empty_state(T0)
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True,
+                             "failed_why": {"build": why, "tabs": "build_failed"}}]
+        self.assertFalse(cron.last_tip_build_failed(state))
+        state["history"][0]["failed_why"]["build"] = "step exited 65"
+        self.assertTrue(cron.last_tip_build_failed(state), "a build that ran and failed still counts")
+
+    def test_a_tip_whose_build_never_ran_frees_the_mac_after_another_failed(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True}]
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        tail = ["ci-step reviewed check: no reviewed tip could be fetched for scripts/measure/split-spring.sh at "
+                "60a23ed343cf (main: not fetched (git: unable to access 'http://controller/v1/git/manaflow-ai/cmux.git/': "
+                "The requested URL returned error: 503)"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER,
+                                        "tail": tail}, "u", T0)
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish", "its build never ran: the base is not judged broken")
+
+    def test_a_held_superseded_tip_ends_once_its_base_is_not_judged_broken(self):
+        # The state written before this fix: tip 60a23ed3 superseded, its Linux parts held for the bound.
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True,
+                             "failed_why": {"build": "step checkout: GitHub refused the fetch (HTTP 403)"}}]
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER,
+                                        "tail": ["step exited 65"]}, "u", T0)
+        cur["superseded"] = {"by": self.NEW, "why": f"its app build failed; {self.NEW[:12]} is newer", "at": cron.iso(at(1))}
+        self.assertTrue(cur["parts_todo"])
+        d = cron.decide(state, at(1.2), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
 
     def test_a_bisect_step_whose_build_failed_is_not_superseded(self):
         cur = {"kind": "bisect", "sha": self.OLD, "parts": {"wake": {"state": "build_failed"}}}
