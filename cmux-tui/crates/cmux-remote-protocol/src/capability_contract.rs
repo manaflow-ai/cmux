@@ -115,7 +115,14 @@ impl RemoteCapability {
             Self::SecretsV1 => {
                 &["method:replace-machine-secrets", "method:response/machine-secrets-replaced"]
             }
-            Self::Unknown(_) => &[],
+            // Behavior only: the daemon answers the existing reads from its replica.
+            Self::PausedReadsV1 | Self::Unknown(_) => &[],
         }
+    }
+
+    /// A capability that changes what a peer does with existing messages and
+    /// adds no wire name of its own.
+    pub(crate) fn changes_no_wire(&self) -> bool {
+        matches!(self, Self::PausedReadsV1)
     }
 }
