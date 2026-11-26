@@ -528,7 +528,7 @@ fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
 
-fn to_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
+fn to_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
