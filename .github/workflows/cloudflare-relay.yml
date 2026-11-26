@@ -57,6 +57,7 @@ name: Cloudflare relay
 #   cmux-next-cloud-journey (production) and their CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
@@ -98,7 +99,7 @@ permissions:
 # replaced by a newer pending one, which carries the same or newer relay source. Pull
 # requests keep their own cancelling group.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}
+  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -115,7 +116,7 @@ env:
 jobs:
   cloudflare-relay:
     name: Cloudflare Durable Object relay
-    if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.action != 'rollback') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }} # owned-pool-unfit: the Rust toolchain and Worker builder install exited 101 twice on cmux-linux hosts (#48644); stays on its old pool until it fits
     timeout-minutes: 30
     permissions:
@@ -185,7 +186,7 @@ jobs:
 
   # What this run deploys, where, and whether it needs the migration approval. No secrets.
   plan:
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    if: ${{ (github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -237,7 +238,7 @@ jobs:
 
   migration-approval:
     needs: plan
-    if: needs.plan.outputs.migrations_changed == 'true' && (needs.plan.outputs.staging == 'true' || needs.plan.outputs.production == 'true')
+    if: ${{ (needs.plan.outputs.migrations_changed == 'true' && (needs.plan.outputs.staging == 'true' || needs.plan.outputs.production == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment: relay-migrations
     timeout-minutes: 5
@@ -251,10 +252,7 @@ jobs:
 
   deploy-staging:
     needs: [plan, cloudflare-relay, migration-approval]
-    if: >-
-      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.staging == 'true' &&
-      (needs.cloudflare-relay.result == 'success' || needs.plan.outputs.mode != 'deploy') &&
-      (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true')
+    if: ${{ (!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.staging == 'true' && (needs.cloudflare-relay.result == 'success' || needs.plan.outputs.mode != 'deploy') && (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment: relay-staging
     timeout-minutes: 30
@@ -432,7 +430,7 @@ jobs:
   # The Linux cmux-tui the journeys dial the carrier with (`--cmux`), built once for all three.
   build-journey-cmux:
     needs: plan
-    if: needs.plan.outputs.journeys == 'true'
+    if: ${{ (needs.plan.outputs.journeys == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 40
     permissions:
@@ -494,9 +492,7 @@ jobs:
   # carrier dials cross the relay just deployed. Production follows only on a pass.
   journey-staging:
     needs: [plan, deploy-staging, build-journey-cmux]
-    if: >-
-      !cancelled() && needs.plan.outputs.journeys == 'true' &&
-      needs.deploy-staging.result == 'success' && needs.build-journey-cmux.result == 'success'
+    if: ${{ (!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-staging.result == 'success' && needs.build-journey-cmux.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
@@ -548,7 +544,7 @@ jobs:
   # the deploy's own reds from ones that were already there (cmux-vm.yml does the same).
   journey-production-baseline:
     needs: [plan, journey-staging]
-    if: "!cancelled() && needs.plan.outputs.production == 'true' && needs.journey-staging.result == 'success'"
+    if: ${{ (!cancelled() && needs.plan.outputs.production == 'true' && needs.journey-staging.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment:
       name: cmux-next-cloud-journey
@@ -609,11 +605,7 @@ jobs:
 
   deploy-production:
     needs: [plan, cloudflare-relay, migration-approval, deploy-staging, journey-staging, journey-production-baseline]
-    if: >-
-      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.production == 'true' &&
-      (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true') &&
-      ((needs.plan.outputs.journeys == 'true' && needs.journey-staging.result == 'success' && needs.journey-production-baseline.result == 'success') ||
-      (needs.plan.outputs.journeys != 'true' && needs.plan.outputs.mode != 'deploy' && (needs.plan.outputs.staging != 'true' || needs.deploy-staging.result == 'success')))
+    if: ${{ (!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.production == 'true' && (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true') && ((needs.plan.outputs.journeys == 'true' && needs.journey-staging.result == 'success' && needs.journey-production-baseline.result == 'success') || (needs.plan.outputs.journeys != 'true' && needs.plan.outputs.mode != 'deploy' && (needs.plan.outputs.staging != 'true' || needs.deploy-staging.result == 'success')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment: relay-production
     timeout-minutes: 30
@@ -789,7 +781,7 @@ jobs:
   # on the baseline and red now (exit 3) is the deploy's own red and rolls production back.
   journey-production:
     needs: [plan, deploy-production, build-journey-cmux, journey-production-baseline]
-    if: "!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-production.result == 'success'"
+    if: ${{ (!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-production.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment:
       name: cmux-next-cloud-journey
@@ -852,7 +844,7 @@ jobs:
 
   rollback-production:
     needs: [plan, deploy-production, journey-production]
-    if: always() && needs.journey-production.outputs.regressed == 'true'
+    if: ${{ (always() && needs.journey-production.outputs.regressed == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     environment: relay-production
     timeout-minutes: 15
