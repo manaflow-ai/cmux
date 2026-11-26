@@ -353,6 +353,39 @@ impl Runner for Fake {
             stderr: internal::bounded::past_deadline().to_string(),
         }
     }
+    /// [`Fake::cmux_by`], whose `until` may move as `internal::bounded::output_by_unless` moves it: the step's
+    /// answer is taken when it starts, and `later` runs its own steps (taking their time) at each `until`.
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        mut until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
+        let done = self.clock + self.cost(args);
+        self.ran.push(args.to_vec());
+        let answer = self.answers.pop_front().expect("an answer for every step");
+        loop {
+            if done <= until {
+                self.clock = self.clock.max(done);
+                return answer;
+            }
+            self.clock = self.clock.max(until);
+            let moved = later(self);
+            match moved.filter(|moved| *moved > self.clock) {
+                Some(moved) => until = moved,
+                None => {
+                    return Ran {
+                        code: internal::bounded::PAST_DEADLINE,
+                        stdout: String::new(),
+                        stderr: internal::bounded::past_deadline().to_string(),
+                    };
+                }
+            }
+        }
+    }
     fn say(&mut self, line: &str) {
         self.said.push(line.to_owned());
     }
