@@ -102,6 +102,14 @@ class Keys(unittest.TestCase):
         self.assertNotEqual(first["arm64"], first["x86_64"])
         self.assertEqual(first, npb.keys("HEAD"))
 
+    def test_source_head_can_predate_the_merge_ref_recipe(self) -> None:
+        # This is the first Nightly PR-build commit. Its parent has neither the reusable workflow
+        # nor the driver, which reproduces an already-open PR at the merge-ref workflow boundary.
+        source = npb.git("rev-parse", "ec6b044036a^")
+        keys = npb.keys(source, recipe_rev="HEAD")
+        self.assertEqual(sorted(keys), sorted([*npb.ARCHS, "helpers"]))
+        self.assertTrue(all(keys.values()))
+
 
 class Workflow(unittest.TestCase):
     def test_swift_job_is_the_nightly_compile_as_a_fleet_job(self) -> None:
