@@ -72,10 +72,10 @@ nonisolated enum GlyphMask {
 
     /// Sizes `glyphs` (the mask of `fill`) to the image ``image(size:scale:ink:draw:)`` makes for
     /// `fill`'s bounds, its top edge on `fill`'s top edge: the image shows at its own pixel size,
-    /// never resampled.
-    static func place(_ glyphs: CALayer, in fill: CALayer, scale: CGFloat) {
+    /// never resampled. `width`, when given, is the width the image was drawn at instead of `fill`'s.
+    static func place(_ glyphs: CALayer, in fill: CALayer, scale: CGFloat, width drawnWidth: CGFloat? = nil) {
         let scale = max(scale, 1)
-        let (width, height) = pixels(fill.bounds.size, scale: scale)
+        let (width, height) = pixels(CGSize(width: drawnWidth ?? fill.bounds.width, height: fill.bounds.height), scale: scale)
         let size = CGSize(width: CGFloat(width) / scale, height: CGFloat(height) / scale)
         let top = rendersTopDown(fill) ? 0 : fill.bounds.height - size.height
         let frame = CGRect(origin: CGPoint(x: 0, y: top), size: size)
