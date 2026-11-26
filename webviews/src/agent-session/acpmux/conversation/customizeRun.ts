@@ -43,6 +43,7 @@ export type RunState = {
   /** the phase to return to when the run fails */ back: RunPhase;
   failed: boolean;
   /** the PR the last try-on put on (`pr:N`), which Go marks merge-ready */ pr?: string;
+  /** what the last successful try-on put on, for Share */ target?: string;
 };
 export type RunEvent = { type: "start" } | { type: "done"; run: CustomizeRun; ok: boolean };
 
@@ -52,18 +53,27 @@ export function runReducer(state: RunState, event: RunEvent): RunState {
   if (event.type === "start") {
     return state.phase === "running" ? state : { ...state, phase: "running", back: state.phase, failed: false };
   }
-  if (!event.ok) return { ...state, phase: state.back, back: state.back, failed: true };
+  const kept = {
+    ...(state.target === undefined ? {} : { target: state.target }),
+    ...(state.pr === undefined ? {} : { pr: state.pr }),
+  };
+  if (!event.ok) return { phase: state.back, back: state.back, failed: true, ...kept };
   const { run } = event;
-  const phase: RunPhase =
-    run.customize === "try"
-      ? "tried"
-      : run.customize === "keep"
-        ? "kept"
-        : run.customize === "go"
-          ? "went"
-          : "reverted";
-  const pr = run.customize === "try" ? (/^pr:\d+$/.test(run.target) ? run.target : undefined) : state.pr;
-  return { phase, back: phase, failed: false, pr };
+  if (run.customize === "try") {
+    const pr = /^pr:\d+$/.test(run.target) ? { pr: run.target } : {};
+    return { phase: "tried", back: "tried", failed: false, target: run.target, ...pr };
+  }
+  const phase: RunPhase = run.customize === "keep" ? "kept" : run.customize === "go" ? "went" : "reverted";
+  return { phase, back: phase, failed: false, ...kept };
+}
+
+/// The one line that puts `target` on someone else's cmux, for Share: code anyone with the repo can
+/// fetch (`pr:N`, `branch:B`, `sha:S`). A folder or a profile name lives on this Mac only, so it
+/// has no line (RFD 0150's next pass: `cmux setup export` and its `cmux setup install` line).
+export function shareLine(target: string | undefined): string | undefined {
+  if (!target || !/^(?:pr|branch|sha):/.test(target)) return undefined;
+  const run = readRun({ customize: "try", target });
+  return run ? `cmux customize try ${target}` : undefined;
 }
 
 type Runner = {

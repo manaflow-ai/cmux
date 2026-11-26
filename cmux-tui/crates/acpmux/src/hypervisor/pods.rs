@@ -33,7 +33,14 @@ impl<X: HostRunner> HypervisorDriver for PodsDriver<X> {
     fn create(&self, name: &SlotName, spec: &SlotSpec) -> Result<SlotState> {
         // A pod's disk is the host's; `disk_gib` has nothing to size.
         let size = slots::SlotSize { vcpus: spec.vcpus, memory_mib: spec.memory_mib };
-        self.pods.create(&slot(name)?, size).map(state).map_err(|e| anyhow!(e))
+        // A hub-minted join token goes to the init's environment by name, never an argv: the
+        // init redeems it (`acpmux machine join` on stdin) and the pod joins as its own machine.
+        let join = spec.join.as_ref().map(|j| j.env());
+        let env: &[(&str, &str)] = match &join {
+            Some(pairs) => pairs,
+            None => &[],
+        };
+        self.pods.create_with_env(&slot(name)?, size, env).map(state).map_err(|e| anyhow!(e))
     }
 
     fn pause(&self, name: &SlotName, mode: PauseMode) -> Result<SlotState> {
@@ -79,9 +86,23 @@ mod tests {
         slices: RefCell<BTreeMap<String, bool>>,
         dirs: RefCell<BTreeSet<String>>,
         files: RefCell<BTreeMap<String, Vec<u8>>>,
+        /// Each `run_env` call: its argv and the env it was handed.
+        env: RefCell<Vec<(Vec<String>, Vec<(String, String)>)>>,
     }
 
     impl HostRunner for &Host {
+        fn run_env(
+            &self,
+            argv: &[String],
+            stdin: &[u8],
+            env: &[(&str, &str)],
+        ) -> Result<Output, String> {
+            let pairs: Vec<(String, String)> =
+                env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+            self.env.borrow_mut().push((argv.to_vec(), pairs));
+            self.run(argv, stdin)
+        }
+
         fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String> {
             let ok = |out: String| Ok(Output { code: 0, stdout: out.into(), stderr: Vec::new() });
             let a: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -152,7 +173,7 @@ mod tests {
         let host = Host::default();
         let d = PodsDriver::new(PodSlots::new(&host, "/srv/pods"));
         let a = SlotName::parse("lane-a").unwrap();
-        let spec = SlotSpec { vcpus: 1, memory_mib: 512, disk_gib: 40 };
+        let spec = SlotSpec { vcpus: 1, memory_mib: 512, disk_gib: 40, join: None };
         assert_eq!(d.create(&a, &spec).unwrap(), SlotState::Running);
         // Idempotent, as the host agent expects of every verb.
         assert_eq!(d.create(&a, &spec).unwrap(), SlotState::Running);
@@ -167,5 +188,34 @@ mod tests {
         d.destroy(&a).unwrap();
         d.destroy(&a).unwrap();
         assert!(d.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_hub_minted_join_token_reaches_the_pods_init_by_name_only() {
+        let host = Host::default();
+        let d = PodsDriver::new(PodSlots::new(&host, "/srv/pods"));
+        let a = SlotName::parse("lane-j").unwrap();
+        let join = crate::hypervisor::ChildJoin::new(
+            "https://hub.example",
+            zeroize::Zeroizing::new("cmj_child_secret".to_owned()),
+        );
+        let spec = SlotSpec { join: Some(join), ..SlotSpec::default() };
+        assert_eq!(d.create(&a, &spec).unwrap(), SlotState::Running);
+        let sent = host.env.borrow();
+        assert_eq!(sent.len(), 1);
+        let (argv, env) = &sent[0];
+        let line = argv.join(" ");
+        assert!(line.starts_with("systemd-run "), "{line}");
+        assert!(line.contains("--setenv=CMUX_JOIN_TOKEN --setenv=CMUX_JOIN_HUB --"), "{line}");
+        assert!(!line.contains("cmj_child_secret"), "{line}");
+        assert_eq!(
+            env,
+            &vec![
+                ("CMUX_JOIN_TOKEN".to_owned(), "cmj_child_secret".to_owned()),
+                ("CMUX_JOIN_HUB".to_owned(), "https://hub.example".to_owned()),
+            ]
+        );
+        // The spec's Debug (a log line, a panic) never shows it.
+        assert!(!format!("{spec:?}").contains("cmj_child_secret"));
     }
 }
