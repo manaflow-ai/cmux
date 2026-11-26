@@ -19,6 +19,15 @@ on:
         required: false
         type: string
         default: ""
+    # The ios fast verdict, for pr-router.yml's ios-fast-status (the `cmux/ios-fast` commit status): whether its plan
+    # builds anything, its summary, and the ios-fast job's result (empty when it never finished).
+    outputs:
+      ios_fast_run:
+        value: ${{ jobs.ios-fast-runner.outputs.run }}
+      ios_fast_summary:
+        value: ${{ jobs.ios-fast-runner.outputs.summary }}
+      ios_fast_verdict:
+        value: ${{ jobs.ios-fast.outputs.verdict }}
     secrets:
       # The org's manaflow-glaeda-route App key (read-only on runners), for the ios-runner job's live read of the
       # owned simulator Macs. Optional: without it the picker reads with the run's token.
@@ -725,6 +734,8 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-fast-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -749,6 +760,13 @@ jobs:
         run: |
           echo "::notice title=iOS fast verdict::$SUMMARY"
           bash scripts/ci/ios_fast_verdict.sh
+      # pr-router.yml's ios-fast-status posts this as `cmux/ios-fast`.
+      - name: Record the verdict
+        id: verdict
+        if: ${{ success() || failure() }}
+        env:
+          STATUS: ${{ job.status }}
+        run: echo "verdict=$STATUS" >> "$GITHUB_OUTPUT"
 
   # The `mac` job: the Mac tier of a feat-cmux-next pull request, the fast tier's Swift suites, which was
   # cmux-next.yml's fast-tier job (and its build-fleet variants) on a pull request. The Swift canary is a `linux`
