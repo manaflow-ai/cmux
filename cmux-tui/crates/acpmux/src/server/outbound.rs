@@ -187,13 +187,15 @@ pub(super) enum Row {
 /// The bytes every connection's queue may hold together. Each connection alone may hold
 /// [`OUTBOUND_BYTE_BOUND`], so a host with a few hundred readers (agents' CLIs, the app, peers)
 /// could hold tens of GB before any one bound tripped: huge-blue's daemon reached 16.5 GB and
-/// stopped answering (2026-11-20). Past this, a line for a connection that holds more than
-/// [`FAIR_SHARE`] ends that connection, as its own bound would; one that holds less is still
-/// served, so a cheap read's answer always goes out.
+/// stopped answering (2026-11-20). A connection over [`FAIR_SHARE`] whose reader took nothing for
+/// [`READER_STALL`] ends at its next line, whatever the total, as its own bound would; one under
+/// it is still served, so a cheap read's answer always goes out. Waiting for the total to pass
+/// this first let a hundred readers that never read hold it all, past a 768 MiB memory ceiling
+/// (duress bigchat leg, 2026-11-26): the total is now what the gauge reports against.
 pub(super) const TOTAL_BYTE_BOUND: usize = 1 << 30;
-/// What a connection may hold when the daemon is past [`TOTAL_BYTE_BOUND`].
+/// What a connection whose reader is stalled ([`READER_STALL`]) may hold.
 pub(super) const FAIR_SHARE: usize = 4 << 20;
-/// How long a reader over [`FAIR_SHARE`] may take nothing before the daemon-wide bound ends it.
+/// How long a reader over [`FAIR_SHARE`] may take nothing before it is ended.
 /// One that is taking lines is slow, not stuck, and keeps its connection up to its own bound: on
 /// cosmic-gray the cut fell on the app's coordinator chats mid-replay, each cut cost a re-attach of
 /// the whole chat (99 s for the largest), and the re-attach queued the same bytes again
@@ -465,10 +467,14 @@ impl Shared {
         if state.held == 0 {
             state.progress_at = Instant::now();
         }
+        // A reader over its fair share that took nothing for the stall bound ends whatever the
+        // total: a hundred readers that never read each held up to their own bound until every
+        // queue together reached the daemon-wide one, a GiB swapped out under a 768 MiB memory
+        // ceiling, and every answer waited on it (duress bigchat leg, 2026-11-26). So what never-read
+        // readers hold is their fair share each for at most the stall bound; one that is taking
+        // lines keeps its own bound.
         let over_total = |state: &State| {
-            state.held + size > self.fair_share
-                && state.pool.load(Ordering::Relaxed) + size > self.total_bound
-                && state.progress_at.elapsed() >= self.reader_stall
+            state.held + size > self.fair_share && state.progress_at.elapsed() >= self.reader_stall
         };
         if state.held + size > self.bound || over_total(state) {
             state.settle();
@@ -492,7 +498,7 @@ impl Shared {
                 if own {
                     "a connection's reader fell past its byte bound: it is disconnected"
                 } else {
-                    "every connection's queues together are past their bound: this one, over its fair share, is disconnected"
+                    "a connection's reader over its fair share took nothing for the stall bound: it is disconnected"
                 }
             );
             OVERRUNS.fetch_add(1, Ordering::Relaxed);
