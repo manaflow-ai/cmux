@@ -140,3 +140,39 @@ async fn a_kept_circuit_that_hears_anything_opens_no_fresh_one() {
     );
     assert!(!slow.is_closed(), "a live circuit stays kept");
 }
+
+/// A silent direct circuit gives the dial back to the relay at the hedge (the dial's caller then
+/// takes the relay's kept circuit), not after a fresh direct handshake's whole 2 s.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_silent_direct_circuit_falls_back_to_the_relay_at_the_hedge() {
+    let tickets = Arc::new(NoConnect { asked: AtomicU64::new(0) });
+    let carrier = HubCarrier::new(tickets.clone(), [7u8; 32], timings());
+    let daemon = "machine-b";
+    let (dead, _said) = mux::start_dialer(
+        Box::new(Gone),
+        carrier.stats.clone(),
+        Arc::downgrade(&carrier.alive),
+        Duration::from_secs(30),
+        Duration::from_secs(300),
+    );
+    dead.heard_at(Instant::now() - Duration::from_secs(1));
+    carrier.direct.kept.slot(daemon, CircuitLane::Cheap).lock().await.live = Some(dead.clone());
+
+    let started = Instant::now();
+    let mut report = DialReport::default();
+    let answer = carrier
+        .kept_open(
+            daemon,
+            CircuitLane::Cheap,
+            hello_record(CircuitService::Acpmux),
+            &[],
+            &mut report,
+            Path::Direct("10.0.0.2:47791".parse().unwrap()),
+        )
+        .await;
+    let took = started.elapsed();
+    assert!(took < KEPT_HEDGE + Duration::from_millis(400), "gave the dial back in {took:?}");
+    assert!(matches!(answer, KeptOpen::Failed(_)), "the caller goes to the relay");
+    assert_eq!(tickets.asked.load(Ordering::SeqCst), 0, "no fresh direct or relay dial here");
+    assert!(dead.is_closed());
+}

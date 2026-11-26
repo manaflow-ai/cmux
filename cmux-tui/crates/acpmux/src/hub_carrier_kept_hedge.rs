@@ -97,6 +97,15 @@ impl HubCarrier {
         if old.heard_since(asked) {
             return Hedged::Old(open.await);
         }
+        // A silent direct or punched circuit: the relay is the fresh circuit. Its caller holds
+        // the machine off that path a while and dials the relay's kept circuit, where a fresh
+        // direct handshake to a machine that stopped answering on it waits its whole 2 s.
+        if !matches!(path, Path::Relay) {
+            return Hedged::Failed(format!(
+                "the kept circuit heard nothing {}ms into a dial",
+                KEPT_HEDGE.as_millis()
+            ));
+        }
         tracing::info!(
             "hub carrier: a kept circuit heard nothing {}ms into a dial; opening a fresh one beside it",
             KEPT_HEDGE.as_millis()
