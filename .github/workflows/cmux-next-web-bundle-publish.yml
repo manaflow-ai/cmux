@@ -462,7 +462,7 @@ jobs:
     needs: build
     if: needs.build.outputs.published != 'true' && !inputs.pr && !inputs.ref
     name: cut the web bundles into cas/1 objects
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     continue-on-error: true
     permissions:
@@ -477,6 +477,7 @@ jobs:
             /.github/actions/setup-cmux-tui-rust/
             /cmux-tui/
             /scripts/cmux-next/
+            /.gitmodules
 
       - uses: ./.github/actions/setup-cmux-tui-rust
 
