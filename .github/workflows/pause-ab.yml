@@ -21,10 +21,10 @@ on:
         type: string
         default: "turn_end,aggressive"
       per_arm:
-        description: "Machines per arm"
+        description: "Machines per arm (pairs: machine i of every arm shares seed + i - 1)"
         required: false
         type: string
-        default: "2"
+        default: "10"
       turns:
         description: "Stub turns per machine"
         required: false
@@ -40,8 +40,8 @@ on:
         required: false
         type: string
         default: "20,45,90,180"
-  # A PR that changes the harness runs it once with the defaults (1 machine per arm), so the first run needs no
-  # default-branch copy of this file.
+  # A PR that changes the harness runs it once with the defaults (10 seeded pairs: one machine per arm proved nothing
+  # about which policy is better, run 45846918347), so the first run needs no default-branch copy of this file.
   pull_request:
     branches: [feat-cmux-next]
     paths:
@@ -84,7 +84,7 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           ARMS: ${{ inputs.arms || 'turn_end,aggressive' }}
-          PER_ARM: ${{ inputs.per_arm || '1' }}
+          PER_ARM: ${{ inputs.per_arm || '10' }}
           TURNS: ${{ inputs.turns || '8' }}
           SEED: ${{ inputs.seed || '7' }}
           GAPS: ${{ inputs.gaps || '20,45,90,180' }}
