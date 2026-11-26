@@ -832,13 +832,15 @@ impl Transcript {
             for (text, row) in self.optimistic.iter().zip(&self.optimistic_rows) {
                 match row {
                     Item::User { text: shown, queued: true, .. } => {
-                        let found = rebuilt.queue.iter().enumerate().position(|(n, q)| {
-                            !adopted[n] && q.prompt_id.is_some() && q.text == *text
+                        let found = rebuilt.queue.iter().zip(&adopted).position(|(q, taken)| {
+                            !*taken && q.prompt_id.is_some() && q.text == *text
                         });
-                        match found {
-                            Some(n) => {
-                                adopted[n] = true;
-                                rebuilt.queue[n].text.clone_from(shown);
+                        let slot =
+                            found.and_then(|n| adopted.get_mut(n).zip(rebuilt.queue.get_mut(n)));
+                        match slot {
+                            Some((taken, q)) => {
+                                *taken = true;
+                                q.text.clone_from(shown);
                             }
                             None => rebuilt
                                 .queue
