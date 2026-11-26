@@ -325,6 +325,12 @@ final class AgentChatTranscriptService {
         }
     }
 
+    /// Settles agents[].status for a turn the program-status fallback settled (#39157).
+    func noteProgramStatusIdle(surfaceID: String, source: String, at edge: Date) {
+        guard !didShutdown else { return }
+        registry.noteProgramStatusIdle(surfaceID: surfaceID, source: source, at: edge)
+    }
+
     /// Immediately reflects user input on a terminal that is waiting for an
     /// agent answer. Hook delivery remains authoritative and reconciles the
     /// optimistic state on the next event.

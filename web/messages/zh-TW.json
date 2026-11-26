@@ -380,6 +380,7 @@
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
     "subtitle": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
+    "nextCallout": "新功能：試用 <link>cmux NEXT</link>，下一代 cmux 的預覽版。",
     "features": "功能",
     "faq": "常見問題",
     "communitySection": "社群",
@@ -5774,5 +5775,13 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "analyticsConsent": {
+    "label": "分析",
+    "message": "我們可以使用分析來了解網站的使用情況嗎？除非你允許，否則不會收集任何資訊，也不會設定分析 Cookie。",
+    "privacy": "隱私權政策",
+    "accept": "允許",
+    "decline": "不用了",
+    "settings": "分析設定"
   }
 }

@@ -13,8 +13,8 @@ name: cmux NEXT Cua Driver SDK publish
 #          job-local Rust toolchain (the one upstream's rust-toolchain file
 #          names) and Xcode 26.6. It holds no secret.
 # publish  the cef-publish environment, the one that holds the cmux-cef-write
-#          token (release has none: run 42278271161 stopped there), and
-#          waits for one of its reviewers. Only main code runs: the tarball is data. It reads build-info.json and the
+#          token (release has none: run 42278271161 stopped there); its
+#          branch policy admits main only. Only main code runs: the tarball is data. It reads build-info.json and the
 #          member digests out of the tarball, writes the pin, and uploads the
 #          tarball write-once to cua-driver-sdk/<sha256>/ with
 #          upload-r2-object.py, which reads it back and checks its sha256.
@@ -35,19 +35,23 @@ on:
 
 permissions: {}
 
-# No workflow-level concurrency group: the publish job waits for a cef-publish
-# reviewer, and a run waiting there never times out, so a workflow group let
+# No workflow-level concurrency group: while cef-publish required a reviewer the
+# publish job waited there, and a run waiting there never times out, so a workflow group let
 # one unanswered approval hold every later dispatch (cmux-next-cua-helper-dev-sign.yml,
 # run 42677635673, 2026-11-09). The macOS build
 # serializes in its own job group; publish has none (its upload is
 # content-addressed and write-once, an identical object is accepted).
 # scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   resolve:
     name: Resolve the release and the branch
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -89,7 +93,7 @@ jobs:
     # rescue (owned_pool_rescue.py SIDE_WORKFLOW_PATHS) moves a stuck or refused job to
     # Blacksmith macOS, the last resort a re-run takes directly. RUNNER_POOLS.macos_26 is a
     # Blacksmith label, so reading it first queued run 43645667029 on Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'workflow_dispatch' && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -160,7 +164,7 @@ jobs:
   publish:
     name: Publish the SDK and write its pin
     needs: [resolve, build]
-    # Waits for a reviewer, so it holds no concurrency group.
+    # Holds no concurrency group: an environment wait never times out.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15

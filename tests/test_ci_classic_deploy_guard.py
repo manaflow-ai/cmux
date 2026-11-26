@@ -7,8 +7,11 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -210,6 +213,64 @@ def push_api(baseline: str | None, compare: dict, files: dict[str, list[str]], p
     return FakeApi(routes)
 
 
+def git(cwd: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+
+class GitFilesTests(unittest.TestCase):
+    """2026-11-21 06:23Z (run 44875353541): the range since the last green run was 204 commits, one REST call each
+    for its files on the repository's shared workflow-token hour, and 108 of them came back 403: each an
+    unreadable commit, so a refusal. A commit's changed files never change, so git answers them with no REST call."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.origin = Path(self.tmp.name) / "origin"
+        self.origin.mkdir()
+        git(self.origin, "init", "-q", "-b", "main")
+        (self.origin / "web").mkdir()
+        (self.origin / "web" / "old.ts").write_text("x\n" * 50)
+        (self.origin / "README.md").write_text("r\n")
+        git(self.origin, "add", "-A")
+        git(self.origin, "commit", "-qm", "base")
+        self.base = git(self.origin, "rev-parse", "HEAD")
+        git(self.origin, "mv", "web/old.ts", "web/proxy.ts")
+        git(self.origin, "commit", "-qm", "rename into a deployed path")
+        self.rename = git(self.origin, "rev-parse", "HEAD")
+        (self.origin / "README.md").write_text("r2\n")
+        git(self.origin, "commit", "-qam", "readme")
+        self.readme = git(self.origin, "rev-parse", "HEAD")
+        # The guard's own checkout: one commit deep, like actions/checkout fetch-depth 1.
+        self.work = Path(self.tmp.name) / "work"
+        git(Path(self.tmp.name), "clone", "-q", "--depth=1", f"file://{self.origin}", str(self.work))
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_files_come_from_git_with_no_rest_call(self) -> None:
+        api = FakeApi({})
+        reader = guard.GitFiles(self.work, guard.GitHub("o/r", None, api))
+        reader.prefetch(self.readme, 2)
+        self.assertEqual(sorted(reader.files(self.rename)), ["web/old.ts", "web/proxy.ts"], "a rename: both names")
+        self.assertEqual(reader.files(self.readme), ["README.md"])
+        self.assertEqual(api.calls, [], "no REST call for a commit git holds")
+        self.assertEqual((reader.from_git, reader.from_rest), (2, 0))
+
+    def test_a_commit_git_cannot_read_falls_back_to_rest(self) -> None:
+        api = FakeApi({r"commits/" + "b" * 40: {"files": [{"filename": "web/proxy.ts"}]}})
+        reader = guard.GitFiles(self.work, guard.GitHub("o/r", None, api))
+        reader.prefetch(self.readme, 2)
+        self.assertEqual(reader.files("b" * 40), ["web/proxy.ts"])
+        self.assertEqual((reader.from_git, reader.from_rest), (0, 1))
+
+    def test_a_failed_fetch_still_answers_from_rest(self) -> None:
+        api = FakeApi({r"commits/": {"files": [{"filename": "web/proxy.ts"}]}})
+        reader = guard.GitFiles(Path(self.tmp.name) / "not-a-repo", guard.GitHub("o/r", None, api))
+        reader.prefetch(self.readme, 2)
+        self.assertEqual(reader.files(self.rename), ["web/proxy.ts"])
+
+
 class BaselineTests(unittest.TestCase):
     """F1 and F2 of the #40119 review: what ships is everything since the last passed deploy, not only the push."""
 
@@ -368,6 +429,74 @@ class WiringTests(unittest.TestCase):
         nightly = text[text.index("  nightly:"):text.index("  release:")]
         self.assertIn("needs: guard", nightly)
         self.assertIn("actions: read", text[text.index("  guard:"):text.index("  nightly:")])
+
+
+class RequestErrors(unittest.TestCase):
+    """_request says what GitHub answered with an HTTP error, and waits out a short rate-limit reset."""
+
+    def answer(self, answers: list[object]) -> tuple[object, list[float]]:
+        import email.message
+        import urllib.error
+        import urllib.request
+
+        slept: list[float] = []
+
+        def fake_urlopen(request, timeout=0):  # noqa: ANN001
+            got = answers.pop(0)
+            if isinstance(got, tuple):
+                code, headers, body = got
+                msg = email.message.Message()
+                for k, v in headers.items():
+                    msg[k] = v
+                raise urllib.error.HTTPError(request.full_url, code, "Forbidden", msg, io.BytesIO(body))
+            return contextlib.nullcontext(io.BytesIO(json.dumps(got).encode()))
+
+        original = urllib.request.urlopen
+        urllib.request.urlopen = fake_urlopen
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return guard._request("https://api.github.com/repos/o/r/x", "t", sleep=slept.append), slept
+        finally:
+            urllib.request.urlopen = original
+
+    def test_a_403_says_what_github_answered(self) -> None:
+        body = json.dumps({"message": "Resource not accessible by integration"}).encode()
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {"x-ratelimit-remaining": "812", "x-ratelimit-resource": "core"}, body)])
+        self.assertIn("Resource not accessible by integration", str(caught.exception))
+        self.assertIn("x-ratelimit-remaining 812", str(caught.exception))
+
+    def test_a_short_rate_limit_is_waited_out(self) -> None:
+        body = json.dumps({"message": "API rate limit exceeded for installation"}).encode()
+        got, slept = self.answer([(403, {"retry-after": "30", "x-ratelimit-remaining": "0"}, body), {"ok": 1}])
+        self.assertEqual(got, {"ok": 1})
+        self.assertEqual(slept, [30.0])
+
+    def test_a_long_rate_limit_still_refuses_and_says_so(self) -> None:
+        import time
+
+        body = json.dumps({"message": "API rate limit exceeded for installation"}).encode()
+        reset = str(int(time.time()) + 1800)
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}, body)])
+        self.assertIn("rate limit exceeded", str(caught.exception))
+
+    def test_retry_after_zero_cannot_spin(self) -> None:
+        body = json.dumps({"message": "secondary rate limit"}).encode()
+        answers = [(429, {"retry-after": "0"}, body)] * 10
+        with self.assertRaises(guard.Unreadable):
+            self.answer(answers)
+        self.assertEqual(len(answers), 10 - 1 - guard.RATE_LIMIT_RETRIES)
+
+    def test_a_rate_limit_named_only_in_the_message_waits_a_minute(self) -> None:
+        body = json.dumps({"message": "You have exceeded a secondary rate limit"}).encode()
+        got, slept = self.answer([(403, {}, body), {"ok": 2}])
+        self.assertEqual((got, slept), ({"ok": 2}, [60.0]))
+
+    def test_a_body_that_is_not_json_is_shown_raw(self) -> None:
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {}, b"<html>denied</html>")])
+        self.assertIn("<html>denied</html>", str(caught.exception))
 
 
 if __name__ == "__main__":

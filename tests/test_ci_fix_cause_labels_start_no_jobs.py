@@ -12,14 +12,14 @@ fix-cause label.
 So every job of such a workflow must skip for that event. The check evaluates
 each job's `if:` the way Actions does, with its `needs` (a job whose needs all
 skipped runs only if its condition says always() or !cancelled()). A new
-labeled workflow that runs a job for the event fails here. risk tier is the one
-exemption (EXEMPT): its evidence job takes no job-level if, so a skipped run never
-reads as a passed required check (#38003).
+labeled workflow that runs a job for the event fails here. risk tier is no longer
+exempt: its evidence job skips every label but risk:human-ok and risk:waived (the
+only labels its verdict reads), and that skipped run is named "risk evidence label
+(ignored)", so it never reads as a passed required risk evidence check (#38003).
 
-An open pull request is not exempt from anything: risk tier and the
-backend-migrations gate are required checks read newest-by-name, and a skipped
-newest run would read as a pass. They still grade an open pull request on every
-label.
+Risk tier and the backend-migrations gate are required checks read
+newest-by-name, so a skipped run of either takes another name: the newest run
+under the required name is always a real grade.
 
 `pull_request` workflows are out of scope: a label event there runs the copy of
 the file in the pull request's own merge commit, so no branch's copy decides
@@ -76,8 +76,8 @@ def loose(value: Any) -> Any:
 
 
 class Evaluator:
-    def __init__(self, context: dict[str, Any], needs: dict[str, str]):
-        self.context, self.needs = context, needs
+    def __init__(self, context: dict[str, Any], needs: dict[str, str], outputs: dict[str, dict] | None = None):
+        self.context, self.needs, self.outputs = context, needs, outputs or {}
 
     def run(self, expr: str) -> Any:
         self.tokens, self.pos = tokenize(expr), 0
@@ -154,7 +154,7 @@ class Evaluator:
             self.take(")")
             return self.call(text, args)
         if text == "needs":
-            return {name: {"result": result, "outputs": {}} for name, result in self.needs.items()}
+            return {name: {"result": result, "outputs": self.outputs.get(name, {})} for name, result in self.needs.items()}
         return self.context.get(text)
 
     def postfix(self, value: Any) -> Any:
@@ -207,11 +207,11 @@ def unwrap(condition: Any) -> str:
     return match.group(1).strip() if match else text
 
 
-def job_runs(condition: Any, context: dict[str, Any], needs: dict[str, str]) -> bool:
+def job_runs(condition: Any, context: dict[str, Any], needs: dict[str, str], outputs: dict[str, dict] | None = None) -> bool:
     expr = unwrap(condition) if condition is not None else "success()"
     if not re.search(r"\b(?:%s)\s*\(" % "|".join(STATUS_FUNCTIONS), expr):
         expr = f"success() && ({expr})"
-    return truthy(Evaluator(context, needs).run(expr))
+    return truthy(Evaluator(context, needs, outputs).run(expr))
 
 
 def needs_of(job: dict) -> list[str]:
@@ -219,8 +219,8 @@ def needs_of(job: dict) -> list[str]:
     return [needs] if isinstance(needs, str) else list(needs)
 
 
-def jobs_started(document: dict, context: dict[str, Any]) -> list[str]:
-    """The jobs that would get a runner for this event, in workflow order."""
+def jobs_started(document: dict, context: dict[str, Any], outputs: dict[str, dict] | None = None) -> list[str]:
+    """The jobs that would get a runner for this event, in workflow order (OUTPUTS: each job's outputs)."""
     jobs = document.get("jobs") or {}
     result: dict[str, str] = {}
     pending = list(jobs)
@@ -230,7 +230,7 @@ def jobs_started(document: dict, context: dict[str, Any]) -> list[str]:
             needs = needs_of(jobs[name])
             if any(need not in result for need in needs):
                 continue
-            runs = job_runs(jobs[name].get("if"), context, {need: result[need] for need in needs})
+            runs = job_runs(jobs[name].get("if"), context, {need: result[need] for need in needs}, outputs)
             result[name] = "success" if runs else "skipped"
             pending.remove(name)
             progressed = True
@@ -285,10 +285,18 @@ FIX_CAUSE_EVENTS = [
 ]
 
 
-# Workflows that keep running for the event on purpose. risk-tier's evidence job never takes a job-level if:
-# a skipped job reads as a passed required risk evidence check
-# (tests/test_risk_tier_history_admission.py, #38003), so it pays its one job per label.
-EXEMPT = {"risk-tier.yml": "a skipped risk evidence job reads as a pass (#38003)"}
+# Workflows that keep running for the event on purpose (none: risk tier's skipped label run takes another name,
+# tests/test_risk_tier_history_admission.py, #38003).
+EXEMPT: dict[str, str] = {}
+
+
+def job_name(document: dict, job: str, context: dict[str, Any]) -> str:
+    """The check name a job's run shows for this event."""
+    name = str((document.get("jobs") or {})[job].get("name", job))
+    return str(Evaluator(context, {}).run(unwrap(name))) if "${{" in name else name
+
+
+RISK_VERDICT_LABELS = ("risk:human-ok", "risk:waived")
 
 
 def offenders(workflows: dict[str, dict]) -> list[str]:
@@ -306,11 +314,37 @@ def offenders(workflows: dict[str, dict]) -> list[str]:
     return problems
 
 
+MIGRATION_CHANGE = {"plan": {"migrations": "true"}}
+
+
 class FixCauseLabelsStartNoJobs(unittest.TestCase):
-    def test_risk_tier_still_runs_for_the_event(self):
-        # The exemption is real: risk tier is never skipped, not even for a fix-cause label on a closed PR.
-        context = event("labeled", "fix-cause:ci-config")
-        self.assertEqual(jobs_started(label_target_workflows()["risk-tier.yml"], context), ["evidence"])
+    def test_risk_tier_grades_only_on_its_verdict_labels(self):
+        # risk tier grades on the two labels its verdict reads and skips every other label, open or closed, under a
+        # name that is not the required check's (#38003).
+        risk = label_target_workflows()["risk-tier.yml"]
+        for action in sorted(LABEL_ACTIONS):
+            for state in ("open", "closed"):
+                for label in RISK_VERDICT_LABELS:
+                    context = event(action, label, state=state)
+                    self.assertEqual(jobs_started(risk, context), ["evidence"], (action, label, state))
+                    self.assertEqual(job_name(risk, "evidence", context), "risk evidence")
+                for label in ("fix-cause:ci-config", "risk:normal", "risk:high", "area:ios"):
+                    context = event(action, label, state=state)
+                    self.assertEqual(jobs_started(risk, context), [], (action, label, state))
+                    self.assertEqual(job_name(risk, "evidence", context), "risk evidence label (ignored)")
+
+    def test_merge_freeze_checks_only_on_freeze_ok(self):
+        # Only freeze-ok changes the merge freeze verdict; any other label skips under another name, open or closed.
+        freeze = label_target_workflows()["merge-freeze.yml"]
+        for action in sorted(LABEL_ACTIONS):
+            for state in ("open", "closed"):
+                context = event(action, "freeze-ok", state=state)
+                self.assertEqual(jobs_started(freeze, context), ["check"], (action, state))
+                self.assertEqual(job_name(freeze, "check", context), "merge freeze")
+                for label in ("fix-cause:ci-config", "risk:normal", "area:ios"):
+                    context = event(action, label, state=state)
+                    self.assertEqual(jobs_started(freeze, context), [], (action, label, state))
+                    self.assertEqual(job_name(freeze, "check", context), "merge freeze label (ignored)")
 
     def test_the_repository_has_label_target_workflows(self):
         # Guards the scan itself: an empty set would pass everything.
@@ -323,16 +357,27 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
 
     def test_open_pull_requests_still_grade_on_a_fix_cause_label(self):
         workflows = label_target_workflows()
-        context = event("labeled", "fix-cause:ci-config", state="open")
-        self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
-        self.assertIn("gate", jobs_started(workflows["backend-migrations.yml"], context))
+        # Into main every label plans and gates, including when the migration tree is unchanged.
+        into_main = event("labeled", "fix-cause:ci-config", state="open", base="main")
+        self.assertIn("gate", jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE))
+        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main), ["plan", "gate"])
 
     def test_other_labels_on_closed_pull_requests_are_unchanged(self):
         workflows = label_target_workflows()
-        context = event("labeled", "risk:normal")
-        self.assertEqual(jobs_started(workflows["risk-tier.yml"], context), ["evidence"])
-        self.assertEqual(jobs_started(workflows["merge-freeze.yml"], context), ["check"])
-        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], context), ["plan", "gate"])
+        into_main = event("labeled", "risk:normal", base="main")
+        self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE), ["plan", "gate"])
+
+    def test_backend_migrations_skips_ignored_labels_into_feat_cmux_next(self):
+        # GitHub runs main's copy for PRs into feat-cmux-next. A review bot's label there queued a second
+        # plan behind the push's on the gate pool (cmux#47511 ace3ada7, about 10 more minutes).
+        migrations = label_target_workflows()["backend-migrations.yml"]
+        for label in ("risk:normal", "area:ios", "fix-cause:ci-config"):
+            for state in ("open", "closed"):
+                context = event("labeled", label, state=state)
+                self.assertEqual(jobs_started(migrations, context, MIGRATION_CHANGE), [], (label, state))
+        for label in ("backend:apply-migrations", "full-ci"):
+            context = event("labeled", label, state="open")
+            self.assertEqual(jobs_started(migrations, context, MIGRATION_CHANGE)[:1], ["plan"], label)
 
     def test_an_unguarded_labeled_workflow_fails(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -182,6 +182,15 @@ _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
 _DESCRIPTIVE_TABLES = frozenset({".github/warm-sources.json"})
 
 
+def _is_data_fixture(path: str) -> bool:
+    """A JSON file under a tests/fixtures/ directory: recorded input data.
+
+    web/tests/fixtures/vercel-ignore-replay.json (cmux#50036) lists changed
+    paths, helpers among them; a fixture is read by its test, never executed.
+    """
+    return path.endswith(".json") and "/fixtures/" in f"/{path}" and "tests/" in path
+
+
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     """ci.yml plus every local workflow it calls, transitively.
 
@@ -711,7 +720,7 @@ def ci_helper_areas(
             referenced = True
             if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
                 continue
-            if referrer == ".gitattributes" or referrer in _DESCRIPTIVE_TABLES:
+            if referrer == ".gitattributes" or referrer in _DESCRIPTIVE_TABLES or _is_data_fixture(referrer):
                 continue
             if referrer.startswith(("scripts/", ".github/actions/")):
                 try:

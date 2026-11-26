@@ -39,12 +39,33 @@ export async function retried(call, { sleep = wait, log = () => {}, what = 'call
   }
 }
 
-async function findRun({ github, owner, repo, requestId, since, sleep, log }) {
+// The cmux-bot App's installation token lives one hour (GitHub's limit) and shares its hourly quota with
+// every workflow that mints it, but the proof can run 260 min. Run 45425358279 lost its claude verdict to
+// "Bad credentials" at minute 60, and its codex job to the installation's rate limit. A client made with
+// rotating() moves to the fallback (the job's github.token, valid for the whole job, with its own quota)
+// on a 401 or a rate limit and stays there.
+export function rotating(primary, fallback, log = () => {}) {
+  let current = primary;
+  return async (fn) => {
+    try {
+      return await fn(current);
+    } catch (error) {
+      const status = error?.status;
+      const limited = status === 429 || (status === 403 && /rate limit/i.test(String(error?.message || '')));
+      if (!fallback || current === fallback || !(status === 401 || limited)) throw error;
+      log(`cmux-bot token ${status === 401 ? 'expired' : 'rate limited'} (${error.message}); using github.token from here`);
+      current = fallback;
+      return await fn(current);
+    }
+  };
+}
+
+async function findRun({ api, owner, repo, requestId, since, sleep, log }) {
   const { data } = await retried(
-    () => github.rest.actions.listWorkflowRuns({
+    () => api((github) => github.rest.actions.listWorkflowRuns({
       owner, repo, workflow_id: WORKFLOW, branch: SOURCE, event: 'workflow_dispatch',
       created: `>=${since}`, per_page: 50,
-    }),
+    })),
     { sleep, log, what: 'listing the proof runs' },
   );
   // The run-name ends with request_id (cloud-chat-proof.yml run-name), so this finds its own run.
@@ -52,29 +73,29 @@ async function findRun({ github, owner, repo, requestId, since, sleep, log }) {
 }
 
 // Dispatches the proof and waits for it. Returns { run, error, green, verdict, where }.
-export async function prove({ github, owner, repo, agent, requestId, sleep = wait, now = () => Date.now(), log = () => {} }) {
+export async function prove({ github, fallback, owner, repo, agent, requestId, sleep = wait, now = () => Date.now(), log = () => {}, api = rotating(github, fallback, log) }) {
   const since = new Date(now() - 60_000).toISOString();
   let run, error;
   try {
     const inputs = { build: 'published', agent, from_folder: 'true', request_id: requestId };
     // A dispatch whose answer was lost may still have started the run: look before dispatching again.
     await retried(async () => {
-      if (await findRun({ github, owner, repo, requestId, since, sleep, log })) return;
+      if (await findRun({ api, owner, repo, requestId, since, sleep, log })) return;
       // Fully qualified: a tag named feat-cmux-next must never be picked.
-      await github.rest.actions.createWorkflowDispatch({
+      await api((github) => github.rest.actions.createWorkflowDispatch({
         owner, repo, workflow_id: WORKFLOW, ref: `refs/heads/${SOURCE}`, inputs,
-      });
+      }));
     }, { sleep, log, what: 'dispatching the proof' });
     for (let tries = 0; !run && tries < FIND_TRIES; tries++) {
       await sleep(FIND_INTERVAL_MS);
-      run = await findRun({ github, owner, repo, requestId, since, sleep, log });
+      run = await findRun({ api, owner, repo, requestId, since, sleep, log });
     }
     const deadline = now() + WAIT_MINUTES * 60_000;
     while (run && run.status !== 'completed' && now() < deadline) {
       await sleep(POLL_INTERVAL_MS);
       const id = run.id;
       run = (await retried(
-        () => github.rest.actions.getWorkflowRun({ owner, repo, run_id: id }),
+        () => api((github) => github.rest.actions.getWorkflowRun({ owner, repo, run_id: id })),
         { sleep, log, what: `reading run ${id}` },
       )).data;
     }
@@ -88,7 +109,7 @@ export async function prove({ github, owner, repo, agent, requestId, sleep = wai
     : !run ? 'never started'
     : run.status !== 'completed' ? `still running past ${WAIT_MINUTES} min`
     : run.conclusion;
-  return { run, error, green, verdict, where };
+  return { run, error, green, verdict, where, api };
 }
 
 export function issueTitle(agent) {
@@ -96,17 +117,18 @@ export function issueTitle(agent) {
 }
 
 // Closes the agent's open issue on green; opens it, or comments on it, otherwise.
-export async function report({ github, owner, repo, agent, green, verdict, where, sleep = wait, log = () => {} }) {
+// Pass prove()'s api so a token that expired during the wait is not used again.
+export async function report({ github, fallback, owner, repo, agent, green, verdict, where, sleep = wait, log = () => {}, api = rotating(github, fallback, log) }) {
   const title = issueTitle(agent);
-  const call = (what, fn) => retried(fn, { sleep, log, what });
-  const { data: found } = await call('searching for the open issue', () => github.rest.search.issuesAndPullRequests({
+  const call = (what, fn) => retried(() => api((github) => fn(github)), { sleep, log, what });
+  const { data: found } = await call('searching for the open issue', (github) => github.rest.search.issuesAndPullRequests({
     q: `repo:${owner}/${repo} is:issue is:open in:title "${title}"`, per_page: 5,
   }));
   const open = found.items.find((issue) => issue.title === title);
   if (green) {
     if (open) {
-      await call('commenting on the issue', () => github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `Green again: ${where}` }));
-      await call('closing the issue', () => github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed' }));
+      await call('commenting on the issue', (github) => github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `Green again: ${where}` }));
+      await call('closing the issue', (github) => github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed' }));
     }
     return { open, action: open ? 'closed' : 'none' };
   }
@@ -116,9 +138,9 @@ export async function report({ github, owner, repo, agent, green, verdict, where
     'The run summary names the step that failed. This closes on the next green run of the same agent.',
   ].join('\n');
   if (open) {
-    await call('commenting on the issue', () => github.rest.issues.createComment({ owner, repo, issue_number: open.number, body }));
+    await call('commenting on the issue', (github) => github.rest.issues.createComment({ owner, repo, issue_number: open.number, body }));
     return { open, action: 'commented' };
   }
-  await call('opening the issue', () => github.rest.issues.create({ owner, repo, title, body }));
+  await call('opening the issue', (github) => github.rest.issues.create({ owner, repo, title, body }));
   return { open, action: 'opened' };
 }
