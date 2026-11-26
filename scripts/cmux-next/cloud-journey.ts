@@ -4990,7 +4990,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, user: String(userId), token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
     journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
@@ -5026,6 +5026,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+    // An install token lives ACCESS_TOKEN_TTL_SECONDS (600 s, backend/apps/api/src/auth.ts) and nothing renewed it:
+    // run 45798168813's off-src drill read connect_info 16.5 min after the mint and got 401 auth.unauthenticated, so
+    // the move never ran. Mint again from the install's own key on the same timer the Stack bearer uses.
+    keepBearerFresh(installApi, async () => {
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: install.user, install: install.id }, {});
+      if (ch.status !== 200) throw new Error(`install challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`install token HTTP ${tok.status} ${short(tok.body)}`);
+      install.token = tok.body.access_token as string; // the later token-file writes take the fresh one too
+      return { access: install.token, refresh: "" };
+    }, J.secrets, (line) => console.log(scrub(line, J.secrets)));
 
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
