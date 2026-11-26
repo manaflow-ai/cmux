@@ -29,14 +29,17 @@ def pull(**over):
 
 
 class Fake:
-    def __init__(self, pulls, runs, artifacts, jobs=None):
+    def __init__(self, pulls, runs, artifacts, jobs=None, tips=None):
         self.pulls, self.runs, self.artifacts, self.jobs = pulls, runs, artifacts, jobs or {}
+        self.tips = tips or []
         self.calls = []
 
     def __call__(self, path):
         self.calls.append(path)
         if path.startswith("commits/"):
             return self.pulls
+        if "branch=lane%2Fmerge-train" in path:
+            return {"workflow_runs": self.tips}
         if path.startswith("actions/workflows/"):
             return {"workflow_runs": self.runs() if callable(self.runs) else self.runs}
         run = int(path.split("/")[2])
@@ -46,11 +49,19 @@ class Fake:
         return {"jobs": self.jobs.get(run, [])}
 
 
-def run_find(api, keys=None, wait=0.0):
+def run_find(api, keys=None, wait=0.0, tree="t" * 40):
     keys = keys or {MERGE: "k1", HEAD: "k1"}
     clock = [0.0]
     return pr_head.find(api, REPO, MERGE, PREFIX, wait, key=lambda r: keys.get(r, ""),
-                        sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0])
+                        sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0],
+                        tree=lambda r: tree if r == MERGE else "")
+
+
+TIP = "p" * 40
+
+
+def tip_run(id_, tree="t" * 40, sha=TIP):
+    return {"id": id_, "head_sha": sha, "head_commit": {"tree_id": tree}}
 
 
 class FindTest(unittest.TestCase):
@@ -67,6 +78,18 @@ class FindTest(unittest.TestCase):
         api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH})
         self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k2"}))
         self.assertIsNone(run_find(api, keys={MERGE: "", HEAD: ""}))
+
+    def test_a_stale_head_takes_the_train_tip_with_the_merges_tree(self):
+        runs = lambda: [{"id": 11, "status": "completed"}] if api.calls[-1].find(TIP) > 0 else []
+        api = Fake([pull()], runs, {11: BOTH},
+                   tips=[tip_run(3, tree="x" * 40, sha="q" * 40), tip_run(5)])
+        self.assertEqual(run_find(api, keys={MERGE: "k1", HEAD: "k2"}), 11)
+        self.assertIn(f"actions/workflows/pr-router.yml/runs?head_sha={TIP}&event=pull_request&per_page=20", api.calls)
+
+    def test_no_train_tip_with_the_merges_tree_builds_here(self):
+        api = Fake([pull()], [{"id": 11, "status": "completed"}], {11: BOTH}, tips=[tip_run(5, tree="x" * 40)])
+        self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k2"}))
+        self.assertIsNone(run_find(Fake([pull()], [], {}, tips=[tip_run(5)]), keys={MERGE: "k1", HEAD: "k2"}, tree=""))
 
     def test_a_fork_head_another_base_or_a_non_squash_build_here(self):
         for pr in (pull(head={"sha": HEAD, "repo": {"full_name": "someone/cmux"}}),

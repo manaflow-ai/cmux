@@ -66,6 +66,7 @@ enum AddMachineCardSpec {
             let title = adding ? AddMachineStrings.addFailed(run.name) : AddMachineStrings.checkFailed(run.name)
             let buttons: [CmuxDialogButton] = switch mode {
             case .add: [copy, CmuxDialogButton(id: ID.changeHost, title: AddMachineStrings.changeHost),
+                        // retry-prompt-ok: Add signs in over SSH and installs cmux-tui on the machine; the person fixes the failed step, then runs it again
                         CmuxDialogButton(id: ID.tryAgain, title: AddMachineStrings.tryAgain, role: .default)]
             case .check: [copy, CmuxDialogButton(id: ID.fix, title: AddMachineStrings.fix, role: .default)]
             case .checkJoined: [copy, done(.default)]
