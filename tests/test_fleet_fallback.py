@@ -36,6 +36,11 @@ class Reason(unittest.TestCase):
         self.assertIsNone(ff.reason("success", "pass", []))
         self.assertIsNone(ff.reason("success", "superseded", [("g", False)]))
 
+    def test_a_caller_that_takes_only_pass_records_superseded_as_a_fall(self):
+        # The scheme compile accepts only pass: a superseded answer there means the Mac compiles, so it is recorded.
+        self.assertEqual(ff.reason("success", "superseded", [], {"pass"})[0], "verdict")
+        self.assertIsNone(ff.reason("success", "pass", [], {"pass"}))
+
     def test_a_false_gate_names_itself(self):
         kind, text = ff.reason("skipped", "", [("CI_SCHEME_COMPILE_FLEET is not 0", False), ("owner", True)])
         self.assertEqual(kind, "gate")

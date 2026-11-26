@@ -36,11 +36,13 @@ def parse_gate(raw: str) -> tuple[str, bool]:
     return label, value.strip().lower() == "true"
 
 
-def reason(result: str, verdict: str, gates: list[tuple[str, bool]]) -> tuple[str, str] | None:
-    """(kind, text) of why the fleet answer was not taken, or None when it was."""
+def reason(result: str, verdict: str, gates: list[tuple[str, bool]],
+           taken: frozenset[str] | set[str] = frozenset(TAKEN)) -> tuple[str, str] | None:
+    """(kind, text) of why the fleet answer was not taken, or None when it was. `taken`: the verdicts this caller
+    accepts (the scheme compile takes only `pass`, so a `superseded` answer there is a fall, not a take)."""
     result = (result or "").strip()
     verdict = (verdict or "").strip()
-    if result == "success" and verdict in TAKEN:
+    if result == "success" and verdict in taken:
         return None
     off = [label for label, value in gates if not value]
     if result in ("", "skipped") and off:
@@ -59,9 +61,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--result", default="", help="needs.<fleet>.result")
     parser.add_argument("--verdict", default="", help="needs.<fleet>.outputs.verdict")
     parser.add_argument("--gate", action="append", type=parse_gate, default=[], help="LABEL=true|false")
+    parser.add_argument("--take", default=",".join(sorted(TAKEN)),
+                        help="comma-separated verdicts the Mac job accepts as the fleet answer (default: pass,superseded)")
     args = parser.parse_args(argv)
 
-    found = reason(args.result, args.verdict, args.gate)
+    taken = {v.strip() for v in args.take.split(",") if v.strip()}
+    found = reason(args.result, args.verdict, args.gate, taken)
     if found is None:
         print(f"{args.job}: took the {args.fleet} answer ({args.verdict}).")
         return 0
