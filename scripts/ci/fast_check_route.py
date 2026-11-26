@@ -16,7 +16,9 @@ workflow file itself is an input of every one of its checks. A check may also ta
                         and the `ci` group's owners, workflow_guard_groups.groups_for_path): it runs when any group
                         would run beside the declared inputs;
   "push_cover"          for a workflow no feat-cmux-next push starts: the workflows (each with a push trigger on
-                        feat-cmux-next) that run the same checks on the push that lands the pull request.
+                        feat-cmux-next) that run the same checks on the push that lands the pull request;
+  "route_job": "ID"     the job that runs the route as a step (id `route`), when the workflow has a light job that
+                        already checks out the merge commit (cmux-next-fast-gates.yml's resolve): no runner of its own.
 
 `route` writes KEY=true|false to $GITHUB_OUTPUT for each listed job of --workflow (KEY: the job id, "-" as "_"). The
 workflow's `fast-check-route` job (the one Linux label, a blob-less checkout of the merge commit) runs it, and each listed
@@ -66,8 +68,8 @@ def output_key(job_id: str) -> str:
     return job_id.replace("-", "_")
 
 
-def routed_if(job_id: str) -> str:
-    return f"needs.{ROUTE_JOB}.outputs.{output_key(job_id)} != 'false'"
+def routed_if(job_id: str, route_job: str = ROUTE_JOB) -> str:
+    return f"needs.{route_job}.outputs.{output_key(job_id)} != 'false'"
 
 
 def glob_matches(glob: str, path: str) -> bool:
@@ -377,19 +379,22 @@ def check(root: Path = ROOT, files: list[str] | None = None) -> list[str]:
         if block is None:
             problems.append(f"{where}: {workflow} has no job {job_id}")
             continue
-        if ROUTE_JOB not in job_field(block, "needs"):
-            problems.append(f"{where}: the job does not need {ROUTE_JOB}")
-        if routed_if(job_id) not in job_field(block, "if"):
-            problems.append(f"{where}: the job's `if:` does not read `{routed_if(job_id)}`")
-        route_block = job_block(text, ROUTE_JOB)
+        route_job = spec.get("route_job", ROUTE_JOB)
+        if not re.search(rf"(?<![\w-]){re.escape(route_job)}(?![\w-])", job_field(block, "needs")):
+            problems.append(f"{where}: the job does not need {route_job}")
+        if routed_if(job_id, route_job) not in job_field(block, "if"):
+            problems.append(f"{where}: the job's `if:` does not read `{routed_if(job_id, route_job)}`")
+        route_block = job_block(text, route_job)
         if route_block is None:
-            problems.append(f"{where}: {workflow} has no {ROUTE_JOB} job")
+            problems.append(f"{where}: {workflow} has no {route_job} job")
         else:
             if f"{output_key(job_id)}: ${{{{ steps.route.outputs.{output_key(job_id)} }}}}" not in route_block:
-                problems.append(f"{where}: {ROUTE_JOB} does not output {output_key(job_id)}")
+                problems.append(f"{where}: {route_job} does not output {output_key(job_id)}")
             if job_field(route_block, "runs-on").strip() != ROUTE_RUNS_ON:
-                problems.append(f"{where}: {ROUTE_JOB} runs on {job_field(route_block, 'runs-on').strip()!r}, "
+                problems.append(f"{where}: {route_job} runs on {job_field(route_block, 'runs-on').strip()!r}, "
                                 f"not the one Linux label (ROUTE_RUNS_ON): the decision takes no heavy runner")
+            if f"fast_check_route.py route --workflow {workflow}" not in route_block:
+                problems.append(f"{where}: {route_job} does not run fast_check_route.py route for {workflow}")
         covers = spec.get("push_cover")
         if covers is None and not pushes_branch(text):
             problems.append(f"{where}: no {BRANCH} push starts {workflow} and the check names no push_cover, so a "

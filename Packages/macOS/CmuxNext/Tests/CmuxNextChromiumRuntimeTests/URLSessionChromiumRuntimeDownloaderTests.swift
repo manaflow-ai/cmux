@@ -1,3 +1,5 @@
+#if canImport(Network)
+// Its local HTTP server is an NWListener (Network framework); Linux skips the suite.
 import Foundation
 import Network
 import Testing
@@ -126,3 +128,4 @@ private final class ResumeOnce: @unchecked Sendable {
     private var done = false
     func claim() -> Bool { lock.withLock { defer { done = true }; return !done } }
 }
+#endif

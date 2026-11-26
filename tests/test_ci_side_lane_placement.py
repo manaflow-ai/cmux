@@ -1104,7 +1104,8 @@ class LightRerunRoute(unittest.TestCase):
         jobs = CmuxNextWiring().workflow()["jobs"]
         place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
         literal = re.findall(r"'([a-z -]+)'", place["env"]["LIGHT_FIT_JOBS"])
-        self.assertEqual(set(literal[-1].split()), measured)
+        # A pull request's fast tier is pr-pipeline.yml's `mac` job (note-556): the PR-only list names the rest.
+        self.assertEqual(set(literal[-1].split()), measured - {"fast-tier"})
         # Exactly these jobs read light_jobs on the attempt their placement ran (the rescue moves only them).
         rerun_clause = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
                                   r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
@@ -1656,6 +1657,32 @@ class GatewayRoute(unittest.TestCase):
         self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
         self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
 
+    def test_a_fleet_client_is_not_listed_when_the_fleet_queue_outlasts_its_wait(self):
+        # note-558: with the fleet's light queue p90 past the client's 20 minutes, no client got a verdict
+        # and its steps ran for nobody; the job keeps its route. An unread p90 fails open.
+        values = {"GATEWAY_LABEL": LIGHT_SIDE}
+        placed = self.fleet_placed("fast-tier")
+        idle = self.light(False, False)
+        wait = placement.FLEET_CLIENT_QUEUE_WAIT_S
+        self.assertEqual(placement.fleet_gateway(placed, values, idle, LIGHT_SIDE, None, wait).fleet_jobs,
+                         ("fast-tier",))
+        self.assertEqual(placement.fleet_gateway(placed, values, idle, LIGHT_SIDE, None, None).fleet_jobs,
+                         ("fast-tier",))
+        dropped = placement.fleet_gateway(placed, values, idle, LIGHT_SIDE, None, 3317)
+        self.assertEqual(dropped.fleet_jobs, ())
+        self.assertIn("light queue p90 is 55 min", dropped.why)
+        status = b'{"step_queue_wait_p90_seconds": {"light": 3317.0, "exclusive": 10}}'
+        self.assertEqual(placement.fleet_queue_p90({}, lambda url: status), 3317.0)
+        self.assertIsNone(placement.fleet_queue_p90({}, lambda url: b"not json"))
+        self.assertIsNone(placement.fleet_queue_p90({}, lambda url: b"{}"))
+
+        def unreachable(url):
+            raise OSError("down")
+        self.assertIsNone(placement.fleet_queue_p90({}, unreachable))
+        seen = []
+        placement.fleet_queue_p90({"CMUX_FLEET_CONTROLLER": "http://c:1/"}, lambda url: seen.append(url) or b"{}")
+        self.assertEqual(seen, ["http://c:1/v1/status"])
+
     def test_a_kept_fleet_job_leaves_its_blacksmith_label_and_a_dropped_one_keeps_it(self):
         # next_macos_cascade.place() lists a job a Blacksmith macOS label took (cmux#38130: a cold 6 vCPU
         # build ran out the fast tier's 20 minutes); it leaves that label only for an idle gateway runner.
@@ -1940,12 +1967,16 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready",
+                                                            # The PR's live labels (#57329), as path_route exports them.
+                                                            "labels": ",full-ci,",
                                                             # The generated-files job runs here, for its own label.
                                                             "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
                             "web-bundles": {"result": "success"},
+                            # PR Mac jobs wait for the Linux cargo fast tier to be not red.
+                            "fast-tier-cargo": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 
@@ -1996,6 +2027,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(name):
                 context = self.context(attempt=attempt, fork=fork)
                 context["github"]["event"]["pull_request"]["labels"] = labels
+                context["needs"]["path_route"]["outputs"]["labels"] = "," + ",".join(l["name"] for l in labels) + ","
                 context["github"]["event_name"] = event_name
                 self.assertEqual(evaluate(expression, context), want)
         idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
@@ -2432,7 +2464,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
             gate = jobs[name]["if"].replace("always() && ", "").replace("!cancelled() && ", "")
-            self.assertTrue(evaluate(gate, self.context()))
+            # A pull request's Swift canary is pr-pipeline.yml's `mac` job (note-556): it runs here off the PR only.
+            self.assertEqual(evaluate(gate, self.context()), name != "swift-canary", name)
             # A PR with no placement output takes the static owned side fallback;
             # display/session labels are only considered for non-PR pushes.
             self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), SIDE)
@@ -2793,7 +2826,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]
-        self.assertEqual(build["needs"], "placement")
+        # portable-tests (#57324): the Linux portable FFI tests gate the Mac build, and placement routes it.
+        self.assertEqual(build["needs"], ["placement", "portable-tests"])
         self.assertIn("!cancelled()", build["if"])
 
 

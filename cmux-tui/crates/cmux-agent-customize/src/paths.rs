@@ -138,14 +138,18 @@ impl Homes {
 }
 
 /// cmux's saved prompts folder: `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
-/// `~/.config/cmux/commands`, beside `~/.config/cmux/skills`. One `NAME.md` a prompt: its
+/// `~/.config/cmux/commands`, beside `~/.config/cmux/skills` (`cmux-next` instead of `cmux` on
+/// macOS, `cmux_config::NEXT_DIR`). One `NAME.md` a prompt: its
 /// frontmatter `description`, then the text the `/NAME` pick writes into the draft.
 pub fn cmux_commands_dir(home: &Path, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
     let set = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     if let Some(dir) = set("CMUX_COMMANDS_DIR") {
         return dir;
     }
-    set("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config")).join("cmux").join("commands")
+    set("XDG_CONFIG_HOME")
+        .unwrap_or_else(|| home.join(".config"))
+        .join(cmux_config::NEXT_DIR)
+        .join("commands")
 }
 
 /// The folders from `cwd` up to its project root, innermost first: the nearest ancestor holding

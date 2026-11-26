@@ -40,20 +40,22 @@ extension WebKitTab: BrowserFreezeReporting {
     /// reload, a stop, a zoom, a mute, a download, a notification click's script): the person's or the
     /// engine's command then runs on a live page. True when the page runs now. False when its process ended
     /// while it was suspended: WebKit keeps such a page suspended for good, the call must be skipped, and
-    /// hibernation replaces the page (``onFrozenPageLost``).
+    /// hibernation replaces the page (``onFrozenPageChange``). A page that runs again tells the host (`.woke`), which
+    /// may freeze it again later.
     @discardableResult
     package func resumeIfSuspended() -> Bool {
         guard let view = webView as? WebKitWebView, view.pageSuspended else { return true }
         guard hasContentProcess, view.responds(to: Self.resumeSelector) else { return false }
         view.pageSuspended = false
         send(Self.resumeSelector)
+        onFrozenPageChange?(.woke)
         return true
     }
 
     /// A suspended page's process ended (`webContentProcessEnded`): it can never run again.
     func frozenPageEnded() {
         guard webView.cmuxIsSuspended else { return }
-        onFrozenPageLost?()
+        onFrozenPageChange?(.lost)
     }
 
     private var hasContentProcess: Bool {

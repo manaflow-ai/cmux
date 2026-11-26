@@ -1,8 +1,8 @@
 name: Cache Playwright's apt packages
 description: >-
-  Restore the .deb files `playwright install --with-deps` downloaded on an earlier run into apt's
-  archive. Put it before the install step. Push runs also save them when the job ends; pull
-  requests only read. Linux only; a no-op elsewhere.
+  Put the .deb files `playwright install --with-deps` would download into apt's archive, from the R2 bucket
+  cmux-next-fast-tier-seed.yml seeds. Put it before the install step. A runner whose image already has every
+  package restores nothing. Restore only: nothing here saves. Linux only; a no-op elsewhere.
 
 inputs:
   engines:
@@ -15,36 +15,53 @@ runs:
     # --with-deps fetched 129 MB of system packages from the Ubuntu mirror on every run, 38 s of a
     # 48 s step (react-apps-check, job 119051224848). apt takes a .deb already in its archive when
     # its file name (package, version, architecture) and size match the index, and downloads only
-    # what changed, so a stale cache costs a download. apt does not hash a cached file, so the
-    # trust is in who writes the cache: only push runs on this repository's branches save it.
-    # The key rolls weekly so security updates come back in; a new week starts from last week's
-    # entry, since most packages are unchanged.
-    - name: Open apt's archive to the cache
-      id: week
+    # what changed, so a stale cache costs a download.
+    #
+    # Probe first: a pool VM keeps what an earlier job installed, and an image that bakes the packages
+    # (scripts/ci/playwright-apt-deps.sh names them) has them all, so neither restores anything.
+    - name: Check for Playwright's packages
+      id: probe
       if: runner.os == 'Linux'
       shell: bash
+      env:
+        ENGINES: ${{ inputs.engines }}
       run: |
-        sudo chown "$(id -u):$(id -g)" /var/cache/apt/archives
+        set -euo pipefail
         echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+        missing="$("$GITHUB_ACTION_PATH/../../../scripts/ci/playwright-apt-deps.sh" missing "$ENGINES" | wc -l)"
+        if [ "$missing" = 0 ]; then
+          echo "Playwright's packages for $ENGINES are installed; nothing to restore"
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "$missing of Playwright's packages for $ENGINES are missing"
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+        fi
 
-    # A cache a pull request saves is visible only to that pull request and pushes the base's
-    # entries out of the size-capped store (test_ci_pull_request_caches_are_read_only.py), so
-    # pushes seed it and everything else reads. A pull request reads its base branch's entries.
-    - name: Cache Playwright's apt packages
-      if: runner.os == 'Linux' && github.event_name == 'push'
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-      with:
-        path: /var/cache/apt/archives/*.deb
-        key: playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-${{ inputs.engines }}
-        restore-keys: |
-          playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
-          playwright-apt-${{ runner.os }}-${{ runner.arch }}-
-    - name: Restore Playwright's apt packages
-      if: runner.os == 'Linux' && github.event_name != 'push'
-      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-      with:
-        path: /var/cache/apt/archives/*.deb
-        key: playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-${{ inputs.engines }}
-        restore-keys: |
-          playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
-          playwright-apt-${{ runner.os }}-${{ runner.arch }}-
+    # From R2 (through the site's LAN cache on the minis), never the GitHub store: one copy there was
+    # 1,020 MB of the store's 10 GB (2026-11-24), and Freestyle VMs read that store at about 0.9 MB/s
+    # (cmuxterm-hq#17571), where a restore cost more than the mirror download it saved. Only the
+    # feat-cmux-next seed (next-cache-writer credentials) writes the bucket, the same trust as the
+    # push-only saves before it: apt does not hash a cached file. Bounded, and every failure is a miss:
+    # the job's apt-get then downloads from the mirror, as with no cache.
+    - name: Restore Playwright's apt packages from R2
+      id: r2
+      if: runner.os == 'Linux' && steps.probe.outputs.installed != 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        DEBS: ${{ runner.temp }}/playwright-apt
+        KEY: playwright-apt-${{ steps.probe.outputs.week }}-${{ inputs.engines }}
+        WEEK_PREFIX: playwright-apt-${{ steps.probe.outputs.week }}-
+      run: |
+        set -euo pipefail
+        timeout -k 10 240 "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" restore "$DEBS" "$KEY" "$WEEK_PREFIX" playwright-apt- ||
+          echo "r2-cache: restore did not finish; treating as a miss"
+        sudo chown "$(id -u):$(id -g)" /var/cache/apt/archives
+        n=0
+        if [ -d "$DEBS" ]; then
+          n="$(find "$DEBS" -maxdepth 1 -name '*.deb' | wc -l)"
+          find "$DEBS" -maxdepth 1 -name '*.deb' -exec mv -n -t /var/cache/apt/archives {} +
+          rm -rf "$DEBS"
+        fi
+        echo "$n packages put in apt's archive"

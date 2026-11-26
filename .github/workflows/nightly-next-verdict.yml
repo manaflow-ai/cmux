@@ -77,10 +77,12 @@ jobs:
           sparse-checkout: |
             scripts/ci/nightly_next_train.py
             scripts/ci/nightly_next_canary_latency.py
+            scripts/ci/nightly_next_artifact_check.py
             scripts/ci/nightly_next_fix_forward.py
             scripts/ci/nightly-next-guard.py
             scripts/ci/nightly_next_ring.py
             scripts/ci/upload-r2-object.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check the verdict and write the document

@@ -101,7 +101,8 @@ function freestyleRemoteAuthPlan(
   metadata: Record<string, unknown> | undefined,
   deviceFingerprint: string | undefined,
 ): { readonly fingerprint?: string; readonly mintInvitation: boolean; readonly trustedCarrier: boolean } {
-  const authMode = cloudRemoteAuthMode(metadata);
+  // Rows created before the marker shipped are trusted-carrier compatibility machines.
+  const authMode = cloudRemoteAuthMode(metadata, "trusted-carrier");
   const fingerprint = deviceFingerprint?.trim() || undefined;
   return {
     ...(fingerprint ? { fingerprint } : {}),
@@ -1835,7 +1836,8 @@ export class FreestyleProvider implements VMProvider {
             providerMetadata: {
               ...(options?.providerMetadata ?? {}),
               cmuxTuiContract: "snapshot-v2",
-              cmuxRemoteAuth: cloudRemoteAuthMode(options?.providerMetadata),
+              // A snapshot from a pre-marker row restores that row's compatibility listener.
+              cmuxRemoteAuth: cloudRemoteAuthMode(options?.providerMetadata, "trusted-carrier"),
               ...(networkId ? { networkId, ...freestyleNetworkAddressMetadata(data) } : {}),
             },
           };

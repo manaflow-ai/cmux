@@ -62,7 +62,7 @@ impl Wire {
         handle_command(
             &self.mux,
             self.mux.local_test_client(0),
-            Command::ListWorkspaces { known: None, limit: None, after: None },
+            Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
             &self.writer,
         )
         .unwrap()["workspaces"][0]["screens"][0]
@@ -525,8 +525,8 @@ fn layouts(events: &[MuxEvent]) -> Vec<Value> {
 }
 
 /// The frame of a new quick terminal is a field of the pane creation that the daemon makes itself. The public
-/// `pane.split` does not take it: the request is refused, and the screen gets no pane, no floating pane and
-/// no mark.
+/// `pane.split` does not declare it: the field is dropped unread (an unknown param never refuses a request),
+/// so the split makes a plain tiled pane, no floating pane and no mark.
 #[test]
 fn a_public_pane_split_can_not_carry_the_frame_of_a_quick_terminal() {
     let (wire, panes) = Wire::with_panes(2);
@@ -541,11 +541,9 @@ fn a_public_pane_split_can_not_carry_the_frame_of_a_quick_terminal() {
         }),
         Some("quick-frame"),
     );
-    let error = crate::resource_router::handle_resource_message(&wire.mux, &request)
-        .expect_err("a public split with the frame of a quick terminal was taken");
-    assert_eq!(error.code, "validation.invalid", "{error:?}");
-    assert_eq!(error.message, "request contains unknown parameters", "{error:?}");
-    assert_eq!(wire.panes().len(), panes.len(), "no new pane");
+    crate::resource_router::handle_resource_message(&wire.mux, &request)
+        .expect("a public split ignores the unknown quick terminal frame");
+    assert_eq!(wire.panes().len(), panes.len() + 1, "one plain tiled pane");
     assert!(wire.floating().is_empty());
     assert_eq!(wire.mark(), Value::Null);
 }

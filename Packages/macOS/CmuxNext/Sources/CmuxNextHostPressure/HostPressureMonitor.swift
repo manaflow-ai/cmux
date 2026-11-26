@@ -1,6 +1,8 @@
 import Dispatch
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Where a verdict comes from: acpmux's `host_pressure` when the daemon
 /// reports one (the one implementation of the budget), else this Mac's own
@@ -76,7 +78,8 @@ public actor HostPressureMonitor {
     private let deliver: Delivery
     private let queue = DispatchQueue(label: "com.cmux.host-pressure", qos: .utility)
     private var tracker: HostPressureTracker
-    private var memorySource: (any DispatchSourceMemoryPressure)?
+    /// The memory pressure source; nil where Dispatch has none (Linux), where the 15 s read alone samples it.
+    private var memorySource: (any DispatchSourceProtocol)?
     private var timer: (any DispatchSourceTimer)?
     private var eventPressure: HostMemoryPressure?
     private var reading: Task<HostBudgetVerdict, Never>?
@@ -126,7 +129,8 @@ public actor HostPressureMonitor {
     /// their handlers run on `queue` and only hop into the monitor.
     private nonisolated static func makeSources(for monitor: HostPressureMonitor, generation: Int, queue: DispatchQueue,
                                                 interval: Duration)
-        -> (any DispatchSourceMemoryPressure, any DispatchSourceTimer) {
+        -> ((any DispatchSourceProtocol)?, any DispatchSourceTimer) {
+        #if canImport(Darwin)
         let memory = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: queue)
         memory.setEventHandler { [weak monitor, weak memory] in
             guard let monitor, let event = memory?.data else { return }
@@ -135,6 +139,9 @@ public actor HostPressureMonitor {
             Task { await monitor.memoryPressureChanged(pressure, generation: generation) }
         }
         memory.activate()
+        #else
+        let memory: (any DispatchSourceProtocol)? = nil
+        #endif
         // wakeup-allow: load and swap have no event; one 15 s read with 2 s leeway, cancelled by stop()
         let tick = DispatchSource.makeTimerSource(queue: queue)
         let seconds = Double(interval.components.seconds) + Double(interval.components.attoseconds) / 1e18

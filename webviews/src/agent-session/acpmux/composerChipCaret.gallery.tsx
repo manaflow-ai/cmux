@@ -112,6 +112,11 @@ export default componentEntry<Props>({
       props: { chat: "after-second-paste", draft: WORKSPACE },
       play: pasteAtEnd(WORKSPACE, 2),
     },
+    "tool-chip-selection": {
+      note: "A tool's badge mid-sentence, for drags across it: it is selected whole, as one character, and drawn as selected text (composer-chip-selection.browser.test.ts).",
+      props: { chat: "tool-chip-selection", draft: "ask @computer-use now please" },
+      play: caretAt((draft) => draft.length),
+    },
     "after-pasted-text": {
       note: "Text pasted right after the chip: the chip stays, a space before the text.",
       props: { chat: "after-pasted-text", draft: WORKSPACE },

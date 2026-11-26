@@ -444,8 +444,11 @@ pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> Laun
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SignInWindow {
-    /// The popup when the default browser is Safari, else the default browser.
+    /// cmux's own in-app browser tab when the app can open one (Leo, 2026-11-25: sign-in done in
+    /// our in-app browser sheet, on by default); else the popup with Safari, else the default browser.
     Automatic,
+    /// Always cmux's in-app browser tab (the popup rule when the app cannot open one).
+    InApp,
     /// Always the popup (a browser that ends it at once still falls back).
     Popup,
     /// Always the default browser.
@@ -463,7 +466,37 @@ pub fn opens_default_browser(window: SignInWindow, default_browser: Option<&str>
     match window {
         SignInWindow::Popup => false,
         SignInWindow::DefaultBrowser => true,
-        SignInWindow::Automatic => default_browser.is_some_and(|b| !POPUP_BROWSERS.contains(&b)),
+        SignInWindow::Automatic | SignInWindow::InApp => {
+            default_browser.is_some_and(|b| !POPUP_BROWSERS.contains(&b))
+        }
+    }
+}
+
+/// Where one sign-in opens, decided by [`sign_in_place`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SignInPlace {
+    /// A cmux browser tab: the hosted page's passkey button and emailed code work there, and its
+    /// `<scheme>://auth-callback` comes back in-process (the attempt's state nonce still checked).
+    InApp,
+    /// The `ASWebAuthenticationSession` popup.
+    Popup,
+    /// The person's default browser.
+    DefaultBrowser,
+}
+
+/// Where a sign-in opens. `in_app`: the app can open the page in its own browser now (an opener
+/// is installed and a window can take the tab); without it, `Automatic` and `InApp` keep the
+/// popup-or-default-browser rule of [`opens_default_browser`].
+pub fn sign_in_place(
+    window: SignInWindow,
+    default_browser: Option<&str>,
+    in_app: bool,
+) -> SignInPlace {
+    match window {
+        SignInWindow::Automatic | SignInWindow::InApp if in_app => SignInPlace::InApp,
+        _ if opens_default_browser(window, default_browser) => SignInPlace::DefaultBrowser,
+        _ => SignInPlace::Popup,
     }
 }
 

@@ -6,8 +6,8 @@
 // bare background update tool call floating in teh air is so weird loking proportionally". Each sits
 // 8 under the footer, as the footer sits under the reply, so it reads as that turn's tail, and the
 // turn gap stays under it (transcriptGrid.ts transcriptGap; design/transcript-spacing.md "Lone system
-// rows"). Another agent's line there (variant received-message) is another speaker and keeps the
-// block gap (footer-to-received). test/transcript-lone-system-rows.test.ts measures every variant.
+// rows"). Another agent's line there (variant received-message) is another speaker and stands the
+// run gap, as the next turn's Working for does (footer-to-received). test/transcript-lone-system-rows.test.ts measures every variant.
 import { agentPaneEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -27,13 +27,20 @@ const opening = [
 ];
 const next = user("Thanks, what's next on the list?", 2, { id: "lone-next" });
 
+/// A quiet background turn that did something past itself (commented on the PR), so it keeps its line
+/// in the transcript; one that only looked goes to the composer hat (silentTurns.ts).
 const quiet = (id: string, minutes: number, trigger = "system"): AcpmuxRow[] => [
   row(BACKGROUND_TURN, minutes, {
     id: backgroundTurnRowId(id),
     background: { id, trigger, running: false, quiet: true, hasRows: true },
   }),
   activity(
-    [tool("tail -n 3 out.log", "execute", "completed", { command: "tail -n 3 out.log", output: "14 passed" })],
+    [
+      tool("gh pr comment 412 --body '14 passed'", "execute", "completed", {
+        command: "gh pr comment 412 --body '14 passed'",
+        output: "https://github.com/acme/app/pull/412#issuecomment-1",
+      }),
+    ],
     minutes - 0.03,
     { id: `${id}-work`, inBackground: id },
   ),
@@ -172,7 +179,7 @@ export default agentPaneEntry({
       play: async (ctx) => ctx.hover({ selector: ".cv-subagent-done button.cv-agent-tag.is-open" }),
     },
     "received-message": {
-      note: "Another agent's message after the turn ended keeps the block gap under the footer (footer-to-received, 51 centre to centre): it is another speaker, not this turn's tail.",
+      note: "Another agent's message after the turn ended stands the run gap under the footer (footer-to-received, 43 centre to centre), as the next turn's Working for does: it is another speaker, not this turn's tail.",
       snapshot: chat([
         ...opening,
         user("Review passed at e34ce27.", 8, {

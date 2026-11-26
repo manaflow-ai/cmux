@@ -34,6 +34,53 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+## Approved Mac-to-Mac WG media
+
+`serve` and `connect` keep the signed hub session's Noise link for admission,
+reliable control, candidate routing and revocation. A fresh ephemeral cmux-wg
+session carries media inside its authenticated datagrams when the signed offer
+and answer select `rd_wg/1`; no private WG key is signaled. For WG, `connected`
+is emitted only after both sides report WG readiness.
+The media MTU accounts for WG padding and the inner IP/UDP header. Both the
+outer media queue and per-session queues are bounded.
+
+Process Setup/Answer accept optional `peer_carrier`: omission preserves the
+original rd-link media protocol for legacy peers, while the exact string
+`rd_wg/1` selects WG before networking starts. Any supplied unknown, empty,
+null or malformed value fails closed. The app forwards the peer's authenticated
+`a=fingerprint:cmux-rd-carrier rd_wg/1` marker, and the host echoes its selected
+marker only after Rust accepts Setup. Mixed old/new pairs therefore keep their
+original protocol; two updated peers select WG. This initial legacy selection
+is not a fallback: a selected WG session can never switch to bare rd media.
+The updated app invokes `cmux rd serve-v2` or `cmux rd connect-v2`. These
+versioned aliases prove the worker implements signed carrier selection; old
+workers reject them before emitting any key. Old app callers retain `serve`
+and `connect`. This also prevents an old dev override from falsely advertising
+WG through new Swift. The bundled `bin/cmux` and app still need an integrated
+artifact check; Swift-only validation is insufficient.
+
+Before readiness, an unsupported or failed WG negotiation proposes a typed
+WebRTC retry. Both sides acknowledge the proposal, and each waits until its
+outgoing acknowledgement has been delivered before emitting a fallback app
+line. Missing acknowledgements expire after three seconds and end the session.
+This is not atomic agreement under arbitrary loss: if one process exits and its
+final outer acknowledgement is lost, the other peer may end the session instead
+of retrying. A terminal close always wins over retry; no peer waits indefinitely.
+Old peers without this exchange therefore fail closed; they never receive bare
+rd-link media. Stop, consent/revocation, peer authentication failure, and failures
+after readiness never permit a retry. The app consumes this decision on the
+original approved ticket (the schema/FFI integration is a prerequisite).
+
+This layering preserves existing authorization without a new hub trust model,
+but adds WG encryption and an inner IP/UDP header to rd-link. The existing
+`cmux-remote` shared WG hub `datagram.bind` API is a separate carrier endpoint;
+Mac Screen's current signed setup does not carry its socket/configuration.
+Real-Mac comparison numbers are required before claiming a latency/fps benefit
+or closing #42196. This implementation alone is not performance evidence.
+
+Focused transport checks (on managed CI):
+`cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --features link wg_`.
+
 For transport, encoder and controller measurements without any grant, a bench build of
 `cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
 [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]` (default 1920x1080 bars, fitted to `--max-width`): it streams a generated
@@ -145,23 +192,28 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
 - Relays the person added by hand are sealed to the device's agreement key and not opened
   yet: the host uses the hub's ICE servers.
 
-## Windows PC on the device hub (lists and captures; viewing is next)
+## Windows PC on the device hub
 
-A Windows PC joins the person's devices as a `windows` device with the same hub client as
-the Linux host (`src/screen_host/`). In the signed-in user's session (not a service):
+A Windows PC joins the person's devices as a `windows` device and serves viewing sessions
+with the Linux host's hub client, consent and session code (`src/screen_host/`). In the
+signed-in user's session (not a service):
 
 ```powershell
-cmux-rd windows-host enable --stack-token-file $env:APPDATA\cmux\stack-token
+cmux-rd windows-host enable --stack-token-file $env:APPDATA\cmux\stack-token [--allow-control]
+cmux-rd windows-host run
 schtasks /Create /SC ONLOGON /TN cmux-screen-host /TR "C:\path\cmux-rd.exe windows-host run"
 cmux-rd windows-host status
 ```
 
+- `enable` registers, anchors, turns sharing on and downloads Cisco's OpenH264. Control
+  (SendInput) needs `--allow-control`; without it every session is view only.
+- `run` holds the hub socket and serves each approved session through a `cmux-rd serve`
+  child (`src/windows_serve.rs`: GDI capture, OpenH264, the secure link). Viewers the person
+  has not allowed wait for `requests`, `approve SESSION [--always]` or `deny SESSION`.
 - Keys and account in `%APPDATA%\cmux\screen-host\`, run state in
-  `%LOCALAPPDATA%\cmux\screen-host\run\`; `run` holds the hub socket (online) and records a
-  capture of this desktop (GDI) that `status` prints.
-- It serves no session yet: `cmux-rd serve` and the secure link have no Windows port, so the
-  host leaves sharing off (`share on` says why) and closes any session the hub hands it. The
-  plan, capture and input backends, and what Windows itself blocks (UAC, lock screen):
+  `%LOCALAPPDATA%\cmux\screen-host\run\`.
+- `cmux-rd windows-serve-selftest [--scope view|control]` runs one session against a viewer
+  on the same PC, no hub. What Windows itself blocks (UAC, lock screen):
   `docs/device-hub/windows-host.md`.
 
 ## Build

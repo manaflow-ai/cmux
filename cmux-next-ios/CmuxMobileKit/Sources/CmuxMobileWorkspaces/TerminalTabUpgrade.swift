@@ -13,9 +13,11 @@ public struct TerminalTabUpgrade: Sendable {
 
     public init() {}
 
-    /// A tab's host was built, on a live session or a placeholder.
-    public mutating func built(tabID: String, workspaceID: String, live: Bool) {
-        placeholders[tabID] = live ? nil : workspaceID
+    /// A tab's host was built, on a live session or a placeholder. Card-only
+    /// placeholders are deliberately excluded because they must wait for the
+    /// page to request their live session.
+    public mutating func built(tabID: String, workspaceID: String, live: Bool, upgradable: Bool = true) {
+        placeholders[tabID] = live || !upgradable ? nil : workspaceID
     }
 
     /// The tab's host went away (closed, cooled, reset).
@@ -35,7 +37,7 @@ public struct TerminalTabUpgrade: Sendable {
 }
 
 /// The last frame of each terminal tab, kept on disk so a cold launch that
-/// restores a tab shows it (dimmed, under "Connecting…") instead of skeleton
+/// restores a tab shows it (at full strength, no waiting words) instead of skeleton
 /// rows until the Mac's terminal is attached (design/terminal R1-0).
 ///
 /// Stable identity for a terminal preview. Surface IDs repeat across Macs and
@@ -99,10 +101,13 @@ public struct TerminalFrameLifecycle {
 /// written meanwhile or the frame's file was removed after the ticket.
 public struct TerminalFrameStore: Sendable {
     public let directory: URL
+    /// The files' extension: `jpg` for frames, `txt` for rows (``standardRows``).
+    public let fileExtension: String
     private let ledger = Ledger()
 
-    public init(directory: URL) {
+    public init(directory: URL, fileExtension: String = "jpg") {
         self.directory = directory
+        self.fileExtension = fileExtension
     }
 
     /// Per frame key: the last ticket issued, the newest ticket written, and the
@@ -143,10 +148,17 @@ public struct TerminalFrameStore: Sendable {
         return TerminalFrameStore(directory: caches.appendingPathComponent("cmux-mobile-terminal-frames", isDirectory: true))
     }
 
+    /// The rows kept beside these frames (`rows/`, one `txt` per key): each tab's page as last
+    /// seen, as text (`TerminalSeed`). A restored page feeds them into its fresh surface, live
+    /// at once (Leo, 2026-11-24: "I can't interact with anything at all").
+    public var rows: TerminalFrameStore {
+        TerminalFrameStore(directory: directory.appendingPathComponent("rows", isDirectory: true), fileExtension: "txt")
+    }
+
     /// One file per account/Mac/surface identity. Legacy tab-ID filenames are
     /// deliberately never consulted because they cannot be assigned safely.
     public func url(for key: TerminalFrameKey) -> URL {
-        directory.appendingPathComponent("v1-\(key.fileComponent)").appendingPathExtension("jpg")
+        directory.appendingPathComponent("v1-\(key.fileComponent)").appendingPathExtension(fileExtension)
     }
 
     /// Writes a frame captured now.

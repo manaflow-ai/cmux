@@ -13,12 +13,11 @@ import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
+import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
-import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
+import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
 import { RowReplyButton } from "./SelectionReply";
-import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
@@ -171,6 +170,7 @@ export function ForkButton({
         <button
           {...described}
           type="button"
+          ref={releaseMessagePopupOnUnmount}
           className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
           aria-label={label}
           title={label}
@@ -320,6 +320,7 @@ export function MessageMore({ rowId }: { rowId: string }) {
     <button
       type="button"
       className="cv-iconbtn cv-iconbtn--compact"
+      ref={releaseMessagePopupOnUnmount}
       aria-haspopup="menu"
       aria-label={label}
       title={label}
@@ -399,7 +400,6 @@ export function PromptActions({
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
       <PinButton rowId={row.id} bookmark />
-      <SavePromptButton text={row.resend ?? row.text ?? text} />
     </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
@@ -455,7 +455,6 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
               <PinButton rowId={row.id} />
               <ReadAloudButton id={row.id} text={text} />
               <RowReplyButton text={text} />
-              <SavePromptButton text={text} />
               <MessageMore rowId={row.id} />
             </span>
             <ReplyTime at={row.at} />

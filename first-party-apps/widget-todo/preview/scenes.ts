@@ -45,9 +45,9 @@ export function mount(device: Device, id: string, size: Size, settings: Record<s
   device.host.mount(id, "renderTodo", { surface: "widget", size, place: "newtab", instance: `tile-${id}`, settings })
 }
 
-export async function renderScene(source: string, size: Size, seed: Record<string, unknown>, options: { expandDone?: boolean } = {}): Promise<Op[]> {
+export async function renderScene(source: string, size: Size, seed: Record<string, unknown>, options: { expandDone?: boolean; settings?: Record<string, unknown> } = {}): Promise<Op[]> {
   const device = launch(source, new Storage(seed))
-  mount(device, "w", size)
+  mount(device, "w", size, options.settings)
   await device.host.settle(10)
   if (options.expandDone) {
     const fold = device.host.findNode("w", (n) => n.type === "Text" && /Completed$/.test(String(n.props.text)))

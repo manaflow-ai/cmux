@@ -32,6 +32,7 @@ import type { Browser, Page } from "playwright";
 import { scoreBoxFrames, type BoxFrame } from "../src/gallery/shift";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow } from "./perfRow";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const enginesAt = argv.indexOf("--engines");
@@ -395,16 +396,23 @@ if (import.meta.main) {
       },
     });
     releases.push(["stand-in acpmux", () => daemon.stop(true)]);
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "turn-end-shift-bench-"));
-    releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    const shared = sharedPaneDir({ variant: false }); // its build has no variant
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "turn-end-shift-bench-"));
+    if (!shared) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
     const builtAt = performance.now();
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true },
-      logLevel: "error",
-    });
-    console.log(`turn-end-shift: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: { outDir: out, emptyOutDir: true },
+        logLevel: "error",
+      });
+    console.log(
+      shared
+        ? `turn-end-shift: the suite's pane build (${shared})`
+        : `turn-end-shift: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`,
+    );
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",

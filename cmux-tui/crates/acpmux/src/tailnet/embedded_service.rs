@@ -160,7 +160,13 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>, fenced: Fence) 
     let resume = tokio::spawn(async move {
         // Resume publishes its own errors while holding the lifecycle gates.
         // A callback here could overwrite a newer explicit start's snapshot.
-        let _ = resume_controller.resume().await;
+        match resume_controller.resume().await {
+            Ok(()) => {
+                let snapshot = resume_controller.snapshot();
+                tracing::info!(running = snapshot.running(), "embedded tailnet: resume checked");
+            }
+            Err(error) => tracing::info!("embedded tailnet: not resumed: {error}"),
+        }
     });
     let mut active: Option<Active> = None;
     loop {
@@ -169,12 +175,34 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>, fenced: Fence) 
         }
         let spawn = |node: Arc<Node>, name: String| {
             let (stop, stopping) = watch::channel(false);
-            let task = tokio::spawn(super::tailnet_ingress::serve(
+            // The stable node's front (off unless its setting is on) stops with the node, and
+            // with an ingress that ends cleanly (the daemon's shutdown). An ingress that fails
+            // (a self-hosted tailnet's name is not `*.ts.net`, so :443 has no certificate) does
+            // not take the front down: port 22 keeps forwarding until the node stops.
+            let (ingress_done, ingress_ended) = watch::channel(false);
+            let front = super::tailnet_front::serve(
                 hub.clone(),
                 node.clone(),
-                name.clone(),
-                stopping,
-            ));
+                stopping.clone(),
+                ingress_ended,
+            );
+            let ingress =
+                super::tailnet_ingress::serve(hub.clone(), node.clone(), name.clone(), stopping);
+            let task = tokio::spawn(async move {
+                let ingress = async move {
+                    let served = ingress.await;
+                    match &served {
+                        Ok(()) => {
+                            ingress_done.send_replace(true);
+                        }
+                        Err(error) => tracing::warn!("tailnet ingress :443 ended: {error:#}"),
+                    }
+                    // Kept until the front is done too: a dropped sender would end it.
+                    (served, ingress_done)
+                };
+                let ((served, _ingress_done), ()) = tokio::join!(ingress, front);
+                served
+            });
             Active { node: Some(node), name, stop, task }
         };
         if !reconcile(&controller, &fenced, &mut active, &stopping, spawn).await {

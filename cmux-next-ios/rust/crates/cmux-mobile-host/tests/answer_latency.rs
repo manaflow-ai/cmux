@@ -91,6 +91,7 @@ async fn rig(stun: &str) -> Rig {
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
     });
     let tokens = Arc::new(Tokens::new(TokenSource::Access("user:alice".into())));
     let ice = IceSource::api(server.base_url.clone(), None, tokens);

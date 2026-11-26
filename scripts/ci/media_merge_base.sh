@@ -21,7 +21,9 @@ echo "media_merge_base: GitHub's compare gave no merge base (${mb:-no answer}); 
 shallow="$(git rev-parse --git-path shallow)"
 depth=100
 for _ in 1 2 3 4 5 6; do
-  git fetch --no-tags --quiet --depth="$depth" origin "$base" "$head" >&2
+  dflag=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && dflag=(--depth="$depth")
+  git fetch --no-tags --quiet ${dflag[@]+"${dflag[@]}"} origin "$base" "$head" >&2
   mb="$(git merge-base "$base" "$head" 2>/dev/null || true)"
   if [[ "$mb" =~ $hex ]] && ! { [[ -f "$shallow" ]] && grep -qx "$mb" "$shallow"; }; then
     echo "$mb"; exit 0
