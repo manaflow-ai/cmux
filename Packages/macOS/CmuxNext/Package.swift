@@ -13,12 +13,12 @@ import PackageDescription
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextCompat, CmuxNextTabs (public read-only favicon leaf)
-//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
+//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions; Tabs -> CCmuxAppFFI (the gooey tabs' goo plans, cmux-motion)
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary), CCmuxAppFFI (predictive echo)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
-//   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
+//   CmuxNextWakeups -> Compat, Signposts, CCmuxAppFFI (Interactivity: the interactivity policy), system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
@@ -29,7 +29,7 @@ import PackageDescription
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextAgentPane -> CmuxNextAgentPanePlacement (pure right-column placement, no dependency; re-exported)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
-//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
+//   CmuxNextSettings -> Design, Actions, CCmuxAppFFI (cmux.json load/watch/apply, SettingsSchema; the reads in Rust)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
@@ -83,7 +83,7 @@ import PackageDescription
 //     Agents step's sign-in source)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
-//   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//   CmuxNextBookmarks -> Design, Icons, WindowRules (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: c98e0723ea839dc2e287ef1768443564d345635a3355facd761081bd8a175f6e
+// app-ffi-pin-checksum: c300e09362e8e5a9d56b09b636818431ec226cf15f359401bd83126cd66b7f16
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -423,6 +423,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
                 "CmuxNextHostPressure",
+                "CmuxNextHostPressureTunables",
                 "CmuxNextHostedChief",
                 "CmuxNextIcons",
                 "CmuxNextImportCards",
@@ -509,6 +510,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [
                 .process("Resources"),
@@ -714,7 +716,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "AgentPanePolicyPlugin")]
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
@@ -801,6 +804,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextAgentPane",
                 "CmuxNextAgentUpdates",
+                "CmuxNextBrowser",
                 "CmuxNextCloud",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
@@ -810,10 +814,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextOnboarding",
                 "CmuxNextPages",
+                "CmuxNextPopups",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -1166,7 +1172,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextComputerUsePreview",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
                 "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
@@ -1182,6 +1191,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -1280,6 +1290,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWindowRules",
             ],
             resources: [
                 .process("Resources"),
@@ -1494,12 +1505,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The memory pressure dispatch source, plus one 15 s timer for load and swap.
         .target(
             name: "CmuxNextHostPressure",
-            dependencies: ["CmuxNextDesignTokens"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHostPressureTests",
             dependencies: ["CmuxNextHostPressure"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Host pressure's Debug Settings tunables (forced level, indicator style, thresholds). They
+        // read the design tokens, so they stay out of CmuxNextHostPressure, which builds on Linux.
+        .target(
+            name: "CmuxNextHostPressureTunables",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextDesignTokens",
+                "CmuxNextHostPressure",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
@@ -2089,15 +2109,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Live code in the app: loads a patch of the app's own Swift functions without a rebuild or
-        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift).
+        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift). The engine
+        // is Packages/Shared/CmuxLiveCode, which the iPhone app runs in the iOS Simulator too.
         .target(
             name: "CmuxNextLiveCode",
-            dependencies: ["CmuxNextCompat"],
-            swiftSettings: uiSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextLiveCodeTests",
-            dependencies: ["CmuxNextLiveCode"],
+            dependencies: [.product(name: "CmuxLiveCode", package: "CmuxLiveCode")],
             swiftSettings: uiSwiftSettings
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
@@ -2189,6 +2205,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCloudUI",
+                "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
@@ -2271,6 +2288,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
             // the typing probe's key-press flow hops (`key.flow`).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextSignposts",
             ],
@@ -2520,6 +2538,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // wires it to Ghostty's search bindings and draws the bar. No default
         // main-actor isolation: its value types are test arguments, which
         // Swift Testing builds off the main actor.
+        .testTarget(
+            name: "CmuxNextTerminalGeometryTests",
+            dependencies: ["CmuxNextTerminalGeometry"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextTerminalFind",
             swiftSettings: daemonSwiftSettings
@@ -2533,6 +2556,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextTabs",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
@@ -2758,21 +2782,28 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettings",
+            // CCmuxAppFFI: cmux-next.json's reads in Rust (cmux-config's app_ops, module
+            // CCmuxSettingsFFI, SettingsRust).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
             swiftSettings: daemonSwiftSettings,
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
-            plugins: [.plugin(name: "SettingsSchemaPlugin")]
+            plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-agent-pane-policy-swift.py --swift-out into its work directory.
+        .plugin(name: "AgentPanePolicyPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
+        // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
+        // per key, so two PRs adding strings never conflict) into <Table>.xcstrings in its work directory.
+        .plugin(name: "StringCatalogsPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2794,10 +2825,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
-            resources: [
-                .process("Localizable.xcstrings"),
-            ],
-            swiftSettings: uiSwiftSettings
+            // Localizable.xcstrings.d is the Localizable table, one file per key: StringCatalogsPlugin builds the table.
+            exclude: ["Localizable.xcstrings.d"],
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "StringCatalogsPlugin")]
         ),
         .target(
             name: "CmuxNextControl",
@@ -2920,6 +2951,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
+                "CmuxNextHostPressureTunables",
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
@@ -3069,14 +3101,23 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextAgentPanePlacementTests",
     "CmuxNextChromiumRuntime",
     "CmuxNextChromiumRuntimeTests",
+    "CmuxNextCLIInstall",
+    "CmuxNextCLIInstallTests",
+    "CmuxNextCompat",
+    "CmuxNextCompatTests",
+    "CmuxNextCopyMode",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
+    "CmuxNextTerminalFind",
+    "CmuxNextTerminalGeometry",
+    "CmuxNextTerminalGeometryTests",
 ]
 
 let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),
+    .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
 ]
 
 // The Apple shape comes first: scripts/cmux-next/arch_counts.py reads the first Package call.
@@ -3090,6 +3131,7 @@ let package = !targetsLinux ? Package(
     dependencies: [
         .package(path: "../../Shared/CmuxEgress"),
         .package(path: "../../Shared/CmuxGhosttyKit"),
+        .package(path: "../../Shared/CmuxLiveCode"),
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),

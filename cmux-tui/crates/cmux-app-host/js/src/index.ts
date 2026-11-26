@@ -2,7 +2,7 @@
 // Load order: this file, then the app's `main` (an IIFE that sets
 // `__cmuxAppExports`), then the host calls `__cmuxAppInit`. ABI: ../ABI.md.
 
-import { cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
+import { call, cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
@@ -13,7 +13,7 @@ import { watch, deliverWatch } from "./watch.ts";
 const g = globalThis as Record<string, unknown>
 /** Each widget mount's now() clock, set by `__cmuxAppTick`. */
 const widgetClocks = new Map<string, Write<number>>()
-export const RUNTIME_VERSION = "1.4.0"
+export const RUNTIME_VERSION = "1.6.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -41,6 +41,48 @@ function runHandler(label: string, fn: (() => unknown) | undefined): unknown {
   } catch (e) {
     log("error", `${label}: ${describe(e)}`)
     return undefined
+  }
+}
+
+/**
+ * A mount's `ctx.keep(name, initial)` and `ctx.state` (runtime 1.6.0). Writes of one turn leave as one
+ * `app.view.state` call after a microtask; a value that is not JSON (a function, a cycle) is logged and not kept.
+ */
+function keepState(mountId: string, ctx: Record<string, unknown>) {
+  const given = ctx.state && typeof ctx.state === "object" && !Array.isArray(ctx.state) ? (ctx.state as Record<string, unknown>) : {}
+  ctx.state = given
+  const kept: Record<string, unknown> = { ...given }
+  const signals = new Map<string, [() => unknown, (next: unknown) => void]>()
+  let queued = false
+  const send = () => {
+    queued = false
+    let json: string
+    try {
+      json = JSON.stringify(kept)
+    } catch (e) {
+      log("warn", `ctx.keep: the state is not JSON: ${describe(e)}`)
+      return
+    }
+    call("app.view.state", { mount: mountId, state: JSON.parse(json) }).catch((e) => log("warn", `ctx.keep: ${describe(e)}`))
+  }
+  ctx.keep = <T>(name: string, initial: T) => {
+    if (typeof name !== "string" || !name) throw new TypeError("ctx.keep needs a name")
+    const existing = signals.get(name)
+    if (existing) return existing
+    const [read, write] = signal<T>(name in given ? (given[name] as T) : initial)
+    const keep: Write<T> = (next) => {
+      write(next)
+      const value = read.peek()
+      if (Object.is(kept[name], value)) return
+      kept[name] = value
+      if (!queued) {
+        queued = true
+        void Promise.resolve().then(send)
+      }
+    }
+    const pair: [() => unknown, (next: unknown) => void] = [read, keep as (next: unknown) => void]
+    signals.set(name, pair)
+    return pair
   }
 }
 
@@ -95,9 +137,22 @@ function install() {
           widgetClocks.set(mountId, setNow)
           ctx.now = now
         }
+        // `cmux.pane/1` (the daemon gives every pane mount `args`, null when no open waits): the open's
+        // arguments, `close(result)` to answer the opener, `onOpen` and `onClose` (pane_flow.rs).
+        const opened: Array<(args: unknown) => void> = []
+        if (ctx && typeof ctx === "object" && "args" in ctx) {
+          ctx.close = (result?: unknown) => call("app.pane.close", { mount: mountId, result: result ?? null })
+          ctx.onOpen = (fn: (args: unknown) => void) => void opened.push(fn)
+          ctx.onClose = (fn: () => void) => onCleanup(fn)
+        }
+        // Kept state (`app.view.state`, cmux-tui-core apps/view_state.rs): `ctx.keep(name, initial)` is a signal
+        // whose value the daemon keeps with the mount, so a hot reload (`cmux ext dev`), a host restart or a Reload
+        // renders it again. `ctx.state` is what this mount got back.
+        if (ctx && typeof ctx === "object") keepState(mountId, ctx)
         state.context = ctx
         state.mount = mountId
         mount(mountId, () => render(ctx), ctx)
+        if (ctx?.args != null) for (const fn of opened) fn(ctx.args)
         state.context = null
         state.mount = null
       })

@@ -27,6 +27,11 @@ import Testing
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
+        /// Whether acpmux has the one-click `claude_token.*` run; false answers method not found, as an older daemon.
+        let claudeOneClick = OSAllocatedUnfairLock(initialState: false)
+        let claudeURL = OSAllocatedUnfairLock<String?>(initialState: "https://claude.ai/oauth/authorize?abc123")
+        /// `claude_token.wait` answers in order; the last repeats.
+        let claudeWaits = OSAllocatedUnfairLock<[String]>(initialState: [])
     }
 
     struct NoAnswer: Error {}
@@ -101,6 +106,17 @@ import Testing
                     return Self.connections(plan: false)
                 case .chatgptBegin:
                     return Data(#"{"attempt":"att-1","url":"\#(daemon.beginURL.withLock { $0 })"}"#.utf8)
+                case .claudeTokenBegin, .claudeTokenWait, .claudeTokenCode, .claudeTokenCancel:
+                    guard daemon.claudeOneClick.withLock({ $0 }) else { throw AcpmuxRPCError(code: -32601, name: nil, message: "method not found") }
+                    if method == .claudeTokenBegin {
+                        let url = daemon.claudeURL.withLock { $0 }.map { "\"\($0)\"" } ?? "null"
+                        return Data(#"{"attempt":"ct-1","url":\#(url)}"#.utf8)
+                    }
+                    guard method == .claudeTokenWait else { return Data("{}".utf8) }
+                    let status = daemon.claudeWaits.withLock { waits in waits.count > 1 ? waits.removeFirst() : waits.first ?? "pending" }
+                    // A long poll holds a pending answer for a while (acpmux: up to 25 s).
+                    if status == "pending" { try await Task.sleep(for: .milliseconds(200)) }
+                    return Data(#"{"status":"\#(status)","connection":null,"error":\#(status == "failed" ? "\"claude_token.exited\"" : "null")}"#.utf8)
                 case .chatgptWait:
                     if let failure = daemon.waitFailure.withLock({ $0 }) {
                         if failure.isEmpty { throw NoAnswer() }
@@ -262,6 +278,22 @@ import Testing
         #expect(models.state["personal"]?["connections"]?.arrayValue?.contains { $0["kind"] == "chatgpt-plan" } == true)
     }
 
+    /// Leo, 2026-11-25: "what about other ones? chatgpt?": OpenAI's sign-in opens in cmux's own browser,
+    /// as Claude's does, never the person's.
+    @Test func chatGPTSignInOpensInCmuxsOwnBrowser() async throws {
+        let daemon = Daemon()
+        daemon.waits.withLock { $0 = ["done"] }
+        let opened = Opened()
+        let inApp = Opened()
+        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { _ in false },
+                                          openSignInPage: { url, _ in inApp.urls.append(url); return {} })
+        let models = make(daemon: daemon, opened: opened, harnesses: harnesses)
+        _ = try await models.run(["action": "connectChatGPT"], context: click)
+        #expect(inApp.urls.map(\.host) == ["auth.openai.com"])
+        #expect(opened.urls.isEmpty)
+        await models.chatgptTask?.value
+    }
+
     @Test func chatGPTSignInShowsItsFailure() async throws {
         let daemon = Daemon()
         daemon.waits.withLock { $0 = ["pending", "failed"] }
@@ -344,7 +376,7 @@ import Testing
         #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
     }
 
-    @Test func claudeSetupTokenOpensATerminalTabRunningIt() async throws {
+    @Test func claudeSetupTokenOnAnOlderDaemonOpensATerminalTabRunningIt() async throws {
         let daemon = Daemon()
         let typed = Typed()
         let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { line in typed.lines.append(line); return true })
@@ -355,6 +387,80 @@ import Testing
         let script = PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: false, gestureEvent: nil)
         await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: script) }
         #expect(typed.lines.count == 1)
+    }
+
+    /// Leo, 2026-11-25: "surely we can minimize the cruft all around here" (no copy and paste at all):
+    /// one click runs `claude setup-token` inside acpmux, opens Claude's page and waits for the connection.
+    @Test func claudeConnectsInOneClickWithNoTerminalAndNoPaste() async throws {
+        let daemon = Daemon()
+        daemon.claudeOneClick.withLock { $0 = true }
+        daemon.claudeWaits.withLock { $0 = ["pending", "done"] }
+        let opened = Opened()
+        let typed = Typed()
+        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { line in typed.lines.append(line); return true })
+        let models = make(daemon: daemon, opened: opened, harnesses: harnesses)
+        _ = await models.loadedState()
+        let answer = try await models.run(["action": "connectClaudeToken", "label": "Claude"], context: click)
+        #expect(answer == ["attempt": "ct-1"])
+        #expect(opened.urls.map(\.host) == ["claude.ai"])
+        #expect(models.state["claudeToken"] == ["attempt": "ct-1", "phase": "signing_in", "error": .null, "saved": false])
+        await models.claudeTokenTask?.value
+        #expect(models.state["claudeToken"] == ["attempt": .null, "phase": .null, "error": .null, "saved": true])
+        let calls = daemon.calls.withLock { $0 }
+        #expect(calls.first { $0.method == "_acpmux/connections/claude_token.begin" }?.params == ["label": "Claude"])
+        #expect(calls.filter { $0.method == "_acpmux/connections/claude_token.wait" }.count == 2)
+        #expect(typed.lines.isEmpty)
+        // The Cloud card's Set up Claude (`claudeSetupToken`) takes the same one click on this daemon.
+        daemon.claudeWaits.withLock { $0 = ["done"] }
+        _ = try await models.run(["action": "claudeSetupToken"], context: click)
+        await models.claudeTokenTask?.value
+        #expect(typed.lines.isEmpty)
+    }
+
+    @Test func claudeOneClickShowsItsFailureAndCancels() async throws {
+        let daemon = Daemon()
+        daemon.claudeOneClick.withLock { $0 = true }
+        daemon.claudeWaits.withLock { $0 = ["failed"] }
+        let models = make(daemon: daemon)
+        _ = try await models.run(["action": "connectClaudeToken"], context: click)
+        await models.claudeTokenTask?.value
+        #expect(models.state["claudeToken"] == ["attempt": .null, "phase": .null, "error": "claude_token.exited", "saved": false])
+        daemon.claudeWaits.withLock { $0 = ["pending"] }
+        _ = try await models.run(["action": "connectClaudeToken"], context: click)
+        _ = try await models.run(["action": "claudeTokenCode", "code": " abc\n def "], context: click)
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "_acpmux/connections/claude_token.code", params: ["attempt": "ct-1", "code": "abcdef"])))
+        _ = try await models.run(["action": "cancelClaudeToken"], context: click)
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "_acpmux/connections/claude_token.cancel", params: ["attempt": "ct-1"])))
+        #expect(models.state["claudeToken"]?["attempt"] == .null)
+        #expect(models.state["claudeToken"]?["saved"] == false)
+    }
+
+    /// A run that printed its token with no link first (`url: null`) opens nothing and is saved, not `bad_reply`.
+    @Test func aClaudeRunWithNoLinkOpensNothingAndSaves() async throws {
+        let daemon = Daemon()
+        daemon.claudeOneClick.withLock { $0 = true }
+        daemon.claudeURL.withLock { $0 = nil }
+        daemon.claudeWaits.withLock { $0 = ["done"] }
+        let opened = Opened()
+        let models = make(daemon: daemon, opened: opened)
+        let answer = try await models.run(["action": "connectClaudeToken"], context: click)
+        #expect(answer == ["attempt": "ct-1"])
+        #expect(opened.urls.isEmpty)
+        await models.claudeTokenTask?.value
+        #expect(models.state["claudeToken"] == ["attempt": .null, "phase": .null, "error": .null, "saved": true])
+    }
+
+    @Test func onlyClaudesSignInPageIsOpened() async throws {
+        let daemon = Daemon()
+        daemon.claudeOneClick.withLock { $0 = true }
+        daemon.claudeURL.withLock { $0 = "https://claude.ai.evil.example/oauth" }
+        let opened = Opened()
+        let models = make(daemon: daemon, opened: opened)
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "connectClaudeToken"], context: click) }
+        #expect(opened.urls.isEmpty)
+        #expect(daemon.calls.withLock { $0 }.last?.method == "_acpmux/connections/claude_token.cancel")
+        let script = PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: false, gestureEvent: nil)
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "connectClaudeToken"], context: script) }
     }
 
     @Test func orgKeyNeedsAnExplicitKeyOrNull() async throws {
