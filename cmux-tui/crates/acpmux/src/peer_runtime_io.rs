@@ -1450,7 +1450,6 @@ impl Peer {
                             watch_reply!(key, reply, tx);
                         }
                         Message::Notification { method: mut m, params } => {
-                            self.note_link_activity(&m);
                             let mut p = params.unwrap_or(Value::Null);
                             // A patch of a row this link holds is that row whole again, as the
                             // `session_changed` the hub reads; one that does not apply asks for
@@ -1467,6 +1466,7 @@ impl Peer {
                                     continue;
                                 }
                             }
+                            self.note_link_activity(&m);
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
