@@ -1,0 +1,242 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45895510907",
+  "recorded_at": "2026-11-26T21:15:36Z",
+  "reason": "cmux-tui ee905dc44cc2 changes the image's cmux-tui (pinned 114e97c49774)",
+  "dry_run": false,
+  "cmux_tui": "ee905dc44cc2bf3e64c09ed994afed450ff223f4",
+  "fixes": [
+    {
+      "sha": "da6b4a2b5a9c1786a8996fa267a7a58d9ec4ced7",
+      "mergedAt": "2026-11-26T20:26:45Z",
+      "subject": "Mac app follows the acpmux daemon's hub device when it comes online (#57561)"
+    },
+    {
+      "sha": "d662787ac24c20130f0d6fa354289ab7134f22aa",
+      "mergedAt": "2026-11-26T20:26:29Z",
+      "subject": "Keep agent presence across a reconnect to the same daemon (hq#19373) (#57557)"
+    },
+    {
+      "sha": "01ba239c36ef96ced9fb1fbe9ecc9796d485a98c",
+      "mergedAt": "2026-11-26T20:26:20Z",
+      "subject": "cmux-window-rules: the notification attention rings and reads in Rust (#58062)"
+    },
+    {
+      "sha": "5f77b59cc9150b06b73e5ec8de267b1b4f8d4132",
+      "mergedAt": "2026-11-26T20:26:12Z",
+      "subject": "app try: an open PR with no build goes into a copy of the NIGHTLY (#48112)"
+    },
+    {
+      "sha": "562163170b91fa7d8e9d2136ce8799b52334dfa7",
+      "mergedAt": "2026-11-26T20:25:06Z",
+      "subject": "cmux-host, cmux-browser-host: Windows compile check, and no Linux update on Windows (#57733)"
+    },
+    {
+      "sha": "9e43ff5e9ae46993a9f5dad4118f29b9f689face",
+      "mergedAt": "2026-11-26T20:24:08Z",
+      "subject": "iOS terminal: Claude Code drawn at iPhone grids from records, with parity floors in CI (#56808)"
+    },
+    {
+      "sha": "aae34961e0a504aaa2f1fd2fb54399822d956d63",
+      "mergedAt": "2026-11-26T20:23:29Z",
+      "subject": "screen share: a still screen's heartbeat tells an idle screen from a stall (#57509)"
+    },
+    {
+      "sha": "d38f0c87a6041ee54c2e9a62f670308ca7b55572",
+      "mergedAt": "2026-11-26T20:20:00Z",
+      "subject": "RFD 0083 step 1: add cmux remote web wasm client (#54014)"
+    },
+    {
+      "sha": "11df7d7008864cddd1941a0f5a5dc36c8d8abfd4",
+      "mergedAt": "2026-11-26T20:16:00Z",
+      "subject": "acpmux: an older Codex still offers the newer release of a family it runs (#57923)"
+    },
+    {
+      "sha": "c75c248130708ff144fb07777b5c7cfcef82f7eb",
+      "mergedAt": "2026-11-26T20:14:03Z",
+      "subject": "cmux-remote: a redial round with no winner dials afresh every 750 ms (#56894)"
+    },
+    {
+      "sha": "3159c58828f5802d3f4ffcb9accc73287ae78edd",
+      "mergedAt": "2026-11-26T20:12:11Z",
+      "subject": "cloud-start-core: priority moves without slice indexing (panic ratchet) (#57240)"
+    },
+    {
+      "sha": "5d84d3ab34c5808020a2d6953265deaaeddf395b",
+      "mergedAt": "2026-11-26T20:06:37Z",
+      "subject": "Braid B7d: cmux-remote's relay is a braid carrier (RFD 0164) (#59021)"
+    },
+    {
+      "sha": "c69055f9593bb2f4df14082a7254c85911184aa2",
+      "mergedAt": "2026-11-26T20:04:55Z",
+      "subject": "cmux-shotdiff: one Rust screenshot comparator and golden store (F1) (#57529)"
+    },
+    {
+      "sha": "21f8d798cf019e337192c4d257a691252a4192b7",
+      "mergedAt": "2026-11-26T20:00:45Z",
+      "subject": "cmux app versions / cmux app use previous|next|latest|<build> (#50437)"
+    },
+    {
+      "sha": "4b455c9cda91204646ab97221321dc8aa43ce97b",
+      "mergedAt": "2026-11-26T20:00:42Z",
+      "subject": "acpmux memory sync: skip unchanged files and unchanged state on each pass (#57435)"
+    },
+    {
+      "sha": "c52644c87237339e3dfc4cf60c2f5c2aa1b5c0f5",
+      "mergedAt": "2026-11-26T19:59:16Z",
+      "subject": "cmux-next: move the sidebar drag geometry and indent rule to Rust (step A) (#57525)"
+    },
+    {
+      "sha": "f35b4706cada6184146664f3810756ade4c5a7f7",
+      "mergedAt": "2026-11-26T19:54:24Z",
+      "subject": "cmux-journal: keep the crash-test SimStorage under src/test_support/ (#59315)"
+    },
+    {
+      "sha": "ae4ff8fe3b9e19386c1991372fe3059f4c6c38f4",
+      "mergedAt": "2026-11-26T19:52:40Z",
+      "subject": "screen-share eval: judge the ladder's budget bits per pixel, not coded bits (#59151)"
+    },
+    {
+      "sha": "f31f697256acd5f57111ca82a2a34b87ac4138b9",
+      "mergedAt": "2026-11-26T19:51:00Z",
+      "subject": "G5: terminal output as binary attach-frames-v1 frames, daemon and app reader (CMUX-571) (#59000)"
+    },
+    {
+      "sha": "8a0b171f22b0bd95a860af15821de2d53def83cd",
+      "mergedAt": "2026-11-26T19:50:49Z",
+      "subject": "[RFD 0127] authenticate once and bound the last connect attempt (#59215)"
+    },
+    {
+      "sha": "1081481533b526679db4b4dc5b25a3f53f36e065",
+      "mergedAt": "2026-11-26T19:50:39Z",
+      "subject": "acpmux: a fork's agent sees the turns the fork shows (long cross-harness forks, idle no-fork forks) (carries #50423) (#52617)"
+    },
+    {
+      "sha": "f133f2c96d60ecd96e33ff8f2826320b68cf351c",
+      "mergedAt": "2026-11-26T19:49:38Z",
+      "subject": "cmux-tui: allow empty rebuilt output journal (#32022) (#56887)"
+    },
+    {
+      "sha": "169c3429535520d8c22bf67344ef68f80c07705d",
+      "mergedAt": "2026-11-26T19:48:54Z",
+      "subject": "cmux-projection: name by_path row type (clippy type_complexity) (#59133)"
+    },
+    {
+      "sha": "a3695594e6b9bf59013b17f9ed7d113f5de8273b",
+      "mergedAt": "2026-11-26T19:48:26Z",
+      "subject": "Screen share session report, step A: Rust core and FFI (first frame, present p50/p95) (#58370)"
+    },
+    {
+      "sha": "65f3e97f91a86629ebce0892ff2d168397a5e42c",
+      "mergedAt": "2026-11-26T19:47:22Z",
+      "subject": "cmux-hop-relay: our hop/1 UDP relay PoP; lossy-3 echo p95/p99 721/1741 -> 339/364 ms on the two-leg rig (RFD 0142 R4/R5) (#54363)"
+    },
+    {
+      "sha": "0a5ff9dfb4c587887f6100aebe6be5ca054505fd",
+      "mergedAt": "2026-11-26T19:46:25Z",
+      "subject": "cmux-sync: end the conflict_file arm with a semicolon (clippy base red) (#59206)"
+    },
+    {
+      "sha": "d29fd104d67c790763cc0be3ea6bff01468256f6",
+      "mergedAt": "2026-11-26T19:41:52Z",
+      "subject": "cmux-config: Block Matrix in SHADERS, example looks pass the contrast check (base red fix) (#58543)"
+    },
+    {
+      "sha": "c7696b6d7145142ac28412f33f875e9bb99e8270",
+      "mergedAt": "2026-11-26T19:41:24Z",
+      "subject": "acpmux: a movable create past its lane cap waits for the added machine instead of only warning (#56200)"
+    },
+    {
+      "sha": "07afec19a9df79f10ac1d1976413bbfda6cdbabc",
+      "mergedAt": "2026-11-26T19:38:45Z",
+      "subject": "cloud: the person's GitHub calls and the clone token go through the Rust daemon (4b) (#52727)"
+    },
+    {
+      "sha": "1a562e3fd594fd58f9a9dc7a3a043aca6d90f233",
+      "mergedAt": "2026-11-26T19:38:08Z",
+      "subject": "cmux-window-rules: desktop notification rules in Rust (Swift-out slice 4, step A) (#57849)"
+    },
+    {
+      "sha": "a546e04d7f94ae825da7b2fb686c2da177fa9288",
+      "mergedAt": "2026-11-26T19:35:52Z",
+      "subject": "acpmux: finish bounded prompt admission after restore (#55916)"
+    },
+    {
+      "sha": "8d19864a7d24f7fb9549e17288344a19f5c2f3b4",
+      "mergedAt": "2026-11-26T19:31:57Z",
+      "subject": "cmux-rd-host: Windows serve sets EncCfg::sharp_text (base red fix) (#58982)"
+    },
+    {
+      "sha": "e9fa9d3998c6847f201bf6b097561c2a66f39e11",
+      "mergedAt": "2026-11-26T19:31:36Z",
+      "subject": "Queued messages: your steers during a step go in as one message, not one per piece (#57170)"
+    },
+    {
+      "sha": "ebd6163329e9845d5f5498354e0a33bafdfabc4e",
+      "mergedAt": "2026-11-26T19:30:05Z",
+      "subject": "cloud start-chat: keep what the service listed of a given-up machine (#58530)"
+    },
+    {
+      "sha": "dd0e46c72c2c1212dee76fcb256c3e7f35a51d16",
+      "mergedAt": "2026-11-26T19:29:37Z",
+      "subject": "egress: seeded-secret capture tests for 10 gate sites, verbs carries none (#58136)"
+    },
+    {
+      "sha": "6202ca79d4eaa8fb19d22790def2cc0652c1c680",
+      "mergedAt": "2026-11-26T19:19:30Z",
+      "subject": "iOS terminal reattach in one round trip (fenced attach) (#57423)"
+    },
+    {
+      "sha": "1311adac897c84e96f42dcc7a072ddf4dd720175",
+      "mergedAt": "2026-11-26T19:19:06Z",
+      "subject": "cmux-config: chrome placement sub-parses and theme file applied ops (swift-out-settings part 3) (#57610)"
+    },
+    {
+      "sha": "fd07af1b99166a25a0b47ae53aa28afae542c6a8",
+      "mergedAt": "2026-11-26T19:18:56Z",
+      "subject": "cloud: machine I/O, SCP, networks and desktop setup go through the daemon only (#52585)"
+    },
+    {
+      "sha": "d02fdfbde5895595b05d4cead4190ec43d78b4dd",
+      "mergedAt": "2026-11-26T19:18:36Z",
+      "subject": "acpmux: _acpmux/follow sets who a presence follows (RFD 0141 phase 3) (#57780)"
+    },
+    {
+      "sha": "f07acee0edbbee2e9d775e54d82c53bf6a9a7fca",
+      "mergedAt": "2026-11-26T19:17:25Z",
+      "subject": "cmux-window-rules: port the last CmuxNextWindowRules Swift logic (step A) (#57570)"
+    },
+    {
+      "sha": "3d5202875f34194c1bc6a7124b278d0cd1e6866b",
+      "mergedAt": "2026-11-26T19:16:30Z",
+      "subject": "Search Agent Chats: Command-J K opens it from terminals and the code editor too (#54765)"
+    },
+    {
+      "sha": "19322398ac78c0f8bcba7b1dca35fe22712d0bb2",
+      "mergedAt": "2026-11-26T19:14:46Z",
+      "subject": "cmux-tui: warm compaction for Claude Code in a terminal (#56900)"
+    },
+    {
+      "sha": "ae394c521fa6764cf4324238db0997a7d8fda2f6",
+      "mergedAt": "2026-11-26T19:02:21Z",
+      "subject": "cmux-no-checkout: build the GitHub client through cmux-egress (base red: ungated site) (#58409)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-26T21:15:36Z",
+    "snapshot_id": "sh-b3d12de206ff460fb8fe23f3fe67b1f5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45895510907): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "95213396d8ba39fb6600260e5c2efee3356ed18d",
+    "image": "cloud-native-auto-ee905dc4-45895510907-1",
+    "revision": "ci-45895510907-1",
+    "at": "2026-11-26T21:15:36Z"
+  },
+  "rolled_back": false
+}
