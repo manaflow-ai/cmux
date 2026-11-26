@@ -61,6 +61,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
+import hashlib
 import http.server
 import json
 import os
@@ -112,6 +114,8 @@ SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
 # Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
 WEB_SPARSE = ("/*", "!/cmux-next-ios/", "!/ghostty/", "!/ghostty-next/")
 GALLERY_PORT = 4217
+# Warm galleries (web tree, vite, shooter) kept at once, each on one gallery config; ports GALLERY_PORT and up.
+GALLERIES = 2
 KEEP_H = 36
 # Bounds, seconds.
 FETCH_SECONDS = 180
@@ -125,8 +129,8 @@ PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
 # (objects/info/alternates), so a fetch from GitHub sends only what the mirror lacks and a checkout's blobs are local.
 MIRROR = Path(os.environ.get("CMUX_UI_PREVIEW_MIRROR") or Path.home() / "Projects/.wt-mirrors/manaflow-ai/cmux.git")
-# Looks run WEB_CAP at a time (fetch, verify, publish and send overlap; the one web tree and the one shell tree are
-# each one lock). A queued request is dropped for a newer push of its branch only once it waited this long.
+# Looks run WEB_CAP at a time (fetch, verify, publish and send overlap; each gallery's web tree and the one shell tree
+# are each one lock). A queued request is dropped for a newer push of its branch only once it waited this long.
 LOOK_THREADS = WEB_CAP
 SUPERSEDE_AGE_S = 45
 # A gallery shot waits this long for the frame's ready mark, then reloads the page and waits again, within its bound
@@ -265,6 +269,225 @@ def plan(files: list[str]) -> dict:
 
 # ---- the warm trees --------------------------------------------------------------------------------------------
 
+class Gallery:
+    """One web tree with its node_modules, its vite dev server (gallery:dev on its own port) and its resident shooter
+    (one chromium). A worker keeps up to GALLERIES of them, each on one gallery config: a look whose sides differ in
+    config shoots each side on a vite already on that config. Restarting one vite costs more than its start: the
+    restart drops vite's module graph, and the next page recompiles it (40-60 s for agent-pane entries)."""
+
+    def __init__(self, worker: "Worker", tree: Path, port: int, name: str) -> None:
+        self.worker = worker
+        self.tree = tree
+        self.port = port
+        self.name = name
+        self.key: str | None = None  # the gallery config of the tree's checkout (Worker.gallery_key)
+        self.used = 0.0
+        self.lock = threading.Lock()  # the tree, its vite and its shooter: one side's checkout and shots at a time
+        self.proc: subprocess.Popen | None = None
+        self.lock_hash: str | None = None
+        self.shooter: subprocess.Popen | None = None
+        self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
+        suffix = "" if name == "web" else f"-{name}"
+        self.log_path = worker.state / f"gallery-dev{suffix}.log"
+        self.shooter_log = worker.state / f"shooter{suffix}.log"
+
+    def checkout(self, sha: str) -> None:
+        """The tree at SHA. A checkout that changes the gallery's config, deps or dev server restarts the gallery here
+        (start waits for it to answer): vite would restart or re-optimize on its own, and pages loaded meanwhile
+        never marked ready (every base-side shot of a vite.config.ts push timed out at 60 s)."""
+        old = None
+        if (self.tree / ".git").exists():
+            with _suppress():
+                old = git(self.tree, "rev-parse", "HEAD").strip()
+        self.worker.ensure_tree(self.tree, WEB_SPARSE, sha)
+        if old and old != sha and self.worker.gallery_config_changed(old, sha):
+            log(f"gallery {self.name}: config changed {old[:12]}..{sha[:12]}: restarting it")
+            self.stop()
+        self.key = self.worker.gallery_key(sha)
+
+    def entry_ids(self) -> set[str]:
+        """The gallery entry ids the tree's checkout holds, as the dev server's entry index reads them
+        (webviews/dev-server/galleryHost.ts readEntryIndex: the first `id: "..."` after `export default` in each
+        *.gallery.ts(x), else the file's first)."""
+        ids = set()
+        root = self.tree / "webviews" / "src"
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d != "node_modules"]
+            for name in filenames:
+                if not re.search(r"\.gallery\.tsx?$", name):
+                    continue
+                with _suppress():
+                    text = (Path(dirpath) / name).read_text(errors="replace")
+                    at = text.find("export default")
+                    m = (ENTRY_ID.search(text[at:]) if at >= 0 else None) or ENTRY_ID.search(text)
+                    if m:
+                        ids.add(m.group(1))
+        return ids
+
+    def install(self) -> bool:
+        """bun install when the lockfile changed since the last install; True when it ran."""
+        lock = self.tree / "bun.lock"
+        digest = git(self.tree, "hash-object", str(lock)) if lock.exists() else "none"
+        if digest == self.lock_hash and (self.tree / "webviews" / "node_modules").is_dir():
+            return False
+        run([self.worker.bun(), "install", "--frozen-lockfile"], cwd=self.tree / "webviews", timeout=INSTALL_SECONDS,
+            what="bun install")
+        self.lock_hash = digest
+        return True
+
+    def seed_deps(self) -> None:
+        """A new tree's vite deps cache, copied from a sibling's: vite keeps it when its hash still matches (most
+        config pushes leave the deps alone) instead of a 50 s scan and bundle."""
+        mine = self.tree / "webviews" / "node_modules" / ".vite"
+        if mine.exists() or not mine.parent.is_dir():
+            return
+        for g in self.worker.galleries:
+            theirs = g.tree / "webviews" / "node_modules" / ".vite"
+            if g is not self and theirs.is_dir():
+                with _suppress():
+                    shutil.copytree(theirs, mine, symlinks=True)
+                return
+
+    def up(self) -> bool:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/gallery/", timeout=3) as r:
+                return r.status == 200
+        except OSError:
+            return False
+
+    def start(self) -> None:
+        if self.proc is not None and self.proc.poll() is None and self.up():
+            return
+        self.stop()
+        self.seed_deps()
+        logf = open(self.log_path, "ab")
+        self.proc = subprocess.Popen([self.worker.bun(), "run", "gallery:dev"], cwd=self.tree / "webviews",
+                                     stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
+                                     env={**os.environ, "CMUX_GALLERY_DEV_PORT": str(self.port)})
+        deadline = time.monotonic() + GALLERY_UP_SECONDS
+        while time.monotonic() < deadline:
+            if self.proc.poll() is not None:
+                raise LookError(f"gallery:dev exited {self.proc.returncode} (see {self.log_path})")
+            if self.up():
+                return
+            time.sleep(0.5)
+        raise LookError(f"gallery:dev did not answer in {GALLERY_UP_SECONDS} s")
+
+    def stop(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            with _suppress():
+                os.killpg(self.proc.pid, signal.SIGTERM)
+            with _suppress():
+                self.proc.wait(10)
+        self.proc = None
+
+    def scenes(self, files: list[str]) -> list[str]:
+        """The gallery entries touched.ts ranks first for FILES, at the tree's checkout."""
+        changed = self.worker.state / f"changed-{threading.get_ident()}.txt"
+        changed.write_text("\n".join(files) + "\n")
+        try:
+            out = run([self.worker.bun(), "scripts/gallery/touched.ts", "--changed", str(changed)],
+                      cwd=self.tree / "webviews", timeout=120, what="touched.ts")
+        finally:
+            with _suppress():
+                changed.unlink()
+        touched = json.loads(out)
+        ranked = [r.get("id") for r in touched.get("ranked") or [] if isinstance(r, dict)]
+        return [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)][:WEB_CAP]
+
+    def shoot(self, entries: list[str], out: Path, absent: dict | None = None) -> dict:
+        """ENTRIES shot into OUT by the resident shooter (one chromium kept open between looks); when it fails, one
+        shooter run of its own (a cold chromium) before the look gives up. An entry in ABSENT ({entry: sha}) is
+        not in this checkout: its picture is a card saying so (file ABSENT_PREFIX...). {entry: file}."""
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir(parents=True)
+        absent = absent or {}
+        spec = {"base": f"http://127.0.0.1:{self.port}/gallery/", "scheme": "dark", "out": str(out),
+                "try_ms": SHOT_TRY_S * 1000, "bound_ms": SHOT_BOUND_S * 1000,
+                "shots": [{"name": e, "entry": e, **({"absent": absent[e][:12]} if e in absent else {})}
+                          for e in entries]}
+        try:
+            rows = self.shoot_resident(spec)
+        except LookError as err:
+            log(f"the resident shooter ({self.name}): {err}; one cold shoot")
+            self.stop_shooter()
+            rows = self.shoot_once(spec, out)
+        shots = {}
+        for row in rows:
+            if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file():
+                shots[row["name"]] = row["file"]
+        if not shots and entries:
+            errors = [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
+            raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
+        return shots
+
+    def shoot_once(self, spec: dict, out: Path) -> list:
+        (out / "spec.json").write_text(json.dumps(spec))
+        try:
+            done = subprocess.run([self.worker.bun(), str(HERE / "ui-preview-shoot.mjs"), str(out / "spec.json"),
+                                   str(out)], cwd=self.tree / "webviews", capture_output=True, text=True,
+                                  timeout=SHOOT_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise LookError(f"the gallery shoot ran past {SHOOT_SECONDS} s") from None
+        rows = []
+        for line in done.stdout.splitlines():
+            with _suppress():
+                rows.append(json.loads(line))
+        if not rows and done.returncode != 0:
+            raise LookError(f"the gallery shoot exited {done.returncode}: {tail(done.stderr or done.stdout)}")
+        return rows
+
+    def shoot_resident(self, spec: dict) -> list:
+        """One spec line to `ui-preview-shoot.mjs --serve` (started on first use, cwd the tree's webviews/), one
+        answer line back: {"shots": [{name, file} | {name, error}]}."""
+        if self.shooter is None or self.shooter.poll() is not None:
+            self.shooter_lines = queue.Queue()
+            with open(self.shooter_log, "ab") as logf:
+                self.shooter = subprocess.Popen([self.worker.bun(), str(HERE / "ui-preview-shoot.mjs"), "--serve"],
+                                                cwd=self.tree / "webviews", stdin=subprocess.PIPE,
+                                                stdout=subprocess.PIPE, stderr=logf, text=True, start_new_session=True)
+            lines, stdout = self.shooter_lines, self.shooter.stdout
+
+            def pump() -> None:
+                for line in stdout:
+                    lines.put(line)
+                lines.put(None)
+
+            threading.Thread(target=pump, name=f"shooter-out-{self.name}", daemon=True).start()
+        try:
+            self.shooter.stdin.write(json.dumps(spec) + "\n")
+            self.shooter.stdin.flush()
+        except (OSError, ValueError) as err:
+            raise LookError(f"could not hand it the spec: {err}") from None
+        deadline = time.monotonic() + SHOOT_SECONDS
+        while True:
+            try:
+                line = self.shooter_lines.get(timeout=max(0.1, deadline - time.monotonic()))
+            except queue.Empty:
+                raise LookError(f"no answer in {SHOOT_SECONDS} s") from None
+            if line is None:
+                raise LookError(f"it exited {self.shooter.wait()} (see {self.shooter_log})")
+            with _suppress():
+                answer = json.loads(line)
+                if isinstance(answer, dict) and isinstance(answer.get("shots"), list):
+                    return answer["shots"]
+
+    def stop_shooter(self) -> None:
+        if self.shooter is not None and self.shooter.poll() is None:
+            with _suppress():
+                self.shooter.stdin.close()
+            with _suppress():
+                self.shooter.wait(10)
+            if self.shooter.poll() is None:
+                with _suppress():
+                    os.killpg(self.shooter.pid, signal.SIGTERM)
+        if self.shooter is not None and self.shooter.stdout is not None:
+            with _suppress():
+                self.shooter.stdout.close()
+        self.shooter = None
+
+
 class Worker:
     def __init__(self, state: Path, public: str | None, send: str | None, publish: str | None,
                  host: str | None = None) -> None:
@@ -272,26 +495,23 @@ class Worker:
         self.state.mkdir(parents=True, exist_ok=True)
         self.clone = self.state / "cmux"
         self.swift_tree = self.state / "swift"
-        self.web_tree = self.state / "web"
         self.public = (public or "").rstrip("/")
         self.send_template = send
         self.publish_template = publish
         self.host = host or socket.gethostname().split(".")[0]
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
-        self.gallery: subprocess.Popen | None = None
-        self.gallery_port = GALLERY_PORT
-        self.web_lock_hash: str | None = None
-        self.lock = threading.Lock()  # the web tree and its gallery
         self.swift_lock = threading.Lock()  # the shell's tree and .build
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
-        self.shooter: subprocess.Popen | None = None
-        self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
         self.newest: dict[str, tuple[float, str]] = {}  # branch -> (received, head) of its newest queued request
         self.newest_lock = threading.Lock()
+        self.galleries_lock = threading.Lock()
+        self.gallery_keys: dict[str, str] = {}  # sha -> its gallery config's key
+        self.web = Gallery(self, self.state / "web", GALLERY_PORT, "web")
+        self.galleries = [self.web]
 
     # The clone and its worktrees.
     def ensure_clone(self) -> None:
@@ -394,43 +614,10 @@ class Worker:
             return self.is_ancestor(head, tip)
         return False
 
-    def checkout_web(self, sha: str) -> None:
-        """The web tree at SHA. A checkout that changes the gallery's config, deps or dev server restarts the gallery
-        here (start_gallery waits for it to answer): vite would restart or re-optimize on its own, and pages loaded
-        meanwhile never marked ready (every base-side shot of a vite.config.ts push timed out at 60 s)."""
-        tree = self.web_tree
-        old = None
-        if (tree / ".git").exists():
-            with _suppress():
-                old = git(tree, "rev-parse", "HEAD").strip()
-        self.ensure_tree(tree, WEB_SPARSE, sha)
-        if old and old != sha and self.gallery_config_changed(old, sha):
-            log(f"gallery config changed {old[:12]}..{sha[:12]}: restarting the gallery")
-            self.stop_gallery()
-
     def gallery_config_changed(self, old: str, new: str) -> bool:
         out = git(self.clone, "diff", "--name-only", "--no-renames", old, new, "--",
                   *(f":(glob){p}**" if p.endswith("/") else f":(glob){p}" for p in GALLERY_CONFIG))
         return bool(out.strip())
-
-    def entry_ids(self) -> set[str]:
-        """The gallery entry ids the web tree's checkout holds, as the dev server's entry index reads them
-        (webviews/dev-server/galleryHost.ts readEntryIndex: the first `id: "..."` after `export default` in each
-        *.gallery.ts(x), else the file's first)."""
-        ids = set()
-        root = self.web_tree / "webviews" / "src"
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d != "node_modules"]
-            for name in filenames:
-                if not re.search(r"\.gallery\.tsx?$", name):
-                    continue
-                with _suppress():
-                    text = (Path(dirpath) / name).read_text(errors="replace")
-                    at = text.find("export default")
-                    m = (ENTRY_ID.search(text[at:]) if at >= 0 else None) or ENTRY_ID.search(text)
-                    if m:
-                        ids.add(m.group(1))
-        return ids
 
     # The Swift shell.
     def shell_binary(self) -> Path:
@@ -505,170 +692,73 @@ class Worker:
             raise LookError("no bun on this worker")
         return found
 
-    def web_install(self) -> bool:
-        """bun install when the lockfile changed since the last install; True when it ran."""
-        lock = self.web_tree / "bun.lock"
-        digest = git(self.web_tree, "hash-object", str(lock)) if lock.exists() else "none"
-        if digest == self.web_lock_hash and (self.web_tree / "webviews" / "node_modules").is_dir():
-            return False
-        run([self.bun(), "install", "--frozen-lockfile"], cwd=self.web_tree / "webviews", timeout=INSTALL_SECONDS,
-            what="bun install")
-        self.web_lock_hash = digest
-        return True
+    @property
+    def web_tree(self) -> Path:
+        return self.web.tree
 
-    def gallery_up(self) -> bool:
+    def gallery_key(self, sha: str) -> str | None:
+        """SHA's gallery config (GALLERY_CONFIG's blob ids, read from the tree: no blob fetched), or None when the
+        clone cannot read it. Two commits with one key run on one vite without a restart."""
+        with self.galleries_lock:
+            if sha in self.gallery_keys:
+                return self.gallery_keys[sha]
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{self.gallery_port}/gallery/", timeout=3) as r:
-                return r.status == 200
-        except OSError:
-            return False
+            rows = git(self.clone, "ls-tree", "-r", sha, "--", "webviews/", "bun.lock").splitlines()
+        except LookError:
+            return None
+        picked = []
+        for row in rows:
+            path = row.split("\t", 1)[-1]
+            if any(path.startswith(p) if p.endswith("/") else fnmatch.fnmatchcase(path, p) for p in GALLERY_CONFIG):
+                picked.append(row)
+        key = hashlib.sha256("\n".join(sorted(picked)).encode()).hexdigest()[:16]
+        with self.galleries_lock:
+            self.gallery_keys[sha] = key
+        return key
 
-    def start_gallery(self) -> None:
-        if self.gallery is not None and self.gallery.poll() is None and self.gallery_up():
-            return
-        self.stop_gallery()
-        logf = open(self.state / "gallery-dev.log", "ab")
-        self.gallery = subprocess.Popen([self.bun(), "run", "gallery:dev"], cwd=self.web_tree / "webviews",
-                                        stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
-                                        env={**os.environ, "CMUX_GALLERY_DEV_PORT": str(self.gallery_port)})
-        deadline = time.monotonic() + GALLERY_UP_SECONDS
-        while time.monotonic() < deadline:
-            if self.gallery.poll() is not None:
-                raise LookError(f"gallery:dev exited {self.gallery.returncode} (see {self.state / 'gallery-dev.log'})")
-            if self.gallery_up():
-                return
-            time.sleep(0.5)
-        raise LookError(f"gallery:dev did not answer in {GALLERY_UP_SECONDS} s")
+    def gallery_for(self, sha: str, avoid: tuple = ()) -> "Gallery":
+        """The gallery to shoot SHA on: one already on SHA's config (its vite warm), else one not yet checked out,
+        else a new one up to GALLERIES, else the least recently used (its checkout restarts it). Never one in AVOID
+        while another is free: the look's other side holds it."""
+        key = self.gallery_key(sha)
+        with self.galleries_lock:
+            free = [g for g in self.galleries if g not in avoid]
+            pick = next((g for g in free if key is not None and g.key == key), None)
+            pick = pick or next((g for g in free if g.key is None), None)
+            if pick is None and len(self.galleries) < GALLERIES:
+                n = len(self.galleries) + 1
+                pick = Gallery(self, self.state / f"web-{n}", GALLERY_PORT + n - 1, f"web-{n}")
+                self.galleries.append(pick)
+            pick = pick or min(free or self.galleries, key=lambda g: g.used)
+            pick.used = time.monotonic()
+            return pick
 
     def stop_gallery(self) -> None:
-        if self.gallery is not None and self.gallery.poll() is None:
-            with _suppress():
-                os.killpg(self.gallery.pid, signal.SIGTERM)
-            with _suppress():
-                self.gallery.wait(10)
-        self.gallery = None
-
-    def web_scenes(self, files: list[str]) -> list[str]:
-        """The gallery entries touched.ts ranks first for FILES, at the head (the web tree's checkout)."""
-        changed = self.state / f"changed-{threading.get_ident()}.txt"
-        changed.write_text("\n".join(files) + "\n")
-        try:
-            out = run([self.bun(), "scripts/gallery/touched.ts", "--changed", str(changed)],
-                      cwd=self.web_tree / "webviews", timeout=120, what="touched.ts")
-        finally:
-            with _suppress():
-                changed.unlink()
-        touched = json.loads(out)
-        ranked = [r.get("id") for r in touched.get("ranked") or [] if isinstance(r, dict)]
-        return [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)][:WEB_CAP]
-
-    def shoot_gallery(self, entries: list[str], out: Path, absent: dict | None = None) -> dict:
-        """ENTRIES shot into OUT by the resident shooter (one chromium kept open between looks); when it fails, one
-        shooter run of its own (a cold chromium) before the look gives up. An entry in ABSENT ({entry: sha}) is
-        not in this checkout: its picture is a card saying so (file ABSENT_PREFIX...). {entry: file}."""
-        if out.exists():
-            shutil.rmtree(out)
-        out.mkdir(parents=True)
-        absent = absent or {}
-        spec = {"base": f"http://127.0.0.1:{self.gallery_port}/gallery/", "scheme": "dark", "out": str(out),
-                "try_ms": SHOT_TRY_S * 1000, "bound_ms": SHOT_BOUND_S * 1000,
-                "shots": [{"name": e, "entry": e, **({"absent": absent[e][:12]} if e in absent else {})}
-                          for e in entries]}
-        try:
-            rows = self.shoot_resident(spec)
-        except LookError as err:
-            log(f"the resident shooter: {err}; one cold shoot")
-            self.stop_shooter()
-            rows = self.shoot_once(spec, out)
-        shots = {}
-        for row in rows:
-            if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file():
-                shots[row["name"]] = row["file"]
-        if not shots and entries:
-            errors = [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
-            raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
-        return shots
-
-    def shoot_once(self, spec: dict, out: Path) -> list:
-        (out / "spec.json").write_text(json.dumps(spec))
-        try:
-            done = subprocess.run([self.bun(), str(HERE / "ui-preview-shoot.mjs"), str(out / "spec.json"), str(out)],
-                                  cwd=self.web_tree / "webviews", capture_output=True, text=True, timeout=SHOOT_SECONDS)
-        except subprocess.TimeoutExpired:
-            raise LookError(f"the gallery shoot ran past {SHOOT_SECONDS} s") from None
-        rows = []
-        for line in done.stdout.splitlines():
-            with _suppress():
-                rows.append(json.loads(line))
-        if not rows and done.returncode != 0:
-            raise LookError(f"the gallery shoot exited {done.returncode}: {tail(done.stderr or done.stdout)}")
-        return rows
-
-    def shoot_resident(self, spec: dict) -> list:
-        """One spec line to `ui-preview-shoot.mjs --serve` (started on first use, cwd the web tree's webviews/), one
-        answer line back: {"shots": [{name, file} | {name, error}]}."""
-        if self.shooter is None or self.shooter.poll() is not None:
-            self.shooter_lines = queue.Queue()
-            with open(self.state / "shooter.log", "ab") as logf:
-                self.shooter = subprocess.Popen([self.bun(), str(HERE / "ui-preview-shoot.mjs"), "--serve"],
-                                                cwd=self.web_tree / "webviews", stdin=subprocess.PIPE,
-                                                stdout=subprocess.PIPE, stderr=logf, text=True, start_new_session=True)
-            lines, stdout = self.shooter_lines, self.shooter.stdout
-
-            def pump() -> None:
-                for line in stdout:
-                    lines.put(line)
-                lines.put(None)
-
-            threading.Thread(target=pump, name="shooter-out", daemon=True).start()
-        try:
-            self.shooter.stdin.write(json.dumps(spec) + "\n")
-            self.shooter.stdin.flush()
-        except (OSError, ValueError) as err:
-            raise LookError(f"could not hand it the spec: {err}") from None
-        deadline = time.monotonic() + SHOOT_SECONDS
-        while True:
-            try:
-                line = self.shooter_lines.get(timeout=max(0.1, deadline - time.monotonic()))
-            except queue.Empty:
-                raise LookError(f"no answer in {SHOOT_SECONDS} s") from None
-            if line is None:
-                raise LookError(f"it exited {self.shooter.wait()} (see {self.state / 'shooter.log'})")
-            with _suppress():
-                answer = json.loads(line)
-                if isinstance(answer, dict) and isinstance(answer.get("shots"), list):
-                    return answer["shots"]
+        for g in list(self.galleries):
+            g.stop()
 
     def stop_shooter(self) -> None:
-        if self.shooter is not None and self.shooter.poll() is None:
-            with _suppress():
-                self.shooter.stdin.close()
-            with _suppress():
-                self.shooter.wait(10)
-            if self.shooter.poll() is None:
-                with _suppress():
-                    os.killpg(self.shooter.pid, signal.SIGTERM)
-        if self.shooter is not None and self.shooter.stdout is not None:
-            with _suppress():
-                self.shooter.stdout.close()
-        self.shooter = None
+        for g in list(self.galleries):
+            g.stop_shooter()
 
-    def web_side(self, sha: str, entries: list[str]) -> dict:
+    def web_side(self, sha: str, entries: list[str], gallery: "Gallery | None" = None) -> dict:
         cache = self.state / "shots" / "web" / sha
         have = {s: cache / f for s, f in self._cached(cache).items() if s in entries}
         want = [e for e in entries if e not in have]
         if want:
-            self.checkout_web(sha)
-            if self.web_install():
-                self.stop_gallery()
-                self.stop_shooter()
-            self.start_gallery()
-            # vite's watcher sees the checkout; a page loaded after it settles takes the new modules.
-            time.sleep(0.4)
-            fresh = cache.with_name(f".{sha}.{os.getpid()}.{threading.get_ident()}")
-            held = self.entry_ids()
-            absent = {e: sha for e in want if e not in held}
-            shots = self.shoot_gallery(want, fresh, absent)
+            g = gallery or self.gallery_for(sha)
+            with g.lock:
+                g.checkout(sha)
+                if g.install():
+                    g.stop()
+                    g.stop_shooter()
+                g.start()
+                # vite's watcher sees the checkout; a page loaded after it settles takes the new modules.
+                time.sleep(0.4)
+                fresh = cache.with_name(f".{sha}.{os.getpid()}.{threading.get_ident()}")
+                held = g.entry_ids()
+                absent = {e: sha for e in want if e not in held}
+                shots = g.shoot(want, fresh, absent)
             merged = {**self._cached(cache), **shots}
             cache.mkdir(parents=True, exist_ok=True)
             for name, rel in shots.items():
@@ -679,6 +769,35 @@ class Worker:
             shutil.rmtree(fresh, ignore_errors=True)
             have.update({s: cache / merged[s] for s in want if s in merged})
         return have
+
+    def web_sides(self, head: str, base: str, entries: list[str], g_head: "Gallery", stages: Stages) -> tuple:
+        """Both sides' shots. Sides on one gallery config shoot one after the other on one vite; sides on two configs
+        shoot at once, each on its own warm vite (a vite.config.ts push restarted one vite twice: 105 s)."""
+        g_base = g_head if self.gallery_key(base) in (None, g_head.key) else self.gallery_for(base, avoid=(g_head,))
+        if g_base is g_head:
+            with stages("web_after"):
+                after = self.web_side(head, entries, g_head)
+            with stages("web_before"):
+                before = self.web_side(base, entries, g_base)
+            return before, after
+        got: dict = {}
+
+        def side(name: str, sha: str, g: "Gallery") -> None:
+            try:
+                with stages(name):
+                    got[name] = self.web_side(sha, entries, g)
+            except LookError as err:
+                got[name] = err
+
+        other = threading.Thread(target=side, args=("web_before", base, g_base), name=f"before-{base[:8]}",
+                                 daemon=True)
+        other.start()
+        side("web_after", head, g_head)
+        other.join()
+        for name in ("web_after", "web_before"):
+            if isinstance(got.get(name), LookError):
+                raise got[name]
+        return got["web_before"], got["web_after"]
 
     # Warm-up: the clone, both trees at the base tip, the shell's .build, node_modules, the gallery and the shooter's
     # chromium, with one entry shot at the tip (vite has compiled the gallery; the shot is the next push's before).
@@ -701,15 +820,25 @@ class Worker:
                 errors.append(f"swift: {err}")
         if web:
             try:
-                with stages("web"):
-                    self.checkout_web(tip)
-                    self.web_install()
-                    self.start_gallery()
+                g = self.web
+                with stages("web"), g.lock:
+                    g.checkout(tip)
+                    g.install()
+                    g.start()
                 with stages("web_preshoot"):
                     # A change to the gallery itself touches every entry: the first one ranked is a real entry.
-                    entries = self.web_scenes(["webviews/src/gallery/warm"])[:1]
+                    entries = g.scenes(["webviews/src/gallery/warm"])[:1]
                     if entries:
-                        self.web_side(tip, entries)
+                        self.web_side(tip, entries, g)
+                with stages("web_spare"):
+                    # The spare galleries' trees and node_modules at the tip: a push that changes the gallery config
+                    # checks one out and starts its vite (deps cache seeded), with no worktree add or cold install.
+                    while len(self.galleries) < GALLERIES:
+                        spare = self.gallery_for(tip, avoid=tuple(self.galleries))
+                        with spare.lock:
+                            spare.checkout(tip)
+                            spare.install()
+                            spare.seed_deps()
             except LookError as err:
                 errors.append(f"web: {err}")
         return {"tip": tip, "stages": stages.seconds, "errors": errors}
@@ -800,25 +929,23 @@ class Worker:
         if planned["web"]:
             try:
                 began = time.monotonic()
-                with self.lock:  # the one web tree and gallery: one look's checkouts and shots at a time
-                    stages.seconds["web_wait"] = round(time.monotonic() - began, 3)
-                    with stages("web_plan"):
-                        self.checkout_web(head)
-                        if self.web_install():
-                            self.stop_gallery()
-                            self.stop_shooter()
+                g = self.gallery_for(head)
+                with stages("web_plan"):
+                    with g.lock:  # the head's gallery: its checkout and touched.ts, then each side under its own lock
+                        stages.seconds["web_wait"] = round(time.monotonic() - began, 3)
+                        g.checkout(head)
+                        if g.install():
+                            g.stop()
+                            g.stop_shooter()
                         web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
-                        entries = self.web_scenes(web_files)
-                    receipt["web_entries"] = entries
-                    if entries:
-                        # Head first: its tree is checked out already; the base is often cached (the last push's head).
-                        with stages("web_after"):
-                            after = self.web_side(head, entries)
-                        with stages("web_before"):
-                            before = self.web_side(base, entries)
-                        pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
-                    else:
-                        errors.append("web: touched.ts names no gallery entry for these files")
+                        entries = g.scenes(web_files)
+                receipt["web_entries"] = entries
+                if entries:
+                    # Head first: its tree is checked out already; the base is often cached (the last push's head).
+                    before, after = self.web_sides(head, base, entries, g, stages)
+                    pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
+                else:
+                    errors.append("web: touched.ts names no gallery entry for these files")
             except LookError as err:
                 errors.append(f"web: {err}")
         with stages("publish"):
@@ -1011,7 +1138,7 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             path = self.path.split("?", 1)[0]
             if path == "/health":
                 return self.reply(200, {"ok": True, "host": worker.host, "queued": jobs.qsize(),
-                                        "gallery": worker.gallery_up()})
+                                        "gallery": worker.web.up()})
             if path == "/receipts":
                 try:
                     return self.reply(200, worker.receipts_path.read_bytes())

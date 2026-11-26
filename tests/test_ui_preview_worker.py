@@ -100,13 +100,13 @@ class FakeWorker(w.Worker):
     def prefetch(self, req):
         self.prefetched.append((req["head_sha"], req["base_sha"]))
 
-    def web_install(self):
-        return False
+    def gallery_for(self, sha, avoid=()):
+        g = self.web
+        g.install = lambda: False
+        g.scenes = lambda files: ["entry.a"]
+        return g
 
-    def web_scenes(self, files):
-        return ["entry.a"]
-
-    def web_side(self, sha, entries):
+    def web_side(self, sha, entries, gallery=None):
         out = self.state / "shots" / "web" / sha
         out.mkdir(parents=True, exist_ok=True)
         self.shot.append(f"web:{sha}")
@@ -394,8 +394,8 @@ for line in sys.stdin:
             (worker.web_tree / "webviews").mkdir(parents=True)
             worker.bun = lambda: str(fake)
             try:
-                self.assertEqual(worker.shoot_gallery(["a.b"], Path(tmp) / "one"), {"a.b": "a.b.png"})
-                self.assertEqual(worker.shoot_gallery(["c"], Path(tmp) / "two"), {"c": "c.png"})
+                self.assertEqual(worker.web.shoot(["a.b"], Path(tmp) / "one"), {"a.b": "a.b.png"})
+                self.assertEqual(worker.web.shoot(["c"], Path(tmp) / "two"), {"c": "c.png"})
                 self.assertEqual(launches.read_text(), "x")
             finally:
                 worker.stop_shooter()
@@ -457,15 +457,16 @@ class StallTests(unittest.TestCase):
             three = commit(worker.clone, {"webviews/vite.config.ts": "b"})
             four = commit(worker.clone, {"webviews/dev-server/galleryHost.ts": "c"})
             stops = []
-            worker.stop_gallery = lambda: stops.append(1)
-            worker.checkout_web(one)  # first checkout: nothing ran on another config
-            worker.checkout_web(two)
+            g = worker.web
+            g.stop = lambda: stops.append(1)
+            g.checkout(one)  # first checkout: nothing ran on another config
+            g.checkout(two)
             self.assertEqual(stops, [])
-            worker.checkout_web(three)
+            g.checkout(three)
             self.assertEqual(stops, [1])
-            worker.checkout_web(four)
+            g.checkout(four)
             self.assertEqual(stops, [1, 1])
-            worker.checkout_web(four)
+            g.checkout(four)
             self.assertEqual(stops, [1, 1])
 
     def test_an_entry_the_side_lacks_is_a_card_not_a_60_s_wait(self):
@@ -475,10 +476,12 @@ class StallTests(unittest.TestCase):
             src.mkdir(parents=True)
             (src / "a.gallery.tsx").write_text('const o = { id: "nested.option" };\nexport default { id: "held.a" };\n')
             (src / "b.gallery.ts").write_text('export default define({ id: "held.b", title: "B" });\n')
-            self.assertEqual(worker.entry_ids(), {"held.a", "held.b"})
-            worker.checkout_web = lambda sha: None
-            worker.web_install = lambda: False
-            worker.start_gallery = lambda: None
+            g = worker.web
+            self.assertEqual(g.entry_ids(), {"held.a", "held.b"})
+            g.checkout = lambda sha: None
+            g.install = lambda: False
+            g.start = lambda: None
+            worker.gallery_for = lambda sha, avoid=(): g
             seen = {}
 
             def shoot(entries, out, absent=None):
@@ -490,7 +493,7 @@ class StallTests(unittest.TestCase):
                     (out / files[e]).write_bytes(b"png")
                 return files
 
-            worker.shoot_gallery = shoot
+            g.shoot = shoot
             got = worker.web_side(BASE, ["held.a", "new.c"])
             self.assertEqual(seen, {"new.c": BASE})
             self.assertTrue(got["new.c"].name.startswith(w.ABSENT_PREFIX))
@@ -500,7 +503,7 @@ class StallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
 
-            def web_side(sha, entries):
+            def web_side(sha, entries, gallery=None):
                 out = worker.state / "shots" / "web" / sha
                 out.mkdir(parents=True, exist_ok=True)
                 name = (w.ABSENT_PREFIX if sha == BASE else "") + "entry.a.png"
@@ -515,6 +518,63 @@ class StallTests(unittest.TestCase):
             self.assertNotIn("after_absent", scene)
             [sent] = list((Path(tmp) / "outbox").iterdir())
             self.assertIn("new: not in the base", sent.read_text())
+
+
+class ConfigPushTests(unittest.TestCase):
+    """A push that changes the gallery config (vite.config.ts) restarted the one vite for each side, and each restart
+    recompiled the pages cold: 105 s. Now each config keeps its own warm gallery, and the two sides shoot at once."""
+
+    def test_sides_on_two_configs_shoot_at_once_on_two_galleries_and_restart_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            class ConfigWorker(FakeWorker):
+                web_side = w.Worker.web_side
+                gallery_for = w.Worker.gallery_for
+                ensure_tree = w.Worker.ensure_tree
+
+                def on_branch_tip_or_landed(self, head, branch):
+                    return True
+
+            worker = ConfigWorker(Path(tmp))
+            worker.clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(worker.clone)], check=True)
+            base = commit(worker.clone, {"webviews/vite.config.ts": "a", "webviews/src/a.tsx": "1"})
+            head = commit(worker.clone, {"webviews/vite.config.ts": "b", "webviews/src/a.tsx": "2"})
+            head2 = commit(worker.clone, {"webviews/src/a.tsx": "3"})
+            self.assertNotEqual(worker.gallery_key(base), worker.gallery_key(head))
+            self.assertEqual(worker.gallery_key(head), worker.gallery_key(head2))
+            both_shooting = threading.Barrier(2, timeout=10)
+            events = []
+            saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scenes", "shoot")}
+
+            def shoot(g, entries, out, absent=None):
+                events.append(("shoot", g.name, g.key))
+                if len(events) <= 2:
+                    both_shooting.wait()  # the first look: both sides must be shooting at once
+                out.mkdir(parents=True, exist_ok=True)
+                for e in entries:
+                    (out / f"{e}.png").write_bytes(g.key.encode())
+                return {e: f"{e}.png" for e in entries}
+
+            w.Gallery.install = lambda g: False
+            w.Gallery.start = lambda g: events.append(("start", g.name))
+            w.Gallery.stop = lambda g: events.append(("stop", g.name))
+            w.Gallery.scenes = lambda g, files: ["entry.a"]
+            w.Gallery.shoot = shoot
+            try:
+                first = worker.look(request(head_sha=head, base_sha=base, ui_files=["webviews/src/a.tsx"]))
+                self.assertIsNotNone(first["posted_at"], first.get("error"))
+                second = worker.look(request(head_sha=head2, base_sha=base, ui_files=["webviews/src/a.tsx"]))
+                self.assertIsNotNone(second["posted_at"], second.get("error"))
+            finally:
+                for k, v in saved.items():
+                    setattr(w.Gallery, k, v)
+            shots = [e for e in events if e[0] == "shoot"]
+            self.assertEqual({(n, k) for _, n, k in shots[:2]},
+                             {("web", worker.gallery_key(head)), ("web-2", worker.gallery_key(base))})
+            self.assertEqual(shots[2:], [("shoot", "web", worker.gallery_key(head))])  # base cached; head2 warm
+            self.assertNotIn("stop", [e[0] for e in events], events)
+            self.assertEqual(len(worker.galleries), 2)
+            self.assertNotEqual(worker.galleries[0].port, worker.galleries[1].port)
 
 
 if __name__ == "__main__":
