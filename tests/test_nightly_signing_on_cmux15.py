@@ -69,8 +69,8 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        # Eight since #49284 added sign-live-code-variant.
-        self.assertEqual(len(JOBS), 8)
+        # Eight since #49284 added sign-live-code-variant; nine since RFD 0134 cut 2 (#54859) added nightly-next-pkg.
+        self.assertEqual(len(JOBS), 9)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)

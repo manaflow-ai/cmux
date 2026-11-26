@@ -423,8 +423,13 @@ def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
 
 
 def rescued_paths() -> set[str]:
-    """The workflows ci-owned-pool-rescue.yml watches: a queue on an owned label there is re-dispatched."""
-    return set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split())
+    """The workflows ci-owned-pool-rescue.yml watches: a queue on an owned label there is re-dispatched. Also
+    owned_pool_rescue.UNRESCUED_WORKFLOW_PATHS' keys: a manual run the rescue leaves to a person, each with its
+    reason there (tests/test_ci_owned_pool_sources.py checks that table); its route still needs the attempt gate
+    and the last alternative off the owned pools, so the person's re-run leaves the queue."""
+    import owned_pool_sources  # scripts/ci, on sys.path above
+    source = (ROOT / owned_pool_sources.RESCUE_SCRIPT).read_text(encoding="utf-8")
+    return set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split()) | owned_pool_sources.unrescued_paths(source)
 
 
 def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
