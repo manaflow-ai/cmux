@@ -401,7 +401,11 @@ fn the_vaults_answer_must_match_its_fingerprint() {
         ("leo-cmux", 3, "c3RhdGU=")
     );
     answer["stateBase64"] = json!("b3RoZXI=");
-    assert!(vault::parse_node(&answer).unwrap_err().contains("fingerprint"));
+    // KeptNode carries the node's state, so it has no Debug for unwrap_err to print.
+    let Err(why) = vault::parse_node(&answer) else {
+        panic!("a node with a changed fingerprint must not parse");
+    };
+    assert!(why.contains("fingerprint"));
     answer["stateBase64"] = json!("");
     assert!(vault::parse_node(&answer).is_err());
 }
