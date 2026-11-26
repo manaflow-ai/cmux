@@ -51,7 +51,9 @@ package struct CloudStartSessionRequest: Equatable {
 
     package var destinationName: String { name ?? "cloud-chats" }
 
-    @MainActor package func preflight(setup: CloudSetup, scheme: String, refreshNamed: @MainActor () async throws -> Void = {},
+    @MainActor package static func skipNamedRefresh() async {}
+
+    @MainActor package func preflight(setup: CloudSetup, scheme: String, refreshNamed: @MainActor () async throws -> Void = Self.skipNamedRefresh,
                                      heldRefusal: (String) -> String? = { _ in nil }) async throws -> Self {
         if agent == "claude", machineID == nil, name != nil { try await refreshNamed() }
         let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: machineID, name: machineID == nil ? name : nil).first : nil
