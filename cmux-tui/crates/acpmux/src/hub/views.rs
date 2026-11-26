@@ -776,26 +776,34 @@ impl Hub {
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
         let notice = turn.as_ref().is_some_and(|t| t.notice);
         let lineage = crate::dt!("lineage", self.lineage_of(&m));
-        let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
+        let stall_after =
+            crate::dt!("stall_cfg", self.config.try_read().ok().and_then(|c| c.stalled_turn()));
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) =
             crate::dt!("retry_row", self.retry_row(session, m.last_turn.as_ref()));
         let loop_episode = if m.status == SessionStatus::Closed
             || turn.as_ref().is_none_or(|current| {
-                session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                crate::dt!("stalled_counted", session.stalled_counted.lock())
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_deref()
                     != Some(current.turn_id.as_str())
             }) {
             None
         } else {
-            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+            crate::dt!("loop_detector", session.loop_detector.lock())
+                .unwrap_or_else(|e| e.into_inner())
+                .active()
+                .cloned()
         };
         // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
         // running turn and is reported separately as `loopEpisode`.
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
-            session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+            crate::dt!("stopping", session.stopping.lock())
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref()
                 == Some(t.turn_id.as_str())
         });
         let summary = SessionSummary {
@@ -1024,7 +1032,7 @@ impl Hub {
             // A detail/attach read seeds this lazily; census rows never scan journals.
             time_breakdown: match (with_tools, change_row) {
                 (false, _) => None,
-                (true, false) => self.cached_time_breakdown(session),
+                (true, false) => crate::dt!("time_bd", self.cached_time_breakdown(session)),
                 (true, true) => session
                     .time_breakdown
                     .lock()
@@ -1040,7 +1048,8 @@ impl Hub {
             m.agent_session_id.clone(),
             self.started_at,
         );
-        let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        let mut summary =
+            crate::dt!("to_value", serde_json::to_value(summary).unwrap_or(Value::Null));
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
         // Where its journal's own recovery at the end begins, while it ends the journal: the
@@ -1051,7 +1060,7 @@ impl Hub {
         }
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        summary.set("gitBranch", json!(crate::dt!("git_branch", self.git_branch_now(&m))));
         // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
@@ -1073,30 +1082,44 @@ impl Hub {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        summary.set(
+            "subagentsWorkingSince",
+            json!(crate::dt!("work_below_since", self.work_below_since(session))),
+        );
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
-        summary.set("heldMessages", super::native_messaging::held_messages(session));
+        summary.set(
+            "heldMessages",
+            crate::dt!("held_messages", super::native_messaging::held_messages(session)),
+        );
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
         // a message past its deadline red, from this field in one `ls` call.
-        let (overdue, due_at) = super::inbox::deadline_row(session);
+        let (overdue, due_at) = crate::dt!("deadline_row", super::inbox::deadline_row(session));
         summary.set("inboxOverdue", json!(overdue));
         summary.set("inboxDueAt", json!(due_at));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
-        let waiting = self.subsessions_waiting(session);
+        let waiting = crate::dt!("subs_waiting", self.subsessions_waiting(session));
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
         summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
         let turn_runs = summary.get("turn").is_some_and(Value::is_object);
-        let work = running_work(session, turn_runs, self.running_processes_read(session));
+        let work = crate::dt!(
+            "running_work",
+            running_work(
+                session,
+                turn_runs,
+                crate::dt!("procs_read", self.running_processes_read(session))
+            )
+        );
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         // Its latest subagents, live and finished, and how many it started: the sidebar nests them
         // under the chat's row (`subagents_recent.rs`; Leo 2026-11-19: "the nested sessions").
         // A chat that never started one carries neither key, so its row costs what it did.
         {
-            let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            let tree = crate::dt!("subagents", session.subagents.lock())
+                .unwrap_or_else(|e| e.into_inner());
             if tree.seen() > 0 {
                 summary.set("recentSubagents", json!(tree.recent(turn_runs)));
                 summary.set("subagentsSeen", json!(tree.seen()));
@@ -1105,7 +1128,7 @@ impl Hub {
         summary.set("commandsRunning", json!(work.commands));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
-        let host_build = host_build::live_host_build(session);
+        let host_build = crate::dt!("host_build", host_build::live_host_build(session));
         summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
         summary.set("hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
@@ -1123,7 +1146,8 @@ impl Hub {
             ),
         );
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
-        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let limits = *crate::dt!("usage_limits", self.usage_limits.lock())
+            .unwrap_or_else(|e| e.into_inner());
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);

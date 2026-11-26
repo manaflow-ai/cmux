@@ -796,7 +796,7 @@ impl Hub {
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         if !table.loaded {
-            *table = self.read_processes(session);
+            *table = crate::dt!("HOLD_process_table_read", self.read_processes(session));
         }
         table
     }
