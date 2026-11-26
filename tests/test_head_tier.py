@@ -581,6 +581,149 @@ class LandCarryTests(BranchRepo):
                 os.environ["CI_LAND_FULL_PER_PR"] = saved
 
 
+class FullTierCapTests(unittest.TestCase):
+    """The full-tier cap: once earlier heads of a PR ran the full tier CI_FULL_TIER_CAP times, a push that is not
+    landing runs the cheap tier; the label events and landing keep the full tier; 0 turns it off."""
+
+    def push(self, labels: tuple[str, ...] = ("full-ci",), action: str = "synchronize") -> dict:
+        ev = land_event(labels=labels, action=action)
+        ev["before"] = "b" * 40
+        ev["pull_request"]["head"]["sha"] = "c" * 40
+        return ev
+
+    def tier(self, ev: dict, full_before: int | None, cap: str = "2", **switches: str) -> tuple[str, str]:
+        return head_tier.tier("pull_request", ev, land_switch=switches.pop("land", "1"), cap_switch=cap,
+                              full_before=full_before, **switches)
+
+    def test_cap_reached_runs_the_cheap_tier_and_says_why(self) -> None:
+        decided = self.tier(self.push(), 2)
+        self.assertEqual(decided[0], "cheap")
+        self.assertTrue(head_tier.capped(decided))
+        self.assertIn("full tier 2 times", decided[1])
+        self.assertIn("CI_FULL_TIER_CAP=2", decided[1])
+        with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+            self.assertEqual(pr_router.land_status(self.push(), decided), "pending")
+        self.assertEqual(self.tier(self.push(), 5)[0], "cheap")
+
+    def test_under_the_cap_or_uncounted_runs_the_full_tier_and_logs_the_count(self) -> None:
+        for count in (0, 1):
+            decided = self.tier(self.push(), count)
+            self.assertEqual(decided[0], "full", count)
+            self.assertIn(f"{count} earlier full-tier heads", decided[1])
+        decided = self.tier(self.push(), None)
+        self.assertEqual(decided[0], "full")
+        self.assertIn("not counted", decided[1])
+
+    def test_labelled_events_landing_heads_and_other_prs_keep_their_tier(self) -> None:
+        # Adding full-ci or ready-to-land (a labeled event) runs the full tier, whatever the count.
+        for added in ("full-ci", "ready-to-land"):
+            ev = self.push(labels=(added,), action="labeled")
+            ev["label"] = {"name": added}
+            self.assertEqual(self.tier(ev, 9, land_full_switch="1")[0], "full", added)
+        # A landing head is the land's: the cap never holds it (here CI_LAND_FULL_PER_PR=1, so it is full).
+        self.assertEqual(self.tier(self.push(labels=("ready-to-land", "full-ci")), 9, land_full_switch="1")[0],
+                         "full")
+        # A fork and another base have no cmux/land-tier status to count on: unchanged.
+        fork = self.push()
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(self.tier(fork, 9)[0], "full")
+        main = self.push()
+        main["pull_request"]["base"]["ref"] = "main"
+        self.assertEqual(self.tier(main, 9)[0], "full")
+        # An unlabelled ready push is already cheap by the land rule; the cap does not touch that answer.
+        decided = self.tier(self.push(labels=()), 9)
+        self.assertEqual(decided[0], "cheap")
+        self.assertFalse(head_tier.capped(decided))
+
+    def test_switch_zero_or_land_rule_off_is_the_old_behaviour(self) -> None:
+        for cap in ("0", "", "off"):
+            self.assertEqual(self.tier(self.push(), 9, cap=cap), head_tier._tier(
+                "pull_request", self.push(), land_switch="1"), cap)
+        self.assertEqual(self.tier(self.push(), 9, land="0")[0], "full")
+
+    def test_the_count_rides_on_the_land_tier_description(self) -> None:
+        self.assertEqual(head_tier.full_count_in({"state": "success", "description": "full-tier heads: 3. The"}), 3)
+        self.assertIsNone(head_tier.full_count_in({"state": "success", "description": "The full tier runs"}))
+        self.assertIsNone(head_tier.full_count_in(None))
+        self.assertIsNone(head_tier.full_count_in({}))
+
+    def test_decide_reads_the_previous_status_once_and_the_router_counts_on(self) -> None:
+        calls = []
+        statuses = {"b" * 40: {"state": "success", "description": "full-tier heads: 2. The land's tier"}}
+        real = head_tier.head_facts, head_tier.land_entry_at
+        names = ("CI_LAND_TIER", "CI_FULL_TIER_CAP", "GITHUB_REPOSITORY", "GH_TOKEN")
+        old = {n: os.environ.get(n) for n in names}
+
+        def entry(repo: str, sha: str, token: str) -> dict | None:
+            if sha in head_tier._STATUS_CACHE:  # the real reader's cache: one read per SHA
+                return head_tier._STATUS_CACHE[sha]
+            calls.append(sha)
+            head_tier._STATUS_CACHE[sha] = statuses.get(sha, {})
+            return head_tier._STATUS_CACHE[sha]
+
+        try:
+            os.environ.update(CI_LAND_TIER="1", GITHUB_REPOSITORY="manaflow-ai/cmux", GH_TOKEN="t")
+            os.environ.pop("CI_FULL_TIER_CAP", None)  # unset: the default cap, 2
+            head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None, "by_github": False}
+            head_tier.land_entry_at = entry
+            head_tier._STATUS_CACHE.clear()
+            decided = head_tier.decide("pull_request", self.push())
+            self.assertTrue(head_tier.capped(decided), decided)
+            self.assertEqual(calls, ["b" * 40])
+            # The capped head carries the count forward unchanged, without another read.
+            self.assertEqual(head_tier.full_count(self.push(), decided), 2)
+            self.assertEqual(calls, ["b" * 40])
+            # Under the cap: full, and the router writes one more.
+            statuses["b" * 40] = {"state": "success", "description": "full-tier heads: 1. The land's tier"}
+            head_tier._STATUS_CACHE.clear()
+            calls.clear()
+            decided = head_tier.decide("pull_request", self.push())
+            self.assertEqual(decided[0], "full", decided)
+            self.assertEqual(head_tier.full_count(self.push(), decided), 2)
+            self.assertEqual(calls, ["b" * 40])
+            # Switch 0: no read, the old answer.
+            os.environ["CI_FULL_TIER_CAP"] = "0"
+            head_tier._STATUS_CACHE.clear()
+            calls.clear()
+            self.assertEqual(head_tier.decide("pull_request", self.push())[0], "full")
+            self.assertEqual(calls, [])
+            # An unlabelled push is cheap by the land rule: nothing is read, and no count is written.
+            os.environ["CI_FULL_TIER_CAP"] = "2"
+            decided = head_tier.decide("pull_request", self.push(labels=()))
+            self.assertEqual(decided[0], "cheap")
+            self.assertEqual(calls, [])
+            self.assertIsNone(head_tier.full_count(self.push(labels=()), decided))
+        finally:
+            head_tier.head_facts, head_tier.land_entry_at = real
+            head_tier._STATUS_CACHE.clear()
+            for n, v in old.items():
+                if v is None:
+                    os.environ.pop(n, None)
+                else:
+                    os.environ[n] = v
+
+    def test_a_capped_head_routes_no_full_tier_step_despite_full_ci(self) -> None:
+        callees = {"pr-pipeline.yml": {"types": ["synchronize"], "draft": True, "table_jobs": ["linux", "rust"]}}
+        capped = self.tier(self.push(), 2)
+        with unittest.mock.patch.object(pr_router, "table_steps", side_effect=lambda *a, **k: calls.append(k) or []), \
+                unittest.mock.patch.object(pr_router, "matches_filter", return_value=True), \
+                unittest.mock.patch.object(pr_router, "affects", return_value=True):
+            calls: list = []
+            pr_router.route(self.push(), callees, ["scripts/ci/head_tier.py"], decided=capped)
+            self.assertEqual(calls, [{"full": False, "full_ci": False}])
+            calls.clear()
+            pr_router.route(self.push(), callees, ["scripts/ci/head_tier.py"], decided=self.tier(self.push(), 1))
+            self.assertEqual(calls, [{"full": True, "full_ci": True}])
+
+    def test_every_workflow_that_decides_the_tier_reads_the_switch(self) -> None:
+        for name in ("ci.yml", "pr-router.yml", "cmux-next.yml"):
+            text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / name).read_text()
+            self.assertIn("CI_FULL_TIER_CAP: ${{ vars.CI_FULL_TIER_CAP || '2' }}", text, name)
+        router = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pr-router.yml").read_text()
+        self.assertIn("FULL_COUNT: ${{ steps.route.outputs.full_count }}", router)
+        self.assertIn('desc="full-tier heads: $FULL_COUNT. $desc"', router)
+
+
 class GreenPreviousTests(unittest.TestCase):
     """green_previous over the Actions runs API's workflow_runs."""
 

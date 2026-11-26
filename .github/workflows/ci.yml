@@ -293,6 +293,9 @@ jobs:
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # Once earlier heads of a PR ran the full tier this many times, a push that is not landing runs the cheap
+          # tier (head_tier.py's full-tier cap, counted on cmux/land-tier); 0 turns that off.
+          CI_FULL_TIER_CAP: ${{ vars.CI_FULL_TIER_CAP || '2' }}
           # The previous head's Actions runs (actions: read), for that rule.
           GH_TOKEN: ${{ github.token }}
         run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi

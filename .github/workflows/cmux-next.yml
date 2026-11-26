@@ -1004,6 +1004,9 @@ jobs:
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          # Once earlier heads of a PR ran the full tier this many times, a push that is not landing runs the cheap
+          # tier (head_tier.py's full-tier cap, counted on cmux/land-tier); 0 turns that off.
+          CI_FULL_TIER_CAP: ${{ vars.CI_FULL_TIER_CAP || '2' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       # Why: 2026-11-24-path_route-3.md
       - name: Jobs red on the base right now

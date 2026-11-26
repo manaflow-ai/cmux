@@ -69,12 +69,27 @@ head's update-branch re-ran the whole full tier only to re-prove the change its 
 status or runs answer, a run still going, a red one, a commit of its own or `full-ci` keeps the full tier. Leo:
 "de facto, im asking for 99% fewer minutes of ci time, period."
 
+Full-tier cap (goal ci-min-per-pr-140): once earlier heads of a pull request into feat-cmux-next have run the full
+tier CI_FULL_TIER_CAP times (default 2), a later push (`synchronize`) that is not landing (`ready-to-land`) and would
+otherwise get the full tier gets the cheap tier, and `cmux/land-tier` stays pending. On base that is mostly a push onto
+a PR that keeps a sticky `full-ci` label: on 11-25T13..11-26T13, 644k of 1.23M cmux CI minutes a day went to pushes
+onto open PRs into feat-cmux-next, and the oldest of them (#40030, #56435, #38569) carried `full-ci` for days and
+re-ran the full tier on every push (4-5k min/day each). Adding `ready-to-land` or `full-ci` (a `labeled` event)
+still runs the full tier at that head, and land gets its verdict as before (the hourly full tier rule or, with
+CI_LAND_FULL_PER_PR=1, the landing head's own full tier). The count rides on the `cmux/land-tier` status itself:
+pr-router.yml writes "full-tier heads: K" into its description (K counts this head when it ran the full tier), and
+the next push reads the status at the push's `before` commit: one read of the combined status, cached and shared
+with the land carry rule, made only when the cap can change the answer. An unread status, a head with no count
+(not routed into feat-cmux-next, or a cheap head nobody counted) keeps the usual tier. Leo, 2026-11-21: "whatever we
+need to cut, we cut. whatever we can reuse, we reuse."
+
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off; CI_LAND_CARRY=0 turns the land carry rule
 off (a landing base merge runs the full tier again); CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
-landing head runs the full tier again). Stdlib only; anything unreadable gives
+landing head runs the full tier again); CI_FULL_TIER_CAP=0 turns the full-tier cap off (any number turns it on at
+that many full-tier heads). Stdlib only; anything unreadable gives
 `full`.
 """
 
@@ -102,6 +117,10 @@ GREEN = frozenset({"success", "skipped", "neutral"})
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 # Seconds the previous head's verdict may take before the head keeps its usual tier.
 VERDICT_SECONDS = 20.0
+CAP_REASON = "full-tier cap"  # the full-tier cap's reason prefix
+DEFAULT_CAP = "2"  # CI_FULL_TIER_CAP when the variable is unset (the workflows pass `vars.CI_FULL_TIER_CAP || '2'`)
+# How the full-tier count rides on the cmux/land-tier status description (pr-router.yml writes it).
+FULL_COUNT = re.compile(r"full-tier heads: (\d+)")
 
 
 def base_merge_message(base: str) -> re.Pattern:
@@ -176,11 +195,16 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
     return data["workflow_runs"]
 
 
-def land_status_at(repo: str, sha: str, token: str) -> str | None:
-    """The state of the `cmux/land-tier` commit status at SHA (success, pending, ...), "" when it has none, or None
-    when it cannot be read."""
+_STATUS_CACHE: dict = {}
+
+
+def land_entry_at(repo: str, sha: str, token: str) -> dict | None:
+    """The `cmux/land-tier` commit status at SHA ({"state", "description", ...}), {} when it has none, or None when it
+    cannot be read. Read once per SHA per process (the land carry rule and the full-tier cap share the answer)."""
     if not (re.fullmatch(r"[\w.-]+/[\w.-]+", repo) and re.fullmatch(r"[0-9a-f]{40}", sha) and token):
         return None
+    if sha in _STATUS_CACHE:
+        return _STATUS_CACHE[sha]
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
         import deadline_http  # the router's sparse checkout carries it beside this file
@@ -190,12 +214,77 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
         status, body, _ = deadline_http.request(req, VERDICT_SECONDS)
         data = json.loads(body) if status == 200 else None
     except Exception:  # fail open: an unread status keeps the full tier
+        data = None
+    entry = None
+    if isinstance(data, dict) and isinstance(data.get("statuses"), list):
+        # The combined status lists each context's newest status once.
+        entry = next((item for item in data["statuses"]
+                      if isinstance(item, dict) and item.get("context") == LAND_STATUS), {})
+    _STATUS_CACHE[sha] = entry
+    return entry
+
+
+def land_status_at(repo: str, sha: str, token: str) -> str | None:
+    """The state of the `cmux/land-tier` commit status at SHA (success, pending, ...), "" when it has none, or None
+    when it cannot be read."""
+    entry = land_entry_at(repo, sha, token)
+    return None if entry is None else str(entry.get("state") or "")
+
+
+def full_count_in(entry: dict | None) -> int | None:
+    """The full-tier heads a `cmux/land-tier` status counts ("full-tier heads: K" in its description), None when it
+    was not read or carries no count."""
+    if not entry:
         return None
-    if not isinstance(data, dict) or not isinstance(data.get("statuses"), list):
+    match = FULL_COUNT.search(str(entry.get("description") or ""))
+    return int(match.group(1)) if match else None
+
+
+def cap_value(cap_switch: str | None) -> int:
+    """CI_FULL_TIER_CAP as a number: 0 (off) for "0", empty or anything that is not a whole number."""
+    text = (cap_switch or "").strip()
+    return int(text) if text.isdigit() else 0
+
+
+def cap_applies(event: dict, cap_switch: str = "0", land_switch: str = "0") -> bool:
+    """Whether the full-tier cap can hold EVENT's head (before reading the count): a push (`synchronize`) into
+    feat-cmux-next from this repository (land_rule_applies, the PRs whose heads carry `cmux/land-tier`), not landing
+    (no `ready-to-land`), with the cap and the land rule on."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    return (cap_value(cap_switch) > 0 and (land_switch or "0").strip() not in ("0", "")
+            and event.get("action") == "synchronize" and land_rule_applies(event) and LAND_LABEL not in labels)
+
+
+def previous_sha(event: dict) -> str:
+    """The pull request's head before this push (a `synchronize` payload's `before`), "" when there is none."""
+    before = str(event.get("before") or "")
+    return before if re.fullmatch(r"[0-9a-f]{40}", before) and before != "0" * 40 else ""
+
+
+def full_count(event: dict, decided: tuple[str, str]) -> int | None:
+    """The "full-tier heads: K" pr-router.yml writes on this head's `cmux/land-tier` status: the count read at the
+    previous head (or this head's own status, for a label event on the same head) plus one when DECIDED is the full
+    tier. None (no count written) when the land rule does not apply, or a cheap head's count was never read (only
+    the cap reads it on a cheap head; reading it on every cheap push would cost a call per push)."""
+    if not land_rule_applies(event):
         return None
-    states = [str(item.get("state") or "") for item in data["statuses"]
-              if isinstance(item, dict) and item.get("context") == LAND_STATUS]
-    return states[0] if states else ""  # the combined status lists each context's newest status once
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    before = previous_sha(event)
+    full = decided[0] == "full"
+    if before:
+        if not full and before not in _STATUS_CACHE:
+            return None
+        prior = full_count_in(land_entry_at(repo, before, token))
+        return (prior or 0) + (1 if full else 0)
+    if not full:
+        return None
+    head = str(((event.get("pull_request") or {}).get("head") or {}).get("sha") or "")
+    entry = land_entry_at(repo, head, token) or {}
+    prior = full_count_in(entry) or 0
+    # This head's own count already includes it when an earlier run here ran the full tier.
+    return prior if entry.get("state") == "success" and prior else prior + 1
 
 
 def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0") -> bool:
@@ -224,6 +313,12 @@ def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = 
             and not labels & {FULL_CI, LAND_LABEL})
 
 
+def capped(decided: tuple[str, str] | None) -> bool:
+    """Whether DECIDED is the full-tier cap's cheap tier: a sticky `full-ci` label no longer makes that head full (the
+    router routes its steps as on any cheap head)."""
+    return bool(decided) and decided[0] == "cheap" and str(decided[1]).startswith(CAP_REASON)
+
+
 def land_affected(decided: tuple[str, str]) -> bool:
     """Whether DECIDED is the hourly full tier rule's cheap tier for a landing head: its green verdict is the land's
     (pr_router.land_status posts cmux/land-tier success on it)."""
@@ -232,9 +327,29 @@ def land_affected(decided: tuple[str, str]) -> bool:
 
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
-         green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1") -> tuple[str, str]:
+         green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
+         cap_switch: str = "0", full_before: int | None = None) -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
-    LAND_SWITCH on) not-yet-landing pull request head is `full`."""
+    LAND_SWITCH on) not-yet-landing pull request head is `full`, unless the full-tier cap holds it: FULL_BEFORE is the
+    count of earlier full-tier heads (full_count_in at the previous head), None when unread."""
+    decided = _tier(event_name, event, switch, facts, now, idle_switch, land_switch, sync_switch, green_switch,
+                    carry_switch, land_full_switch)
+    if decided[0] != "full" or not cap_applies(event, cap_switch, land_switch):
+        return decided
+    cap = cap_value(cap_switch)
+    if full_before is None:
+        return decided[0], f"{decided[1]} (full-tier cap {cap}: earlier full-tier heads not counted)"
+    if full_before >= cap:
+        return "cheap", (f"{CAP_REASON}: earlier heads of this pull request ran the full tier {full_before} times "
+                         f"(CI_FULL_TIER_CAP={cap}): the cheap tier runs; adding `{LAND_LABEL}` or `{FULL_CI}` (a "
+                         f"labeled event) runs the full tier at this head; {LAND_STATUS} stays pending")
+    return decided[0], f"{decided[1]} (full-tier cap {cap}: {full_before} earlier full-tier heads)"
+
+
+def _tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
+          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
+          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1") -> tuple[str, str]:
+    """tier() before the full-tier cap."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
@@ -364,8 +479,17 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
         landed = land_status_at(repo, previous, token) == "success"
         runs = runs_at(repo, previous, token) if landed else None
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
+    cap_switch = os.environ.get("CI_FULL_TIER_CAP", DEFAULT_CAP)
+    decided = tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
+                   carry_switch, land_full_switch)
+    if not (pull and decided[0] == "full" and cap_applies(event, cap_switch, land_switch)):
+        return decided
+    # The full-tier cap: one read of the previous head's cmux/land-tier status (cached), only when it can matter.
+    before = previous_sha(event)
+    entry = land_entry_at(os.environ.get("GITHUB_REPOSITORY", ""), before,
+                          os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "") if before else None
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                carry_switch, land_full_switch)
+                carry_switch, land_full_switch, cap_switch, full_count_in(entry))
 
 
 def _load(path: str) -> dict:
