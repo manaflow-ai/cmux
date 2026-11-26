@@ -31,9 +31,10 @@ import {
   useTranscriptViewContext,
 } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { scrollListTo } from "./motionOwner";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
-import { Tick } from "../subagents/trayMotion";
+import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
@@ -211,12 +212,12 @@ function keepView(list: HTMLElement, before: ViewAnchor | undefined): ViewAnchor
     const moved = edge(before) - before.at;
     if (Math.abs(moved) >= 0.5) {
       const want = scroller.scrollTop + moved;
-      scroller.scrollTop = want;
+      scrollListTo(scroller, want);
       // Cut short by the transcript's height (not yet as tall as the run): once more on the next
       // frame, after it has grown. One try only.
       if (Math.abs(scroller.scrollTop - want) >= 0.5)
         list.ownerDocument.defaultView?.requestAnimationFrame(() => {
-          if (Math.abs(scroller.scrollTop - want) >= 0.5) scroller.scrollTop = want;
+          if (Math.abs(scroller.scrollTop - want) >= 0.5) scrollListTo(scroller, want);
         });
     }
   }
@@ -475,10 +476,8 @@ export function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              {/* A count that grows rolls on its own and new words roll in, on the one text roll
-                  every live label shares (ui/motion/TextRoll.tsx). */}
-              <Tick
-                steadyCounts
+              <ToolLabel
+                whole
                 text={
                   description ??
                   toolGroupLabel(

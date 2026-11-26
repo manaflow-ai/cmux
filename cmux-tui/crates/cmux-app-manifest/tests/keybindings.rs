@@ -58,7 +58,9 @@ fn a_bad_key_is_refused_by_keybindings_json_rules() {
     let issues = validate_manifest(&manifest(json!([{ "key": "b", "command": "newTab" }])));
     assert!(!is_valid(&issues));
     assert!(
-        issues.iter().any(|i| i.code == "keybindings.invalid" && i.path == "/contributes/keybindings/0/key"),
+        issues
+            .iter()
+            .any(|i| i.code == "keybindings.invalid" && i.path == "/contributes/keybindings/0/key"),
         "{issues:?}"
     );
     let five = json!([{ "key": "cmd+a b c d e", "command": "newTab" }]);
@@ -67,7 +69,8 @@ fn a_bad_key_is_refused_by_keybindings_json_rules() {
 
 #[test]
 fn a_removal_is_the_persons_alone() {
-    let issues = validate_manifest(&manifest(json!([{ "key": "cmd+t", "command": "-workspace.new" }])));
+    let issues =
+        validate_manifest(&manifest(json!([{ "key": "cmd+t", "command": "-workspace.new" }])));
     assert!(!is_valid(&issues));
     assert!(issues.iter().any(|i| i.path == "/contributes/keybindings/0/command"), "{issues:?}");
 }
@@ -90,7 +93,11 @@ fn an_op_outside_the_catalog_is_refused() {
         { "key": "cmd+shift+c", "command": "other.app.op" }
     ]));
     let issues = validate_catalog(&m, &catalog());
-    assert_eq!(codes(&issues), ["keybindings.unknownOp", "keybindings.unknownCommand"], "{issues:?}");
+    assert_eq!(
+        codes(&issues),
+        ["keybindings.unknownOp", "keybindings.unknownCommand"],
+        "{issues:?}"
+    );
 }
 
 #[test]
@@ -98,7 +105,9 @@ fn an_op_without_a_catalog_or_with_args_is_refused() {
     let mut m = manifest(json!([{ "key": "cmd+shift+b", "command": "local.branchy.copy_branch" }]));
     m.as_object_mut().unwrap().remove("catalog");
     assert!(codes(&validate_manifest(&m)).contains(&"keybindings.unknownCommand"));
-    let args = manifest(json!([{ "key": "cmd+shift+b", "command": "local.branchy.copy_branch", "args": { "x": 1 } }]));
+    let args = manifest(
+        json!([{ "key": "cmd+shift+b", "command": "local.branchy.copy_branch", "args": { "x": 1 } }]),
+    );
     assert!(codes(&validate_manifest(&args)).contains(&"keybindings.opArgs"));
 }
 
@@ -112,7 +121,8 @@ fn on_keybinding_needs_bindings() {
 
 #[test]
 fn an_unknown_field_is_refused_by_the_schema() {
-    let issues =
-        validate_manifest(&manifest(json!([{ "key": "cmd+b", "command": "newTab", "action": "x" }])));
+    let issues = validate_manifest(&manifest(
+        json!([{ "key": "cmd+b", "command": "newTab", "action": "x" }]),
+    ));
     assert!(!is_valid(&issues), "{issues:?}");
 }

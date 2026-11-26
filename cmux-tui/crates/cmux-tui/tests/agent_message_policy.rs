@@ -6,8 +6,7 @@
 //! with a typed reason and survives a restart, and a registry with the first
 //! four-state delivery table keeps its messages.
 
-#[path = "agent_message_policy/harness.rs"]
-mod harness;
+use crate::harness;
 
 /// One module, so `cargo test agent_message_policy` selects these tests.
 mod agent_message_policy {
