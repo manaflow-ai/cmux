@@ -949,7 +949,7 @@ class GhApiSpareTokenTests(unittest.TestCase):
     def runner(self, answers):
         calls = []
 
-        def run(argv, capture_output, text, env):
+        def run(argv, capture_output, text, env, timeout=None):
             calls.append((env or {}).get("GH_TOKEN", "job"))
             code, out, err = answers.pop(0)
             return subprocess.CompletedProcess(argv, code, out, err)
@@ -974,6 +974,24 @@ class GhApiSpareTokenTests(unittest.TestCase):
         self.assertEqual(calls, ["job", "s"])
         self.assertIn("404", repr(caught.exception))
 
+    def test_a_hung_read_is_a_refused_read_and_goes_to_the_spare(self):
+        calls = []
+
+        def run(argv, capture_output, text, env, timeout=None):
+            calls.append(((env or {}).get("GH_TOKEN", "job"), timeout))
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            return subprocess.CompletedProcess(argv, 0, '{"ok": 1}', "")
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), {"ok": 1})
+        self.assertEqual(calls, [("job", rolling.GH_API_SECONDS), ("s", rolling.GH_API_SECONDS)])
+
+    def test_a_hung_read_with_no_spare_names_the_bound(self):
+        def run(argv, capture_output, text, env, timeout=None):
+            raise subprocess.TimeoutExpired(argv, timeout)
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/x", env={}, run=run)
+        self.assertIn(f"more than {rolling.GH_API_SECONDS} s", repr(caught.exception))
+
     def test_a_good_read_never_touches_the_spare(self):
         run, calls = self.runner([(0, "[]", "")])
         self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), [])
@@ -992,7 +1010,7 @@ class GhApiNoTokenAndSecondaryWaitTests(unittest.TestCase):
     def runner(self, answers):
         calls = []
 
-        def run(argv, capture_output, text, env):
+        def run(argv, capture_output, text, env, timeout=None):
             calls.append((env or {}).get("GH_TOKEN", "job"))
             code, out, err = answers.pop(0)
             return subprocess.CompletedProcess(argv, code, out, err)
