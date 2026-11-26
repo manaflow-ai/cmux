@@ -644,13 +644,29 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
 }
 
 impl TurnInfo {
-    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq,
+    /// showing its prompt's own line (`prompt_line.rs`, no provenance).
     pub(super) fn prompted(
         client: &str,
         text: &str,
         turn_id: &str,
         prompt_id: &str,
         control: Control,
+    ) -> Self {
+        let line = super::prompt_line::prompt_line(text, client, None);
+        Self::prompted_as(client, text, turn_id, prompt_id, control, &line)
+    }
+
+    /// [`TurnInfo::prompted`] showing `line` instead: masked once, here. A secret scan is the
+    /// costliest step of a prompt's start at scale, so a caller that knows its line passes it
+    /// rather than masking a default line and then its own.
+    pub(super) fn prompted_as(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+        line: &str,
     ) -> Self {
         TurnInfo {
             trigger: false,
@@ -668,7 +684,7 @@ impl TurnInfo {
             accepted: true,
             device: None,
         }
-        .shown_as(&super::prompt_line::prompt_line(text, client, None))
+        .shown_as(line)
     }
 
     /// The turn, marked as one the person's own prompt started, or not ([`TurnInfo::persons`]).
