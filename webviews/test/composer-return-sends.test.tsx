@@ -701,6 +701,26 @@ test("a dictated message with paragraphs stays one draft until Return sends it o
   expect(sent[0]!.text.startsWith("First paragraph")).toBe(true);
 });
 
+test("a busy chat sends both screenshots and its words together after a paragraph break", async () => {
+  const page = await composer(working(), "Compare these screenshots");
+  const files = [
+    new File([PNG], "before.png", { type: "image/png" }),
+    new File([PNG, Uint8Array.of(1)], "after.png", { type: "image/png" }),
+  ];
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  await dispatch(page.field, paste);
+  await dispatch(
+    page.field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+  );
+  expect(page.sent).toEqual([]);
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sent).toHaveLength(1);
+  expect(page.sent[0]!.text).toContain("Compare these screenshots");
+  expect(page.sentAttachments).toEqual([["before.png", "after.png"]]);
+});
+
 test("a dictated Return (keyCode 229) still sends, once, with the paragraph input that follows it", async () => {
   const { field, sent } = await composer(chat(), "日本語");
   await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
