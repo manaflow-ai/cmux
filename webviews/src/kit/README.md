@@ -226,4 +226,4 @@ Use the gallery above as a visual reference. A prompt for an agent:
 
 > Build a focus timer for my sidebar using the scene globals in the focus timer example.
 > Use the existing Panel, Row and Button styles and theme tones. Match the light and dark gallery examples,
-> then show the running and paused states in my customization.
+> then show the timer before and after I press Start.
