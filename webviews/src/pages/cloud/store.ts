@@ -7,6 +7,7 @@ import { isPageError, pageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
+import { SPEND_LIMIT_SET, spendLimitRefusal } from "./pool";
 import { connectionFailure } from "./connectionFailure";
 import { clearCachedMachines, readCachedMachines, writeCachedMachines, type CacheStorage } from "./machineCache";
 import { DetailReader, type MachineDetail } from "./detail";
@@ -63,6 +64,13 @@ export const CLOUD_RESTART_MAX_MS = 10_000;
  * still fails after them (about 7 s in all).
  */
 export const CLOUD_BLIP_RETRIES = 3;
+
+/** The machine watch and the first list, as `readList` read them. */
+interface ListRead {
+  unwatch: () => void;
+  /** The listed machines with the events that came meanwhile; later events go live. */
+  take: () => { machines: CloudMachine[]; revision: number; surge?: CloudSurge };
+}
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -158,6 +166,8 @@ export interface CloudState {
   dismissed: ReadonlySet<string>;
   /** The cleanup settings' last save. */
   retention?: RetentionEdit;
+  /** The spend limit's last save (pool.ts; the host confirms it). */
+  spendLimit?: RetentionEdit;
 }
 
 /** `machines` lists the team's machines; `get` is the storefront. */
@@ -321,10 +331,16 @@ export class CloudStore {
     if (!this.client || this.started) return;
     this.started = true;
     const session = ++this.session;
+    // The account was signed in a moment ago (a kept list, or a page that reconnects): the watch and
+    // the list go out with the account read instead of after it, so the owner's list is on screen one
+    // round trip sooner. An answer that is not signed in drops them.
+    const early = this.seeded || this.state.auth?.signedIn ? this.readList(session) : undefined;
+    early?.catch(() => undefined);
     let auth: AuthStatus;
     try {
       auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
     } catch (error) {
+      this.dropEarly(early);
       if (session !== this.session) return;
       this.started = false;
       if (
@@ -342,7 +358,7 @@ export class CloudStore {
       if (connection === "disconnected") this.startLater();
       return;
     }
-    if (session !== this.session) return;
+    if (session !== this.session) return this.dropEarly(early);
     // The link answers: follow the app's account from here on (each start after a stop subscribes again).
     void this.watchAuth();
     // Back after `startLater`: the refused read's error goes, and the page loads as on a first
@@ -358,8 +374,23 @@ export class CloudStore {
       connection: "connected",
       ...(recovered ? { loading: true, error: undefined, errorCode: undefined } : {}),
     });
-    if (auth.signedIn) await this.loadSignedIn(session);
-    else this.set({ loading: false });
+    if (auth.signedIn) await this.loadSignedIn(session, early);
+    else {
+      this.dropEarly(early);
+      this.set({ loading: false });
+    }
+  }
+
+  /** Closes the watch of a read `start` began early that the account's answer did not use. */
+  private dropEarly(early: Promise<ListRead | undefined> | undefined): void {
+    void early?.then(
+      (read) => {
+        if (!read) return;
+        if (this.unwatch === read.unwatch) this.unwatch = undefined;
+        read.unwatch();
+      },
+      () => undefined,
+    );
   }
 
   stop(): void {
@@ -780,6 +811,36 @@ export class CloudStore {
     return this.setRetention({ settings });
   }
 
+  /**
+   * The monthly spend limit past the pool (RFD 0081, pool.ts): a money change, so the host confirms it as a native
+   * action and the page reads the plan again. A team admin's; anyone else is told so.
+   */
+  async setSpendLimit(usd: number): Promise<void> {
+    if (!this.canChange() || this.state.spendLimit?.saving) return;
+    const session = this.session;
+    this.set({ spendLimit: { saving: true } });
+    try {
+      // `cloud.plan.spend_limit.set {spend_limit_usd}` answers `{pool}`; the plan is read again for the rest of it.
+      const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+        action: SPEND_LIMIT_SET,
+        args: { spend_limit_usd: usd },
+      });
+      if (session !== this.session) return;
+      this.set({ spendLimit: undefined });
+      if (result?.confirmed !== false) await this.account.readPlan(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      const refusal = spendLimitRefusal(error);
+      if (isUnsupported(error) || refusal === "off") {
+        this.set({ spendLimit: undefined });
+        return this.markUnavailable(SPEND_LIMIT_SET);
+      }
+      this.set({
+        spendLimit: { saving: false, ...(refusal === "forbidden" ? { forbidden: true } : { error: message(error) }) },
+      });
+    }
+  }
+
   private async setRetention(params: {
     email_heads_up?: boolean;
     settings?: RetentionOverrides | null;
@@ -1008,10 +1069,14 @@ export class CloudStore {
     return this.session;
   }
 
-  /** Watches, then lists every page once; events that arrive during the list are merged by revision. */
-  private async loadSignedIn(session: number): Promise<void> {
+  /**
+   * Watches, then lists every page once. The answer's `take` merges the events that came during the
+   * list (by revision) and sends later ones live; undefined when the session ended first.
+   */
+  private async readList(session: number): Promise<ListRead | undefined> {
     const client = this.client!;
     let buffer: MachineEvent[] | null = [];
+    let watch: (() => void) | undefined;
     try {
       const unwatch = await client.subscribe<MachineEvent>(CloudOps.machineWatch, (event) => {
         if (session !== this.session) return;
@@ -1020,36 +1085,61 @@ export class CloudStore {
       });
       if (session !== this.session) {
         unwatch();
-        return;
+        return undefined;
       }
       this.unwatch?.();
       this.unwatch = unwatch;
+      watch = unwatch;
       let page = await client.call<MachineListResult>(CloudOps.machineList, {});
-      let machines = page.machines.map(normalizeMachine);
+      let listed = page.machines.map(normalizeMachine);
       // A listing from the first page to the last also lets the owner drop machines it did not see.
       while (page.next_cursor && session === this.session) {
         page = await client.call<MachineListResult>(CloudOps.machineList, { cursor: page.next_cursor });
-        machines = [...machines, ...page.machines.map(normalizeMachine)];
+        listed = [...listed, ...page.machines.map(normalizeMachine)];
       }
-      if (session !== this.session) return;
-      let revision = page.revision;
-      for (const event of buffer) {
-        // The list holds its own revision; events of that revision are re-applied (idempotent).
-        if (event.revision < revision) continue;
-        machines = applyEvent(machines, event);
-        revision = event.revision;
-      }
+      if (session !== this.session) return undefined;
+      const last = page.revision;
+      const surge = page.surge ?? undefined;
+      const take = () => {
+        let machines = listed;
+        let revision = last;
+        for (const event of buffer ?? []) {
+          // The list holds its own revision; events of that revision are re-applied (idempotent).
+          if (event.revision < revision) continue;
+          machines = applyEvent(machines, event);
+          revision = event.revision;
+        }
+        buffer = null;
+        return { machines, revision, surge };
+      };
+      return { unwatch, take };
+    } catch (error) {
       buffer = null;
+      // A list that failed leaves no watch behind: a quiet re-read or Retry subscribes again, and an
+      // early read a signed-out answer drops has nothing left open.
+      if (watch) {
+        if (this.unwatch === watch) this.unwatch = undefined;
+        watch();
+      }
+      throw error;
+    }
+  }
+
+  /** Watches and lists (or takes the read `start` began early), then shows the owner's list. */
+  private async loadSignedIn(session: number, early?: Promise<ListRead | undefined>): Promise<void> {
+    try {
+      const read = await (early ?? this.readList(session));
+      if (!read || session !== this.session) return;
+      const { machines, revision, surge } = read.take();
       this.blips = 0;
       this.setMirror(machines, revision, {
         loading: false,
         connection: "connected",
         error: undefined,
-        surge: page.surge ?? undefined,
+        surge,
       });
       void this.readArchives(session);
     } catch (error) {
-      buffer = null;
       if (session !== this.session) return;
       if (
         this.readAgainQuietly(error, () => {
