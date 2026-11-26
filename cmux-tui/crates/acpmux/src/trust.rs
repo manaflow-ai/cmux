@@ -137,7 +137,8 @@ pub fn peer_scratch_root() -> PathBuf {
 }
 
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`), and acpmux
-/// in each peer scratch folder it makes (`peer_scratch_root`).
+/// in each peer scratch folder it makes (`peer_scratch_root`) and each Cloud peer chat folder
+/// (`~/chats/<name>`, which `hub/remote_cwd.rs` then takes as a remote session's scratch).
 pub const AGENT_HOME_MARKER: &str = ".cmux-agent-home";
 
 /// A folder path the record can key: absolute, without a trailing slash.
