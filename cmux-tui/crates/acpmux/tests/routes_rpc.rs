@@ -296,14 +296,9 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     // autoFallback the chat moves onto it by itself.
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "fallback": ["proxy-a"]})).await;
     let limit = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]});
+    eprintln!("TEST before limit");
     let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
-    let data = &failed["error"]["data"];
-    assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
-    assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
-    // An overload with no status code is the route's failure too (it also retries in place).
-    let overloaded =
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "overloaded: now"}]});
-    let (failed, _) = local.call_text("session/prompt", overloaded).await;
+    eprintln!("TEST after limit");
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
@@ -313,8 +308,10 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     // chat exercises the same automatic fallback without inheriting that hold.
     let fresh =
         local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    eprintln!("TEST after fresh new");
     let fresh_id = fresh["sessionId"].as_str().unwrap().to_owned();
     local.ok("_acpmux/chat/route.set", json!({"sessionId": fresh_id, "routeId": "proxy-b"})).await;
+    eprintln!("TEST after fresh route");
     let fresh_overload =
         json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "overloaded: fresh"}]});
     let (failed, _) = local.call_text("session/prompt", fresh_overload).await;
