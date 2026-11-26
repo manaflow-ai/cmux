@@ -206,9 +206,27 @@ class KitWorkflow(unittest.TestCase):
         self.assertIn("kit-sim-fleet-products-", steps["sim-fleet"]["env"]["ARTIFACT"])
         self.assertEqual(steps["sim-fleet"]["env"]["JOB"], self.jobs["kit-sim-fleet"]["name"])
         self.assertIn("steps.sim-fleet.outputs.hit != 'true'", steps["sim-pack"]["if"])
-        self.assertIn("steps.sim-fleet.outputs.hit == 'true'", steps["sim-upload"]["if"])
-        # The fleet's build goes on to the pool under the Mac's artifact name, so the pool steps did not change.
-        self.assertIn("kit-sim-products", steps["sim-fleet"]["run"])
+        self.assertEqual(steps["sim-fleet"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh wait")
+        # The pool reads the fleet's artifact by its own name: no download, no second upload under the Mac's name.
+        self.assertNotIn("sim-fleet", steps["sim-upload"]["if"])
+        self.assertIn("steps.sim-products.outputs.name", steps["sim-linux-start"]["env"]["PRODUCTS"])
+        self.assertIn("steps.sim-products.outputs.ready", steps["sim-linux-start"]["if"])
+        self.assertIn("steps.sim-products.outputs.name", self.jobs["kit-tests"]["outputs"]["sim_products"])
+        pool = next(s for s in self.jobs["kit-sim-pool"]["steps"] if s.get("id") == "pool")
+        self.assertIn("needs.kit-tests.outputs.sim_products", pool["env"]["PRODUCTS"])
+
+    def test_a_shadow_job_never_fails_the_workflow(self):
+        steps = {s.get("id"): s for s in self.jobs["kit-sim-fleet"]["steps"] if s.get("id")}
+        for name in ("upload", "pool"):
+            self.assertTrue(steps[name].get("continue-on-error"), name)
+        self.assertIn("|| status=$?", steps["build"]["run"])
+        self.assertEqual(steps["pool"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh pool")
+
+    def test_no_pool_step_reads_an_exit_after_a_bare_command(self):
+        # A step is bash -e: `cmd; status=$?` never reads a failure, and `grep -c || echo 0` prints "0\n0".
+        text = WORKFLOW.read_text()
+        self.assertNotRegex(text, r"\n\s*status=\$\?\n")
+        self.assertNotIn("|| echo 0)", text)
 
     def test_kit_tests_waits_without_the_gateway_variable(self):
         for step in self.jobs["kit-tests"]["steps"]:
