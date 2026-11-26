@@ -50,6 +50,11 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile names the entry; pool runners keep different leftover toolchains.
+          key: ${{ hashFiles('Native/OptChat/optchat-chief/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           workspaces: Native/OptChat/optchat-chief
           cache-bin: false
       - name: Build optchat-chief and pack it with its driver
