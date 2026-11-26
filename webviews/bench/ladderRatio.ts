@@ -95,6 +95,20 @@ export function cycleRate(bounds: number[], times: number[], values: number[]) {
   return { rate, se, cycles, span: sumSpan, perCycle: cost.map((c, i) => c / span[i]!) };
 }
 
+/// Where the steady cycles start among the collection ends: the index of the first end a rate should count from. The
+/// bench forces a collection after each rung's load (measure(), to clear the load's garbage), and V8 sets the next
+/// allocation limit tight over the live heap after a forced one, so the next collections come early: chats x100
+/// collected from 1567-1570 MB about 43 s apart (about 9.6 s of CPU each, 224-290 ms/s) and, once V8 had grown the
+/// limit, from 1597-1605 MB about 200 s apart (about 19 s each, 92-98 ms/s), in four of five x50/x100 rungs (local runs,
+/// 11-26). One such cycle alone at the top rung reads +150 ms/s, a ratio of 6 at the floor. A leading cycle shorter than
+/// half the one after it is one of those and is left out, while at least one cycle stays; every collection between the
+/// ends kept still counts once.
+export function steadyStart(bounds: number[]): number {
+  let i = 0;
+  while (bounds.length - i > 2 && bounds[i + 1]! - bounds[i]! < 0.5 * (bounds[i + 2]! - bounds[i + 1]!)) i += 1;
+  return i;
+}
+
 /// Two major collections less than this apart (microseconds) are one episode, and a cycle ends at the episode's last:
 /// V8 often follows a collection with another within a second (chats x10: ends at 6.1 and 6.8 s), and a 0.7 s "cycle"
 /// between them, read alone, is all collection (1194 ms/s against 77 for the next). The span between episodes still
