@@ -626,7 +626,7 @@ final class CloudService {
         guard machines.session(machineID) != nil else { return }
         changes.removed(machineID)
         creations.machineRemoved(machineID)
-        machines.remove(machineID)?.disconnect()
+        machines.remove(machineID)?.disconnect(); agentCredentials.forget(machine: machineID)
     }
 
     /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
@@ -664,8 +664,8 @@ final class CloudService {
         session.daemon.workTracker = machines.local.workTracker
         session.daemon.onPaneNotReady = machines.local.onPaneNotReady
         session.daemon.paneNotReadyText = machines.local.paneNotReadyText
-        // An attach to a paused machine resumes it through Resume Machine's own path.
-        session.resumer = { [weak self] id, origin in try await self?.resumeMachine(id, origin: origin == .user ? .user : .script) }
+        session.daemon.onConnected = { [weak credentials = agentCredentials, id = machine.id] _ in Task { await credentials?.connected(machine: id) } } // cmux#57192
+        session.resumer = { [weak self] id, origin in try await self?.resumeMachine(id, origin: origin == .user ? .user : .script) } // an attach to a paused machine: Resume Machine's path
         // An attach reads a record that may be stale (paused behind the app) again first.
         session.refresher = { [weak self] force in
             if force { _ = await self?.refresh() } else { _ = await self?.refresh(ifOlderThan: .seconds(30)) }
@@ -682,7 +682,7 @@ final class CloudService {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
         for creation in creations.all { creations.end(creation) }
-        for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
+        for session in machines.cloud { machines.remove(session.machineID)?.disconnect(); agentCredentials.forget(machine: session.machineID) }
         recordReadApplied = [:]
         recordReadsOutstanding = [:]
         deferredRecordRemovals = [:]

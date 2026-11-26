@@ -64,6 +64,11 @@ public final class CloudAgentCredentials {
     private var chosen: [ChatKey: String] = [:]
 
     private struct ChatKey: Hashable { let machine: String, chat: String }
+    /// Each started chat's connection and push, by machine: what ``connected(machine:)`` sends again.
+    private var held: [String: [UUID: Held]] = [:]
+    private var redelivering: Set<String> = []
+
+    private struct Held { let connectionID: String, push: CloudAgentCredentialRefresher.Push }
 
     public private(set) lazy var refresher = CloudAgentCredentialRefresher { [weak self] id in
         guard let self else { throw Failure.unavailable(connection: id) }
@@ -136,6 +141,33 @@ public final class CloudAgentCredentials {
     public func started(chat: String, machine: String, on credential: CloudAgentCredential,
                         push: @escaping CloudAgentCredentialRefresher.Push) -> UUID? {
         chosen[ChatKey(machine: machine, chat: chat)] = nil
+        held[machine, default: [:]][UUID()] = Held(connectionID: credential.connectionID, push: push)
         return refresher.track(credential, push: push)
     }
+
+    /// The daemon of `machine` connected again: each chat started there gets its credential once more. The machine's
+    /// acpmux holds a chat's credential in memory only, so a machine update or crash that restarted it left a sleeping
+    /// Claude chat "Not logged in" until a new chat (cmux#57192). acpmux takes an unchanged credential as a no-op and
+    /// holds it for an agent that is not running, so a reconnect that restarted nothing costs one read per connection.
+    /// A chat that is gone from the machine is dropped; one whose credential cannot be read now waits for the next connect.
+    public func connected(machine: String) async {
+        guard let chats = held[machine], !chats.isEmpty, redelivering.insert(machine).inserted else { return }
+        defer { redelivering.remove(machine) }
+        var read: [String: CloudAgentCredential] = [:]
+        var unreadable: Set<String> = []
+        for (id, chat) in chats where !unreadable.contains(chat.connectionID) {
+            if read[chat.connectionID] == nil {
+                guard let credential = try? await credential(forConnection: chat.connectionID) else { unreadable.insert(chat.connectionID); continue }
+                read[chat.connectionID] = credential
+            }
+            guard let env = read[chat.connectionID]?.env else { continue }
+            if await chat.push(env) == .gone { held[machine]?[id] = nil }
+        }
+    }
+
+    /// `machine` is gone from this app: nothing more is sent to it.
+    public func forget(machine: String) { held[machine] = nil }
+
+    /// How many started chats on `machine` get their credential again at its next connect.
+    public func heldCount(machine: String) -> Int { held[machine]?.count ?? 0 }
 }
