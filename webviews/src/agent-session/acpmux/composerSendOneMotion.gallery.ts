@@ -111,7 +111,9 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       await ctx.waitFor(() => doc.querySelector(".acpmux-row.acpmux-thinking, .acpmux-row.acpmux-working"));
     }
     for (let index = 1; index <= lines; index += 1) {
-      await ctx.type(`draft line ${index} of the tall message`, EDITOR);
+      // Short lines: the draft's height is what the send moves, and each typed key is a render the
+      // ready-time budget counts (32-character lines put the 15-line arms ~2 s of keys over it).
+      await ctx.type(`line ${index}`, EDITOR);
       if (index < lines) await ctx.press("Shift+Enter");
     }
     await pause(busy ? 250 : 600);
@@ -122,7 +124,7 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     }
     // The agent echoes the prompt a little late, as acpmux does.
     Object.assign(doc.defaultView!, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 40 });
-    const frames = sample(doc, "draft line 1 of");
+    const frames = sample(doc, "line 1");
     await pause(80);
     await ctx.press("Enter");
     const window = sendWindow(await frames.done);
