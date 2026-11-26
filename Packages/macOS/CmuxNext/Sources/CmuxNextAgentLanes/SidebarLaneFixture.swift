@@ -4,7 +4,8 @@ import Foundation
 
 /// Sample lanes for captures (`sidebar.laneFixture`, Debug, off): every workspace row gets one
 /// agent chat in a state picked from its name, so a capture slot, which runs no agents, shows each
-/// state a row can name (needs you, working, done, failed, idle) without real sessions.
+/// state a row can name (needs you, working, done, failed, idle) without real sessions. The working
+/// one is also a runaway, so a capture shows the usage warning badge.
 @MainActor
 enum SidebarLaneFixture {
     static let states: [(AgentActivityLane.State, unread: Bool, step: String?)] = [
@@ -23,18 +24,7 @@ enum SidebarLaneFixture {
         let pick = states[workspace.name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF } % states.count]
         return [AgentActivityLane(id: "fixture:\(workspace.id)", name: workspace.name, title: workspace.name, peer: nil, parent: nil,
                                   state: pick.0, since: since, error: pick.0 == .failed ? pick.step : nil, step: pick.step,
-                                  unread: pick.unread,
-                                  taskList: taskList(pick.0))]
-    }
-    /// The sample lane's task list (acpmux `taskList`): steps left while it works or asks, none
-    /// once it is idle, so a capture shows the row's "3/7" beside rows without one.
-    static func taskList(_ state: AgentActivityLane.State) -> AgentTaskList? {
-        switch state {
-        case .working: AgentTaskList(source: .harness, done: 3, total: 7, current: "Run the test suite", next: "Land on the branch", updatedAt: since)
-        case .input: AgentTaskList(source: .chief, done: 1, total: 4, current: "Approve the schema migration", next: "Backfill the rows", updatedAt: since)
-        case .failed: AgentTaskList(source: .harness, done: 2, total: 5, current: "Fix the build", next: "Rerun the checks", updatedAt: since)
-        case .idle, .lost: nil
-        }
+                                  unread: pick.unread)]
     }
 
     /// Sample agent chats for `agent_chat.list` in captures: three folders, every state a thread

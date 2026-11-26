@@ -27,7 +27,8 @@ extension SidebarRowFeed {
 @MainActor
 enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
-    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`). The toggles, the lanes and the read marks are read
+    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`), and always its lanes'
+    /// usage warnings (the row's warning badge). The toggles, the lanes and the read marks are read
     /// inside the row's mapping, so flipping a toggle, a lane change or a mark maps that row again.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
                          turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared,
@@ -39,8 +40,6 @@ enum SidebarLaneStatus {
                 let saysStep = SidebarTunables.nowLine.value
                 let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
-                // The agent's task list across its turns, whatever the other lane toggles say.
-                row.taskProgress = SidebarTunables.taskProgress.value ? taskProgress(local) : nil
                 // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).
                 if SidebarTunables.subagentFixture.value { row.subagents = SidebarSubagentFixture.subagents(workspace) }
                 if let chiefAvatar {
@@ -147,29 +146,17 @@ enum SidebarLaneStatus {
     /// Activity from the most recently started working lane that has any. acpmux derives
     /// lane.step from turn.prompt whenever it exists, then masks, folds and truncates it:
     /// comparing the strings would leak long prompts. Keep the opt-in Now line, using the
-    /// turn's activity/plan instead, or the lane step only when it has no prompt source.
+    /// turn's activity instead, or the lane step only when it has no prompt source.
     static func step(_ lanes: [AgentActivityLane]) -> String? {
         func firstLine(_ text: String?) -> String? {
             text?.split(whereSeparator: \.isNewline).first
                 .map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
         }
         return lanes.filter { $0.state == .working }.compactMap { lane -> (Date, String)? in
-            guard let text = firstLine(lane.turnActivity) ?? firstLine(lane.turnPlanStep)
+            guard let text = firstLine(lane.turnActivity)
                 ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
             return (lane.since ?? .distantPast, text)
         }.max { $0.0 < $1.0 }?.1
-    }
-
-    /// The task progress a row shows for `lanes`: a working chat's list first, else the one changed
-    /// last; nil when none has steps left (a finished list says nothing a row needs).
-    static func taskProgress(_ lanes: [AgentActivityLane]) -> SidebarTaskProgress? {
-        let open = lanes.compactMap { lane in lane.taskList.flatMap { $0.isFinished ? nil : (lane, $0) } }
-        let pick = open.max { a, b in
-            let (aWorks, bWorks) = (a.0.state == .working, b.0.state == .working)
-            if aWorks != bWorks { return bWorks }
-            return (a.1.updatedAt ?? .distantPast) < (b.1.updatedAt ?? .distantPast)
-        }
-        return pick.map { SidebarTaskProgress(done: $0.1.done, total: $0.1.total, current: $0.1.current, next: $0.1.next) }
     }
 
     /// A lane state as the row's status mark.
