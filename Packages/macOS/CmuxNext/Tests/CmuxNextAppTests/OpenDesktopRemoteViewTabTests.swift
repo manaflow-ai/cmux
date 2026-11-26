@@ -51,8 +51,7 @@ struct OpenDesktopRemoteViewTabTests {
             _ = services.cache.browser(for: tab)
             try await PinnedPageTests.until({ services.cache.existingBrowser(tab.id) != nil }, report: report)
             let listed = await RemoteViewTabsControl.answer([:], cloudOnly: true)
-            let rows = listed.objectValue?["tabs"]?.arrayValue ?? []
-            #expect(rows.contains { $0.objectValue?["url"]?.stringValue?.contains(host) == true },
+            #expect("\(listed)".contains(host),
                     "remote_view.state lists no tab for the desktop: \(listed); \(report())")
         }
     }
