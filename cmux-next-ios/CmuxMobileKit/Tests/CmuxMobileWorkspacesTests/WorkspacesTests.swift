@@ -5,15 +5,6 @@ import Observation
 import Testing
 @testable import CmuxMobileWorkspaces
 
-/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
-/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
-/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
-@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
-    source.paneFilter = PaneFilterSetting(defaults: nil)
-    source.paneFilter.showsBrowsers = true
-    return source
-}
-
 @Suite struct RelativeStampTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -37,6 +28,15 @@ import Testing
 import CmuxMobileBrowserStream
 import CmuxTabsKit
 import SwiftUI
+
+/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
+/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
+/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
+@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
+    source.paneFilter = PaneFilterSetting(defaults: nil)
+    source.paneFilter.showsBrowsers = true
+    return source
+}
 
 @MainActor @Suite struct WorkspaceTabsSourceTests {
     func make(_ memory: [String: String] = [:], backend: (any WorkspaceCreationBackend)? = MockWorkspaceCreationBackend(latency: .zero))
