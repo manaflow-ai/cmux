@@ -2,7 +2,7 @@
 // no "Checking…" between, and a fresh answer that says the same renders the pane no second time
 // before the chat's first frame paints (settled page, Leo 2026-11-21).
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { type ReadSessionAuth, useSessionAuth } from "./sessionAuth";
@@ -42,6 +42,13 @@ afterEach(() => {
 
 type Seen = { sessionId: string; state: string; pending: boolean };
 
+// A new selection reads its sign-in after its frame paints (afterNextPaint.ts): a task later here.
+// The render's effects run as its act ends, so the wait for the read is an act of its own.
+const show = async (node: ReactNode) => {
+  await act(async () => root!.render(node));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+};
+
 test("a chat shown again draws its last answer at once, and the same answer renders nothing more", async () => {
   const answers: Record<string, unknown> = {
     a: { state: "ready", source: "authCheck", fromSessionId: "a" },
@@ -55,12 +62,12 @@ test("a chat shown again draws its last answer at once, and the same answer rend
     return null;
   }
   root = createRoot(installDom());
-  for (const sessionId of ["a", "b"]) await act(async () => root!.render(<Probe sessionId={sessionId} />));
+  for (const sessionId of ["a", "b"]) await show(<Probe sessionId={sessionId} />);
   expect(seen.filter((s) => s.sessionId === "a").at(-1)).toMatchObject({ state: "ready", pending: false });
   expect(seen.filter((s) => s.sessionId === "b").at(-1)).toMatchObject({ state: "signedOut", pending: false });
 
   seen.length = 0;
-  await act(async () => root!.render(<Probe sessionId="a" />));
+  await show(<Probe sessionId="a" />);
   // Every render of the chat shown again has its answer: none waits, and the probe's equal answer
   // adds no render of its own.
   expect(seen.every((s) => s.sessionId === "a" && s.state === "ready" && !s.pending)).toBe(true);
@@ -68,6 +75,6 @@ test("a chat shown again draws its last answer at once, and the same answer rend
 
   // An answer that changed still shows.
   answers.b = { state: "ready", source: "authCheck", fromSessionId: "b" };
-  await act(async () => root!.render(<Probe sessionId="b" />));
+  await show(<Probe sessionId="b" />);
   expect(seen.at(-1)).toMatchObject({ sessionId: "b", state: "ready", pending: false });
 });

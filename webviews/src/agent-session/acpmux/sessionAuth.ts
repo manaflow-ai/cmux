@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentDisplayName } from "./agents";
 import { translate, type Translate } from "./i18n";
 import { providerName } from "./modelVariants";
+import { afterNextPaint } from "./afterNextPaint";
 /** The session/selected-route auth verdict from acpmux. Unknown is never a refusal. */
 export type SessionAuthState =
   | "ready"
@@ -306,39 +307,44 @@ export function useSessionAuth(
     const probe =
       selectionChanged || checked.current.refresh !== refresh || checked.current.refreshEpoch !== refreshEpoch;
     checked.current = { selection, refresh, refreshEpoch };
-    void read(selected, probe).then(
-      (reply) => {
-        if (!live) return;
-        const auth = readSessionAuth(reply);
-        const scopeMismatch =
-          ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
-          ("target" in selected &&
-            ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
-              (auth.host ?? undefined) !== selected.target.host ||
-              (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
-        if (scopeMismatch) {
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-          return;
-        }
-        const kept = answered.current.byKey;
-        const before = kept.get(answerKey);
-        kept.delete(answerKey);
-        kept.set(answerKey, auth);
-        if (kept.size > ANSWERS_KEPT) kept.delete(kept.keys().next().value as string);
-        // The chat drawn from its last answer, and this one says the same: nothing changes on screen.
-        setResult((previous) =>
-          previous?.selection !== selection && before && JSON.stringify(before) === JSON.stringify(auth)
-            ? previous
-            : { selection, auth },
-        );
-      },
-      () => {
-        if (live)
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-      },
-    );
+    // A new selection reads its sign-in after the frame that draws it: a reply that came first (a
+    // local daemon answers at once) would render the pane again before that frame paints.
+    const ask = () =>
+      void read(selected, probe).then(
+        (reply) => {
+          if (!live) return;
+          const auth = readSessionAuth(reply);
+          const scopeMismatch =
+            ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
+            ("target" in selected &&
+              ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
+                (auth.host ?? undefined) !== selected.target.host ||
+                (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
+          if (scopeMismatch) {
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+            return;
+          }
+          const kept = answered.current.byKey;
+          const before = kept.get(answerKey);
+          kept.delete(answerKey);
+          kept.set(answerKey, auth);
+          if (kept.size > ANSWERS_KEPT) kept.delete(kept.keys().next().value as string);
+          // The chat drawn from its last answer, and this one says the same: nothing changes on screen.
+          setResult((previous) =>
+            previous?.selection !== selection && before && JSON.stringify(before) === JSON.stringify(auth)
+              ? previous
+              : { selection, auth },
+          );
+        },
+        () => {
+          if (live)
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+        },
+      );
+    const cancel = selectionChanged ? afterNextPaint(ask) : (ask(), undefined);
     return () => {
       live = false;
+      cancel?.();
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- answerKey is key and epoch, which selection holds.
   }, [read, selected, selection, refresh, refreshEpoch, version]);
