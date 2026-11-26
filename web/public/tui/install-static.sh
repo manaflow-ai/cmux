@@ -544,7 +544,9 @@ if [ "$os" = Linux ]; then
   elif [ -n "$want_stable" ]; then
     set -- pointer stable
   elif [ -n "$want_server" ] || [ -n "$want_nightly" ]; then
-    set -- commit "$(nightly_commit)"
+    # The signed nightly channel follows the NIGHTLY app's build; until it is
+    # published, the install falls back to that build's own release file.
+    set -- pointer nightly
   else
     set -- pointer feat-cmux-next
   fi
@@ -566,6 +568,9 @@ if [ -n "$dry_run" ]; then
   if [ "$os" = Linux ]; then
     if [ "$1" = pointer ]; then
       echo "Would download $files_base/channels/linux-$2.json, check its signature, and install its cmux-tui for $target to $bin_dir/cmux"
+      if [ "$2" = nightly ]; then
+        echo "Until that channel is published: the release.json of the cmux NIGHTLY app's build instead"
+      fi
     else
       echo "Would download $files_base/$2/release.json, check its signature, and install its cmux-tui for $target to $bin_dir/cmux"
     fi
@@ -586,7 +591,19 @@ clr_dir="$tmp_dir"
 clr_state="$install_root/installed.json"
 
 if [ "$os" = Linux ]; then
-  if ! clr_tools || ! clr_release "$@" || ! clr_download "$target" cmux-tui "$tmp_dir/cmux"; then
+  clr_ok=1
+  clr_tools || clr_ok=""
+  if [ -n "$clr_ok" ] && ! clr_release "$@"; then
+    clr_ok=""
+    # The nightly channel is not published yet: the NIGHTLY app's build, by its
+    # own signed release file (the same checks; a refusal there is reported).
+    if [ "$1" = pointer ] && [ "$2" = nightly ] && [ "$clr_rc" = 22 ] && [ -z "$clr_fetched" ]; then
+      if nightly="$(nightly_commit)"; then
+        clr_release commit "$nightly" && clr_ok=1
+      fi
+    fi
+  fi
+  if [ -z "$clr_ok" ] || ! clr_download "$target" cmux-tui "$tmp_dir/cmux"; then
     clr_report
     exit 1
   fi
