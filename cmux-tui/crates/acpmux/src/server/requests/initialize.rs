@@ -144,6 +144,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TEAM_LISTEN,
     method::MUX_TEAM_READ,
     method::MUX_TEAM_SEND,
+    method::MUX_TRANSCRIPT_OFFLOAD,
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
     method::MUX_TYPING,
@@ -159,6 +160,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_WORKTREE_CLEAN,
     method::MUX_WORKTREE_REPORT,
     method::MUX_WORKTREE_RESTORE,
+    method::SESSION_SIGNATURE,
     super::super::peer_forward::TRUST_PEER_EXTENSION,
 ];
 
