@@ -53,6 +53,7 @@ enum OnboardingStrings {
         String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .localizedModule)
     }
     static var passwordsAuthDenied: String {
+        // retry-prompt-ok: password import needs the person's authentication
         String(localized: "onboarding.passwords.authDenied",
                defaultValue: "Nothing was read: the confirmation didn’t finish. Click Begin Importing to try again, or import without passwords.",
                bundle: .localizedModule)
