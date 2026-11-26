@@ -719,8 +719,12 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
+            // Binary frames only where every byte reaches the client as written: a local Unix
+            // socket. A WebSocket writes text messages and the remote entry's bridges cut lines.
+            let byte_clean = matches!(record.transport, ClientTransport::Unix);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
-                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                (byte_clean && capability == super::ATTACH_FRAMES_CAPABILITY)
+                    || capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY

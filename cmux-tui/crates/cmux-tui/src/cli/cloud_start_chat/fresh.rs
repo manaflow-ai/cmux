@@ -198,6 +198,40 @@ fn release(runner: &mut dyn Runner, name: &str, deadline: Deadline, looked: bool
     }
 }
 
+/// The fields of a `list-machines` row (a machine, or a create still on its way) kept beside a given-up machine: what
+/// the Cloud service says of it when the machine itself cannot answer. Production, 2026-11-26 (cmuxterm-hq
+/// `app-chat-production`, 11:30Z and 11:38Z): fresh machines on the new boot image ended `cloud.machine_stuck`, the
+/// look answered only "the machine is not running; start it first", and the delete then took whether the service had
+/// it provisioning, paused or failed; a create that never landed kept only "its create is still on its way".
+const LISTED_KEEP: &[&str] = &[
+    "status",
+    "state",
+    "phase",
+    "stage",
+    "reason",
+    "error",
+    "created_at",
+    "started_at",
+    "updated_at",
+    "region",
+    "provider",
+    "boot_image",
+    "image",
+    "spare",
+    "creation_id",
+];
+
+fn listed_facts(row: &Value) -> Value {
+    let kept = row.as_object().map(|fields| {
+        fields
+            .iter()
+            .filter(|(key, _)| LISTED_KEEP.contains(&key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<serde_json::Map<String, Value>>()
+    });
+    Value::Object(kept.unwrap_or_default())
+}
+
 /// The delete failed only for now: the machine's create is still on its way, or it is pausing.
 fn not_yet(released: &Released) -> bool {
     let message = released.error.as_ref().map(|e| at(e, "message").as_str().unwrap_or_default());
@@ -230,20 +264,26 @@ fn release_once(
         };
     }
     let named = |row: &Value, key: &str| at(row, key).as_str() == Some(name);
-    let Some(id) = rows("machines")
-        .iter()
-        .find(|row| named(row, "title"))
-        .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned))
+    let Some((id, row)) =
+        rows("machines").into_iter().find(|row| named(row, "title")).and_then(|row| {
+            let id = at(&row, "machine_id").as_str().map(str::to_owned)?;
+            Some((id, row))
+        })
     else {
-        // A create of it still on its way has no id to delete yet: it is not gone.
-        let creating = rows("creating").iter().any(|row| named(row, "name"));
-        let error = creating.then(|| json!({"message": "its create is still on its way"}));
-        return Released { machine_id: None, gone: !creating, error, guest: None };
+        // A create of it still on its way has no id to delete yet: it is not gone. Its row says how far it got.
+        let creating = rows("creating").into_iter().find(|row| named(row, "name"));
+        let error = creating
+            .as_ref()
+            .map(|row| json!({"message": "its create is still on its way", "creating": listed_facts(row)}));
+        return Released { machine_id: None, gone: creating.is_none(), error, guest: None };
     };
     if guest.is_none() {
-        let found = look(runner, &id, deadline);
+        let mut found = look(runner, &id, deadline);
         if let Some(said) = look_said(&found) {
             runner.say(&format!("Machine `{name}` before its delete: {said}"));
+        }
+        if let Some(fields) = found.as_object_mut() {
+            fields.insert("listed".to_owned(), listed_facts(&row));
         }
         *guest = Some(found);
     }

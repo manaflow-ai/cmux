@@ -34,6 +34,10 @@ public final class LiveCoordinator {
     public internal(set) var banner: ConnectionBannerState?
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
+    /// When the presence socket last went down, until its next hello (``presenceReturned``).
+    private var presenceLostAt: ContinuousClock.Instant?
+    /// When the last network path change redialed the links.
+    private var lastPathNudge: ContinuousClock.Instant?
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
     /// user the first time; Allow then signs with the approval key.
@@ -489,6 +493,7 @@ public final class LiveCoordinator {
             log.info("network changed: \(path, privacy: .public)")
             incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
+            lastPathNudge = instants.now()
             presence?.kick()
             discovery.wake()
             guard let teamID = registeredTeamID else { return }
@@ -500,6 +505,26 @@ public final class LiveCoordinator {
             }
         }
     }
+
+    /// The presence socket's hello after an outage proves the cmux service is reachable
+    /// again: every waiting or dialing link dials now, not at the end of its backoff step
+    /// or a dial still hanging on the dead path. This is the Wi-Fi-back signal when iOS
+    /// reports no path change (the radio stayed "satisfied" through an elevator). A kick's
+    /// own reconnect (down a moment) and a path change just handled do not count.
+    private func presenceReturned() {
+        guard let lostAt = presenceLostAt else { return }
+        presenceLostAt = nil
+        let now = instants.now()
+        guard now - lostAt >= Self.presenceOutageMin else { return }
+        if let nudged = lastPathNudge, now - nudged < Self.presenceOutageMin { return }
+        log.info("presence back after an outage: links redial")
+        ConnectTimeline.shared.mark("presence_back")
+        if store.isOffline { store.isOffline = false }
+        for session in sessions.values { session.link.send(.networkChanged) }
+    }
+
+    /// Presence down at least this long before its return redials the links.
+    static let presenceOutageMin: Duration = .seconds(3)
 
     // MARK: Warm start
 
@@ -838,7 +863,10 @@ public final class LiveCoordinator {
         guard store.activeTeamID == teamID else { return }
         switch update {
         case .connected(let connected):
+            let was = presenceConnected
             presenceConnected = connected
+            if was && !connected { presenceLostAt = instants.now() }
+            if connected && !was { presenceReturned() }
         case .snapshot(let macs):
             applyMacs(macs, teamID: teamID, askedAt: removedMacs.mark)
         case .mac(let mac) where mac.removed == true:

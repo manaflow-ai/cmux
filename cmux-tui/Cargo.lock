@@ -2250,6 +2250,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -2536,11 +2551,11 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64",
+ "cmux-egress",
  "cmux-no-checkout",
  "cmux-process",
  "cmux-scope",
  "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "tempfile",
@@ -2816,6 +2831,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-process",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
