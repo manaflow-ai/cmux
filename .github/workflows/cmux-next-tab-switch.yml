@@ -287,7 +287,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/tab_switch_gate.py
+          sparse-checkout: |
+            scripts/cmux-next/tab_switch_gate.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the report
         if: needs.frames.result != 'skipped'
