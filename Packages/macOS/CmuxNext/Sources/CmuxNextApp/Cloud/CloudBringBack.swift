@@ -157,7 +157,7 @@ struct CloudBringBack {
         switch failure.retry {
         case .askFirst: title = CloudBringBackStrings.askFirst
         case .update: title = CloudMachineUpdateStrings.button
-        default: title = CloudMoveStrings.retry
+        default: title = CloudMoveStrings.retry  // retry-prompt-ok: bringing a chat back copies files over this Mac's folder; the person retries or lets the toast go
         }
         CloudMove.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
         return ActionWorkFailure(failure.message)
