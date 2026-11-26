@@ -96,8 +96,13 @@ public final class AgentRestoreLaunchLease {
         _ = fcntl(ready[0], F_SETFD, FD_CLOEXEC)
         _ = fcntl(ready[1], F_SETFD, FD_CLOEXEC)
         defer { Darwin.close(ready[0]) }
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
+        #else
+        var actions = posix_spawn_file_actions_t()
+        var attributes = posix_spawnattr_t()
+        #endif
         posix_spawn_file_actions_init(&actions)
         posix_spawnattr_init(&attributes)
         defer {
@@ -106,7 +111,14 @@ public final class AgentRestoreLaunchLease {
         }
         // Only the lease and readiness pipe reach the watcher. A new session keeps
         // job-control signals aimed at the agent from releasing the lease early.
+        #if canImport(Darwin)
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID))
+        #else
+        // glibc's POSIX_SPAWN_SETSID (0x80) sits behind __USE_GNU, which Swift's
+        // Glibc module does not import. CLOEXEC_DEFAULT has no glibc flag; the
+        // closefrom file action after the dup2s below gives the same result.
+        posix_spawnattr_setflags(&attributes, Int16(0x80))
+        #endif
         for standard in Int32(0)...2 {
             posix_spawn_file_actions_addopen(&actions, standard, "/dev/null", standard == 0 ? O_RDONLY : O_WRONLY, 0)
         }
@@ -124,6 +136,9 @@ public final class AgentRestoreLaunchLease {
         }
         posix_spawn_file_actions_adddup2(&actions, stagedLease, Self.watcherLeaseDescriptor)
         posix_spawn_file_actions_adddup2(&actions, stagedReady, Self.watcherReadyDescriptor)
+        #if !canImport(Darwin)
+        posix_spawn_file_actions_addclosefrom_np(&actions, Self.watcherReadyDescriptor + 1)
+        #endif
         var argv = arguments.map { strdup($0) } + [nil]
         var environment: [UnsafeMutablePointer<CChar>?] = [strdup("PATH=/usr/bin:/bin"), nil]
         defer {
@@ -133,7 +148,11 @@ public final class AgentRestoreLaunchLease {
         var pid: pid_t = 0
         let result = argv.withUnsafeMutableBufferPointer { argv in
             environment.withUnsafeMutableBufferPointer { environment in
+                #if canImport(Darwin)
                 posix_spawn(&pid, executablePath, &actions, &attributes, argv.baseAddress, environment.baseAddress)
+                #else
+                posix_spawn(&pid, executablePath, &actions, &attributes, argv.baseAddress!, environment.baseAddress)
+                #endif
             }
         }
         Darwin.close(ready[1])
@@ -160,6 +179,7 @@ public final class AgentRestoreLaunchLease {
         readyDescriptor: Int32 = watcherReadyDescriptor
     ) -> Bool {
         defer { Darwin.close(leaseDescriptor) }
+        #if canImport(Darwin)
         let queue = kqueue()
         defer { if queue >= 0 { Darwin.close(queue) } }
         var change = kevent(
@@ -174,6 +194,20 @@ public final class AgentRestoreLaunchLease {
         var event = kevent()
         while kevent(queue, nil, 0, &event, 1, nil) < 0 && errno == EINTR {}
         return true
+        #else
+        // Linux: a pidfd polls readable when the process exits; without
+        // pidfd_open (glibc < 2.36 or kernel < 5.3) it reports unregistered.
+        let pidfd = LinuxProcFS.pidfdOpen(processID)
+        defer { if pidfd >= 0 { Darwin.close(pidfd) } }
+        let registered = pidfd >= 0
+        var ready: UInt8 = registered ? 1 : 0
+        _ = write(readyDescriptor, &ready, 1)
+        Darwin.close(readyDescriptor)
+        guard registered else { return false }
+        var waiter = pollfd(fd: pidfd, events: Int16(POLLIN), revents: 0)
+        while poll(&waiter, 1, -1) < 0 && errno == EINTR {}
+        return true
+        #endif
     }
 
     /// Releases this descriptor. The inode remains so contenders cannot split ownership.
