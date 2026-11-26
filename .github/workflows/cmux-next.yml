@@ -228,6 +228,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -610,6 +612,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -1151,7 +1155,7 @@ jobs:
     # Why: note-15
     needs: [path_route, push-head-preflight, app-compile-placement, fast-tier-cargo]
     # Why: note-369
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') || contains(github.event.pull_request.labels.*.name, 'dev-build') || needs.path_route.outputs.mac_release == 'true' || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready' || needs.path_route.outputs.generated_host == 'generated-files')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     # Why: note-108, 2026-11-24-macos-placement-1.md
@@ -1249,13 +1253,13 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: route-token-bot
-        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1290,13 +1294,13 @@ jobs:
           permission-organization-self-hosted-runners: read
 
       # Why: note-117
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: snapshot-read-token-bot
-        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1734,6 +1738,7 @@ jobs:
             bash scripts/cmux-next/tests/capability-text.test.sh
             bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
             bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh
+            bash scripts/cmux-next/tests/release-compile-offline-resolve.test.sh
             bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
             bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh
             bash scripts/cmux-next/tests/dev-account-guard.test.sh
@@ -1784,6 +1789,7 @@ jobs:
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
             bash scripts/ci/tests/package-test-lane-unverified-build.test.sh
             bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
+            bash scripts/ci/tests/swiftpm-resolve-github-refusal.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
             bash scripts/ci/tests/first-turn-cost-route-probe.test.sh
@@ -2777,7 +2783,7 @@ jobs:
           # Why: note-551
           if [[ "$word" == superseded ]]; then
             authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 \
+            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
               ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$GITHUB_REF" 2>/dev/null | awk 'NR==1{print $1}')" || head=""
             if [[ -n "$head" && "$head" != "$REF" ]]; then
               echo "::notice title=Build fleet compile check::superseded push $REF: the branch head is $head, whose tip check covers this push; not compiled here"
@@ -2797,7 +2803,7 @@ jobs:
   app-compile-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight, fast-tier-cargo]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false' && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile placement
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: note-179
@@ -2818,13 +2824,13 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: route-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -2880,7 +2886,7 @@ jobs:
   app-compile-fleet:
     needs: [path_route, push-head-preflight, app-compile-placement]
     # Why: note-371
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
@@ -3098,13 +3104,13 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: route-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3403,13 +3409,13 @@ jobs:
           sparse-checkout: scripts/ci
           persist-credentials: false
 
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: route-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3443,13 +3449,13 @@ jobs:
           permission-organization-self-hosted-runners: read
 
       # Why: note-512
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: snapshot-read-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -5260,7 +5266,7 @@ jobs:
     needs: [path_route, push-head-preflight, generated-files-base-red]
     if: ${{ (!cancelled() && format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && needs.generated-files-base-red.outputs.base_red != 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next generated files
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     container:
       image: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     defaults:
@@ -5300,6 +5306,7 @@ jobs:
             /web/data/next-docs/
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
+            /.gitmodules
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
@@ -5931,7 +5938,7 @@ jobs:
             if [[ "$state" == superseded ]]; then
               head=""
               if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
-                head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+                head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
                   "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
                   awk 'NR==1{print $1}')" || head=""
               fi
@@ -6052,9 +6059,49 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
+      # Before any checked-out code: the checkout below borrows this host's git mirror (glaeda-git-mirror:
+      # main, feat-cmux-next and nightly-next, fetched every 60 s; /Users/Shared/cmux-build-fleet/git/cmux.git)
+      # through objects/info/alternates, so its depth-2 fetch from GitHub sends only what the mirror lacks
+      # (the PR's own commits), not the whole tree. In the two days to 2026-11-26 10:35Z, 32 runs of this job
+      # spent over 20 min in Checkout (26 Mac-hours), and 14 of the 29 runs cut at 60 min spent 35-60 min
+      # there: a fresh workspace's whole-tree fetch from the fleet's shared address broke off ("curl 92
+      # HTTP/2 stream ... CANCEL", "early EOF") and was fetched again from nothing, three times. The same
+      # borrow as nightly.yml's warm checkout and the Linux pool's mirror checkout (cmux-next-fast-gates.yml),
+      # with the same glaeda-mirror-borrow.json record. No mirror, or one glaeda has not verified or is
+      # repairing: nothing changes.
+      - name: Borrow the host's git mirror
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        continue-on-error: true
+        run: &release-compile-borrow-mirror |
+          set -euo pipefail
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          if ! { [ -d "$mirror/objects" ] && [ ! -L "$mirror/objects" ] && [ ! -L "$mirror" ] && [ -f "$mirror/HEAD" ] \
+              && [ -f "$mirror/glaeda-verified" ] && [ ! -e "$mirror/glaeda-repair-pending" ] && [ ! -e "$mirror/shallow" ]; }; then
+            echo "no verified git mirror at $mirror: the checkout fetches from GitHub alone"
+            exit 0
+          fi
+          cd "$GITHUB_WORKSPACE"
+          [ -d .git ] || git init -q .
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$url"; else git remote add origin "$url"; fi
+          if grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null; then
+            echo "already borrowing $mirror/objects"
+            exit 0
+          fi
+          ids=$(stat -f '%d %i' "$mirror/objects")
+          [[ "$ids" =~ ^[0-9]+\ [0-9]+$ ]] || { echo "cannot read $mirror/objects's device and inode: not borrowing"; exit 0; }
+          printf '{"objects": "%s", "dev": %s, "ino": %s}\n' "$mirror/objects" "${ids% *}" "${ids#* }" > .git/.glaeda-mirror-borrow.json.tmp
+          mv -f .git/.glaeda-mirror-borrow.json.tmp .git/glaeda-mirror-borrow.json
+          mkdir -p .git/objects/info
+          echo "$mirror/objects" >> .git/objects/info/alternates
+          echo "borrowing $mirror/objects (workspace packs: $(( $(du -sk .git/objects 2>/dev/null | cut -f1 || echo 0) / 1024 )) MiB)"
+
+      # A fetch that breaks off is tried again by the action from nothing; bounded so a stalled transfer
+      # moves on to the retry below instead of holding the Mac to the job's 60 min.
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 12
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -6066,8 +6113,14 @@ jobs:
         if: steps.checkout.outcome == 'failure'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
 
+      - name: Borrow the host's git mirror again for the retry
+        if: ${{ steps.checkout.outcome == 'failure' && startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        continue-on-error: true
+        run: *release-compile-borrow-mirror
+
       - name: Retry checkout after transient network failure
         if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 15
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -6154,6 +6207,8 @@ jobs:
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
           CMUX_NEXT_RELEASE_FLEET_CAS: ${{ vars.CMUX_NEXT_RELEASE_FLEET_CAS == 'off' && 'off' || 'read' }}
+          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
+          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_RELEASE_FLEET_CAS=off
@@ -6337,13 +6392,13 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: route-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6727,6 +6782,8 @@ jobs:
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/scheme
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/scheme/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/scheme/summary.md
+          # Package fetches as the job, not anonymously from the office's shared address (github_git_auth_env).
+          CMUX_GITHUB_GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
@@ -7186,13 +7243,13 @@ jobs:
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
         id: route-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -7628,7 +7685,7 @@ jobs:
   # Why: 2026-11-24-request-cmux-next-dev-publish-2.md, note-340
   pr-red-checks:
     needs: [checks]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.checks.result != 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.checks.result != 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     permissions:
       actions: read
       checks: read
@@ -7919,7 +7976,7 @@ jobs:
             [[ -z "${PR:-}" && "${SUPERSEDED_GATE:-1}" != 0 && -z "$head_read" ]] || return 1
             head_read=1
             local head
-            head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+            head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
               "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
               awk 'NR==1{print $1}')" || head=""
             [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$SHA" ]]

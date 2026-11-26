@@ -228,8 +228,15 @@ class WorkflowShape(unittest.TestCase):
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
-        self.assertEqual(set(on), {"pull_request", "workflow_dispatch"})
-        self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
+        # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
+        # either: a head the router starts nothing for starts none of its jobs.
+        self.assertEqual(set(on), {"workflow_call", "workflow_dispatch"})
+        routed = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())["callees"]["cmux-next-fast-gates.yml"]
+        for key in ("paths", "paths-ignore", "affects", "skip_docs_only"):
+            self.assertNotIn(key, routed, "a paths filter leaves PRs with no status")
+        self.assertIn("ready_for_review", routed["types"])
+        self.assertIn("uses: ./.github/workflows/cmux-next-fast-gates.yml",
+                      (ROOT / ".github/workflows/pr-router.yml").read_text())
         for event in on.values():
             for key in ("paths", "paths-ignore"):
                 self.assertNotIn(key, event or {}, "a paths filter leaves PRs with no status")
@@ -679,6 +686,24 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertIn("HTTP 404", done.stderr)
         self.assertEqual(len(posts), 1)
+        # 2026-11-26 (jobs 139914769975, 139917024944): App and GITHUB_TOKEN spent, the reset 457 s away, the job
+        # failed and a rerun posted green. The CI pool's tokens post first, each its own hour.
+        both_spent = (f'[[ "$*" == *statuses/* && "$GH_TOKEN" == pool* ]] && exit 0\n'
+                      f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho $(( $(date +%s) + 457 ))')
+        done, posts = run_post(both_spent, POOL_TOKENS="pool1 pool2")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app", "pool1"])
+        # A pool token that cannot post (expired, no statuses grant) is passed over, never a red.
+        done, posts = run_post('[[ "$*" == *statuses/* && "$GH_TOKEN" == job ]] && exit 0\n'
+                               '[[ "$*" == *statuses/* && "$GH_TOKEN" == pool* ]] && '
+                               '{ echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1; }\n'
+                               f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho 0', POOL_TOKENS="pool1 pool2")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app", "pool1", "pool2", "job"])
+        self.assertIn("passing it over", done.stdout)
+        # The bound covers that 457 s reset after a first gap, inside the light jobs' 15 minutes.
+        self.assertGreaterEqual(wait, 457 + 300)
+        self.assertIn("CI_POOL_TOKEN_1", post["env"]["POOL_TOKENS"])
 
     def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]
