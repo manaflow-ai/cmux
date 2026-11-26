@@ -16,6 +16,7 @@ import {
   type SignInStartWire,
 } from "../../pages/shared/signIn/accountSignIn";
 import type { AccountSignInTransport } from "../../pages/shared/signIn/useAccountSignIn";
+import { pageHostsOf } from "./cloudAgentLogin";
 import type { AcpmuxDirectClient } from "./direct";
 
 /// The one page this sign-in opens: GitHub's device page, exactly (AgentPaneSignInPage.swift admits
@@ -44,6 +45,9 @@ type Options = {
   currentClient: () => GitHubSignInClient | undefined;
   /// Opens the device page beside the chat (the host lets the start that took the click open it).
   openURL: (url: string) => void;
+  /// Tells the host the sign-in ended with the device page and its `pageHosts`, so the host closes the
+  /// tab it opened while still on GitHub (cloudAgentLogin.ts ``LoginOptions/signInEnded``).
+  signInEnded?: (urls: string[], hosts: string[]) => void;
 };
 
 /// A refusal that means the machine (or the host between) has no such method: the card then keeps
@@ -57,7 +61,15 @@ type Step = { ok: true; reply: unknown } | { ok: false; error: unknown } | { ok:
 
 /// The sign-in card's transport over the chat's own connection. Only `github` starts here; every
 /// other gesture (Use, Sign out, Remove) is Settings > Accounts' and is refused.
-export function cloudGitHubSignIn({ sessionId, currentClient, openURL }: Options): AccountSignInTransport {
+export function cloudGitHubSignIn({ sessionId, currentClient, openURL, signInEnded }: Options): AccountSignInTransport {
+  // Each login whose device page opened, with its hosts, until it ended (told once).
+  const opened = new Map<string, string[]>();
+  const ended = (loginId: string) => {
+    const hosts = opened.get(loginId);
+    if (!hosts) return;
+    opened.delete(loginId);
+    signInEnded?.([GITHUB_DEVICE_PAGE], hosts);
+  };
   const call = async (step: (client: GitHubSignInClient) => Promise<unknown>): Promise<Step> => {
     const client = currentClient();
     if (!client) return { ok: false, error: { reason: "unknown_session" } };
@@ -76,21 +88,30 @@ export function cloudGitHubSignIn({ sessionId, currentClient, openURL }: Options
           if (step.ok === false) return step;
           if (step.ok === "missing") return { ok: true, value: {} };
           // The page opens once, on the click's credit; no other page is opened.
-          const url = (step.reply as { url?: unknown } | null)?.url;
-          if (isGitHubDevicePage(url)) openURL(GITHUB_DEVICE_PAGE);
+          const reply = step.reply as { url?: unknown; loginId?: unknown; pageHosts?: unknown } | null;
+          if (isGitHubDevicePage(reply?.url)) {
+            if (typeof reply?.loginId === "string" && reply.loginId)
+              opened.set(reply.loginId, pageHostsOf(reply.pageHosts));
+            openURL(GITHUB_DEVICE_PAGE);
+          }
           return { ok: true, value: { signIn: step.reply as SignInStartWire } };
         }
         case ACCOUNT_ACTIONS.finish: {
           const loginId = params.loginId;
           if (!loginId) return { ok: false, error: { reason: "unknown_login" } };
           const step = await call((client) => client.accountSignInFinish(loginId, sessionId));
+          // A device sign-in's finish is its end: approved, refused or expired.
+          ended(loginId);
           if (step.ok === false) return step;
           if (step.ok === "missing") return { ok: false, error: { reason: "unsupported" } };
           return { ok: true, value: { finished: step.reply as SignInFinishWire } };
         }
         case ACCOUNT_ACTIONS.cancel: {
           const loginId = params.loginId;
-          if (loginId) await call((client) => client.accountSignInCancel(loginId, sessionId));
+          if (loginId) {
+            ended(loginId);
+            await call((client) => client.accountSignInCancel(loginId, sessionId));
+          }
           return { ok: true, value: {} };
         }
         default:

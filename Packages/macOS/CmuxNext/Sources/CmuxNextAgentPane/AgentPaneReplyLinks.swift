@@ -137,7 +137,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .quickLookVideo, .signInEnded, .revealImage, .openImageInPane, .copyImage, .saveImage,
              .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer, .stageComposer, .copyStagedComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
@@ -250,13 +250,31 @@ extension AgentPaneModel {
                 return Self.replyFailure(.openFailed)
             }
             guard transport.takeSignInPage(url) || transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-            return open() ? AgentPaneReply.success() : Self.replyFailure(.openFailed)
+            // The tabs from before the open, so the sign-in's end closes only the one it made.
+            let close = onSignInTabCloser?(url)
+            guard open() else { return Self.replyFailure(.openFailed) }
+            if let close { signInTabs.opened(url, close: close) }
+            return AgentPaneReply.success()
+        case .signInEnded(let urls, let hosts):
+            // Its pages' tabs close while still on the sign-in's own hosts (``AgentPaneSignInTabs``).
+            let own = AgentPaneSignInTabs.ownHosts(hosts)
+            for close in signInTabs.ended(urls) { close(own) }
+            return AgentPaneReply.success()
         case .listBrowsers, .inspectPullRequest, .openIn:
             // A Cloud chat's sign-in page opens on the Sign in click that started its login.
             let signInPage: URL? = if case .openIn(let url, "cmux") = request { url } else { nil }
+            // A sign-in page's open keeps its tab's closer for that sign-in's end.
+            let openInCmux: (@MainActor (URL) -> Bool)? = onOpenPreview.map { open in
+                { [weak self] url in
+                    let close = AgentPaneSignInPage.allowed(url) ? self?.onSignInTabCloser?(url) : nil
+                    guard open(url) else { return false }
+                    if let close { self?.signInTabs.opened(url, close: close) }
+                    return true
+                }
+            }
             return replyLinks.respond(toCard: request, consumeGesture: {
                 signInPage.map(transport.takeSignInPage) == true || transport.gestures.consume()
-            }, openInCmux: onOpenPreview)
+            }, openInCmux: openInCmux)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer, .stageComposer, .copyStagedComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)
