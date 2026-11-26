@@ -1,4 +1,4 @@
-"""Import launch-reboot.sh logs, preserving the uncapped read and production preread arms.
+"""Import launch-reboot.sh logs, preserving uncapped reads and production preread arms.
 
 Run the before/after phases on the same exclusive measurement Mac as documented in
 scripts/measure/launch-reboot.sh. Then import the after log:
@@ -32,14 +32,22 @@ class LaunchReboot(Bench):
             raise BenchError("launch-reboot: failed phase; no measurement imported")
         found = False
         for line in text.splitlines():
+            # Only benchmark rows are shell's space-delimited key/value format.  Ignore
+            # helper output first so an unrelated quoted line cannot make shlex fail.
+            if not line.startswith(("LB-READ ", "LB-PREREAD ", "LB-LAUNCH ")):
+                continue
             fields = shlex.split(line)
-            if not fields or fields[0] not in ("LB-PREREAD", "LB-LAUNCH"):
+            if not fields:
                 continue
             values = dict(item.split("=", 1) for item in fields[1:] if "=" in item)
-            labels = {key: values[key] for key in ("arm", "reboot")}
+            label_keys = ("arm", "reboot", "file") if fields[0] == "LB-READ" else ("arm", "reboot")
+            labels = {key: values[key] for key in label_keys if key in values}
             if fields[0] == "LB-PREREAD":
                 metrics = {"wall_ms": "ms", "cpu_ms": "ms", "maxrss": "bytes"}
                 prefix = "preread_"
+            elif fields[0] == "LB-READ":
+                metrics = {"wall_ms": "ms", "cpu_ms": "ms", "maxrss": "bytes"}
+                prefix = "read_"
             else:
                 found = True
                 metrics = {"request_to_start": "ms", "main_start": "ms", "first_frame": "ms",
