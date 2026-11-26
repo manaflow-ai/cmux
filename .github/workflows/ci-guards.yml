@@ -1720,6 +1720,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py
 
+      - name: Refuse bare urlopen of GitHub's API and the cmux CDN
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_bare_urlopen.py
+
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
