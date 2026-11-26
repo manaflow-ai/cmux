@@ -16,8 +16,13 @@ extension SidebarStyle {
                        leadingInset: LayoutGrid.sidebarLead - contentInset,
                        trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
                        minTrailingCenterInset: minTrailingCenterInset,
-                       iconBoxOverride: SidebarRowTuning.iconColumn.tunable.override ?? Metrics.densityToken("sidebarIconColumn").map { _ in iconBox },
+                       iconBoxOverride: iconColumnOverride,
                        gap: SidebarRowTuning.glyphGap.value, trailingPitch: trailingSlotPitch)
+    }
+
+    /// The icon column's width when the tuner or the density sets it, over the grid's rule.
+    static var iconColumnOverride: CGFloat? {
+        SidebarRowTuning.iconColumn.tunable.override ?? Metrics.densityToken("sidebarIconColumn").map { _ in iconBox }
     }
 
     static var trailingSlotSide: CGFloat { controlSize }

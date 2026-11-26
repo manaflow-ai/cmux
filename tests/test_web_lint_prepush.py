@@ -179,14 +179,17 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
@@ -1002,6 +1005,36 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
+
+    def test_new_only_reruns_the_base_reds_side_by_side(self):
+        # 2026-11-26: a webviews pull request over a base red on 13 checks reran them on the base one at a time, 128 s
+        # of a 290 s fast gates job, while the head's run had them side by side. Each check here, red on the base,
+        # logs its start, sleeps a second and logs its end: on the base tree the two reruns overlap.
+        if len(os.sched_getaffinity(0)) < 2 if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1) < 2:
+            self.skipTest("one core: the checks run one at a time by design")
+        spans = self.root / "spans.log"
+        for name in ("one", "two"):
+            self.write(f"webviews/check-{name}.sh",
+                       "#!/bin/sh\nif grep -rl 'BAD_LANE' src >/dev/null 2>&1; then\n"
+                       f'  echo "start {name} $(pwd)" >> "$SPANS"; sleep 1; echo "end {name} $(pwd)" >> "$SPANS"\n'
+                       f"  echo 'src/old.ts:1:1: error {name}'; exit 1\nfi\n")
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', '"sh check-one.sh && sh check-two.sh"'))
+        self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
+        self.commit("a base red on two checks")
+        self.write("webviews/src/app.ts", "export const app = 9;\n")
+        self.commit("a clean change on it")
+        self.env["SPANS"] = str(spans)
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = spans.read_text().splitlines()
+        head = str((self.repo / "webviews").resolve())
+        base = [line for line in lines if line.split(" ", 2)[2] != head]  # the reruns, in the base lint tree
+        self.assertEqual(len(base), 4, lines)
+        self.assertEqual([line.split()[0] for line in base[:2]], ["start", "start"],
+                         f"the base reruns ran one after the other: {lines}")
 
     def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
         # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,
@@ -2887,6 +2920,73 @@ class FreeMemoryHeavyTests(unittest.TestCase):
         ok, err = self.run_it("lots", 32 * 1024 * 1024)
         self.assertFalse(ok)
         self.assertIn("not a number", err)
+
+
+class BloblessMirrorRefTests(unittest.TestCase):
+    """A worktree of a blobless mirror whose reviewed ref names a commit the mirror lacks (hq handbook
+    blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18: pushes sat 526 to 1436 s in this hook while that
+    read lazy-fetched the commit's whole history). The hooks' ref reads must treat the ref as absent and fetch
+    nothing; a hook that lazy-fetches brings the commit in, and the last assertion fails."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="cmux-blobless-ref-")
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        config = root / "gitconfig"
+        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                          "[uploadpack]\n\tallowFilter = true\n\tallowAnySHA1InWant = true\n")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config), HOME=str(root))
+        git_fixture_env.without_auto_maintenance(env)
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.env = env
+        work = root / "work"
+        git_fixture_env.init_repo(work, "--initial-branch=feat-cmux-next", env=env)
+        (work / "a.txt").write_text("a\n")
+        self.run_git(work, "add", "a.txt")
+        self.run_git(work, "commit", "-q", "-m", "base")
+        self.base = self.run_git(work, "rev-parse", "HEAD")
+        self.mirror = root / "mirror"
+        subprocess.run(["git", "clone", "-q", "--filter=blob:none", f"file://{work}", str(self.mirror)], check=True,
+                       capture_output=True, env=env)
+        self.run_git(self.mirror, "config", "--add", "cmux.reviewedRemote", "origin")
+        (work / "b.txt").write_text("b\n")
+        self.run_git(work, "add", "b.txt")
+        self.run_git(work, "commit", "-q", "-m", "ahead")
+        self.missing = self.run_git(work, "rev-parse", "HEAD")
+        # The ref moved to a commit the mirror never fetched (written as a file: update-ref would read the object).
+        (self.mirror / ".git/packed-refs").write_text("")
+        ref = self.mirror / ".git/refs/remotes/origin/feat-cmux-next"
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_text(self.missing + "\n")
+        self.assert_still_missing()
+
+    def run_git(self, repo, *args):
+        return subprocess.run(["git", "-C", str(repo), *args], check=True, text=True, capture_output=True,
+                              env=self.env).stdout.strip()
+
+    def assert_still_missing(self):
+        probe = subprocess.run(["git", "-C", str(self.mirror), "cat-file", "-e", self.missing],
+                               env={**self.env, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True)
+        self.assertNotEqual(probe.returncode, 0, "the hook lazy-fetched the missing commit's history")
+
+    def test_trust_base_reads_a_ref_whose_commit_is_missing_as_absent(self):
+        lint = load_lint(SOURCE)
+        self.assertIsNone(lint.trust_base(self.mirror, self.base))
+        self.assert_still_missing()
+
+    def test_push_range_reads_a_ref_whose_commit_is_missing_as_absent(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("push_range_blobless",
+                                                      SOURCE / "scripts/cmux-next/push_range.py")
+        push_range = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = push_range
+        spec.loader.exec_module(push_range)
+        found = push_range.commits_of(self.mirror, ["refs/remotes/origin/feat-cmux-next", self.base])
+        self.assertEqual(found, [None, self.base])
+        self.assert_still_missing()
 
 
 if __name__ == "__main__":

@@ -14,15 +14,27 @@ import UIKit
 public enum ChiefAIConsent {
     public static let key = "cmuxMobile.chief.aiSharingConsent"
 
+    /// The person's own answer in this process. It wins over what UserDefaults reads back:
+    /// a launch argument (`-cmuxMobile.chief.aiSharingConsent NO`) sits in the argument
+    /// domain, which shadows the stored YES, so "Agree and Send" asked again and again and
+    /// the draft never went (the App Review gate's reviewer path, run 45334322455).
+    /// Written and read on the main thread only (the alert's action, Chief's info toggle, the send gate).
+    nonisolated(unsafe) private static var answered: Bool?
+
     public static var isGranted: Bool {
+        if let answered { return answered }
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: key) != nil else { return DeveloperOptions.mockContentEnabled }
         return defaults.bool(forKey: key)
     }
 
     public static func set(_ granted: Bool) {
+        answered = granted
         UserDefaults.standard.set(granted, forKey: key)
     }
+
+    /// Tests: forget this process's answer, so UserDefaults decides again.
+    static func forgetAnswerForTesting() { answered = nil }
 
     /// The providers named to the person. cmux Cloud runs Chief and its agents on
     /// Anthropic's Claude and OpenAI's models; the privacy policy lists AI model providers.

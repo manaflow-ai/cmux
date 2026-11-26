@@ -47,7 +47,8 @@ export default agentPaneEntry({
         const request = workflowPaneRequest(calls[0]?.params?.subagent);
         if (request?.sessionId !== snapshot.sessionId || !request?.runId || !request.agentId)
           throw new Error("Workflow click lost its transcript identity");
-        if (ctx.document.querySelector(".cv-subagent-of")) throw new Error("Workflow click swapped the chat's pane");
+        if (ctx.document.querySelector(".cv-subagent-corner"))
+          throw new Error("Workflow click swapped the chat's pane");
       },
     },
     "open-agent-in-chat": {
@@ -61,10 +62,10 @@ export default agentPaneEntry({
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of-slot"));
-        // The pill is pinned over the transcript's top; its row keeps only its room (the slot).
-        const row = ctx.document.querySelector(".cv-subagent-of-slot")?.closest<HTMLElement>("[data-row-id]");
-        const request = workflowPaneRequest(row?.dataset.rowId?.replace(/:of$/, ""));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-corner"));
+        // The view's corner (its close) names the view it closes.
+        const corner = ctx.document.querySelector<HTMLElement>(".cv-subagent-corner");
+        const request = workflowPaneRequest(corner?.dataset.subagentView);
         if (request?.sessionId !== snapshot.sessionId || !request?.runId || !request.agentId)
           throw new Error("Workflow click lost its transcript identity");
       },

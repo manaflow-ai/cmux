@@ -30,6 +30,19 @@ public struct HostCLI: Sendable {
         self.environment = environment
     }
 
+    /// This CLI asking the platform `launch` names: its `CMUX_PLATFORM_ORIGIN` (the app resolves its Cloud selection
+    /// into its launch environment at launch, which its daemon gets) over this CLI's own. A `machine list|add|doctor`
+    /// or `device` run then reaches the platform the app signed in to, not the CLI's production default, where a
+    /// staging or development token lists no joined machine. Unchanged when `launch` names none.
+    public func onPlatform(of launch: [String: String]) -> HostCLI {
+        guard let origin = launch[Self.platformOriginKey] else { return self }
+        let environment = environment
+        return HostCLI(binary: binary) { await environment().merging([Self.platformOriginKey: origin]) { _, chosen in chosen } }
+    }
+
+    /// The variable cmux-tui reads the platform origin from (`cmux_cloud_client::backend::platform_origin_from`).
+    public static let platformOriginKey = "CMUX_PLATFORM_ORIGIN"
+
     /// `host candidates --json [--probe]`: the Tailscale peers' JSON, nil when there is no Tailscale,
     /// or the run failed or timed out. Without `probe` it is one local tailscale call; `--probe` also
     /// tries ssh to the user's own machines (at most 32, eight at a time, 5 s each).
@@ -162,6 +175,7 @@ public struct HostCLI: Sendable {
         // The stream may end (Cancel) at any point up to here; the gate decides under one lock
         // whether this start still runs, and a cancel that lands after it stops the process.
         do {
+            OpenDescriptors.noteBudgetSoon()
             try gate.start { try process.run() }
         } catch is CancellationError {
             // No process, so no exit to close the pipes at.

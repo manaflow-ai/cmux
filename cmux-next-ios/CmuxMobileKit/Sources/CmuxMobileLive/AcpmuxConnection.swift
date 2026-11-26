@@ -17,6 +17,10 @@ public actor AcpmuxConnection {
         public var reason: String?
         /// `error.data.retryAfterMs`: when acpmux paces a request (`list.paced`), how long to wait.
         public var retryAfterMs: Int? = nil
+        /// `error.data.origin` and `error.data.code` (a string): Rust tells a "not now" from a
+        /// real refusal by them and `reason`; Swift only carries them.
+        public var origin: String? = nil
+        public var dataCode: String? = nil
     }
 
     public struct Notification: Sendable {
@@ -25,6 +29,10 @@ public actor AcpmuxConnection {
     }
 
     private let channel: any LinkChannel
+    /// The link's last progress (its Mac's ``MacSession/progress``, or this channel's own): every
+    /// frame heard and every write taken tells it, and a ``submit(_:_:timeout:)``'s write is
+    /// bounded by silence on it, not by a fixed time.
+    nonisolated let progress: LinkProgress
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var readTask: Task<Void, Never>?
@@ -45,8 +53,9 @@ public actor AcpmuxConnection {
     /// (the channel closes), so a peer that never passes the check cannot fill the phone's memory.
     /// The answers to this phone's own requests are kept whole, as on any connection: one each,
     /// at most ``MessageJoiner/maxMessage``, so an older Mac's whole chat list still arrives.
-    public init(channel: any LinkChannel, held: Bool = false) {
+    public init(channel: any LinkChannel, held: Bool = false, progress: LinkProgress = LinkProgress()) {
         self.channel = channel
+        self.progress = progress
         (notifications, continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         if held { self.held = [] }
     }
@@ -100,9 +109,12 @@ public actor AcpmuxConnection {
         let isWrite = !AcpmuxHub.steadyMethods.contains(method)
         if isWrite { writes.insert(id) }
         defer { if isWrite { writes.remove(id) } }
-        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
+        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method),
+                                          "params": Self.traced(params)])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
+        let traceStart = PhoneTrace.traceID == nil ? nil : PhoneTrace.Recorder.now()
+        defer { if let traceStart { PhoneTrace.roundTrip(method, start: traceStart) } }
         return try await LinkDeadline.run(
             timeout: timeout,
             timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
@@ -173,24 +185,39 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// The write is bounded by `timeout` (a link that stopped taking data) and released when the
+    /// The write is bounded by a quiet window of `timeout` (by default ``writeBound(bytes:base:)``
+    /// of its size) that ``progress`` (anything heard from the Mac, a write taken) restarts, not
+    /// by `timeout` in all: a write on a link that keeps moving goes on (Leo, 2026-11-24: "if
+    /// it's making good progress, it shiukd be allowed to keep going?"). It is released when the
     /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
-    public func submit(_ method: String, _ params: JSONValue, timeout: Duration = .seconds(30)) async throws -> Int {
+    public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil,
+                       base: Duration = AcpmuxConnection.writeBase) async throws -> Int {
         try Task.checkCancellation()
         if let ended { throw ended }
         start()
         let id = nextID
         nextID += 1
-        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
+        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method),
+                                          "params": Self.traced(params)])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
+        // The write, not the answer (a prompt's comes when its turn ends).
+        let traceStart = PhoneTrace.traceID == nil ? nil : PhoneTrace.Recorder.now()
+        defer { if let traceStart { PhoneTrace.roundTrip(method, start: traceStart, args: ["write": true]) } }
         submitted.insert(id)
-        if !AcpmuxHub.steadyMethods.contains(method) { writes.insert(id) }
+        if !AcpmuxHub.steadyMethods.contains(method) {
+            writes.insert(id)
+            // Bounded by this write's own deadline below, so a recovery it holds off is too.
+            sending.insert(id)
+        }
+        defer { sending.remove(id) }
         let channel = channel
+        let window = timeout ?? Self.writeBound(bytes: data.count, base: base)
         do {
             try await LinkDeadline.run(
-                timeout: timeout,
-                timeoutError: LinkError(code: "timeout", message: "write of \(method) timed out"),
+                timeout: window,
+                timeoutError: LinkError(code: "timeout", message: "write of \(method) made no progress"),
+                extend: progress.stallExtension(after: window),
                 operation: { try await channel.send(data) },
                 onCancel: { await self.release(id) }
             )
@@ -198,11 +225,39 @@ public actor AcpmuxConnection {
             release(id)
             throw error
         }
+        progress.progressed()
         return id
+    }
+
+    /// `params` with the current user action's trace id in `_meta.traceId` (``PhoneTrace``), which
+    /// acpmux's tracer keys its spans by (`perf_trace.rs` `trace_id_of`); unchanged outside an
+    /// action or when `params` is not an object. Other `_meta` keys stay.
+    nonisolated static func traced(_ params: JSONValue) -> JSONValue {
+        guard let traceID = PhoneTrace.traceID, case .object(var fields) = params else { return params }
+        var meta: [String: JSONValue] = [:]
+        if case .object(let existing)? = fields["_meta"] { meta = existing }
+        meta["traceId"] = .string(traceID)
+        fields["_meta"] = .object(meta)
+        return .object(fields)
+    }
+
+    /// The fixed part of a write's bound: a link that takes no data for this long is down.
+    public static let writeBase: Duration = .seconds(30)
+    /// The slowest link a write is still expected to finish on, in bytes a second: a prompt with
+    /// an inline image or PDF (several MB of base64) on a slow cellular link.
+    static let writeFloorRate = 16 * 1024
+
+    /// How long a write of `bytes` may take: `base`, plus its bytes at ``writeFloorRate``. A fixed
+    /// bound cut off a large prompt that was still going out on a slow link, and the prompt came
+    /// back as "unreachable" though the Mac was there (``LinkChannel/send(_:)`` reports no
+    /// progress, so the bound scales with the size instead of watching for a stall).
+    public static func writeBound(bytes: Int, base: Duration = writeBase) -> Duration {
+        base + .milliseconds(Int64(max(0, bytes)) * 1000 / Int64(writeFloorRate))
     }
 
     /// A submitted request whose write failed, timed out or was cancelled: nothing waits for it.
     private func release(_ id: Int) {
+        sending.remove(id)
         submitted.remove(id)
         writes.remove(id)
         answered[id] = nil
@@ -233,6 +288,12 @@ public actor AcpmuxConnection {
     /// A prompt or mutation is still waiting for the Mac on this channel: a slow answer here is
     /// work, not a stall, and closing the channel would lose it.
     var hasWritesInFlight: Bool { !writes.isEmpty }
+    /// Submitted writes (``submit(_:_:timeout:base:)``, not idempotent reads) whose bytes are still
+    /// going out on the channel: the channel has not taken them whole yet.
+    private var sending: Set<Int> = []
+    /// A write is still going out: a read behind it on this channel is slow, not stalled (the Mac
+    /// cannot answer what has not reached it), and the write is bounded by its own deadline.
+    var isSending: Bool { !sending.isEmpty }
     private var answered: [Int: Result<JSONValue, any Error>] = [:]
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
@@ -275,6 +336,8 @@ public actor AcpmuxConnection {
     /// full-size frames (PROTOCOL.md "Link"), so frames join until they parse
     /// as one JSON value: a transcript record carrying an image arrives whole.
     func route(_ data: Data) {
+        // Bytes heard from the Mac: the link is moving.
+        progress.progressed()
         guard cutOff == nil else { return }
         var joiner = frames
         // Before the check every message, plain or compressed, grows to at most what is left of
@@ -310,7 +373,9 @@ public actor AcpmuxConnection {
                     code: Int(error["code"]?.numberValue ?? 0),
                     message: error["message"]?.stringValue ?? "error",
                     reason: error["data"]?["reason"]?.stringValue,
-                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) }
+                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) },
+                    origin: error["data"]?["origin"]?.stringValue,
+                    dataCode: error["data"]?["code"]?.stringValue
                 ))
             } else {
                 outcome = .success(value["result"] ?? .null)
@@ -531,13 +596,15 @@ public actor AcpmuxConnection {
         for id in submitted where pending[id] == nil && answered[id] == nil { answered[id] = .failure(error) }
         submitted.subtract(pending.keys)
         writes.removeAll()
+        sending.removeAll()
         pending.removeAll()
         continuation.finish()
     }
 }
 
 /// What a person reads for a refused acpmux call: the reason's copy, the Mac's own
-/// sentence, or a plain fallback. Never the JSON-RPC code or the type.
+/// sentence, or a plain fallback. Never the JSON-RPC code or the type. No "again in a
+/// moment": a paced list is asked again on its own (`AcpmuxHub+SessionPages`, AutoRetry).
 extension AcpmuxConnection.RPCError: LocalizedError {
     public var errorDescription: String? {
         switch reason {
@@ -546,14 +613,14 @@ extension AcpmuxConnection.RPCError: LocalizedError {
         case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
         case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
         case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."
-        case "list.paced": return "Your Mac is busy. Try again in a moment."
+        case "list.paced": return "Your Mac is busy right now."
         default: break
         }
         if message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
         // An agent's raw JSON error (a model the account lacks) reads as a sentence.
         if message.contains("{"), message.contains("}") { return TurnFailureCopy.plain(message) }
         if UserFacingError.isProse(message) { return message.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if retryAfterMs != nil { return "Your Mac is busy. Try again in a moment." }
-        return "Your Mac couldn't do that. Try again."
+        if retryAfterMs != nil { return "Your Mac is busy right now." }
+        return "Your Mac couldn't do that."
     }
 }

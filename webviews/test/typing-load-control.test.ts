@@ -1,5 +1,6 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -7,13 +8,12 @@ const saved = { window: scope.window, document: scope.document };
 const had = { window: "window" in scope, document: "document" in scope };
 scope.window = dom.window;
 scope.document = dom.window.document;
-afterAll(async () => {
-  for (const key of ["window", "document"] as const) {
-    if (had[key]) scope[key] = saved[key];
-    else delete scope[key];
-  }
-  dom.window.close();
-});
+afterAll(() =>
+  teardownDom(
+    (["window", "document"] as const).map((key) => [key, had[key], saved[key]] as const),
+    { window: dom.window, scope },
+  ),
+);
 
 test("light fixture includes the summary in the model row count used by the 100k typing mode", async () => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");

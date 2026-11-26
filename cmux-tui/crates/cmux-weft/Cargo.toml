@@ -15,6 +15,7 @@ name = "weft"
 path = "src/bin/weft.rs"
 
 [dependencies]
+cmux-egress.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 cmux-wg = { path = "../cmux-wg" }
@@ -33,4 +34,5 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 proptest = { version = "1", default-features = false, features = ["std"] }

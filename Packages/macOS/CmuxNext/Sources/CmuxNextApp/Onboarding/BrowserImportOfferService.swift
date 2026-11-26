@@ -10,8 +10,8 @@ import Foundation
 /// page that asks to sign in (a password or user name field; Lawrence 2026-11-09), a glass card at its bottom
 /// offers to import sign-ins (cookies) from the most used browser on this Mac. Import
 /// opens Import from Browser with cookies checked, into the tab's profile;
-/// nothing (no keychain) is read before that click. Not Now keeps it away 30 days; Don't
-/// Show Again turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
+/// nothing (no keychain) is read before that click. Not now keeps it away 30 days; the
+/// permanent dismissal turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
 /// imported cookies end it; it offers itself once per profile (`BrowserImportOfferState`). It reads no browser
 /// data itself: the installed browsers come from Launch Services. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
 /// never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
@@ -96,7 +96,7 @@ final class BrowserImportOfferService {
         shownOn = chrome
         let offer = BrowserCookieImportOffer(icons: [first.icon], title: BrowserImportOfferStrings.title(browser: first.browser.displayName),
                                              importTitle: BrowserImportOfferStrings.importData, notNowTitle: BrowserImportOfferStrings.notNow,
-                                             neverTitle: BrowserImportOfferStrings.dontShowAgain)
+                                             neverTitle: BrowserImportOfferStrings.never(browser: first.browser == .chrome ? "Chrome" : first.browser.displayName))
         let target = BrowserProfileRecord.wireID(for: chrome.tab.profileID)
         update { $0.recordShown(on: target) }  // it never offers itself on this profile again, answered or not
         // A window toast (a recovered draft, an undo) sits at the bottom too: the card rises above it
@@ -158,6 +158,12 @@ final class BrowserImportOfferService {
     func importFinished(_ counts: ImportCounts) {
         update { $0.recordImport(counts) }
         if state.imported { hide() }
+    }
+
+    /// `browser.import_offer` and `debug.browser_import_offer`: where the card stands (``BrowserImportOfferReadout``).
+    func readout() -> JSONValue {
+        let cards = (services?.cache.browsers ?? [:]).compactMapValues { $0.chrome?.cookieImportCardReadout.map { BrowserImportOfferReadout.Card(showing: $0.showing, waitsForFocus: $0.waitsForFocus, seen: $0.seen) } }
+        return BrowserImportOfferReadout.json(state: state, bannerOn: banner?.isOn != false, offered: isOffered, shownThisLaunch: shownThisLaunch, cards: cards, browsers: browsers?.map(\.browser.displayName))
     }
 
     /// `debug.browser_import_offer reset`: back to a fresh Mac's state, the setting on again.

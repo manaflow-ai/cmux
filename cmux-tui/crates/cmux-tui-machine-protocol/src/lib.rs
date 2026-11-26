@@ -1,10 +1,11 @@
 //! Versioned wire types for external cmux machine providers.
 //!
 //! The control protocol uses newline-delimited JSON. Provider control metadata
-//! may gain new top-level fields within v1, so envelopes accept unknown fields.
-//! Method parameters, results, transport handshakes, and security-sensitive
-//! descriptors reject unknown fields because silently ignoring those fields can
-//! change the meaning of an operation.
+//! may gain new fields within v1, so envelopes, method parameters, results, events
+//! and descriptors accept and ignore unknown fields: a peer one version newer is
+//! never refused. A field that changes an operation's meaning needs a negotiated
+//! client capability (`negotiate_client_capabilities`), not a strict decoder.
+//! Only the transport handshake (bearer token and ticket) refuses unknown fields.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -18,6 +19,12 @@ use zeroize::Zeroize;
 mod machine_metadata;
 pub use machine_metadata::{
     MACHINE_METADATA_CLIENT_CAPABILITY, MachineDescriptor, MachinePlatform,
+};
+pub mod operations;
+pub use operations::{
+    CreateMachineSpec, ExecOutput, ExecRequest, ExposedPort, ForkLatencyClass,
+    InMemoryMachineProvider, MachineHandle, MachineOperation, MachineOperationCapabilities,
+    MachineProvider, MachineProviderError, MachineRunState, PortProtocol, SnapshotHandle,
 };
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
@@ -506,7 +513,6 @@ pub enum ProviderEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ClientDescriptor {
     pub name: String,
     pub version: String,
@@ -514,14 +520,12 @@ pub struct ClientDescriptor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct HelloParams {
     pub token: BearerToken,
     pub client: ClientDescriptor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct HelloResult {
     pub provider_id: OpaqueId,
     pub provider_name: String,
@@ -529,51 +533,43 @@ pub struct HelloResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NegotiateClientCapabilitiesParams {
     pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NegotiateClientCapabilitiesResult {
     pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SubscribeNoticesParams {
     pub consumer_id: OpaqueId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SubscribeNoticesResult {
     pub sequence: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct AcknowledgeNoticeParams {
     pub notice_id: OpaqueId,
     pub sequence: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct AcknowledgeNoticeResult {
     pub sequence: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SnapshotParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub known_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SnapshotResult {
     pub revision: u64,
     pub scopes: Vec<ScopeDescriptor>,
@@ -610,7 +606,6 @@ impl SnapshotResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ScopeDescriptor {
     pub id: OpaqueId,
     pub display_name: String,
@@ -636,7 +631,7 @@ pub enum MachineStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "owner", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "owner", rename_all = "snake_case")]
 pub enum WorkspaceCreatePolicy {
     Session,
     Provider { default_mode: WorkspaceCreateMode, modes: Vec<WorkspaceCreateMode> },
@@ -650,7 +645,6 @@ pub enum WorkspaceCreateMode {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderCapabilities {
     #[serde(default)]
     pub create_machine: bool,
@@ -681,7 +675,6 @@ fn provider_action_target_is_scope(target: &ProviderActionTarget) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderAction {
     pub id: OpaqueId,
     pub label: String,
@@ -694,7 +687,6 @@ pub struct ProviderAction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ActionField {
     pub id: String,
     pub kind: ActionFieldKind,
@@ -720,7 +712,6 @@ pub enum ActionFieldKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenMachineParams {
     pub machine_id: OpaqueId,
     /// Set only after the provider advertises
@@ -731,7 +722,6 @@ pub struct OpenMachineParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenMachineResult {
     pub connection_id: OpaqueId,
     pub transport: TransportDescriptor,
@@ -743,26 +733,22 @@ pub struct OpenMachineResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SelectScopeParams {
     pub scope_id: OpaqueId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SelectScopeResult {
     pub snapshot: SnapshotResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CreateMachineParams {
     pub scope_id: OpaqueId,
     pub mutation_id: OpaqueId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CreateMachineResult {
     pub machine_id: OpaqueId,
     pub revision: u64,
@@ -772,7 +758,6 @@ pub struct CreateMachineResult {
 
 /// Enrolls and selects one machine from an address or pairing code.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ConnectExternalMachineParams {
     pub scope_id: OpaqueId,
     pub specifier: ExternalMachineSpecifier,
@@ -781,7 +766,6 @@ pub struct ConnectExternalMachineParams {
 
 /// The durable, idempotently replayable result of external-machine enrollment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ConnectExternalMachineResult {
     pub machine_id: OpaqueId,
     pub revision: u64,
@@ -791,7 +775,6 @@ pub struct ConnectExternalMachineResult {
 
 /// Selects the provider-owned machine lifecycle catalog for one scope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineLifecycleSnapshotParams {
     pub scope_id: OpaqueId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -800,7 +783,6 @@ pub struct MachineLifecycleSnapshotParams {
 
 /// Active and recoverable machines whose durable lifecycle is provider-owned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineLifecycleSnapshotResult {
     pub revision: u64,
     pub scope_id: OpaqueId,
@@ -808,7 +790,6 @@ pub struct MachineLifecycleSnapshotResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineLifecycleDescriptor {
     pub id: OpaqueId,
     pub display_name: String,
@@ -827,7 +808,6 @@ pub enum MachineLifecycleStatus {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineLifecycleCapabilities {
     #[serde(default)]
     pub rename: bool,
@@ -841,7 +821,6 @@ pub struct MachineLifecycleCapabilities {
 
 /// Renames one provider-owned machine under an optimistic version fence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RenameMachineParams {
     pub scope_id: OpaqueId,
     pub machine_id: OpaqueId,
@@ -852,7 +831,6 @@ pub struct RenameMachineParams {
 
 /// Deletes, restores, or permanently purges one provider-owned machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineMutationParams {
     pub scope_id: OpaqueId,
     pub machine_id: OpaqueId,
@@ -862,7 +840,6 @@ pub struct MachineMutationParams {
 
 /// Durable result shared by provider-owned machine lifecycle mutations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MachineMutationResult {
     pub machine_id: OpaqueId,
     pub version: u64,
@@ -872,7 +849,6 @@ pub struct MachineMutationResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CreateWorkspaceParams {
     pub machine_id: OpaqueId,
     pub mode: WorkspaceCreateMode,
@@ -880,7 +856,6 @@ pub struct CreateWorkspaceParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CreateWorkspaceResult {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -889,7 +864,6 @@ pub struct CreateWorkspaceResult {
 
 /// Selects the provider-owned workspace catalog for one machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceSnapshotParams {
     pub machine_id: OpaqueId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -898,7 +872,6 @@ pub struct WorkspaceSnapshotParams {
 
 /// The provider-owned workspace catalog for one machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceSnapshotResult {
     pub revision: u64,
     pub machine_id: OpaqueId,
@@ -907,7 +880,6 @@ pub struct WorkspaceSnapshotResult {
 
 /// A workspace whose durable lifecycle is owned by the provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceLifecycleDescriptor {
     pub id: OpaqueId,
     pub display_name: String,
@@ -929,7 +901,6 @@ pub enum WorkspaceLifecycleStatus {
 
 /// Mutations currently allowed for a workspace after server-side authorization.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceLifecycleCapabilities {
     #[serde(default)]
     pub rename: bool,
@@ -943,7 +914,6 @@ pub struct WorkspaceLifecycleCapabilities {
 
 /// Renames one provider-owned workspace under an optimistic version fence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RenameWorkspaceParams {
     pub machine_id: OpaqueId,
     pub workspace_id: OpaqueId,
@@ -954,7 +924,6 @@ pub struct RenameWorkspaceParams {
 
 /// Deletes, restores, or permanently purges one provider-owned workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceMutationParams {
     pub machine_id: OpaqueId,
     pub workspace_id: OpaqueId,
@@ -964,7 +933,6 @@ pub struct WorkspaceMutationParams {
 
 /// Durable result shared by provider-owned workspace mutations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorkspaceMutationResult {
     pub workspace_id: OpaqueId,
     pub version: u64,
@@ -982,7 +950,6 @@ pub enum ActionValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct InvokeActionParams {
     pub action_id: OpaqueId,
     #[serde(default)]
@@ -995,7 +962,6 @@ pub struct InvokeActionParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct InvokeActionResult {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1009,19 +975,17 @@ pub struct InvokeActionResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CloseMachineParams {
     pub connection_id: OpaqueId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CloseMachineResult {
     pub revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TransportDescriptor {
     ProviderStream { ticket: BearerToken, expires_at: String },
 }
@@ -1034,6 +998,7 @@ pub enum TransportRole {
 
 /// The first and only provider-protocol frame on a transport connection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict auth frame: a bearer token and ticket, nothing else is read before auth
 #[serde(deny_unknown_fields)]
 pub struct TransportHandshake {
     pub protocol: Protocol,
@@ -1044,19 +1009,16 @@ pub struct TransportHandshake {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TransportHandshakeResult {
     pub accepted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SnapshotChangedEvent {
     pub revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ConnectionClosedEvent {
     pub connection_id: OpaqueId,
     pub machine_id: OpaqueId,
@@ -1068,21 +1030,18 @@ pub struct ConnectionClosedEvent {
 /// presentation-only: the newest message per machine wins, and the client
 /// drops it once the connection settles or fails.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ConnectionProgressEvent {
     pub machine_id: OpaqueId,
     pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderNotice {
     pub level: NoticeLevel,
     pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NoticeDelivery {
     pub notice_id: OpaqueId,
     pub sequence: u64,
@@ -1097,7 +1056,6 @@ pub enum NoticeLevel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderError {
     pub code: ProviderErrorCode,
     pub message: String,

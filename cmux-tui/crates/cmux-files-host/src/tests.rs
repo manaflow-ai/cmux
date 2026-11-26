@@ -63,7 +63,7 @@ fn a_program_runs_only_from_an_app_that_embeds_the_same_helper() {
 fn staging_root_is_shared_by_every_build() {
     let root = staging_root(Path::new("/Users/p"));
     assert!(root.starts_with("/Users/p/Library"));
-    assert!(root.ends_with("cmux/files-host/app"));
+    assert!(root.ends_with("Application Support/cmux-next/files-host/app"));
     assert!(requirement().contains("\"com.cmuxterm.files.dev\""));
     assert!(requirement().contains("\"7WLXT3NR37\""));
 }

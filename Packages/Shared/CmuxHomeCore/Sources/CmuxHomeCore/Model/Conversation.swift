@@ -131,7 +131,17 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public func displayTitle(me: ParticipantID) -> String {
         if !title.isEmpty, !title.isHomeInternalID { return title }
         let names = participants.filter { $0.id != me }.map(\.visibleName).filter { !$0.isEmpty }
+        #if canImport(Darwin)
         return names.isEmpty ? "" : ListFormatter.localizedString(byJoining: names)
+        #else
+        // No ListFormatter (the Linux package lane): the English list it gives.
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return names.dropLast().joined(separator: ", ") + ", and " + names[names.count - 1]
+        }
+        #endif
     }
 
     /// Messages after my read cursor, without my own: my newest message

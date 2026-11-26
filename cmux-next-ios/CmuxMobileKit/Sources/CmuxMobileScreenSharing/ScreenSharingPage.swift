@@ -23,6 +23,8 @@ public struct ScreenSharingPage: View {
     @State private var connectedOnce = false
     /// Check Again's list read; the page going away cancels it.
     @State private var checking: Task<Void, Never>?
+    /// A list that can't be reached is read again on its own (no Try Again).
+    @State private var autoRetry = AutoRetry()
 
     public init(service: ScreenSharingService, connectTo: String? = nil) {
         self.service = service
@@ -41,6 +43,7 @@ public struct ScreenSharingPage: View {
         // Mode, user 2026-11-05). Pickers follow `label`, switches stay green.
         .cmuxMobileNeutralControlTint()
         .refreshable { await service.refresh() }
+        .autoRetry(autoRetry, failing: service.listFailureRetries) { await service.refreshUntilAnswered() }
         .onAppear {
             service.start()
             // An already read list is kept for the next showing too, not only one that changes.
@@ -62,9 +65,15 @@ public struct ScreenSharingPage: View {
             service.listChanged()
             connectToNamedMac()
         }
-        .fullScreenCover(item: Binding(get: { service.viewerOnScreen }, set: { if $0 == nil { service.dismissViewer() } })) { viewer in
-            ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) },
-                                      close: { service.dismissViewer() })
+        // One cover for both paths, so a link stream that fails hands over to the hub's viewer.
+        .fullScreenCover(item: Binding(get: { service.screenOnScreen }, set: { if $0 == nil { service.dismissViewer() } })) { screen in
+            switch screen {
+            case let .hub(viewer):
+                ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) },
+                                          close: { service.dismissViewer() })
+            case let .link(viewer):
+                ScreenSharingLinkScreen(viewer: viewer, close: { service.dismissViewer() })
+            }
         }
         .alert(service.alert.map { $0.refusal.title($0.hostName) } ?? "",
                isPresented: Binding(get: { service.alert != nil }, set: { if !$0 { service.alert = nil } }),
@@ -101,6 +110,7 @@ public struct ScreenSharingPage: View {
             Button("Connect View Only") { service.select(alert.hostID, scope: .view) }
             Button("Cancel", role: .cancel) {}
         case .other:
+            // retry-prompt-ok: asks the Mac to start a screen share again (its person may have to Allow it).
             Button("Try Again") { service.select(alert.hostID, scope: alert.requested) }
             Button("Cancel", role: .cancel) {}
         case .notFound:
@@ -118,7 +128,7 @@ public struct ScreenSharingPage: View {
     /// be shared now. One that can't stays in the list, and says why when it's tapped.
     private func connectToNamedMac() {
         // Only from a read list: a Mac drawn from the last one may be offline or not shared now.
-        guard !connectedOnce, service.discovery == .listed, service.viewer == nil, service.alert == nil,
+        guard !connectedOnce, service.discovery == .listed, service.viewer == nil, service.linkViewer == nil, service.alert == nil,
               let mac = Self.namedMac(connectTo, in: service.macs, unavailable: { service.unavailability(of: $0) }) else { return }
         connectedOnce = true
         service.connect(to: mac, scope: service.preferences.defaultScope)
@@ -140,12 +150,13 @@ public struct ScreenSharingPage: View {
     }
 
     /// One "Your Macs" section holds the one state of the list: finding (a spinner),
-    /// can't reach (why, and Try Again), no Macs (only once the list was read), or the Macs.
+    /// can't reach (read again on its own; why, once past the quiet bound), no Macs (only
+    /// once the list was read), or the Macs.
     @ViewBuilder private var macsSection: some View {
         let macs = service.macs
         Section {
             switch service.discovery {
-            case .finding:
+            case .finding, .failed where service.listFailureRetries && !autoRetry.isQuietLineShown:
                 if macs.isEmpty {
                     HStack(spacing: 12) {
                         CmuxSpinner()
@@ -161,7 +172,13 @@ public struct ScreenSharingPage: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("screenSharing.failed")
-                Button("Try Again") { Task { await service.refresh() } }
+                if service.listFailureRetries {
+                    AutoRetryQuietLine(autoRetry)
+                } else {
+                    // retry-prompt-ok: starting again takes the connection back from the iPhone's other
+                    // connection, or registers a removed or signed-out iPhone again.
+                    Button("Try Again") { Task { await service.refresh() } }
+                }
             case .listed:
                 if macs.isEmpty {
                     Text("No Macs. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
@@ -173,7 +190,7 @@ public struct ScreenSharingPage: View {
                 ScreenSharingMacRow(mac: mac, access: service.access(to: mac),
                                     connecting: service.pendingSelection?.hostID == mac.id
                                         || service.sharing?.hostID == mac.id
-                                        || (service.viewerOnScreen == nil && service.viewer?.hostID == mac.id
+                                        || (service.screenOnScreen == nil && service.viewer?.hostID == mac.id
                                             && service.viewer?.phase.isRequesting == true)) { scope in
                     select(mac, scope: scope)
                 } share: {
@@ -307,6 +324,7 @@ struct ScreenSharingViewerScreen: View {
         case .idle, .requesting, .approved:
             EmptyState(symbol: "desktopcomputer", title: "Connecting to \(viewer.hostName)…",
                        secondaryTitle: "Cancel", secondary: close)
+                .placeholderBound("screenSharing.connecting", .milliseconds(2000))
         case .waitingForApproval:
             EmptyState(symbol: "hand.raised", title: "Waiting for \(viewer.hostName)",
                        message: "Allow this iPhone on the Mac to start sharing.", secondaryTitle: "Cancel", secondary: close)
@@ -317,13 +335,17 @@ struct ScreenSharingViewerScreen: View {
                        message: "The Mac is still reachable. Reconnecting this screen…", secondaryTitle: "Close", secondary: close)
         case .declined:
             EmptyState(symbol: "hand.raised.slash", title: "\(viewer.hostName) declined",
+                       // retry-prompt-ok: asking again puts Allow / Deny in front of the person at the Mac again.
                        message: "Someone at the Mac said Deny.", primaryTitle: "Ask Again", primary: retry,
                        secondaryTitle: "Close", secondary: close)
         case let .refused(refusal, _):
+            // retry-prompt-ok: Try Again requests a new screen share the Mac must approve.
             EmptyState(symbol: "exclamationmark.triangle", title: refusal.title(viewer.hostName), message: refusal.message,
                        primaryTitle: refusal.isOther || refusal == .hostOffline ? "Try Again" : nil, primary: retry,
                        secondaryTitle: "Close", secondary: close)
         case let .ended(reason):
+            // retry-prompt-ok: Connect Again starts a new screen share the Mac must approve (a dropped
+            // one already reattaches on its own while it is .reconnecting).
             EmptyState(symbol: "rectangle.on.rectangle.slash", title: "Sharing ended",
                        message: LocalizedStringKey(ScreenSharingEndCopy.message(reason, host: viewer.hostName)),
                        primaryTitle: "Connect Again", primary: retry, secondaryTitle: "Close", secondary: close)
@@ -351,6 +373,7 @@ extension ScreenSharingRefusal {
         case .notShared: "Share it from this iPhone, or turn on Share This Mac in the Mac's Settings › Devices."
         case .notFound: nil
         case let .other(reason?): "The device hub could not start the session: \(reason)"
+        // retry-prompt-ok: starting a share asks the Mac again
         case .other: "Check your connection and try again."
         }
     }

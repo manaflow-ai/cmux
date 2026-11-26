@@ -9,8 +9,8 @@ extension Metrics {
     /// half a toolbar button), never inside the tab bar ⋮'s own corner gap (its button centered in the
     /// strip's height, as far from the trailing edge as from the top).
     public static var paneTrailingControlCenter: CGFloat {
-        let toolbar = paneChromeInset + chromeRowHeight / 2
-        let side = TitlebarBandButton.side
+        let toolbar = paneChromeInset + tabBarControlSide / 2
+        let side = tabBarControlSide
         let strip = max(0, ((tabStripHeight - side) / 2).rounded()) + side / 2
         return max(toolbar, strip)
     }

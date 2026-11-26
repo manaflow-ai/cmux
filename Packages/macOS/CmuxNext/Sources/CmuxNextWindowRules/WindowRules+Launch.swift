@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextCompat
 import os
 
 /// The launch snapshot's standing once the live tree applied (cmux-window-rules `launch`, cmuxterm-hq#12660).
@@ -107,6 +108,39 @@ extension WindowRules {
         let saved = live?.screens.lazy.flatMap(\.panes).first { $0.id == pane }?.tabs.first { $0.id == tab }
         let standing: TabStanding = saved.map { $0.dead || $0.relaunch != nil ? .ended : .live } ?? .gone
         return launchLanding(last: .workspace(id, pane: pane, tab: tab), workspaceLive: live != nil, tab: standing)
+    }
+
+    /// What a relaunch's pending Home landing reads (cmux-window-rules `launch::pending_home`): the saved front window
+    /// it is for, the active window, whether the front window is open, Home's workspace is listed, and whether the front
+    /// window shows another workspace or page than the restore did, now (`moved`) or at any time since
+    /// (`movedSinceRestore`, latched by the window: leaving and coming back still drops the landing).
+    public nonisolated struct PendingHome: Encodable, Equatable, Sendable {
+        public var window: String
+        public var active: String?
+        public var windowOpen: Bool
+        public var homeReady: Bool
+        public var moved: Bool
+        public var movedSinceRestore: Bool
+
+        public init(window: String, active: String?, windowOpen: Bool, homeReady: Bool, moved: Bool, movedSinceRestore: Bool) {
+            (self.window, self.active, self.windowOpen, self.homeReady) = (window, active, windowOpen, homeReady)
+            (self.moved, self.movedSinceRestore) = (moved, movedSinceRestore)
+        }
+    }
+
+    /// Lands Home for a relaunch whose saved workspace the daemon lacks, once Home's workspace is listed: no timer,
+    /// each change of what `facts` reads asks the rule again. `land` gets the saved front window (never the active
+    /// one). Ends when it landed, or when the window closed or the person moved on (the rule's `stop`), or at once
+    /// when the FFI does not answer (one pinned before `window_launch_pending_home`).
+    @MainActor
+    public func landHomeWhenReady(_ facts: @escaping @MainActor @Sendable () -> PendingHome, land: @escaping @MainActor (String) -> Void) {
+        struct Reply: Decodable { var step: String; var window: String? }
+        Task { @MainActor in
+            for await read in ObservationStream(facts) {
+                guard let reply = call("window_launch_pending_home", read, as: Reply.self), reply.step != "stop" else { return }
+                if reply.step == "land", let window = reply.window { return land(window) }
+            }
+        }
     }
 
     /// What the app knows when a launch decides whether it opens something fresh (cmux-window-rules `launch::FreshFacts`).

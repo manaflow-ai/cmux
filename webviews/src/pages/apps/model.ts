@@ -1,7 +1,15 @@
 // Pure presentation model of the App Store page (plans/cmux-next/react-pages.md 3.3). Catalog
 // semantics (tiers, install states, grants) belong to the app platform lead's owner; this file
 // only filters, orders and labels what the owner returns.
-import { APP_STORE_ID, HOME_ID, type AppTier, type CatalogApp, type GrantRow, type ScopeRisk } from "./types";
+import {
+  APP_STORE_ID,
+  HOME_ID,
+  type AppIconRef,
+  type AppTier,
+  type CatalogApp,
+  type GrantRow,
+  type ScopeRisk,
+} from "./types";
 
 export const RiskLabel: Record<ScopeRisk, string> = {
   standard: "store.risk.standard",
@@ -9,7 +17,18 @@ export const RiskLabel: Record<ScopeRisk, string> = {
   restricted: "store.risk.restricted",
 };
 
-export type StoreTab = "discover" | "installed";
+export type StoreTab = "discover" | "features" | "installed";
+
+/**
+ * How the Features tab lays out its switches (`features=` in the route, like `card=`): `list` is
+ * the default, grouped rows with a switch each (Settings' look); `tiles` (a card per feature) and
+ * `chips` (one compact toggle chip per feature) are DEV variants shown in the gallery.
+ */
+export type FeaturesStyle = "list" | "tiles" | "chips";
+
+export function parseFeaturesStyle(value: string | null | undefined): FeaturesStyle {
+  return value === "tiles" || value === "chips" ? value : "list";
+}
 
 /** `apps.store.layout` (Debug Settings): grid is the default; list and split are DEV variants. */
 export type StoreLayout = "grid" | "list" | "split";
@@ -92,6 +111,7 @@ export interface StoreRoute {
   examples: ExamplesStyle;
   listing: ListingStyle;
   browse: BrowseStyle;
+  features: FeaturesStyle;
   /** `shelf=examples` opens Discover on the Examples shelf (when the owner offers it). */
   shelf: DiscoverShelf;
   app?: string;
@@ -102,7 +122,7 @@ export function parseRoute(hash: string): StoreRoute {
   const [path, query = ""] = text.split("?", 2);
   const params = new URLSearchParams(query);
   const name = path.replace(/^\//, "");
-  const tab: StoreTab = name === "installed" ? "installed" : "discover";
+  const tab: StoreTab = name === "installed" ? "installed" : name === "features" ? "features" : "discover";
   return {
     tab,
     layout: parseLayout(params.get("layout")),
@@ -110,6 +130,7 @@ export function parseRoute(hash: string): StoreRoute {
     examples: parseExamplesStyle(params.get("examples")),
     listing: parseListingStyle(params.get("listing")),
     browse: parseBrowseStyle(params.get("browse")),
+    features: parseFeaturesStyle(params.get("features")),
     shelf: params.get("shelf") === "examples" ? "example" : "store",
     app: params.get("app") || undefined,
   };
@@ -166,6 +187,74 @@ export function filterApps(
       (!category || app.categories.includes(category)) &&
       matches(app, query),
   );
+}
+
+/**
+ * The catalog's listings, each one that did not change kept as the object the page already holds:
+ * every reload re-reads the whole catalog, and a memoized card draws again only for the listing
+ * that changed.
+ */
+export function keepUnchangedApps(previous: readonly CatalogApp[], next: readonly CatalogApp[]): CatalogApp[] {
+  if (previous.length === 0) return next as CatalogApp[];
+  const held = new Map(previous.map((app) => [app.id, app]));
+  return next.map((app) => {
+    const old = held.get(app.id);
+    return old && sameApp(old, app) ? old : app;
+  });
+}
+
+function sameApp(a: CatalogApp, b: CatalogApp): boolean {
+  const keys = Object.keys(a) as (keyof CatalogApp)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => {
+    const x = a[key];
+    const y = b[key];
+    if (x === y) return true;
+    if (Array.isArray(x) && Array.isArray(y)) return x.length === y.length && x.every((item, i) => item === y[i]);
+    if (key === "icon" && x && y && typeof x === "object" && typeof y === "object") {
+      const [p, q] = [x as AppIconRef, y as AppIconRef];
+      return p.path === q.path && p.asset === q.asset && p.symbol === q.symbol;
+    }
+    return false;
+  });
+}
+
+/** Discover's catalog grid: a card is at least this wide, and cards and rows are this far apart
+ *  (styles.css `.apps-grid`). The windowed grid counts its columns the way `auto-fill` does. */
+export const GRID_CARD_MIN = 260;
+export const GRID_GAP = 14;
+/** The list layout's rows are this far apart (styles.css `.apps-rows`). */
+export const LIST_GAP = 2;
+/** A grid row's and a list row's height before the first of its kind is measured. */
+export const GRID_ROW_ESTIMATE = 150;
+export const LIST_ROW_ESTIMATE = 56;
+
+/** The columns `repeat(auto-fill, minmax(min(100%, 260px), 1fr))` makes in `width` px. */
+export function gridColumns(width: number): number {
+  if (!(width > GRID_CARD_MIN)) return 1;
+  return Math.max(1, Math.floor((width + GRID_GAP) / (GRID_CARD_MIN + GRID_GAP)));
+}
+
+/** The windowed catalog: its rows (`columns` listings each), and each listing's row, built once per
+ *  catalog or column count. A row whose listings are all the ones `previous` held keeps its array,
+ *  so its memoized row component does not draw again. */
+export interface CatalogRows {
+  rows: CatalogApp[][];
+  /** Listing id to its row index: a selection or focus finds its row without a scan. */
+  rowOf: Map<string, number>;
+}
+
+export function catalogRows(apps: readonly CatalogApp[], columns: number, previous?: CatalogRows): CatalogRows {
+  const rows: CatalogApp[][] = [];
+  const rowOf = new Map<string, number>();
+  for (let start = 0; start < apps.length; start += columns) {
+    const index = rows.length;
+    const fresh = apps.slice(start, start + columns);
+    const old = previous ? previous.rows[previous.rowOf.get(fresh[0]!.id) ?? -1] : undefined;
+    rows.push(old && old.length === fresh.length && old.every((app, i) => app === fresh[i]) ? old : fresh);
+    for (const app of fresh) rowOf.set(app.id, index);
+  }
+  return { rows, rowOf };
 }
 
 /** Categories present on `shelf` of the catalog, in first-seen order. */

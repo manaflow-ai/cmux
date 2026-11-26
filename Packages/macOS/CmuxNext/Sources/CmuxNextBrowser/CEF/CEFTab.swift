@@ -30,6 +30,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
     @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// A restored tab's own first load (no gesture: the tab was shown after a relaunch) may not start a download
+    /// (`CEFDownloads`): its address turned into a download in the run before, and every relaunch downloaded it
+    /// again. A person's gesture, load, reload or history step, or a committed document, ends it.
+    @ObservationIgnored public var refusesDownloadsUntilGesture = false
+    /// A tab's last frame over its new page until the page paints (`CEFTab+StandIn`).
+    @ObservationIgnored var standIn: NSView?
+    /// The stand-in's cap (`showStandIn`).
+    @ObservationIgnored var standInCap: DemandTimer?
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -96,6 +104,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var machine = BrowserTabStateMachine()
     /// The one automatic reload a memory end of the renderer owes (``BrowserExitRecovery``).
     @ObservationIgnored var exitRecovery = BrowserExitRecovery()
+    /// Ends the renderer of a page that stays hung while hidden, where no one sees its "Page unresponsive"
+    /// card (``BrowserHiddenHangBound``, hq#13463). A test gives it a manual clock.
+    @ObservationIgnored lazy var hiddenHangBound = BrowserHiddenHangBound(
+        owner: "CEFTab.hiddenHang",
+        mayEnd: { [weak self] in self?.mayEndHiddenHungRenderer ?? false },
+        end: { [weak self] in self?.endHiddenHungRenderer() })
+    /// The renderer's next end is the hidden-hang bound's, not a crash or the person's Exit page.
+    @ObservationIgnored var rendererEndedForHang = false
     /// The system's memory pressure, read when the renderer ends; a test gives a fixed level.
     @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
@@ -134,6 +150,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// When ``pendingFocus`` last became true.
     @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
+    /// Re-asks of a grant kept while the window was not on screen (`grantFocus`).
+    @ObservationIgnored var offscreenGrantRetries = 0
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
@@ -243,6 +261,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    @ObservationIgnored var firstCommittedURL: URL?
+    /// The first address the tab was asked to load, before any redirect: the page the app opened it for
+    /// (``BrowserExternalApps/noteFlowPage(_:)``), which a redirect may never commit.
+    @ObservationIgnored var firstRequestedURL: URL?
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -346,6 +368,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// had not run, or a document the next navigation of the same load replaced. Once per browser, and again each time
     /// a focus ask that waited for the page to show is granted (``grantPendingFocusIfShown()``).
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
+    /// A real page's document loaded and painted (not a blank target or an error page), each time one does: its own
+    /// timeline (navigation start, DOMContentLoaded, first contentful paint) is all in. ``onReadyForKeys`` is not that
+    /// moment for a page made with no URL: it fires on the empty document at attach, before the page loads its own.
+    @ObservationIgnored public var onRealDocumentLoaded: (@MainActor () -> Void)?
+    /// Takes this tab's launch marks (``CEFLaunchMarks``); the App points it at its launch-mark log.
+    @ObservationIgnored public var onLaunchMark: (@MainActor (String) -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
@@ -353,7 +381,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The current document presented its first frame, with or without content (Chromium's `firstPaint` or
     /// `firstContentfulPaint`, `CEFFirstPaintBridge`, or the page's own answer). Chromium drops input to a new document
     /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
-    @ObservationIgnored var documentPainted = false
+    /// The first such frame of a page a person sees is the launch mark `browser_pane.first_paint` (``CEFLaunchMarks``).
+    @ObservationIgnored var documentPainted = false {
+        didSet { if documentPainted, !oldValue { reportLaunchMark(CEFLaunchMarks.firstPaint) } }
+    }
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
     /// The current document is Chromium's error page for a failed load.
@@ -386,6 +417,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             guard painted == true, !hasDocument else { return }
             host.lifecycleTrace.record(id, "paint-query painted")
             documentPainted = true
+            removeStandIn()
             documentMayTakeKeys()
         }
     }
@@ -402,6 +434,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
+        if documentPainted, contentful { removeStandIn() } // the new page drew content over its last frame
         if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint\(contentful ? "" : " frame-only") committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
@@ -485,6 +518,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // seconds after the page shows and takes clicks, review 6594624994). A blank target or an error page paints
         // nothing of its own.
         guard documentLoaded, documentPainted || blankIsDocument || committedIsErrorPage else { return }
+        if documentPainted, !committedIsErrorPage, PageBackground.isRealPage(committedURL) { onRealDocumentLoaded?() }
         documentArrived()
     }
 
@@ -494,6 +528,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         hasDocument = true
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
+        reportLaunchMark(CEFLaunchMarks.inputReady)
         onReadyForKeys?()
     }
 
@@ -510,6 +545,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))
+    }
+
+    /// The placeholder hands its browser to the page that takes it (`CEFPaneHost.adoptPlaceholder`): this tab
+    /// forgets it, so its close never closes that browser.
+    func handBrowserOver() {
+        browserID = nil
     }
 
     func creationFailed() {
@@ -562,6 +603,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // A tab whose renderer ended while hidden shows the crash notice with its Reload button
         // when shown; only a renderer the system ended for memory reloads, once (`exitRecovery`).
         reloadOwedAfterExit()
+        hiddenHangChanged()
     }
 
     /// Takes the one automatic reload a memory end owes, if the sad tab still shows.
@@ -594,7 +636,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         documentDidSettle()
         findRequests.cancel()
         let pressure = memoryPressure()
-        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        hiddenHangBound.cancel()
+        let owed: Bool
+        if rendererEndedForHang {
+            // cmux ended it for staying hung while hidden: the page reloads once when shown.
+            rendererEndedForHang = false
+            owed = exitRecovery.endedForHang(now: .now)
+        } else {
+            owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        }
         runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
         if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
@@ -605,6 +655,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     func contentDidDisappear() {
         host.conceal(self)
+        hiddenHangChanged()
     }
 
     func emit(_ intent: BrowserTabIntent) {
@@ -627,7 +678,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        if firstRequestedURL == nil { firstRequestedURL = url }
         automaticDownloads.userGesture()
+        refusesDownloadsUntilGesture = false
         guard browserID != nil || isCreationPending else {
             // No browser, and none on its way: a page made before any pane shows its tab (a rest on the tab, a
             // hibernated page restored in the background, an agent's read). Chromium makes its browser when a pane
@@ -653,6 +706,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func goBack() {
+        refusesDownloadsUntilGesture = false
         if !nativeHistory.back, restored.step(by: -1) { return }
         browserID.map { runtime.shim?.goBack($0) }
     }
@@ -660,6 +714,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Saved forward entries sit right after Chromium's first entry
     /// (`BrowserRestoredHistory`), so they come first from there.
     public func goForward() {
+        refusesDownloadsUntilGesture = false
         if !nativeHistory.back, restored.step(by: 1) { return }
         browserID.map { runtime.shim?.goForward($0) }
     }
@@ -670,6 +725,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func reloadBypassingCache() { reload(bypassingCache: true) }
 
     private func reload(bypassingCache: Bool) {
+        refusesDownloadsUntilGesture = false
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
@@ -707,7 +763,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func answerUnresponsivePage(terminate: Bool) {
         guard state.isUnresponsive else { return }
         if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }
-        if !terminate { machine.apply(.unresponsiveChanged(false)) }
+        if !terminate { machine.apply(.unresponsiveChanged(false)); hiddenHangChanged() }
     }
 
     public func stop() {
@@ -785,6 +841,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
         if visible, host.visibleTab === self { reloadOwedAfterExit() }
+        hiddenHangChanged()
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host
@@ -811,10 +868,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentFiles.withdraw()
         titleTimer.cancel()
         settleTimer.cancel()
+        hiddenHangBound.cancel()
         devToolsController.openTimer.cancel()
         faviconTask?.cancel()
         documentFaviconRead?.cancel()
         dismissPrompts()
+        removeStandIn()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {

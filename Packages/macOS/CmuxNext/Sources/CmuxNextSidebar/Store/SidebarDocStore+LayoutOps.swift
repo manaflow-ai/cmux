@@ -63,21 +63,31 @@ extension SidebarDocStore {
     /// The ops of `moveGroup` for document group `id`: it and the groups nested under it that stored its old space
     /// `old` take `room`. A nested group lists with its parent anyway (`Group.followsParent`); this keeps what it
     /// stores right for when it leaves the parent. One storing another space, or none, keeps it.
+    /// A link, tab or app under it that stored the old space takes `room` too (`item.update`; one moved into Pinned
+    /// stores the acting space, `roomOps`). A member storing its group's space draws only in that space
+    /// (`Group.Listed.lists(inRoom:groupRoom:spaces:)`), so it moves with its group (#31378). One storing none, or
+    /// another space, keeps what it stores.
     static func groupSpaceOps(_ id: String, toSpace room: String, stored old: String?, records: SidebarDocRecords) -> [[String: Any]] {
         guard let group = records.items[id], case .group = group.body else { return [] }
         var children: [String: [SidebarDocItem]] = [:]
         for item in records.items.values { if let parent = item.parent { children[parent, default: []].append(item) } }
         var moving = group.room == room ? [] : [id]
+        var members: [String] = []
+        let oldRoom = old ?? SidebarDocItem.defaultRoom
         var seen: Set<String> = [id]
         var queue = [id]
         while let at = queue.popLast() {
             for child in children[at] ?? [] where seen.insert(child.id).inserted {
-                guard case .group = child.body else { continue }
+                guard case .group = child.body else {
+                    if child.body.belongsToASpace, child.room == oldRoom, oldRoom != room { members.append(child.id) }
+                    continue
+                }
                 queue.append(child.id)
                 if let old, child.room == old, old != room { moving.append(child.id) }
             }
         }
         return moving.sorted().map { ["op": "group.update", "id": $0, "patch": ["profile": room]] }
+            + members.sorted().map { ["op": "item.update", "id": $0, "patch": ["room": room]] }
     }
 
     /// Sends `ops` as one document change titled `title`. Throws when an op

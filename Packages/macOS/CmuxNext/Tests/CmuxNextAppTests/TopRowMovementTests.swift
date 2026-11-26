@@ -187,7 +187,7 @@ import Testing
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "moved up onto the top row, the pill takes the line")
             #expect(try pillTop(f) != centered(f))
             let button = f.toolbar.convert(f.toolbar.zoomButton.frame, to: nil)
-            if TitlebarBandButton.side <= 2 * line.centerY {
+            if Metrics.tabBarControlSide <= 2 * line.centerY {
                 #expect(abs(f.container.bounds.maxY - button.midY - line.centerY) <= 0.5, "the toolbar's buttons take the line too")
             }
         }

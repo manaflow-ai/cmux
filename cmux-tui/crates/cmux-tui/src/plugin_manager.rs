@@ -30,11 +30,6 @@ const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 const MAX_PLUGIN_REGISTRY_METADATA_BYTES: usize = 16 * 1024;
 const MAX_PLUGIN_GIT_OUTPUT_BYTES: usize = 16 * 1024;
-/// Bound the number of filesystem entries inspected by one plugin-manager
-/// operation. The registry is user-controlled, so a malicious or stale data
-/// directory must not turn `list` or selector resolution into an unbounded
-/// scan and allocation.
-const MAX_INSTALLED_PLUGIN_ENTRIES: usize = 256;
 const ARTIFACT_HASH_BUFFER_BYTES: usize = 64 * 1024;
 const AUTO_UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const AUTO_UPDATE_MARKER: &str = ".last-auto-update-check";
@@ -819,7 +814,7 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root(kind)?;
     let selection = selected_plugin_config(kind)?;
     let mut plugins = Vec::new();
-    for entry in bounded_plugin_registry_entries(&root)? {
+    for entry in plugin_registry_entries(&root)? {
         if !entry.file_type()?.is_dir() {
             continue;
         }
@@ -848,11 +843,10 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     Ok(plugins)
 }
 
-/// Read at most [`MAX_INSTALLED_PLUGIN_ENTRIES`] entries from an installed
-/// plugin root. Count every entry, including hidden transaction leftovers and
-/// the registry metadata directory, so an attacker cannot bypass the bound by
-/// creating entries the normal list path later ignores.
-fn bounded_plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
+/// Every entry of an installed plugin root. Installed plugins are not capped by
+/// count: each entry costs one directory entry here and one manifest read, itself
+/// bounded by [`MAX_PLUGIN_MANIFEST_BYTES`], a constant per plugin.
+fn plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -863,19 +857,7 @@ fn bounded_plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEnt
             ));
         }
     };
-
-    let mut bounded = Vec::with_capacity(MAX_INSTALLED_PLUGIN_ENTRIES);
-    for (index, entry) in entries.enumerate() {
-        if index >= MAX_INSTALLED_PLUGIN_ENTRIES {
-            anyhow::bail!(
-                "plugin registry {} exceeds the entry limit of {}",
-                root.display(),
-                MAX_INSTALLED_PLUGIN_ENTRIES
-            );
-        }
-        bounded.push(entry?);
-    }
-    Ok(bounded)
+    entries.map(|entry| entry.map_err(anyhow::Error::from)).collect()
 }
 
 fn resolve_installed_plugin(

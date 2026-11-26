@@ -62,11 +62,10 @@ export function merge(a: Iterable<Item>, b: Iterable<Item>): Map<string, Item> {
 const byCreated = (a: Item, b: Item) => a.created - b.created || a.id.localeCompare(b.id)
 
 /** The items to show: open ones oldest first, and done ones, most recently done first. */
-export function split(items: Iterable<Item>, settling: ReadonlySet<string> = new Set()) {
+export function split(items: Iterable<Item>) {
   const live = [...items].filter((i) => !i.deleted)
-  // An item checked off a moment ago stays in the open list (drawn checked and faded) until it settles.
-  const open = live.filter((i) => !i.done || settling.has(i.id)).sort(byCreated)
-  const done = live.filter((i) => i.done && !settling.has(i.id)).sort((a, b) => (b.doneAt ?? b.updated) - (a.doneAt ?? a.updated))
+  const open = live.filter((i) => !i.done).sort(byCreated)
+  const done = live.filter((i) => i.done).sort((a, b) => (b.doneAt ?? b.updated) - (a.doneAt ?? a.updated))
   const remaining = live.filter((i) => !i.done).length
   return { open, done, remaining }
 }

@@ -367,7 +367,10 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
         if crate not in manifests:
             if not tree.is_file(f"{crate}/Cargo.toml"):
                 continue
-            manifests[crate] = tomllib.loads(tree.text(f"{crate}/Cargo.toml"))
+            try:
+                manifests[crate] = tomllib.loads(tree.text(f"{crate}/Cargo.toml"))
+            except tomllib.TOMLDecodeError as why:  # a ValueError still, now naming the manifest
+                raise ValueError(f"{crate}/Cargo.toml does not parse: {why}") from why
         had, had_default = built.get(crate, (None, False))
         now = (wanted | (had or frozenset()), uses_default or had_default)
         if had is not None and now == (had, had_default):
@@ -442,10 +445,15 @@ def without_failures(log: str, names: set[str]) -> str:
     texts = test_reds.log_lines(log)  # one per raw line
     skip = test_reds.echoed(texts)
     kept, taken = [], 0
+    parents: list[int] = []
     for n, (line, text) in enumerate(zip(raw, texts)):
         if n in skip:
             kept.append(line)
             continue
+        # Keep removed flakes in their own binary, including a child run printed in captured stdout.
+        if test_reds.CARGO_RUNNING.match(text):
+            parents.append(taken)
+            taken = 0
         if (match := FAILED_LINE.match(text)) and match.group(1) in names:
             taken += 1
             continue
@@ -454,7 +462,7 @@ def without_failures(log: str, names: set[str]) -> str:
                 passed, failed = int(counts.group(1)) + taken, max(int(counts.group(2)) - taken, 0)
                 state = "FAILED" if failed else "ok"
                 line = RESULT_COUNTS.sub(f"test result: {state}. {passed} passed; {failed} failed;", text, count=1)
-            taken = 0
+            taken = parents.pop() if parents else 0
         kept.append(line)
     return "\n".join(kept)
 

@@ -88,6 +88,12 @@ export class ChatSource {
     return state !== "off" && capabilities?.has(HOLD_ATTACH_CAPABILITY) === true;
   }
 
+  /// A host on this page opened a chat on the store: an open asked before its handshake answers
+  /// may guess the switch (`direct.ts` `HandshakeGuess`), checked against that handshake after.
+  hostSaidOn(): boolean {
+    return state === "on";
+  }
+
   /// The chat's rows come from the store: its v1 attach is the hold.
   holds(chat: string): boolean {
     return this.shown?.chat === chat;
@@ -178,6 +184,12 @@ export class ChatSource {
   page(chat: string): boolean {
     const shown = this.shown;
     return shown?.chat === chat && shown.view !== undefined && this.host.page(shown.sid, "before");
+  }
+
+  /// Opens one closed row-store fold after its disclosure is clicked.
+  pageFold(chat: string, fold: number): boolean {
+    const shown = this.shown;
+    return shown?.chat === chat && this.host.page(shown.sid, "after", { fold });
   }
 
   /// Leaves the chat on the store, keeping its last window: on a select of another chat and at the
