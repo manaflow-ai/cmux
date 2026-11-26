@@ -10,7 +10,8 @@
  * --per-arm machines named `pause-ab-<tag>-<arm>-<i>`, sets the arm with `cloud.machine.idle_policy.set {machine,
  * pause_policy}` and reads it back, and drives the same seeded chat on every machine at once: --turns Claude turns
  * against the journey's model stub on the machine's loopback (`--model stub`, no real model), each followed by an
- * idle gap drawn from --gaps with --seed (every machine gets the same gaps), then --tail seconds idle at the end.
+ * idle gap drawn from --gaps with seed --seed + i - 1 for pair i (machine i of every arm gets the same gaps, so each
+ * pair differs only by its pause policy, and the pairs cover --per-arm gap schedules), then --tail seconds idle.
  *
  * Before a turn on a machine that is not running the harness sends `cloud.machine.start` (as the app's Send does) and
  * times start -> running: that is one resume and its latency.
@@ -192,6 +193,10 @@ export type MachineResult = {
   daemon_version: string | null;
   guest_update_start: GuestUpdate | null;
   guest_update_end: GuestUpdate | null;
+  /** The pair this machine belongs to (machine i of every arm), its seed and the gaps it drew. */
+  pair: number;
+  seed: number;
+  gaps_s: number[];
   turns_ok: number;
   turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; kept?: string | null; listeners?: string | null; report?: string | null }[];
   /** The host's idle decision after the tail (idleHeldBy), read without touching the guest. */
@@ -206,7 +211,23 @@ export type MachineResult = {
   error: string | null;
 };
 
-export type ArmRow = { arm: string; machines: number; turn_end_advertised: string; awake_s: number; paused_s: number; awake_pct: number; resumes: number; mean_resume_ms: number | null; turns_ok: string };
+export type ArmRow = {
+  arm: string; machines: number; turn_end_advertised: string; awake_s: number; paused_s: number; awake_pct: number;
+  resumes: number; mean_resume_ms: number | null; p50_resume_ms: number | null; p95_resume_ms: number | null;
+  resume_failures: number; vm_unavailable: number; turns_ok: string;
+};
+
+/** Nearest-rank percentile of `values` (q in 0..1), null when empty. */
+export function percentile(values: number[], q: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))];
+}
+
+/** Turns on which the guest answered 502 vm_unavailable (cmux#58449): a turn, its report read or its listener read. */
+export function vmUnavailableTurns(r: Pick<MachineResult, "turns">): number {
+  return r.turns.filter((t) => [t.error, t.report, t.listeners].some((v) => typeof v === "string" && /vm_unavailable/.test(v))).length;
+}
 
 /** One row per arm: awake and paused seconds summed over its machines, resumes, and their mean latency. */
 export function aggregate(results: MachineResult[], arms: string[]): ArmRow[] {
@@ -216,6 +237,8 @@ export function aggregate(results: MachineResult[], arms: string[]): ArmRow[] {
     const paused = ms.reduce((n, r) => n + (r.paused_s ?? 0), 0);
     const resumes = ms.flatMap((r) => r.turns.filter((t) => t.resumed));
     const timed = resumes.map((t) => t.resume_ms).filter((v): v is number => typeof v === "number");
+    const p50 = percentile(timed, 0.5);
+    const p95 = percentile(timed, 0.95);
     const adv = ms.filter((r) => r.turn_end_advertised === true).length;
     const turns = ms.reduce((n, r) => n + r.turns.length, 0);
     return {
@@ -227,14 +250,33 @@ export function aggregate(results: MachineResult[], arms: string[]): ArmRow[] {
       awake_pct: awake + paused > 0 ? Math.round((awake / (awake + paused)) * 1000) / 10 : 0,
       resumes: resumes.length,
       mean_resume_ms: timed.length ? Math.round(timed.reduce((a, b) => a + b, 0) / timed.length) : null,
+      p50_resume_ms: p50,
+      p95_resume_ms: p95,
+      // A resume that never reached running (a start that did not take within 180 s).
+      resume_failures: resumes.length - timed.length,
+      vm_unavailable: ms.reduce((n, r) => n + vmUnavailableTurns(r), 0),
       turns_ok: `${ms.reduce((n, r) => n + r.turns_ok, 0)}/${turns}`,
     };
   });
 }
 
 export function markdownTable(rows: ArmRow[]): string {
-  const head = "| arm | machines | activity-turn-end | awake s | paused s | awake % | resumes | mean resume ms | turns ok |\n|---|---|---|---|---|---|---|---|---|";
-  return [head, ...rows.map((r) => `| ${r.arm} | ${r.machines} | ${r.turn_end_advertised} | ${r.awake_s} | ${r.paused_s} | ${r.awake_pct} | ${r.resumes} | ${r.mean_resume_ms ?? "n/a"} | ${r.turns_ok} |`)].join("\n");
+  const head = "| arm | machines | activity-turn-end | awake s | paused s | awake % | resumes | mean resume ms | p50 resume ms | p95 resume ms | resume failures | 502 vm_unavailable turns | turns ok |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|";
+  return [head, ...rows.map((r) => `| ${r.arm} | ${r.machines} | ${r.turn_end_advertised} | ${r.awake_s} | ${r.paused_s} | ${r.awake_pct} | ${r.resumes} | ${r.mean_resume_ms ?? "n/a"} | ${r.p50_resume_ms ?? "n/a"} | ${r.p95_resume_ms ?? "n/a"} | ${r.resume_failures} | ${r.vm_unavailable} | ${r.turns_ok} |`)].join("\n");
+}
+
+/** One row per pair: its seed and gaps, and each arm's paused seconds and resumes on that same schedule. */
+export function pairTable(results: MachineResult[], arms: string[]): string {
+  const pairs = [...new Set(results.map((r) => r.pair))].sort((a, b) => a - b);
+  const head = `| pair | seed | gaps s | ${arms.map((a) => `${a} paused s / resumes`).join(" | ")} |\n|---|---|---|${arms.map(() => "---|").join("")}`;
+  return [head, ...pairs.map((p) => {
+    const ms = results.filter((r) => r.pair === p);
+    const cell = (a: string) => {
+      const r = ms.find((m) => m.arm === a);
+      return r ? `${r.paused_s ?? "n/a"} / ${r.turns.filter((t) => t.resumed).length}${r.error ? " (error)" : ""}` : "n/a";
+    };
+    return `| ${p} | ${ms[0]?.seed ?? "?"} | ${(ms[0]?.gaps_s ?? []).join(",")} | ${arms.map(cell).join(" | ")} |`;
+  })].join("\n");
 }
 
 /**
@@ -458,7 +500,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const gapChoices = (argValue("--gaps", argv) ?? "20,45,90,180").split(",").map(Number).filter((n) => n > 0);
   const tailS = Number(argValue("--tail", argv) ?? 120);
   const pollMs = Number(argValue("--poll", argv) ?? 5) * 1000;
-  const gaps = gapSchedule(seed, turnCount, gapChoices);
+  // Pair i (machine i of every arm) draws its gaps with seed + i - 1; `gaps` is pair 1's.
+  const pairGaps = Array.from({ length: perArm }, (_, i) => gapSchedule(seed + i, turnCount, gapChoices));
+  const gaps = pairGaps[0];
   const tag = Date.now().toString(36);
   const nonce = randomBytes(6).toString("hex");
   const run = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : "local";
@@ -466,7 +510,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (password) J.secrets.push(password);
   const api = new Api(backend.api, team);
   const results: MachineResult[] = arms.flatMap((arm) => Array.from({ length: perArm }, (_, i) => ({
-    arm, name: `${NAME_PREFIX}${tag}-${arm}-${i + 1}`, id: null, effective_policy: null, policy_refused: null, capabilities: null,
+    arm, name: `${NAME_PREFIX}${tag}-${arm}-${i + 1}`, pair: i + 1, seed: seed + i, gaps_s: pairGaps[i], id: null, effective_policy: null, policy_refused: null, capabilities: null,
     turn_end_advertised: null, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: 0, turns: [], tail_kept: null, samples: [],
     awake_s: null, paused_s: null, pauses: null, error: null,
   } as MachineResult)));
@@ -480,16 +524,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const rows = aggregate(results, arms);
     const usage = usageBefore !== null && usageAfter !== null ? Math.round((usageAfter - usageBefore) * 3600) : null;
     writeFileSync(path.join(outDir, "pause-ab.json"), `${JSON.stringify({
-      schema: 1, backend: backend.name, tag, arms, per_arm: perArm, seed, gaps_s: gaps, tail_s: tailS, poll_ms: pollMs,
+      schema: 1, backend: backend.name, tag, arms, per_arm: perArm, seed, gaps_s: gaps, pair_gaps_s: pairGaps, tail_s: tailS, poll_ms: pollMs,
       window: windowStart ? { start: new Date(windowStart).toISOString(), end: windowEnd ? new Date(windowEnd).toISOString() : null } : null,
       measurement: "cloud.machine.get status sampled every poll_ms (awake = not paused); cross-check: cloud.plan.get usage.vm_hours_used_by_you delta (account-wide)",
       account_vm_seconds_delta: usage, rows, machines: results,
     }, null, 2)}\n`);
     const steps = J.steps.map((s) => `| ${s.status.toUpperCase()} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 200)} |`).join("\n");
     writeFileSync(path.join(outDir, "summary.md"), `# Pause-policy A/B (${backend.name})\n\n` +
-      `${perArm} machine(s) per arm, ${turnCount} stub turns, seed ${seed}, gaps ${gaps.join(", ")} s, tail ${tailS} s. ` +
+      `${perArm} machine(s) per arm, ${turnCount} stub turns, seeds ${seed}..${seed + perArm - 1} (one per pair), pair 1 gaps ${gaps.join(", ")} s, tail ${tailS} s. ` +
       `Awake/paused from \`cloud.machine.get\` status every ${pollMs / 1000} s. Account VM seconds over the run (all machines, cross-check): ${usage ?? "n/a"}.\n\n` +
-      `${markdownTable(rows)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
+      `${markdownTable(rows)}\n\n## Per pair (same seed and gaps in every arm)\n\n${pairTable(results, arms)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
       results.map((r) => `- start ${guestLine(r.name, r.guest_update_start)}\n- end ${guestLine(r.name, r.guest_update_end)}`).join("\n") +
       `\n\n## Idle decision per gap (\`cloud.machine.get\` at the gap's end; guest listeners when awake)\n\n` +
       `| machine | turn | gap s | idle decision | listeners (addr, owner) | guest report at turn end |\n|---|---|---|---|---|---|\n` +
@@ -563,7 +607,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // An exec that failed (vm_unavailable) earlier in the run: the next one that answers reads GUEST_RESOLVER_FACTS.
     let sawExecFail = false;
     for (let i = 0; i < turnCount; i++) {
-      const turn: MachineResult["turns"][number] = { turn: i + 1, gap_s: gaps[i], resumed: false, resume_ms: null, reply_ms: null };
+      const turn: MachineResult["turns"][number] = { turn: i + 1, gap_s: r.gaps_s[i], resumed: false, resume_ms: null, reply_ms: null };
       r.turns.push(turn);
       const marker = `[pab ${tag} turn ${i + 1}]`;
       const prompt = `${marker} Run the tool and report what it printed.`;
@@ -603,7 +647,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const st = await exec(stubStop(), 30_000).catch((e: Error) => ({ stdout: `stop failed: ${e.message.slice(0, 120)}` }));
       stubPort = Number(/@@stopped (\d+)/.exec(st.stdout)?.[1] ?? 0);
       if (!stubPort) turn.error = `${turn.error ? `${turn.error}; ` : ""}model stub not stopped for the gap: ${st.stdout.slice(-160)}`;
-      await sleep(gaps[i] * 1000);
+      await sleep(r.gaps_s[i] * 1000);
       // The host's idle decision at the gap's end: paused, or why not (idle_kept: workload ports, sessions, clock).
       // The listener read execs on the guest, so it runs only when the machine is awake anyway and a turn follows.
       const m = await api.read("cloud.machine.get", { machine: id }).catch(() => null);

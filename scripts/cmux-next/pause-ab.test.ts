@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, percentile, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -27,7 +27,7 @@ describe("integrate", () => {
 });
 
 const machine = (arm: string, awake: number, paused: number, resumes: (number | null)[], adv: boolean): MachineResult => ({
-  arm, name: `pause-ab-x-${arm}-1`, id: "vm", effective_policy: arm, policy_refused: null, capabilities: adv ? ["activity-turn-end"] : [],
+  arm, name: `pause-ab-x-${arm}-1`, pair: 1, seed: 7, gaps_s: resumes.map(() => 20), id: "vm", effective_policy: arm, policy_refused: null, capabilities: adv ? ["activity-turn-end"] : [],
   turn_end_advertised: adv, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: resumes.length,
   turns: resumes.map((ms, i) => ({ turn: i + 1, gap_s: 20, resumed: ms !== null, resume_ms: ms, reply_ms: 1000 })),
   tail_kept: null, samples: [], awake_s: awake, paused_s: paused, pauses: 0, error: null,
@@ -39,6 +39,24 @@ describe("aggregate", () => {
     expect(rows[0]).toMatchObject({ arm: "turn_end", machines: 2, awake_s: 150, paused_s: 650, resumes: 3, mean_resume_ms: 3000, turn_end_advertised: "2/2", turns_ok: "5/5" });
     expect(rows[1]).toMatchObject({ arm: "aggressive", awake_pct: 50, resumes: 1, mean_resume_ms: 1000, turn_end_advertised: "0/1" });
     expect(markdownTable(rows).split("\n")).toHaveLength(4);
+  });
+  test("p50/p95 by nearest rank; a resume that never reached running and a 502 turn are counted", () => {
+    const m = machine("aggressive", 10, 90, [1000, 2000, 3000, 4000], true);
+    m.turns.push({ turn: 5, gap_s: 20, resumed: true, resume_ms: null, reply_ms: null, error: "did not resume within 180 s" });
+    m.turns.push({ turn: 6, gap_s: 20, resumed: false, resume_ms: null, reply_ms: null, report: "read failed: HTTP 502 vm_unavailable" });
+    const [row] = aggregate([m], ["aggressive"]);
+    expect(row).toMatchObject({ resumes: 5, p50_resume_ms: 2000, p95_resume_ms: 4000, resume_failures: 1, vm_unavailable: 1 });
+    expect(vmUnavailableTurns(m)).toBe(1);
+    expect(percentile([], 0.5)).toBeNull();
+    expect(percentile([5], 0.95)).toBe(5);
+  });
+});
+
+describe("pairTable", () => {
+  test("one row per pair with each arm's paused seconds and resumes", () => {
+    const a = { ...machine("turn_end", 100, 300, [null, 2000], true), pair: 2, seed: 8, gaps_s: [45, 90] };
+    const b = { ...machine("aggressive", 50, 350, [null, 1000], true), pair: 2, seed: 8, gaps_s: [45, 90] };
+    expect(pairTable([a, b], ["turn_end", "aggressive"]).split("\n")[2]).toBe("| 2 | 8 | 45,90 | 300 / 1 | 350 / 1 |");
   });
 });
 
