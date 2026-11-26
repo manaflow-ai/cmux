@@ -96,6 +96,10 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Pins that scripts/ci/chat-probe.sh passes its prompt to acpmux after -- (a prompt like --cwd=/etc stays text); run python3 tests/test_ci_chat_probe_args.py after changing that script (under 1 s, no build)."
 
 [[test]]
+path = "tests/test_ci_check_huge_files.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_check_repo_variables.py"
 lane = "linux-guard"
 

@@ -60,6 +60,7 @@ GATE_SCRIPTS = {
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
+    "huge files": "scripts/ci/check_huge_files.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
@@ -1406,6 +1407,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
+        self.assertEqual(calls["huge files"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
