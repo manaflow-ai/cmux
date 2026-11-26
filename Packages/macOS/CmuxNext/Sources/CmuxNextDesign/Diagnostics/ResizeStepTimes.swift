@@ -48,8 +48,40 @@ public struct ResizeStepTimes {
     /// window step's current event); a divider step takes the events ``noteInput(_:)`` kept since the last one.
     public static func beginStep(_ kind: StepKind, if condition: @autoclosure () -> Bool = true,
                                  input: @autoclosure () -> Double? = nil) -> UInt64? {
-        guard isRecording, condition() else { return nil }
-        return ResizeStepLog.begin(kind, input: input())
+        guard let hook = live.stepWillLayOut else {
+            guard isRecording, condition() else { return nil }
+            return ResizeStepLog.begin(kind, input: input())
+        }
+        // A hook runs at every step, timed or not, after the step opened (its time is the step's) and before the step's
+        // layout. A step begun inside a pass is counted, never hooked again (``pass(_:_:)``).
+        guard condition() else { return nil }
+        if live.passDepth > 0 { live.nestedInPass += 1 }
+        let start = isRecording ? ResizeStepLog.begin(kind, input: input()) : nil
+        if live.passDepth == 0 { hook(kind) }
+        return start
+    }
+
+    /// Runs at the start of every resize step, after it opened and before its layout (every build; nil: none). The CEF
+    /// host runs the message pump work CEF already asked for here (`CEFMessagePump.runIfDueAtStep`, lever 4e).
+    public var stepWillLayOut: (@MainActor (StepKind) -> Void)?
+
+    /// Passes running now (``pass(_:_:)``), and the steps and timed phases that ran inside one: a pass's callbacks that
+    /// reached cmux's views mid-step. Counted, logged, never hidden.
+    var passDepth = 0
+    public internal(set) var nestedInPass = 0
+
+    /// Runs `body`, another component's work inside a step (a CEF message pump pass), as the phase `name`: the line
+    /// says how long it took and how many steps and timed phases ran inside it (`nested=`). `body` returns the line's
+    /// detail when it ran (` key=value` pairs), nil when it had nothing to do (no line).
+    public static func pass(_ name: @autoclosure () -> String, _ body: () -> String?) {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let nestedBefore = live.nestedInPass
+        live.passDepth += 1
+        let detail = body()
+        live.passDepth -= 1
+        guard let detail else { return }
+        let nested = live.nestedInPass - nestedBefore
+        recordLive(name(), since: isRecording ? start : nil, detail: detail + " nested=\(nested)")
     }
 
     /// Keeps a divider's pointer event (its `NSEvent.timestamp`) for the drag's next step, which reports how long the
@@ -80,8 +112,13 @@ public struct ResizeStepTimes {
         let ms = Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
         let kind = ResizeStepLog.step?.kind ?? kind ?? .window
         let name = phase()
+        // A timed phase inside a pass (``pass(_:_:)``): cmux's layout ran from inside another component's work.
+        let inPass = live.passDepth > 0
+        if inPass { live.nestedInPass += 1 }
         keep(kind, name, ms)
-        if ResizeStepLog.isStreaming { ResizeStepLog.write(kind, name, ms, detail: detail()) }
+        if ResizeStepLog.isStreaming {
+            ResizeStepLog.write(kind, name, ms, detail: detail() + (inPass ? " in_pass=1" : ""))
+        }
     }
 
     /// One fact of a step that is not a time of its own: a resize fence's wait and outcome (`CEFResizeFences`). `step`:
