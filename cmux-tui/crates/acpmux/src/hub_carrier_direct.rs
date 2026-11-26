@@ -135,6 +135,69 @@ pub fn private_address(ip: IpAddr) -> bool {
     }
 }
 
+/// The first direct-path address of `addresses`: private, and not this machine's loopback.
+fn first_direct(addresses: impl IntoIterator<Item = SocketAddr>) -> Option<SocketAddr> {
+    addresses.into_iter().find(|a| private_address(a.ip()) && !a.ip().is_loopback())
+}
+
+/// `name`'s direct address by the resolver's usual lookup (both families), in [`RESOLVE_BOUND`].
+async fn resolve_any(name: &str, port: u16) -> Option<SocketAddr> {
+    tokio::time::timeout(RESOLVE_BOUND, tokio::net::lookup_host((name, port)))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .and_then(first_direct)
+}
+
+/// `name`'s direct address by an IPv4-only lookup, in [`RESOLVE_BOUND`]. The Linux daemon is a
+/// static musl build, and musl drops a search-list name whose AAAA answer is NXDOMAIN even when
+/// its A answer is there. GCP's resolver gives exactly that for a VM in another zone: its short
+/// name only resolves through the project suffix (`NAME.c.PROJECT.internal`), which answers A
+/// and NXDOMAINs AAAA, so the both-families lookup of every other-zone lane fails and the dial
+/// rides the relay. An A-only query takes that answer.
+async fn resolve_v4(name: &str, port: u16) -> Option<SocketAddr> {
+    let name = name.to_owned();
+    let lookup = tokio::task::spawn_blocking(move || lookup_v4(&name, port));
+    tokio::time::timeout(RESOLVE_BOUND, lookup).await.ok()?.ok()?.ok().and_then(first_direct)
+}
+
+/// `getaddrinfo(name, port)` asking for IPv4 stream addresses only.
+fn lookup_v4(name: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+    use std::ffi::CString;
+    let host = CString::new(name).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+    let service = CString::new(port.to_string()).map_err(|_| std::io::ErrorKind::InvalidInput)?;
+    // SAFETY: zeroed `addrinfo` is the documented empty hints value; the fields set are plain ints.
+    let mut hints: libc::addrinfo = unsafe { std::mem::zeroed() };
+    hints.ai_family = libc::AF_INET;
+    hints.ai_socktype = libc::SOCK_STREAM;
+    hints.ai_flags = libc::AI_NUMERICSERV;
+    let mut list: *mut libc::addrinfo = std::ptr::null_mut();
+    // SAFETY: `host`, `service` and `hints` outlive the call; `list` is written by it.
+    let code = unsafe { libc::getaddrinfo(host.as_ptr(), service.as_ptr(), &hints, &mut list) };
+    if code != 0 {
+        return Err(std::io::Error::other(format!("getaddrinfo {name}: {code}")));
+    }
+    let mut found = Vec::new();
+    let mut at = list;
+    while !at.is_null() {
+        // SAFETY: `at` walks the list getaddrinfo returned, freed only after the walk.
+        let entry = unsafe { &*at };
+        if entry.ai_family == libc::AF_INET
+            && !entry.ai_addr.is_null()
+            && entry.ai_addrlen as usize >= std::mem::size_of::<libc::sockaddr_in>()
+        {
+            // SAFETY: an AF_INET entry's `ai_addr` points at a `sockaddr_in` of `ai_addrlen`.
+            let v4 = unsafe { &*(entry.ai_addr as *const libc::sockaddr_in) };
+            let ip = std::net::Ipv4Addr::from(u32::from_be(v4.sin_addr.s_addr));
+            found.push(SocketAddr::new(IpAddr::V4(ip), u16::from_be(v4.sin_port)));
+        }
+        at = entry.ai_next;
+    }
+    // SAFETY: `list` came from a successful getaddrinfo and is freed once.
+    unsafe { libc::freeaddrinfo(list) };
+    Ok(found)
+}
+
 impl HubCarrier {
     /// Dial the person's other machines on `port` first (their `directPort`), finding each by
     /// the name `names` gives for its `daemonId`.
@@ -177,12 +240,10 @@ impl HubCarrier {
         }
         let names = self.direct.names.read().unwrap_or_else(|e| e.into_inner()).clone()?;
         let name = names(daemon)?;
-        let found =
-            tokio::time::timeout(RESOLVE_BOUND, tokio::net::lookup_host((name.as_str(), port)))
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .and_then(|mut all| all.find(|a| private_address(a.ip()) && !a.ip().is_loopback()));
+        let found = match resolve_any(&name, port).await {
+            Some(address) => Some(address),
+            None => resolve_v4(&name, port).await,
+        };
         match found {
             Some(address) => {
                 self.direct
@@ -324,6 +385,32 @@ mod tests {
         for no in ["8.8.8.8", "100.127.178.43", "fd7a:115c:a1e0::1", "2600::1", "::ffff:1.1.1.1"] {
             assert!(!private_address(no.parse().unwrap()), "{no}");
         }
+    }
+
+    #[test]
+    fn the_ipv4_lookup_returns_ipv4_addresses_on_the_asked_port() {
+        let found = lookup_v4("localhost", 47791).unwrap();
+        assert!(!found.is_empty());
+        assert!(found.iter().all(|a| a.is_ipv4() && a.port() == 47791), "{found:?}");
+        assert!(lookup_v4("127.0.0.1", 9).unwrap().contains(&"127.0.0.1:9".parse().unwrap()));
+        assert!(lookup_v4("bad\0name", 9).is_err());
+    }
+
+    #[test]
+    fn the_direct_address_is_the_first_private_non_loopback_one() {
+        let all = ["127.0.0.1:1", "100.64.0.2:1", "10.138.0.105:1", "10.138.0.7:1"]
+            .map(|a| a.parse::<SocketAddr>().unwrap());
+        assert_eq!(first_direct(all), Some("10.138.0.105:1".parse().unwrap()));
+        assert_eq!(first_direct(["127.0.0.1:1".parse::<SocketAddr>().unwrap()]), None);
+    }
+
+    #[tokio::test]
+    async fn a_numeric_private_name_resolves_by_the_ipv4_fallback() {
+        assert_eq!(
+            resolve_v4("10.138.0.105", 47791).await,
+            Some("10.138.0.105:47791".parse().unwrap())
+        );
+        assert_eq!(resolve_v4("127.0.0.1", 47791).await, None);
     }
 
     #[test]
