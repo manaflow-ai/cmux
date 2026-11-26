@@ -67,6 +67,27 @@ class CefTraceTasks(unittest.TestCase):
                          ("Chrome_IOThread", "OnIpc (a/b.cc)", 0.5))
         self.assertNotIn("Startup (a/b.cc)", [r["posted_from"] for r in rows], "startup tasks are skipped")
 
+    def test_the_browser_process_tasks_have_their_own_rows(self):
+        # The GPU process's display-link tasks (46/s under the trace) filled all 40 rows, so the browser's own delayed
+        # tasks that wake the app's main thread (~0.8/s at idle) were never named. The browser process is the one with
+        # a CrBrowserMain thread, whatever its process name (Chromium names it by pid).
+        gpu = [{"ph": "M", "name": "process_name", "pid": 20, "args": {"name": "GPU Process"}},
+               {"ph": "M", "name": "thread_name", "pid": 20, "tid": 5, "args": {"name": "CrGpuMain"}},
+               {"ph": "M", "name": "thread_name", "pid": 10, "tid": 3, "args": {"name": "ThreadPoolForegroundWorker"}}]
+        events = [e for e in META if e["name"] != "process_name"] + gpu + [task(0, "Startup")] \
+            + [task(t / 10, "VSync", pid=20, tid=5) for t in range(300, 1300)] \
+            + [task(t, "OnPoll", tid=1) for t in range(30, 130, 5)] \
+            + [task(t, "OnSweep", tid=3) for t in range(30, 130, 10)] + [task(130, "End")]
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, top=1)
+        self.assertEqual([r["posted_from"] for r in got["tasks"]], ["VSync (a/b.cc)"])
+        self.assertEqual([(r["thread"], r["posted_from"], r["per_s"]) for r in got["browser_tasks"]],
+                         [("CrBrowserMain", "OnPoll (a/b.cc)", 0.2)],
+                         "the browser's rows are cut at `top` on their own")
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30)
+        self.assertEqual([(r["thread"], r["posted_from"], r["per_s"]) for r in got["browser_tasks"]][:2],
+                         [("CrBrowserMain", "OnPoll (a/b.cc)", 0.2), ("ThreadPoolForegroundWorker", "OnSweep (a/b.cc)", 0.1)])
+        self.assertNotIn("VSync (a/b.cc)", [r["posted_from"] for r in got["browser_tasks"]])
+
     def test_ipc_messages_on_the_browser_threads_by_name(self):
         # The main thread's wakes from Chrome_IOThread (task 21, ~0.9/s) are IPC messages the I/O thread forwards; the
         # mojom category names each one. RunTask rows say only "Accept (ipc_mojo_bootstrap.cc)".

@@ -106,44 +106,51 @@ impl ConfigStore {
         store
     }
 
-    /// Moves a key cmux has renamed to its new name in the person's own file,
-    /// once per rename: each one is recorded in the ledger
-    /// (`migrations::once`), so a later open never runs it again. Needs a
-    /// state directory for the ledger and a settings file of the person's
-    /// own (a classic seed is not theirs to rewrite). A broken file, or a
-    /// write that fails, records nothing: the next open tries again.
+    /// Apply new retirement-table entries to the person's own settings file.
+    /// An absent file may be backed by a classic seed, which we leave alone.
     fn migrate_once(&mut self) {
         use crate::migrations::once::{Ledger, pending};
+
         let Some(dir) = self.state_dir.clone() else { return };
         if self.state.file_problem.is_some()
-            || std::fs::symlink_metadata(&self.config_path).is_err()
+            || !self.config_path.is_file()
+            || pending(&self.state.file_root, &Ledger::read(&dir)).is_empty()
         {
             return;
         }
-        let mut ledger = Ledger::read(&dir);
-        let due = pending(&self.state.file_root, &ledger);
-        if due.is_empty() {
+        // Other owners can open the same file. Plan against the latest source and
+        // keep the config and its ledger under the same lock through publication.
+        let Some(_lock) = lock_config(&self.config_path) else { return };
+        self.reload();
+        if self.state.file_problem.is_some() || !self.config_path.is_file() {
             return;
         }
+        let mut ledger = Ledger::read(&dir);
         let at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_secs());
-        for migration in due {
-            let moved = match migration.edit {
-                None => false,
-                Some(edit) => {
-                    let meta =
-                        store::WriteMeta { origin: store::Origin::App, ..Default::default() };
-                    match self.apply(Op::Edit { edits: vec![edit], meta }).result {
-                        Ok(_) => true,
-                        // Not this open's to finish: the file is broken or unwritable.
-                        Err(Refusal::FileUnreadable { .. } | Refusal::Io { .. }) => break,
-                        // The new row refuses the value (a managed key, a bad value): the file
-                        // keeps the old key, which the table still reads.
-                        Err(_) => false,
-                    }
+        for migration in pending(&self.state.file_root, &ledger) {
+            let moved = !migration.edits.is_empty();
+            if moved {
+                let meta = store::WriteMeta {
+                    origin: store::Origin::App,
+                    if_revision: Some(self.state.revision()),
+                    ..Default::default()
+                };
+                let op = Op::Edit { edits: migration.edits, meta };
+                match self.apply_locked(op, true).result {
+                    Ok(_) => eprintln!("cmux settings migration: {}", migration.id),
+                    // A hand edit during migration or an I/O failure: retry next open.
+                    Err(
+                        Refusal::RevisionConflict { .. }
+                        | Refusal::FileUnreadable { .. }
+                        | Refusal::Io { .. },
+                    ) => break,
+                    // A managed or invalid replacement stays in the file. Other
+                    // entries can migrate independently.
+                    Err(_) => continue,
                 }
-            };
+            }
             ledger.record(migration.id, moved, at);
         }
         let _ = ledger.write(&dir);
@@ -276,8 +283,6 @@ impl ConfigStore {
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
     /// Every published change of the file is recorded in the history.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
-        let mut changes = Vec::new();
-        let team_before = self.state.team().clone();
         let writes = matches!(
             op,
             Op::Set { .. }
@@ -291,6 +296,12 @@ impl ConfigStore {
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
+        self.apply_locked(op, writes)
+    }
+
+    fn apply_locked(&mut self, op: Op, writes: bool) -> ApplyResult {
+        let mut changes = Vec::new();
+        let team_before = self.state.team().clone();
         if writes {
             // Fresh managed values too: macOS sends no notification for a new
             // MDM profile, so the watcher may not have seen it yet.
