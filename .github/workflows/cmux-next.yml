@@ -865,8 +865,8 @@ jobs:
     name: cmux-next path routing
     # Why: note-358
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # Why: note-88
-    timeout-minutes: 8
+    # Why: note-88, 2026-11-26-route-retry.md
+    timeout-minutes: 15
     permissions:
       # Why: note-89
       actions: read
@@ -905,9 +905,12 @@ jobs:
       # Why: note-12
       generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
-      # Why: note-469
+      # Why: note-469, 2026-11-26-route-retry.md
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+        id: checkout
+        timeout-minutes: 3
+        continue-on-error: true
+        with: &path-route-checkout
           persist-credentials: false
           # Why: note-94
           fetch-depth: 2
@@ -929,6 +932,25 @@ jobs:
             !/Packages/macOS/CmuxNext/**/*.xcstrings
             !/Packages/macOS/CmuxNext/**/*.avif
             !/Packages/macOS/CmuxNext/**/*.png
+      - name: Drop .git, wait 20 s
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+      - name: Checkout retry 1
+        id: checkout-retry1
+        if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *path-route-checkout
+      - name: Drop .git, wait 60 s
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry1.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 60
+      - name: Checkout retry 2
+        id: checkout-retry2
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry1.outcome == 'failure'
+        timeout-minutes: 3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *path-route-checkout
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
@@ -968,15 +990,15 @@ jobs:
           # Why: 2026-11-24-path_route-2.md
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
-      # Why: 2026-11-24-path_route-3.md
+      # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md
       - name: Jobs red on the base right now
         id: base-red
-        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         continue-on-error: true
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/ci/base_red_skip.py decide-many --workflow cmux-next.yml --runs 12 --job "cmux-next fast tier (cargo)" >> "$GITHUB_OUTPUT"
+        run: python3 -I scripts/ci/base_red_skip.py decide-many --workflow cmux-next.yml --runs 60 --job "cmux-next fast tier (cargo)" >> "$GITHUB_OUTPUT"
 
       # Why: note-359
       - name: Probe the same-tree cmux-tui
