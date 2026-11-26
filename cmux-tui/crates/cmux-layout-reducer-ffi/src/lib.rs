@@ -18,7 +18,9 @@
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
-//! and when to look again),
+//! and when to look again), auto-archive's ledger and what a pass does with
+//! its plan (`auto_archive_ledger`: sights, prunes, archive or suggest, the
+//! card's names, what comes back when shown, restores and Not Now),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
 //! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
@@ -255,6 +257,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: auto_archive::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"auto_archive_ledger" => {
+                use cmux_layout_reducer::auto_archive_ledger;
+                let request: auto_archive_ledger::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&auto_archive_ledger::respond(request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_automatic_plan" => {
                 use cmux_layout_reducer::automatic;
