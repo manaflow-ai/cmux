@@ -24,35 +24,6 @@ fn a_no_folder_owner_start_and_its_prewarm_share_the_chats_own_folder() {
     let _ = std::fs::remove_dir_all(home);
 }
 
-/// The machine's acpmux reserved a home-chat folder with a warm agent in it: the first no-folder
-/// chat's prewarm and its start both run there (the start's `session/new` took 2.6 to 38 s in
-/// `~/chats/<id>`, where no agent waited), and the next chat gets its own folder.
-#[cfg(unix)]
-#[test]
-fn a_no_folder_owner_start_takes_the_machines_reserved_warm_folder() {
-    use std::os::unix::fs::PermissionsExt as _;
-    let home = temp("chat-cwd-reserved");
-    let name = "r0123456789abcdef0123456789abcdef";
-    let chats = home.join("chats");
-    std::fs::create_dir_all(chats.join(name)).unwrap();
-    for dir in [chats.clone(), chats.join(name)] {
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
-    std::fs::write(chats.join(super::super::agent_session_folders::RESERVED_TICKET), name).unwrap();
-    let reserved = chats.join(name).to_string_lossy().into_owned();
-    let warmed = owner_cloud_cwd_in(Some(&home), true, None, false, 7);
-    assert_eq!(warmed.as_deref(), Some(reserved.as_str()), "the prewarm takes the reserved folder");
-    assert_eq!(
-        owner_cloud_cwd_in(Some(&home), true, None, false, 7),
-        warmed,
-        "the start gets it again"
-    );
-    assert!(!chats.join("7").exists(), "no folder of its own was made beside the reserved one");
-    let next = owner_cloud_cwd_in(Some(&home), true, None, false, 8);
-    assert_eq!(next.as_deref(), Some(chats.join("8").to_string_lossy().as_ref()));
-    let _ = std::fs::remove_dir_all(home);
-}
-
 #[test]
 fn a_picked_folder_a_confirmed_home_or_another_caller_keeps_its_own_folder() {
     let home = temp("chat-cwd-kept");
@@ -65,5 +36,34 @@ fn a_picked_folder_a_confirmed_home_or_another_caller_keeps_its_own_folder() {
     assert_eq!(owner_cloud_cwd_in(Some(&home), false, None, false, 8), None);
     assert_eq!(owner_cloud_cwd_in(None, true, None, false, 8), None);
     assert!(!home.join("chats").exists(), "nothing is made for them");
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// The machine's reserved warm folder (acpmux `hub/pool/reserved.rs`) is the first no-folder
+/// chat's: its prewarm and its start both get it, so the start finds the session already running
+/// there, and the next chat gets its own `~/chats/<id>`.
+#[test]
+fn the_first_no_folder_chat_starts_in_the_machines_reserved_warm_folder() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let home = temp("chat-cwd-reserved");
+    let name = "r0123456789abcdef0123456789abcdef";
+    let reserved = home.join("chats").join(name);
+    std::fs::create_dir_all(&reserved).unwrap();
+    for dir in [home.join("chats"), reserved.clone()] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    std::fs::write(
+        home.join("chats").join(super::super::agent_session_folders::RESERVED_TICKET),
+        name,
+    )
+    .unwrap();
+    let warmed =
+        owner_cloud_cwd_in(Some(&home), true, None, false, 7).expect("the reserved folder");
+    assert_eq!(warmed, reserved.to_string_lossy());
+    let started = owner_cloud_cwd_in(Some(&home), true, None, false, 7);
+    assert_eq!(started.as_deref(), Some(warmed.as_str()), "the start reuses the warm folder");
+    assert!(!home.join("chats/7").exists(), "no fresh folder for the chat that took the warm one");
+    let second = owner_cloud_cwd_in(Some(&home), true, None, false, 8).expect("its own folder");
+    assert_eq!(second, home.join("chats/8").to_string_lossy());
     let _ = std::fs::remove_dir_all(home);
 }

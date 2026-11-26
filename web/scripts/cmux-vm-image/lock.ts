@@ -190,6 +190,14 @@ export type DevTreeLock = {
   readonly repo: string;
   readonly branch: string;
   readonly dir: string;
+  /**
+   * The edge's blobless bundle lists, tried in order (RFD 0056 part 3; manaflow-ai/cmux
+   * git-mirror-bundle.yml): the rolling creationToken list leo-workspace's tools/edge_bundle.py hands
+   * lane mirrors, which also lets the guest's later fetches take newer bundles first, then the
+   * one-entry list that serves a first clone. The clone takes the repository's objects from the first
+   * list that answers and tops up from the code host; none answering, or absent, is the plain clone.
+   */
+  readonly bundleLists?: readonly string[];
   readonly submodules: readonly string[];
   /** The packages the build names (bindgen's libclang); `apt` is their exact closure on the baked set. */
   readonly aptRoots: readonly string[];
@@ -536,6 +544,7 @@ function checkDevTree(raw: unknown, apt: unknown, problems: string[]): void {
   if (!repo || !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\.git$/.test(repo)) problems.push("devTree.repo: must be a public https://github.com/<owner>/<repo>.git URL");
   if (!str(raw.branch) || !/^[\w./-]+$/.test(String(raw.branch))) problems.push("devTree.branch: missing or not a branch name");
   if (!str(raw.dir) || !/^\/home\/cmux\/[\w.-]+$/.test(String(raw.dir))) problems.push("devTree.dir: must be a directory directly under /home/cmux");
+  if (raw.bundleLists !== undefined && !(Array.isArray(raw.bundleLists) && raw.bundleLists.every((url) => typeof url === "string" && /^https:\/\/[\w.-]+\/[\w./-]+\.list$/.test(url)))) problems.push("devTree.bundleLists: must be a list of https URLs of .list files");
   for (const key of ["submodules", "aptRoots"] as const) {
     const list = raw[key];
     if (!Array.isArray(list) || !list.every((item) => typeof item === "string" && RELATIVE_PATH.test(item))) problems.push(`devTree.${key}: needs a list of names`);

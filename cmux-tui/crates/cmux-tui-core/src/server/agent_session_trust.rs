@@ -214,13 +214,8 @@ pub(super) fn owner_cloud_cwd_in(
             .zip(std::fs::canonicalize(cwd).ok())
             .is_some_and(|(home, cwd)| home == cwd),
     };
-    // The machine's reserved home-chat folder first: its agent is already warm (acpmux `reserved.rs`).
-    // Without it every no-folder start ran in `~/chats/<id>`, so no start ever took that agent.
     no_folder
-        .then(|| {
-            super::agent_session_folders::reserved_chat_folder(home, chat_id)
-                .or_else(|| super::agent_session_folders::chat_folder(home, chat_id, true))
-        })
+        .then(|| super::agent_session_folders::own_chat_folder(home, chat_id))
         .flatten()
         .map(|path| path.to_string_lossy().into_owned())
 }

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.daemon.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تتحدّث خدمات الخلفية (الطرفيات وخدمة الوكلاء) مع كل دمج في مكانها دون إعادة تشغيل. لإصدار NIGHTLY فقط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pozadinski servisi (terminali, servis agenata) ažuriraju se na mjestu pri svakom spajanju, bez ponovnog pokretanja. Samo NIGHTLY."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baggrundstjenesterne (terminaler, agenternes dæmon) opdateres på stedet ved hver fletning, uden genstart. Kun NIGHTLY."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei jedem Merge aktualisieren sich die Hintergrunddienste (Terminals, Daemon der Agenten) direkt, ohne Neustart. Nur NIGHTLY."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los servicios en segundo plano (terminales, daemon de los agentes) se actualizan in situ en cada fusión, sin reiniciar. Solo NIGHTLY."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À chaque fusion, les services d’arrière-plan (terminaux, démon des agents) se mettent à jour sur place, sans redémarrage. NIGHTLY uniquement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A ogni merge i servizi in background (terminali, daemon degli agenti) si aggiornano sul posto, senza riavvio. Solo NIGHTLY."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マージごとに、バックグラウンドのサービス（ターミナル、エージェントのデーモン）が再起動なしでその場で更新されます。NIGHTLY のみ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រាល់ការបញ្ចូល សេវាផ្ទៃខាងក្រោយ (ទែមីណាល់ ដេមិនរបស់ភ្នាក់ងារ) ធ្វើបច្ចុប្បន្នភាពនៅនឹងកន្លែង ដោយមិនចាំបាច់ចាប់ផ្ដើមឡើងវិញ។ សម្រាប់ NIGHTLY តែប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "병합할 때마다 백그라운드 서비스(터미널, 에이전트 데몬)가 다시 시작하지 않고 그 자리에서 업데이트됩니다. NIGHTLY 전용."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bakgrunnstjenestene (terminaler, agentenes demon) oppdateres på stedet ved hver sammenslåing, uten omstart. Bare NIGHTLY."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przy każdym scaleniu usługi w tle (terminale, demon agentów) aktualizują się na miejscu, bez ponownego uruchamiania. Tylko NIGHTLY."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A cada merge, os serviços em segundo plano (terminais, daemon dos agentes) se atualizam no lugar, sem reiniciar. Só NIGHTLY."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "При каждом слиянии фоновые службы (терминалы, демон агентов) обновляются на месте, без перезапуска. Только NIGHTLY."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ทุกการผสาน บริการเบื้องหลัง (เทอร์มินัล, เดมอนของเอเจนต์) จะอัปเดตในที่โดยไม่ต้องรีสตาร์ต เฉพาะ NIGHTLY"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her birleştirmede arka plan hizmetleri (terminaller, ajanların arka plan programı) yeniden başlatmadan yerinde güncellenir. Yalnızca NIGHTLY."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Після кожного злиття фонові служби (термінали, демон агентів) оновлюються на місці, без перезапуску. Лише NIGHTLY."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mỗi lần hợp nhất, các dịch vụ nền (terminal, daemon của tác tử) cập nhật tại chỗ, không cần khởi động lại. Chỉ NIGHTLY."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次合并后，后台服务（终端、代理的守护进程）就地更新，无需重启。仅限 NIGHTLY。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次合併後，背景服務（終端機、代理的常駐程式）就地更新，無需重新啟動。僅限 NIGHTLY。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

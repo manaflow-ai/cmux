@@ -207,14 +207,13 @@ fn the_reserved_entrys_slot_is_told_from_a_spare_of_another_key() {
     assert!(!pool.reserved_under_another_key(&r), "its own key is the entry itself");
     assert!(!pool.reserved_under_another_key(&key("/chats/r1", "codex")), "another harness");
     assert!(!pool.reserved_under_another_key(&key("/b", "claude")), "another folder");
-    // What the check prevents: the spare's want ends the reserved entry.
-    let evicted = pool.want(Role::Spare, other_model.clone(), now).evicted;
-    assert_eq!(evicted, vec!["reserved"]);
-    assert!(!matches!(pool.take(&r), Take::Ready(_)), "the home chat's start takes nothing");
-    // A taken reserved entry's folder is the chat's: its slot is free again.
-    let mut pool = Pool::new(IDLE);
-    let generation = pool.want(Role::Reserved, r.clone(), now).start.unwrap();
-    assert!(pool.complete(&r, generation, "reserved", now).is_none());
+    // A spare may finish resolving its shape after the reservation was installed.
+    // The pool must reject it at mutation time, even without a caller-side check.
+    for key in [other_model.clone(), other_login] {
+        let attempt = pool.want(Role::Spare, key, now);
+        assert!(attempt.evicted.is_empty());
+        assert!(attempt.start.is_none());
+    }
     assert!(matches!(pool.take(&r), Take::Ready("reserved")));
     pool.end_reserved(&r);
     assert!(!pool.reserved_under_another_key(&other_model));

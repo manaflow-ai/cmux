@@ -236,15 +236,7 @@ impl Hub {
             .pool_spec_in(Some(harness.clone()), preset, cwd, Some(model), &PrewarmShape::default())
             .await
         {
-            Ok(spec) => {
-                // Never in the reserved home chat's place (`Pool::reserved_under_another_key`).
-                let reserved = lock(&self.pool.pool).reserved_under_another_key(&spec.key);
-                if reserved {
-                    tracing::debug!(%harness, "no spare: the folder holds the reserved home chat's agent");
-                    return;
-                }
-                self.pool_want(Role::Spare, spec).await
-            }
+            Ok(spec) => self.pool_want(Role::Spare, spec).await,
             Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
         }
     }

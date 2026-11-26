@@ -40,6 +40,7 @@ real app host (`cmux-tui/crates/cmux-tui/src/cli/ext/recipes_tests.rs`).
 | A whole New Tab page | [newtab.md](recipes/newtab.md) | `cmux.newtab/1` |
 | A widget (New Tab grid, sidebar) | [widget.md](recipes/widget.md) | `cmux.widget/1` |
 | A command: palette, `cmux NAME ...`, agent tool | [command.md](recipes/command.md) | `catalog.json` |
+| A key binding (an op or a cmux action) | [command.md](recipes/command.md) | `contributes.keybindings` |
 | A `/` command in the agent composer | [composer-command.md](recipes/composer-command.md) | `cmux.composer.command/1` |
 | An `@` mention provider | [composer-mention.md](recipes/composer-mention.md) | `cmux.composer.mention/1` |
 

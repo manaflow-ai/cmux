@@ -236,7 +236,9 @@ impl<T> Pool<T> {
     /// that cwd) and push the key's idle deadline to `now + idle`. A remote
     /// key is refused: nothing starts.
     pub fn want(&mut self, role: Role, key: PoolKey, now: Duration) -> Wanted<T> {
-        if key.origin == Origin::Remote {
+        if key.origin == Origin::Remote
+            || (role == Role::Spare && self.reserved_under_another_key(&key))
+        {
             return Wanted::default();
         }
         let mut evicted = Vec::new();
