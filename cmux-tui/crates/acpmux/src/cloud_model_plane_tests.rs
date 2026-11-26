@@ -105,7 +105,7 @@ fn a_host_that_did_not_resolve_is_asked_again_and_a_resolved_one_is_reused() {
     let host = "coderouter.cmux.internal";
     let t0 = Instant::now();
     assert!(!resolves_cached(&cache, host, t0, |_| Some(false)), "NXDOMAIN: no route now");
-    let asked = std::cell::Cell::new(0);
+    let asked = &std::cell::Cell::new(0);
     let ask = |answer: Option<bool>| {
         move |_: &str| {
             asked.set(asked.get() + 1);
