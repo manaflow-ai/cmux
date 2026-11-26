@@ -149,7 +149,19 @@ class ByProcess(unittest.TestCase):
         text = "\n".join(rivals.growth_by_process_lines([sample], ["cmux"]))
         self.assertIn("Idle growth by process: cmux NEXT", text)
         self.assertIn("| renderer | +1.000 | +57.143 | 1 | 0 |", text)
-        self.assertIn("| 2 | renderer | renderer | 200.0 | 200.0 | +200.0 |", text)
+        self.assertIn("| 2 | renderer | renderer | – | 200.0 | 200.0 | +200.0 |", text)
+
+    def test_renderer_pages_names_born_renderer(self):
+        commands = {932: "cmux Helper (Renderer) --type=renderer --renderer-client-id=7 --lang=en",
+                    933: "cmux Helper (Renderer) --type=renderer --renderer-client-id=8",
+                    98136: "cmux Helper (Renderer) --type=renderer --renderer-client-id=2"}
+        pages = [{"origin": "cmux-page://cmux.agent", "hidden": True, "renderer_clients": [7]},
+                 {"origin": "https://example.com", "renderer_clients": [2]},
+                 {"origin": "cmux-page://cmux.home", "path": "/", "renderer_clients": [2]},
+                 {"origin": "cmux-page://cmux.agent", "path": "/new-tab", "renderer_clients": [8]}]
+        self.assertEqual(rivals.renderer_pages(pages, commands), {932: "agent (hidden)", 933: "agent/new-tab",
+                                                                    98136: "browser-tab + home"})
+        self.assertEqual(rivals.renderer_pages([], commands), {})
 
 
 if __name__ == "__main__":
