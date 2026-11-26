@@ -46,6 +46,8 @@ impl Peer {
                 crate::gauges::bump(&crate::gauges::links().link_redials);
             }
             let outcome = self.connect_once(&mut out_rx).await;
+            // An ask from here on (the link's end itself, the prompts it refuses) cuts the wait.
+            let ended = tokio::time::Instant::now();
             let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
             let was_ready = self.link().is_ready();
             let notice = self.finish_link(outcome, &mut backoff);
@@ -92,7 +94,7 @@ impl Peer {
                 continue;
             };
             let delay = if redial_now { Duration::ZERO } else { delay };
-            match self.wait_backoff(delay).await {
+            match self.wait_backoff_since(delay, ended).await {
                 BackoffWait::Done => {}
                 // The network that failed before the sleep may take a moment to come back: the
                 // next attempts are quick ones again.
