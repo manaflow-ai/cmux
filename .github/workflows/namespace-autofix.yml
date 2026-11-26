@@ -44,6 +44,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      pull-requests: read
     steps:
       # This workflow is pull_request_target on purpose. Only this base-revision
       # copy of the helper is executed; the PR tree is treated as data.
@@ -77,6 +78,10 @@ jobs:
         id: fix
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Reads go through the job's own token: the App installation's quota is
+          # shared with every other App caller and ran dry mid-job (cmux#57591,
+          # "API rate limit exceeded"). Only the push needs the App token.
+          READ_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -137,7 +142,7 @@ jobs:
           # base changed since the branch point, and the fix then rewrote and
           # pushed the PR's stale copies of them (#55382). Both checkouts are
           # depth 1, so there is no merge-base here to diff against.
-          GH_TOKEN="$APP_TOKEN" gh api --paginate \
+          GH_TOKEN="$READ_TOKEN" gh api --paginate \
             "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
             --jq '.[] | select(.status != "removed") | .filename' \
             | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
