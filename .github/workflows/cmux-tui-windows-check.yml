@@ -139,6 +139,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
   workflow_dispatch:
 
 concurrency:
