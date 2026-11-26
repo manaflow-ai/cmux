@@ -9,11 +9,11 @@ import XCTest
 ///   a. the terminal tab's page menu opens and the window stays landscape (#54462);
 ///   b. a swipe of the top bar to the next tab and back keeps it landscape;
 ///   c. editing the browser tab's address bar keeps it landscape;
-///   d. wide terminal output pans sideways under a left swipe;
+///   d. wide terminal output pans sideways under a left swipe once Wide is on
+///      (a plain swipe over the phone's fitted grid is recorded, not asserted);
 ///   e. a wide Markdown table in an agent chat scrolls sideways under a left swipe.
-/// "Landscape" is the app's own window: wider than tall. A step whose
-/// behaviour is by design is marked with `XCTExpectFailure` saying why;
-/// every other step is a plain assertion.
+/// "Landscape" is the app's own window: wider than tall. Every step is a
+/// plain assertion except d2, which only records what a plain swipe does.
 /// Run it with `cmux-next-ios-sim.sh test ui=LandscapeUITests video`.
 final class LandscapeUITests: XCTestCase {
     override func setUp() {
@@ -146,10 +146,8 @@ final class LandscapeUITests: XCTestCase {
         // grid wider than the page (the Mac's under Prefer this Mac, or a
         // full-screen app at the Mac's width) pans under a plain swipe with
         // Wide off (TerminalHostGridLayout.maxPanX follows hostColumns).
-        XCTExpectFailure("by design: wide output pans only once Wide is on (the key row's Wide key or the page menu's " +
-                         "Wide View); a plain swipe over a fitted grid has nothing to pan", strict: false) {
-            XCTAssertTrue(plainMoved, "a plain left swipe moves the output sideways: before \(before), after \(demo)")
-        }
+        // Recorded, not asserted: whether it moves depends on the grid's width, not on this code.
+        print("LANDSCAPE d plain moved=\(plainMoved)")
 
         // d3: Wide on (the key row's Wide key), then the same swipe. The key
         // row shows only over the soft keyboard (#53325): with the keyboard
