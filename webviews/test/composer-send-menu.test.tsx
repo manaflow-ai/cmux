@@ -154,11 +154,11 @@ async function rightClick(button: HTMLElement) {
 }
 
 const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
-/** Each row's name and the key it draws. */
+/** Each row's name and the key it draws (its KeyHint's raw keys, as the native menu reads them). */
 const rows = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].map((row) => ({
     label: row.getAttribute("aria-label"),
-    key: row.querySelector(".ui-menu-shortcut")?.textContent,
+    key: row.querySelector(".ui-menu-shortcut .ui-key-hint, .ui-key-hint.ui-menu-shortcut")?.getAttribute("data-keys"),
   }));
 const row = (label: string) =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].find(
