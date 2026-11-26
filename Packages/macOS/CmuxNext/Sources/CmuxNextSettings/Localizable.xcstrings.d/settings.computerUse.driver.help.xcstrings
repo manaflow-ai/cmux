@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.computerUse.driver.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upstream is the new helper; macOS asks for its permissions again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「アップストリーム」は新しいヘルパーです。macOSは改めて許可を求めます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«المصدر الأصلي» هو المساعد الجديد؛ ويطلب macOS أذوناته مجددًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Izvorno je novi pomoćnik; macOS ponovo traži njegove dozvole."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream er den nye hjælper; macOS beder om dens tilladelser igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Upstream“ ist der neue Helfer; macOS fragt erneut nach seinen Berechtigungen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream es el nuevo asistente; macOS vuelve a pedir sus permisos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream est le nouvel assistant ; macOS redemande ses autorisations."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream è il nuovo helper; macOS chiede di nuovo i suoi permessi."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream គឺជាកម្មវិធីជំនួយថ្មី; macOS សុំការអនុញ្ញាតរបស់វាម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "업스트림은 새 도우미이며, macOS가 권한을 다시 요청합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream er den nye hjelperen; macOS ber om tillatelsene på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream to nowy pomocnik; macOS ponownie prosi o jego uprawnienia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream é o novo auxiliar; o macOS pede as permissões dele de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Апстрим» — новый помощник; macOS снова запрашивает его разрешения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แบบอัปสตรีมคือตัวช่วยใหม่ macOS จะขอสิทธิ์ของตัวช่วยนี้อีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream yeni yardımcıdır; macOS onun izinlerini yeniden ister."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Апстрим» — новий помічник; macOS знову запитує його дозволи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upstream là trình trợ giúp mới; macOS sẽ hỏi lại quyền của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“上游”是新的辅助程序；macOS 会再次请求它的权限。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「上游」是新的輔助程式；macOS 會再次要求它的權限。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -26,7 +26,8 @@ pub const MOTION_TOKENS: &[&str] =
     &["smooth", "snappy", "none", "move", "appear", "disappear", "fade", "bouncy"];
 /// Timed curves (`{duration, curve}`); the first is the default.
 pub const CURVES: &[&str] = &["easeOut", "easeInOut", "linear"];
-/// `transition` values: in when a render adds the node after the first frame, out when it removes it.
+/// `transition` kinds: in when a render adds the node after the first frame, out when it removes it.
+/// A transition is a bare kind (the renderer's own timing) or `{kind, motion}` ([`Transition`]).
 pub const TRANSITIONS: &[&str] = &["opacity", "slide", "scale", "move", "pop"];
 /// `contentTransition` values on Text.
 pub const CONTENT_TRANSITIONS: &[&str] = &["numericText", "opacity"];
@@ -147,6 +148,47 @@ impl Loop {
     }
 }
 
+/// An enter and exit transition: a kind from [`TRANSITIONS`], timed by `motion` when it has one
+/// (`{kind, motion}`), else by the renderer's own springs (the bare kind, as before).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Transition {
+    /// One of [`TRANSITIONS`].
+    pub kind: &'static str,
+    /// The timing of the move and the fade; `None` keeps the renderer's default.
+    pub motion: Option<Motion>,
+}
+
+impl Transition {
+    /// Reads a `transition` value: a kind, or `{kind, motion?}`; `Err` names what is wrong.
+    pub fn parse(value: &Value) -> Result<Self, String> {
+        let kind = |name: &str| {
+            known(TRANSITIONS, name).ok_or_else(|| {
+                format!("unknown transition {name:?} (one of {})", TRANSITIONS.join(" "))
+            })
+        };
+        if let Some(name) = value.as_str() {
+            return Ok(Self { kind: kind(name)?, motion: None });
+        }
+        let fields = value.as_object().ok_or("a transition is a kind or {kind, motion}")?;
+        only_keys(fields, &["kind", "motion"])?;
+        let name =
+            fields.get("kind").and_then(Value::as_str).ok_or("transition.kind is a string")?;
+        let motion = match fields.get("motion") {
+            None | Some(Value::Null) => None,
+            Some(m) => Some(Motion::parse(m).map_err(|e| format!("transition.motion: {e}"))?),
+        };
+        Ok(Self { kind: kind(name)?, motion })
+    }
+
+    /// The canonical wire value: the bare kind without a motion, else `{kind, motion}`.
+    pub fn to_value(&self) -> Value {
+        match &self.motion {
+            None => json!(self.kind),
+            Some(motion) => json!({"kind": self.kind, "motion": motion.to_value()}),
+        }
+    }
+}
+
 /// Checks one motion prop by name and returns its canonical value; `Ok(None)` for a prop this
 /// contract does not own.
 pub fn normalize_prop(key: &str, value: &Value) -> Option<Result<Value, String>> {
@@ -157,7 +199,7 @@ pub fn normalize_prop(key: &str, value: &Value) -> Option<Result<Value, String>>
     Some(match key {
         "animation" => Motion::parse(value).map(|m| m.to_value()),
         "loop" => Loop::parse(value).map(|l| l.to_value()),
-        "transition" => token(TRANSITIONS),
+        "transition" => Transition::parse(value).map(|t| t.to_value()),
         "contentTransition" => token(CONTENT_TRANSITIONS),
         _ => return None,
     })
@@ -277,8 +319,38 @@ mod tests {
             assert_eq!(canonical("transition", json!(t)), Ok(json!(t)));
         }
         assert!(canonical("transition", json!("zoom")).is_err());
+        assert!(canonical("contentTransition", json!({"kind": "opacity"})).is_err());
         assert!(canonical("contentTransition", json!("numericText")).is_ok());
         assert!(normalize_prop("opacity", &json!(1)).is_none());
+    }
+
+    #[test]
+    fn timed_transitions_canonicalize() {
+        assert_eq!(
+            canonical("transition", json!({"kind": "slide", "motion": {"duration": 0.3}})),
+            Ok(json!({"kind": "slide", "motion": {"duration": 0.3, "curve": "easeOut"}}))
+        );
+        assert_eq!(
+            canonical("transition", json!({"kind": "pop", "motion": {"spring": {"response": 99}}})),
+            Ok(
+                json!({"kind": "pop", "motion": {"spring": {"response": 10.0, "dampingFraction": 1.0}}})
+            )
+        );
+        assert_eq!(
+            canonical("transition", json!({"kind": "scale", "motion": "bouncy"})),
+            Ok(json!({"kind": "scale", "motion": "bouncy"}))
+        );
+        // No motion is the bare kind, so renderers keep today's timing.
+        assert_eq!(canonical("transition", json!({"kind": "move"})), Ok(json!("move")));
+        assert_eq!(
+            canonical("transition", json!({"kind": "move", "motion": null})),
+            Ok(json!("move"))
+        );
+        assert!(canonical("transition", json!({"kind": "zoom", "motion": "move"})).is_err());
+        assert!(canonical("transition", json!({"motion": "move"})).is_err());
+        assert!(canonical("transition", json!({"kind": "slide", "motion": "wobbly"})).is_err());
+        assert!(canonical("transition", json!({"kind": "slide", "delay": 1})).is_err());
+        assert!(canonical("transition", json!(3)).is_err());
     }
 
     #[test]
@@ -319,6 +391,12 @@ mod tests {
         assert_eq!(
             union("Transition"),
             TRANSITIONS.iter().map(|t| t.to_string()).collect::<Vec<_>>()
+        );
+        assert!(
+            view.contains(
+                "export type TimedTransition = { kind: Transition; motion?: Motion | null }"
+            ),
+            "view.ts types {{kind, motion}} as Transition's timed form"
         );
         let motion_start = view.find("export type Motion =").expect("Motion in view.ts");
         let motion = &view[motion_start
