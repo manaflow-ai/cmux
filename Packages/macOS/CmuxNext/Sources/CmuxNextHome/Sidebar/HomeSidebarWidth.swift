@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextHomeModel
 
 /// The Home sidebar's width: between the list's minimum (MessagesLab's
 /// compact, avatar-only list) and half the window, the list's preferred width
@@ -26,8 +27,8 @@ public struct HomeSidebarWidth: Sendable {
     /// ``fullMinimum`` is the strip (`minimum`).
     public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum, fullMinimum: CGFloat = fullMinimum,
                              transcriptMinimum: CGFloat = transcriptMinimum) -> CGFloat {
-        let fit = max(minimum, min(width, window / 2, window - transcriptMinimum))
-        return fit < fullMinimum ? minimum : fit
+        let request = ClampRequest(width: width, window: window, minimum: minimum, fullMinimum: fullMinimum, transcriptMinimum: transcriptMinimum)
+        return CGFloat(HomeInboxRules().call("width_clamp", request, fallback: Double(minimum)))
     }
 
     /// Where a divider drag to `proposed` puts the list, from the pointer alone (the old snap read the list's width too and
@@ -36,15 +37,14 @@ public struct HomeSidebarWidth: Sendable {
     /// strip, as Finder's sidebar (the user, 2026-11-24: "it's okay to remove the sidebar at a certain point"). Back past
     /// that point in the same drag, the list is back. A window with no room for the full list keeps the strip.
     public static func drag(_ proposed: CGFloat, minimum: CGFloat = minimum, fullMinimum: CGFloat = fullMinimum, widest: CGFloat) -> CGFloat {
-        if proposed < minimum / 2 { return 0 }
-        if widest < fullMinimum { return minimum }
-        if proposed < fullMinimum { return proposed < (minimum + fullMinimum) / 2 ? minimum : fullMinimum }
-        return min(proposed, widest)
+        let request = DragRequest(proposed: proposed, widest: widest, minimum: minimum, fullMinimum: fullMinimum)
+        return CGFloat(HomeInboxRules().call("width_drag", request, fallback: Double(minimum)))
     }
 
     /// The narrowest Home column that shows the list at its minimum and the transcript at its own.
     public static func columnMinimum(listMinimum: CGFloat = minimum, divider: CGFloat = 1) -> CGFloat {
-        listMinimum + divider + transcriptMinimum
+        let request = ColumnRequest(listMinimum: listMinimum, divider: divider)
+        return CGFloat(HomeInboxRules().call("width_column_minimum", request, fallback: Double(listMinimum + divider + transcriptMinimum)))
     }
 
     private let defaults: UserDefaults
@@ -79,4 +79,24 @@ public struct HomeSidebarWidth: Sendable {
     static let listShownKey = "cmux.home.chatListShown"
 
     private static func key(_ window: String) -> String { "cmux.home.sidebarWidth.\(window)" }
+}
+
+private nonisolated struct ClampRequest: Encodable {
+    var width: Double
+    var window: Double
+    var minimum: Double
+    var fullMinimum: Double
+    var transcriptMinimum: Double
+}
+
+private nonisolated struct DragRequest: Encodable {
+    var proposed: Double
+    var widest: Double
+    var minimum: Double
+    var fullMinimum: Double
+}
+
+private nonisolated struct ColumnRequest: Encodable {
+    var listMinimum: Double
+    var divider: Double
 }

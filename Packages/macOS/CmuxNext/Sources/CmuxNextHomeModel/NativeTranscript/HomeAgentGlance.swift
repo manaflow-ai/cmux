@@ -45,13 +45,31 @@ public nonisolated struct HomeAgentGlance: Sendable, Equatable {
 
     /// At most `limit` agents, most urgent first; agents with the same
     /// status keep their given order (the sidebar's).
+    /// (`inbox.agent_shortlist`)
     public static func shortlist(_ agents: [HomeAgentGlance], limit: Int = 5) -> [HomeAgentGlance] {
-        Array(agents.enumerated().sorted { ($0.element.status, $0.offset) < ($1.element.status, $1.offset) }
-            .prefix(limit).map(\.element))
+        let request = ShortlistRequest(statuses: agents.map(\.status.rules), limit: max(0, limit))
+        let picked: [Int] = HomeInboxRules().call("agent_shortlist", request, fallback: Array(agents.indices.prefix(max(0, limit))))
+        return picked.compactMap { agents.indices.contains($0) ? agents[$0] : nil }
     }
 }
 
+private nonisolated struct ShortlistRequest: Encodable {
+    var statuses: [String]
+    var limit: Int
+}
+
 extension HomeAgentGlance.Status {
+    /// The status as `inbox::text::GlanceStatus` names it.
+    nonisolated var rules: String {
+        switch self {
+        case .needsYou: "needsYou"
+        case .failed: "failed"
+        case .done: "done"
+        case .idle: "idle"
+        case .working: "working"
+        }
+    }
+
     /// The status in the shared indicator when the host gives none.
     nonisolated var indicator: StatusIndicatorState {
         switch self {

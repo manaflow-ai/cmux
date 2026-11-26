@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+import CmuxNextHomeModel
 import Foundation
 
 /// A section of the Home page's conversation list (its left column).
@@ -31,13 +32,16 @@ public enum HomeConversationLine: Hashable, Sendable {
 /// person. A section with no rows is left out, so someone without Chiefs
 /// sees only messages.
 extension Array where Element == InboxRow {
-    /// The rows (inbox order: pinned by rank, then newest first) in sections; each keeps that order.
+    /// The rows (inbox order: pinned by rank, then newest first) in sections; each keeps that order
+    /// (`inbox.sections`).
     public var homeSections: [HomeConversationSection] {
-        var buckets: [HomeConversationSectionKind: [InboxRow]] = [:]
-        for row in self { buckets[row.homeSectionKind, default: []].append(row) }
-        return HomeConversationSectionKind.allCases.compactMap { kind in
-            guard let rows = buckets[kind], !rows.isEmpty else { return nil }
-            return HomeConversationSection(kind: kind, rows: rows)
+        let sections: [SectionReply] = HomeInboxRules().call("sections", RowsRequest(rows: HomeInboxRules().rows(self)), fallback: [])
+        return sections.compactMap { section in
+            guard let kind = HomeConversationSectionKind(rules: section.kind) else {
+                assertionFailure("inbox.sections: unknown kind \(section.kind)")
+                return nil
+            }
+            return HomeConversationSection(kind: kind, rows: HomeInboxRules().pick(section.rows, from: self))
         }
     }
 
@@ -46,19 +50,36 @@ extension Array where Element == InboxRow {
     }
 
     /// The conversations the user invited someone into who has not joined
-    /// yet, with the address each invite went to.
+    /// yet, with the address each invite went to (`inbox.pending_invites`).
     public var pendingInvites: [(conversation: ConversationID, contact: String)] {
-        flatMap { row in
-            row.summary.participants.filter { $0.membership == .invited }.map { (row.id, $0.invitedContact ?? $0.displayName) }
+        let invites: [InviteReply] = HomeInboxRules().call("pending_invites", RowsRequest(rows: HomeInboxRules().rows(self)), fallback: [])
+        return invites.map { (ConversationID(rawValue: $0.conversation), $0.contact) }
+    }
+}
+
+extension HomeConversationSectionKind {
+    /// The kind `inbox::list::SectionKind` names.
+    init?(rules name: String) {
+        switch name {
+        case "chiefs": self = .chiefs
+        case "pinned": self = .pinned
+        case "messages": self = .messages
+        case "invited": self = .invited
+        default: return nil
         }
     }
 }
 
-extension InboxRow {
-    var homeSectionKind: HomeConversationSectionKind {
-        if kind == .chief { return .chiefs }
-        if isPinned { return .pinned }
-        if kind == .direct, summary.hasInvitedParticipant { return .invited }
-        return .messages
-    }
+private nonisolated struct RowsRequest: Encodable {
+    var rows: [HomeInboxRules.Row]
+}
+
+private nonisolated struct SectionReply: Decodable {
+    var kind: String
+    var rows: [String]
+}
+
+private nonisolated struct InviteReply: Decodable {
+    var conversation: String
+    var contact: String
 }
