@@ -5,6 +5,8 @@ The repository's CLAUDE_CODE_OAUTH_TOKEN is one login that claude.yml and every 
 limit turned the real leg into quota skips (run 44649399953, 2026-11-20), so the
 cloud-journey-first-text-production probe had no samples. backend.yml's journey-production already reads
 CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN first; this keeps cloud-journey-prod.yml on the same login.
+When the gate picks route=machine (the login is spent), the real leg gets no login and runs on the machine's
+own model route (SR2) instead of skipping.
 """
 from pathlib import Path
 import unittest
@@ -12,6 +14,7 @@ import unittest
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cloud-journey-prod.yml"
 WANT = (
     "CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && "
+    "steps.gate.outputs.route != 'machine' && "
     "(secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}"
 )
 
