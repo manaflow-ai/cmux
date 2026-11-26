@@ -116,6 +116,12 @@ live resize), [#24902](https://github.com/manaflow-ai/cmux/pull/24902) (reply fa
 **Guards:** in webviews, the dev-server `layout-shift` and `react-commit` budgets ([modding-kit.md](modding-kit.md));
 the no-flicker browser tests. Native UI has none yet beyond tests.
 
+Inline attachments are another instance (#38135): sizing only the loaded image leaves a large
+loading atom or vertical margins that still expand the prompt. Keep loading and loaded image
+geometry on the prompt's line-height token, and measure the whole composer before paste, during
+the read, and after it. Detector: `webviews/test/composer-inline-caret-height.browser.test.ts`
+and the `attachment-inline-compact-*` gallery scenes.
+
 ## 7. Lifecycle edges are the normal case
 
 **Class:** a start, close, resume or reconnect raced work in flight, or a cached value outlived its source.

@@ -478,6 +478,22 @@
   color: var(--agent-muted);
   overflow: hidden;
 }
+/* Images are inline attachments, so their thumbnail and atom occupy exactly the prompt's line.
+   The atom's normal 2px block room is useful for larger cards and videos, but would turn a one-line
+   image into a second row. Failed images keep their larger retry tile. */
+.acpmux-md-inline:has(> .acpmux-md-inline-chip[data-kind="image"]:not([data-state="failed"])):not(
+    :has(.acpmux-attachment-image-failed)
+  ) {
+  margin-block: 0;
+}
+.acpmux-md-inline-chip[data-kind="image"][data-state="loading"] {
+  height: var(--text-content--line-height);
+}
+.acpmux-md-inline-chip[data-kind="image"][data-state="loading"] .acpmux-md-inline-remove {
+  top: var(--grid-half-step);
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+}
 /* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
    its place in the text, so the inline view shows it there again and the prompt goes the same. */
 .acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline,
@@ -511,6 +527,11 @@
    not be drawn keeps the strip's tile, which has room for its note, Retry and ×. */
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
   --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
+}
+/* Only images use one text line. A failed image keeps room for its note, Retry and ×. */
+.acpmux-md-inline-chip[data-chip="strip"][data-kind="image"]
+  .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
+  --acpmux-attach-height: var(--text-content--line-height);
 }
 /* A text file's page card in the text: as tall as a thumbnail there, two lines over its label. */
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card {

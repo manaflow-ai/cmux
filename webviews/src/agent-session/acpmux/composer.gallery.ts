@@ -165,6 +165,93 @@ async function pasteComparison(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
 }
 
+// #38135: measure the real composer throughout a paste, including the asynchronous image read.
+// Hold only these fixture images' worker requests, then release the original worker unchanged.
+async function pasteCompactImages(ctx: PlayContext, count: number, draft: string) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  const editor = ctx.find({ selector: ".acpmux-md" });
+  const box = ctx.find({ selector: ".acpmux-composer-box, .nt-composer" });
+  if (draft) {
+    await ctx.focus({ selector: ".acpmux-md" });
+    await ctx.type(draft);
+  }
+  await ctx.waitFor(() => field.acpmuxMarkdownField!.value() === draft);
+  const measure = () => ({
+    field: field.getBoundingClientRect().height,
+    box: box.getBoundingClientRect().height,
+  });
+  const before = measure();
+  const sameHeight = (phase: string) => {
+    const after = measure();
+    for (const key of ["field", "box"] as const)
+      if (Math.abs(after[key] - before[key]) > 1)
+        throw new Error(`${phase}: ${key} grew from ${before[key]}px to ${after[key]}px after pasting an image`);
+    return after;
+  };
+  const canvas = ctx.document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 180;
+  const paint = canvas.getContext("2d")!;
+  const files: File[] = [];
+  for (let i = 0; i < count; i++) {
+    // Paste intake collapses identical image bytes even when their filenames differ.
+    paint.fillStyle = i === 0 ? "#5783b5" : "#b58357";
+    paint.fillRect(0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((done) => canvas.toBlob((value) => done(value!), "image/png"));
+    files.push(new view.File([blob], `compact-image-${i}.png`, { type: "image/png" }));
+  }
+  const held: Array<() => void> = [];
+  const original = view.Worker.prototype.postMessage;
+  view.Worker.prototype.postMessage = function (
+    message: unknown,
+    options?: StructuredSerializeOptions | Transferable[],
+  ) {
+    const post = original.bind(this);
+    const send = () => (Array.isArray(options) ? post(message, options) : post(message, options));
+    const job = message as { kind?: string; file?: File };
+    if (job.kind === "prepare" && job.file?.name.startsWith("compact-image-")) held.push(send);
+    else send();
+  };
+  try {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.setCaret(editor.textContent?.length ?? 0);
+    const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { files, types: ["Files"], getData: () => "" },
+    });
+    editor.dispatchEvent(paste);
+    // The bundled gallery has no image worker (composer/imagePool.ts starts one only in the app or the
+    // Vite dev server), so the read runs on the page and nothing is held: measure the loading tiles
+    // when they show, and the ready ones either way.
+    const loadingTiles = () =>
+      ctx.document.querySelectorAll('.acpmux-md-inline-chip[data-state="loading"]:not([data-sizing])').length;
+    const readyImages = () => ctx.document.querySelectorAll('.acpmux-md-inline-chip[data-state="ready"] img').length;
+    let loading: ReturnType<typeof measure> | undefined;
+    await ctx.waitFor(() => {
+      if (loadingTiles() === count) {
+        loading = measure();
+        return true;
+      }
+      return readyImages() === count;
+    });
+    if (loading) {
+      for (const key of ["field", "box"] as const)
+        if (Math.abs(loading[key] - before[key]) > 1)
+          throw new Error(`loading: ${key} grew from ${before[key]}px to ${loading[key]}px after pasting an image`);
+    }
+    for (const send of held.splice(0)) send();
+    await ctx.waitFor(() => readyImages() === count);
+    await new Promise<void>((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(() => done())));
+    const ready = sameHeight("ready");
+    editor.setAttribute("data-image-height-proof", JSON.stringify({ before, loading, ready }));
+  } finally {
+    view.Worker.prototype.postMessage = original;
+    for (const send of held) send();
+  }
+}
+
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
 // mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
 const SEND_ARRIVES = {
@@ -1658,6 +1745,38 @@ export default agentPaneEntry({
         );
       },
     },
+    ...Object.fromEntries(
+      (["claude", "codex"] as const).flatMap((composerLook) =>
+        (["chat", "new-tab", "quick"] as const).flatMap((surface) =>
+          (["empty", "text", "pair"] as const).map((scene) => [
+            `attachment-inline-compact-${composerLook}-${surface}-${scene}`,
+            {
+              note: "#38135: pasting images into an empty or one-line draft keeps the composer at its text height, during loading and after the thumbnails arrive.",
+              composerLook,
+              snapshot: surface === "new-tab" ? onBranch("main") : chat(finished),
+              ready: {
+                draft: "",
+                ...(surface === "quick" ? { surface: "quick" } : {}),
+                ...(surface === "new-tab"
+                  ? {
+                      newSession: true,
+                      newTab: {
+                        layout: "b",
+                        kind: "agent",
+                        cwd: CWD,
+                        home: "/Users/you",
+                        lastAgent: "claude",
+                      },
+                    }
+                  : {}),
+              },
+              play: (ctx: PlayContext) =>
+                pasteCompactImages(ctx, scene === "pair" ? 2 : 1, scene === "empty" ? "" : "Compare"),
+            },
+          ]),
+        ),
+      ),
+    ),
     "attachment-inline-caret": {
       note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot is pasted between words at the caret. Backspace removes the atom in one press; undo restores it. The strip remains available in Settings.',
       snapshot: chat(finished),

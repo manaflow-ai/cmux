@@ -17,7 +17,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, InstantPreview, PendingChip, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress, PendingChip } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { localDraftShape, useDraftRatio } from "./draftMediaShape";
 import { videoShapeStyle } from "./videoShape";
@@ -470,6 +470,7 @@ const InlineChip = memo(function InlineChip({
       <span
         className={pending!.failed ? "acpmux-md-inline-chip" : `acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
         data-state={pending!.failed ? "failed" : "loading"}
+        data-kind={pending!.image ? "image" : pending!.video ? "video" : undefined}
         {...(pending!.failed ? {} : { "data-paste-look": look })}
         // A loading image is the shape its thumbnail will be (its header's size), so the picture
         // arriving moves nothing.
@@ -576,6 +577,7 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
+      data-kind={attachment.video ? "video" : attachment.kind === "image" ? "image" : undefined}
       ref={chipRef(id)}
       {...(loaded && !pictured ? { "data-loaded": "" } : {})}
     >

@@ -487,7 +487,9 @@ await requireBrowserLane("composer-attachment-one-box.test.ts", async () => {
         };
         console.log(`one-box metrics ${JSON.stringify(metrics)}`);
         expect(metrics.sizes).toHaveLength(1);
-        expect(Math.abs(metrics.composerShape - metrics.sentShape)).toBeLessThan(0.03);
+        // Healthy inline screenshots are compact prompt chips; the sent image keeps its natural shape.
+        expect(chip.height).toBeLessThanOrEqual(24);
+        expect(metrics.sentShape).toBeGreaterThan(1.5);
       } finally {
         await page.close();
       }
