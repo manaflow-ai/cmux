@@ -208,6 +208,7 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/FeaturesView.tsx",
     "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
@@ -218,6 +219,21 @@ export default appsPageEntry({
     "pages/apps/SourceLink.tsx",
   ],
   variants: {
+    "features-list": {
+      note: "Chosen Features tab (features=list, the default; Leo 10-21, ask-36ade8776b): every built-in feature as a switch on its own setting, grouped like Settings. The managed row cannot change.",
+      hash: "#/features",
+      data: store,
+    },
+    "features-tiles": {
+      note: "Variant (DEV, features=tiles): a card per feature, on ones tinted.",
+      hash: "#/features?features=tiles",
+      data: store,
+    },
+    "features-chips": {
+      note: "Variant (DEV, features=chips): one toggle chip per feature, the densest.",
+      hash: "#/features?features=chips",
+      data: store,
+    },
     "browse-hero-rows": {
       note: "Chosen Discover (browse=hero, the default): Cloud and CodeRouter each as a hero with a screenshot; a small store needs no shelves.",
       hash: "#/discover?layout=grid",
