@@ -619,6 +619,19 @@ impl Terminal {
     /// Process hosts should publish this returned stream so every frontend
     /// parses the same bytes as the authoritative terminal.
     pub fn vt_write_with_normalized<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        self.vt_write_forwarding(data, |_| {})
+    }
+
+    /// [`Self::vt_write_with_normalized`] that hands the accepted bytes to
+    /// `forward` before Ghostty parses them: a host can send its viewers the
+    /// exact stream its own parser takes while that parse runs, instead of
+    /// after it (goal terminal-throughput, G3). `forward` is not called for
+    /// empty `data`.
+    pub fn vt_write_forwarding<'a, F: FnMut(&[u8])>(
+        &mut self,
+        data: &'a [u8],
+        mut forward: F,
+    ) -> Cow<'a, [u8]> {
         if data.is_empty() {
             return Cow::Borrowed(data);
         }
@@ -626,6 +639,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let (normalized, mouse_modes_may_have_changed) = self.prepare_write(data);
+        forward(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
