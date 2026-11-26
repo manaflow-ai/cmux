@@ -1,6 +1,7 @@
 import { type ComposerAttachment } from "../attachments";
 import { type KeptAttachments } from "../composer/keptAttachments";
 import { callNative } from "../callNative";
+import { NativeError } from "../nativeError";
 import { draftAttachmentsStore } from "../composer/draftAttachmentsStore";
 import { onDraftActionsChanged } from "../composerDraft";
 
@@ -23,7 +24,12 @@ const hostKeptAttachments: KeptAttachments = {
   read: (sessionId) =>
     callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
       (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
-      () => [],
+      (error: unknown) => {
+        if (error instanceof NativeError && ["native.unsupported", "cmux.protocol.unknown_op"].includes(error.code ?? "")) {
+          return [];
+        }
+        throw error;
+      },
     ),
   write: (sessionId, attachments) =>
     callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),

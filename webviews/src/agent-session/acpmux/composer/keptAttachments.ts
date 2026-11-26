@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AutoRetryLoop } from "../autoRetry";
 import type { ComposerAttachment } from "../attachments";
 import { appendAttachments } from "./attachmentIntakeModel";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
@@ -29,6 +30,31 @@ export function keptChips(attachments: readonly ComposerAttachment[]): ComposerA
   });
 }
 
+/// A failed draft read gives us no safe starting point for a write. Use the chat's read
+/// backoff until it answers, or until the composer leaves this chat.
+function retryDraftOperation(operation: () => Promise<void>): () => void {
+  const onVisible = () => {
+    if (!inFlight) retry.wake();
+  };
+  let inFlight = false;
+  const retry = new AutoRetryLoop(attempt);
+  const cancel = () => {
+    retry.dispose();
+    globalThis.document?.removeEventListener("visibilitychange", onVisible);
+  };
+  function attempt() {
+    retry.pause();
+    inFlight = true;
+    void operation().then(cancel, () => {
+      inFlight = false;
+      retry.fail();
+    });
+  }
+  globalThis.document?.addEventListener("visibilitychange", onVisible);
+  attempt();
+  return cancel;
+}
+
 /// Each chat's handoffs still going (keepElsewhere), so the next waits for them.
 const handoffs = new Map<string, Promise<void>>();
 
@@ -36,14 +62,17 @@ const handoffs = new Map<string, Promise<void>>();
 /// chat (attachmentIntake.ts `elsewhere`). A batch's chips are ready at their own times, so one
 /// chat's handoffs go one after another: each reads what the last wrote, never over it.
 export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
-  const next = (handoffs.get(chat) ?? Promise.resolve())
-    .then(() => store.read(chat))
-    .catch(() => [])
-    .then((kept) => store.write(chat, appendAttachments(kept, chips)))
-    .then(
-      () => undefined,
-      () => undefined,
-    );
+  const release = holdWebSwap(() => "composer.attachments-unsaved");
+  const next = (handoffs.get(chat) ?? Promise.resolve()).then(
+    () => new Promise<void>((resolve) => {
+      retryDraftOperation(async () => {
+        const kept = await store.read(chat);
+        await store.write(chat, appendAttachments(kept, chips));
+        release();
+        resolve();
+      });
+    }),
+  );
   handoffs.set(chat, next);
   void next.then(() => {
     if (handoffs.get(chat) === next) handoffs.delete(chat);
@@ -137,28 +166,27 @@ export function useKeptAttachments(
     // Not read until this read answers: a chat shown again reads its chips again.
     setReadFor(undefined);
     let current = true;
-    void store
-      .read(sessionId)
-      .catch(() => [])
-      .then((kept) => {
-        if (!current) return;
-        const read = Array.isArray(kept) ? kept : [];
-        written.current = { sessionId, ids: signature(read), stored: new Set(read.map((chip) => chip.id)) };
-        // This chat's last write was refused: what the page showed then comes back with it, and goes
-        // again (the swap's hold resends a refused write) until the host keeps it.
-        const unkept = refused.current.get(sessionId);
-        const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
-        if (unkept) written.current.ids = "\u0000refused";
-        const keep = keepHeld || !readOne.current;
-        readOne.current = true;
-        setAttachments((held) => {
-          const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
-          return back.length || others.length !== held.length ? [...back, ...others] : held;
-        });
-        setReadFor(sessionId);
+    const cancel = retryDraftOperation(async () => {
+      const kept = await store.read(sessionId);
+      if (!current) return;
+      const read = Array.isArray(kept) ? kept : [];
+      written.current = { sessionId, ids: signature(read), stored: new Set(read.map((chip) => chip.id)) };
+      // This chat's last write was refused: what the page showed then comes back with it, and goes
+      // again (the swap's hold resends a refused write) until the host keeps it.
+      const unkept = refused.current.get(sessionId);
+      const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
+      if (unkept) written.current.ids = "\u0000refused";
+      const keep = keepHeld || !readOne.current;
+      readOne.current = true;
+      setAttachments((held) => {
+        const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
+        return back.length || others.length !== held.length ? [...back, ...others] : held;
       });
+      setReadFor(sessionId);
+    });
     return () => {
       current = false;
+      cancel();
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- flush only sends what rests; a chat is read once per session.
   }, [sessionId, store, setAttachments]);

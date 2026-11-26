@@ -251,6 +251,25 @@ test("a page that opens empty never erases the chips it is about to get back", a
   expect(store.writes).toEqual([]);
 });
 
+test("a failed draft read waits for the saved chips before it writes a new paste", async () => {
+  const host = new Host();
+  host.chats.set("chat-a", [screenshot(1)]);
+  let offline = true;
+  const store: KeptAttachments = {
+    read: (id) => offline ? Promise.reject(new Error("disconnected")) : host.read(id),
+    write: (id, chips) => host.write(id, chips),
+  };
+  const page = await openPage("chat-a", store);
+  act(() => page.current!.attach(screenshot(2)));
+  await settle();
+  expect(host.writes).toEqual([]);
+  offline = false;
+  await act(async () => void jest.advanceTimersByTime(5_000));
+  await settle();
+  expect(shown(page).map((chip) => chip.id)).toEqual(["shot-1", "shot-2"]);
+  expect(await host.read("chat-a")).toEqual([screenshot(1), screenshot(2)]);
+});
+
 test("a chip's contents go to the host once; later writes name it without them", async () => {
   const store = new Host();
   const page = await openPage("chat-a", store);
