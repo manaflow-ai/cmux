@@ -690,3 +690,72 @@ fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
     assert_eq!(wake_probe(false, net), WAKE_PROBE);
     assert_eq!(wake_probe(true, Duration::from_secs(90)), WAKE_PROBE, "never longer than before");
 }
+
+/// A ready link to `url` that hears nothing, with a 600 ms silence budget: how it ended, how
+/// long it took, and whether a replacement waits for the next connect.
+async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, Duration, bool) {
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", url, None, None, tx);
+    {
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = Duration::from_millis(200);
+        timings.handshake = Duration::from_secs(3_600);
+    }
+    peer.set_serving(Some(crate::peer_paths::Via::Url));
+    peer.with_link(|l| {
+        let now = crate::store::now_ms();
+        l.opened(now);
+        l.ready(now);
+    });
+    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let started = tokio::time::Instant::now();
+    let ended = tokio::time::timeout(Duration::from_secs(10), peer.serve(client, &mut out_rx))
+        .await
+        .expect("a silent link ends within 10 s");
+    let replaced = peer.replacement.lock_or_recover().is_some();
+    (ended, started.elapsed(), replaced)
+}
+
+/// Regression 1 after #54052: a 4 s blackout on an idle relay link. A ping sent in its first
+/// second is retransmitted at +6.2 s, and every later byte waits behind it, so the link heard
+/// nothing for its whole 6 s budget while the peer was fine. It was dropped, then waited its
+/// backoff and a handshake: 3.6 to 5.6 s to resume instead of 2.3 s. A link silent past its
+/// budget now dials a replacement while it still reads; the one that opens first carries the
+/// link, with no drop.
+#[tokio::test]
+async fn a_silent_link_whose_peer_still_answers_a_dial_moves_to_it_without_a_drop() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // Every connection is served, and one that is not a WebSocket upgrade (a dial's probe) is
+    // let go: the listener stays up for the dial itself.
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+                held.push(ws);
+            }
+        }
+    });
+    let (ended, took, replaced) =
+        a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
+    server.abort();
+    assert_eq!(ended, Ok(LinkEnd::Switching), "a silent link with a reachable peer was dropped");
+    assert!(replaced, "the replacement that opened is not kept for the next connect");
+    assert!(took >= Duration::from_millis(600), "moved before its budget ran out: {took:?}");
+}
+
+/// The peer does not answer a dial either: the link still drops, by twice its budget.
+#[tokio::test]
+async fn a_silent_link_whose_replacement_does_not_open_still_drops() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let (ended, took, replaced) =
+        a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
+    let error = ended.expect_err("the link drops");
+    assert!(error.contains("stopped answering"), "{error}");
+    assert!(!replaced);
+    assert!(took <= Duration::from_millis(1_500), "{took:?}");
+}

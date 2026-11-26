@@ -3,18 +3,26 @@
 # app is copied into a temp folder (the Mac's own apps are untouched), and the bundle's version, commit and its
 # bundled CLIs' `--version` are printed. mark=WORD also says whether the bundled acpmux holds WORD between two
 # \x01 bytes, the gateway's launch-shape masks (#55700's `\u{1}session\u{1}`), to show the build carries it.
+# chief-mark=TEXT (repeatable) says whether the bundled optchat-chief holds TEXT, a string a Chief change added,
+# to show the NIGHTLY carries that Chief change (its `--version` also names the commit it was built from).
 #   cmux-ci run --label measure --script scripts/measure/nightly-cli-readback.sh --ref <sha> \
-#     [--arg=build=VERSION | --arg=dmg=URL] [--arg=mark=WORD]
+#     [--arg=build=VERSION | --arg=dmg=URL] [--arg=mark=WORD] [--arg=chief-mark=TEXT ...] [--arg=help=VERB...]
 #   build=VERSION  a NIGHTLY's build number (CFBundleVersion, e.g. 4557519416001)
 #   dmg=URL        any NIGHTLY DMG (default: the newest in the NEXT feed)
+#   help=VERB      also run the bundled `cmux VERB --help` (VERB may be several words joined by +, e.g. link+dial),
+#                  print its exit code and first line; repeatable. A nonzero exit fails the read-back.
 # Prints NCR lines; the temp folder is removed at the end.
 set -uo pipefail
 dmg="" build="" mark=""
+chief_marks=()
+helps=()
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     build=*) build="${arg#build=}" ;;
     mark=*) mark="${arg#mark=}" ;;
+    chief-mark=?*) chief_marks+=("${arg#chief-mark=}") ;;
+    help=?*) helps+=("${arg#help=}") ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -46,14 +54,28 @@ for key in CFBundleShortVersionString CFBundleVersion CFBundleIdentifier; do
 done
 plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */NCR plist /'
 status=0
-for name in cmux acpmux; do
+for name in cmux acpmux optchat-chief; do
   bin="$(find "$app/Contents" -type f -perm -u+x -name "$name" 2>/dev/null | head -1)"
   if [[ -z "$bin" ]]; then echo "NCR $name: not in the bundle"; continue; fi
   echo "NCR $name path ${bin#"$app/"}"
   echo "NCR $name --version: $(HOME="$work" "$bin" --version 2>&1 | head -3 | tr '\n' ' ')"
+  if [[ "$name" == cmux ]]; then
+    for verb in ${helps[@]+"${helps[@]}"}; do
+      IFS=+ read -r -a words <<<"$verb"
+      out="$(HOME="$work" "$bin" "${words[@]}" --help 2>&1)"; rc=$?
+      echo "NCR cmux ${words[*]} --help exit=$rc: $(printf '%s\n' "$out" | grep -m1 -v '^[[:space:]]*$')"
+      [[ $rc -eq 0 ]] || status=1
+    done
+  fi
   if [[ "$name" == acpmux && -n "$mark" ]]; then
     if LC_ALL=C grep -qaF $'\x01'"$mark"$'\x01' "$bin"; then echo "NCR acpmux mark present: $mark"
     else echo "NCR acpmux mark absent: $mark"; status=1; fi
+  fi
+  if [[ "$name" == optchat-chief ]]; then
+    for cm in ${chief_marks[@]+"${chief_marks[@]}"}; do
+      if LC_ALL=C grep -qaF -- "$cm" "$bin"; then echo "NCR optchat-chief mark present: $cm"
+      else echo "NCR optchat-chief mark absent: $cm"; status=1; fi
+    done
   fi
 done
 echo "NCR exit=$status"

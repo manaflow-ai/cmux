@@ -74,6 +74,10 @@ async fn a_datagram_round_trips_and_misdirected_ones_are_refused_or_dropped() {
 /// A bulk upload fills a 20,000 datagram/s bottleneck. Media datagrams
 /// leave before the upload's queued segments, so they wait only for what
 /// is already in the bottleneck's queue, not behind the upload's window.
+/// They start once the upload is past slow start (2 MiB in): the 64-packet
+/// queue holds 3.2 ms, under the delay window's target, so a doubling start
+/// overflows it once whatever the controller, and a datagram sent into that
+/// overflow is lost, which is not what this measures.
 #[tokio::test(start_paused = true)]
 async fn a_media_datagram_overtakes_a_bulk_upload() {
     let sim = SimNet::new();
@@ -90,7 +94,7 @@ async fn a_media_datagram_overtakes_a_bulk_upload() {
     let (progress_tx, mut progress) = watch::channel(0usize);
     tokio::spawn(async move {
         let chunk = vec![1u8; 64 * 1024];
-        for _ in 0..64 {
+        for _ in 0..128 {
             if upload.write_all(&chunk).await.is_err() {
                 break;
             }
@@ -104,7 +108,7 @@ async fn a_media_datagram_overtakes_a_bulk_upload() {
             progress_tx.send_replace(total);
         }
     });
-    progress.wait_for(|total| *total >= 1024 * 1024).await.unwrap();
+    progress.wait_for(|total| *total >= 2 * 1024 * 1024).await.unwrap();
 
     let peer = SocketAddr::new(configs.server_v6, MEDIA_PORT);
     let mut worst = Duration::ZERO;
@@ -125,7 +129,7 @@ async fn a_media_datagram_overtakes_a_bulk_upload() {
             worst = slowest;
         }
     }
-    assert!(*progress.borrow() < 4 * 1024 * 1024, "the upload was still running");
+    assert!(*progress.borrow() < 8 * 1024 * 1024, "the upload was still running");
     // One way, plus what the bottleneck already queued (at most 64 packets
     // of 50 us), plus one packet time.
     assert!(worst <= ONE_WAY + Duration::from_millis(5), "media waited {worst:?}");
