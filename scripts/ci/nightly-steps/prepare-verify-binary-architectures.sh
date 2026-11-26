@@ -51,7 +51,7 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
     helpers=()
   fi
   [ "${#helpers[@]}" -eq 0 ] || [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Helper.app" >&2; exit 1; }
-  for binary in ${helpers[@]+"${helpers[@]}"}; do
+  for binary in "${helpers[@]}"; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
     if [ "$NIGHTLY_VARIANT" = "universal" ]; then
