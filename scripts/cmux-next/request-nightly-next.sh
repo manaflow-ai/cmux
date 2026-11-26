@@ -288,15 +288,23 @@ app_unchanged() { # <sha>
 #          nothing that reaches the app changed since (same_app: the nightly's input classifier and
 #          the cmux-tui tree key), so the same app compiled;
 #   red    that verdict failed;
-#   none   no verdict yet (queued, superseded by a newer tip, never checked): an older commit is tried,
-#          and the next tick tries this one again;
+#   covered  its record is superseded (the controller checked a newer push tip instead, and that check
+#          covers this push's commits) and the first checked tip after it passed. Most feat-cmux-next
+#          commits are superseded, and the tree publisher also keeps only one push per window, so
+#          requiring both on the same commit left the dedicated Macs idle for hours with commits waiting
+#          (11-25: 77, 132 and 100+ minute gaps, every tick "N refused"; Leo, 2026-11-25: "Just keep
+#          the train going like 24/7, constantly"). A commit between it and that tip could have fixed
+#          its compile; then its nightly fails at the Mac build, which the next commit replaces;
+#   none   no verdict yet (queued, never checked, or superseded by a tip not checked yet or red): an
+#          older commit is tried, and the next tick tries this one again;
 #   down   the results service did not answer: promoted as before, with a warning (the feed must not
 #          stop on an outage of a cache).
 # NIGHTLY_NEXT_PRECHECK=0 turns it off. CMUX_NIGHTLY_NEXT_PRECHECK_DEPTH (default 30) ancestors are read
 # at most; each verdict is read once a tick (the tick runs this script once per commit it walks).
 precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.com/compile-checks/v1}"
 precheck_reason=""
-# fleet_verdict <sha>: pass, fail, pending, none (no usable record) or down.
+# fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it), none (no
+# usable record) or down.
 fleet_verdict() { # <sha>
   local cache="" body code word
   if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
@@ -326,6 +334,8 @@ elif r.get("state") in ("pass", "fail"):
     print(r["state"])
 elif r.get("state") in ("queued", "running", "deferred", "", None):
     print("pending")
+elif r.get("state") == "superseded":
+    print("superseded")
 else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
@@ -355,6 +365,20 @@ precheck() { # <sha>
       echo "::warning title=nightly-next precheck::the compile results service did not answer for ${1:0:12}; promoting it unprechecked" >&2
       precheck_reason="the results service did not answer, so it is not prechecked"
       return 0 ;;
+    superseded)
+      # The check that covers it is the first checked push tip after it on feat-cmux-next.
+      local later
+      while read -r later; do
+        [[ "$later" =~ ^[0-9a-f]{40}$ ]] || continue
+        word="$(fleet_verdict "$later")"
+        case "$word" in
+          pass)
+            precheck_reason="its push was superseded by ${later:0:12}, whose Release compile on the build fleet covers it and passed"
+            return 0 ;;
+          fail|pending|down) break ;;
+        esac
+      done < <(git rev-list --first-parent --ancestry-path --reverse "$1..${tip:-$1}" 2>/dev/null | head -n "$depth")
+      ;;
   esac
   # No verdict of its own: the nearest ancestor with one stands for it when the app is the same.
   while read -r ancestor; do
