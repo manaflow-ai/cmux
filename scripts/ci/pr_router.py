@@ -65,6 +65,17 @@ ROOT = HERE.parents[1]
 # start on it at all. mac alone was here until 11-25, so linux, web-browser and ios ran on every cheap push: about 50k
 # runner-minutes a day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
 FULL_TIER_JOBS = ("linux", "web-browser", "mac", "ios")
+# The step table's jobs a pull request routes only with the `full-ci` label: the full tier (`ready-to-land`) skips them
+# too, and base pushes run their suites (ci-web.yml from cmux-next-web.yml and the post-merge batch). NOW's pr_verdict
+# at 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR verdicts. Leo,
+# 2026-11-21: "help 100x ci speed ... while maintaining a partial semblance of checks. and we can infrequenrly have
+# fuller checks." The repository variable CI_PR_BROWSER_FULL_CI_ONLY=0 turns this off (passed in by pr-router.yml).
+FULL_CI_ONLY_JOBS = ("web-browser",)
+
+
+def full_ci_only_jobs() -> tuple[str, ...]:
+    """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
+    return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -106,16 +117,20 @@ def affects(config: dict, files: list[str]) -> bool:
     return any(filters.admits("paths", globs, f) for f in files)
 
 
-def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True) -> list[str] | None:
+def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True,
+                full_ci: bool = True) -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read. FULL: the head
-    is in the full tier (else FULL_TIER_JOBS route nothing)."""
+    is in the full tier (else FULL_TIER_JOBS route nothing). FULL_CI: the PR carries `full-ci` (else
+    full_ci_only_jobs() route nothing)."""
     # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
     # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
         routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
     except Exception:  # noqa: BLE001
         return None
-    steps = [step for job in config["table_jobs"] if full or job not in FULL_TIER_JOBS for step in routed.get(job, [])]
+    held = () if full_ci else full_ci_only_jobs()
+    steps = [step for job in config["table_jobs"] if (full or job not in FULL_TIER_JOBS) and job not in held
+             for step in routed.get(job, [])]
     # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
     # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
     if files and docs_only_paths.docs_only(files):
@@ -125,12 +140,13 @@ def table_steps(config: dict, files: list[str], table: Path | None = None, full:
 
 
 def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None,
-                      full: bool = True) -> list[str]:
+                      full: bool = True, full_ci: bool = True) -> list[str]:
     """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
     when the change or the table is unknown (the router routes more, never less). FULL: the head is in the full
-    tier; else no job of FULL_TIER_JOBS."""
+    tier; else no job of FULL_TIER_JOBS. FULL_CI: the PR carries `full-ci`; else no job of full_ci_only_jobs()."""
+    held = () if full_ci else full_ci_only_jobs()
     jobs = [job for config in callees.values() for job in config.get("table_jobs", [])
-            if full or job not in FULL_TIER_JOBS]
+            if (full or job not in FULL_TIER_JOBS) and job not in held]
     if files is None:
         return jobs
     try:
@@ -198,7 +214,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels)
+            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
+                                full_ci=FULL_CI in labels or added == FULL_CI)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -299,7 +316,9 @@ def main(argv: list[str]) -> int:
         start, why = route(event, callees, files, decided=decided)
         labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
         full = decided[0] == "full" or FULL_CI in labels
-        write_outputs(start, why, files, table_jobs_routed(callees, files, full=full),
+        added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
+        write_outputs(start, why, files, table_jobs_routed(callees, files, full=full,
+                                                           full_ci=FULL_CI in labels or added == FULL_CI),
                       land_status(event, decided))
         return 0
     if mode == "check":

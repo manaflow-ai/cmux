@@ -933,6 +933,38 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
 
+    def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
+        """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
+        verdicts. A PR routes the web-browser job only with `full-ci`; base pushes run its suites (ci-web.yml)."""
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        config = callees["pr-pipeline.yml"]
+        web = ["webviews/src/app.tsx"]
+        self.assertEqual(pr_router.FULL_CI_ONLY_JOBS, ("web-browser",))
+        with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "1"}):
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux"])
+            self.assertEqual(pr_router.table_jobs_routed(callees, None, full_ci=False), ["linux"])
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=True), ["linux", "web-browser"])
+            browser = {s.name for s in ci_steps.load().steps.values() if s.job == "web-browser"}
+            self.assertFalse(browser & set(pr_router.table_steps(config, web, full_ci=False) or []))
+            self.assertTrue(browser & set(pr_router.table_steps(config, web, full_ci=True) or []))
+            # The ready-to-land head (full tier) without full-ci routes no browser step either.
+            event = {"action": "labeled", "label": {"name": "ready-to-land"},
+                     "pull_request": {"draft": False, "labels": [{"name": "ready-to-land"}]}}
+            start, why = pr_router.route(event, callees, web, decided=("full", "ready-to-land"))
+            self.assertNotIn("web-browser", why.get("pr-pipeline.yml", ""))
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
+            start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
+            self.assertIn("pr-pipeline.yml", start)
+        # The repository variable turns it off.
+        with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        env = next(s for s in router["jobs"]["route"]["steps"] if s.get("id") == "route")["env"]
+        self.assertEqual(env["CI_PR_BROWSER_FULL_CI_ONLY"], "${{ vars.CI_PR_BROWSER_FULL_CI_ONLY || '1' }}")
+
     def test_each_pipeline_job_runs_only_when_routed(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         on = wf.get("on", wf.get(True))
