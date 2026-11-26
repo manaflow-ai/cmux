@@ -54,7 +54,7 @@ jobs:
     needs: [route]
     if: ${{ needs.route.outputs.swift == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The literal fallback never schedules: the job's if: skips when the variable is unset.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 140  # the client waits up to 3600 s queued plus 3600 s running
     permissions: {}
     strategy:
