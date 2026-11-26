@@ -88,11 +88,23 @@ pub struct PermissionRespondParams {
     /// A question's answers, by question.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answers: Option<Value>,
+    /// The app's checkpoint copy when it forked a Cloud machine before an allow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_checkpoint: Option<ForkCheckpoint>,
     /// Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<RequestMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct ForkCheckpoint {
+    pub machine: String,
+    pub fork: String,
+    pub fork_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

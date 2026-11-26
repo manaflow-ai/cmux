@@ -612,63 +612,6 @@ jobs:
           shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
-      # Off Blacksmith the GitHub store above misses (it is full and churns in minutes), so the dependency
-      # builds of the three shipped legs that run on pool hosts (aarch64-apple-darwin built on Linux, and both
-      # musl targets) come from R2, as the fast tier's do. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
-      # The Cloud machine channel's thin musl legs (build-machine-channel, lto=thin, on cmux-linux) too, under
-      # their own key (LEG carries the lto): they had no warm start off Blacksmith and built cold, 17-18 min
-      # of a 22.6 min aarch64 leg in run 45443556021 (2026-11-24), which the channel point waits for.
-      - name: Key the cargo build in R2
-        id: r2-cargo-key
-        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux) || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' }}
-        continue-on-error: true
-        env:
-          LEG: ${{ matrix.target }}-${{ inputs.lto }}
-          # The cross toolchain, which Cargo does not track (empty on the musl legs).
-          TOOLCHAIN: ${{ matrix.darwin_on_linux && format('{0}-{1}', steps.darwin-cross.outputs.key, hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**')) || '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          inputs="$( { git ls-files -z -- 'cmux-tui/Cargo.lock' 'cmux-tui/**/Cargo.lock' 'cmux-tui/rust-toolchain.toml' 'first-party-apps/cloud/server/Cargo.lock' \
-            | xargs -0 sha256sum; rustc -Vv; cargo -V; printf '%s\n' "$TOOLCHAIN"; } | sha256sum | cut -c1-16)"
-          workspace="$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -c1-8)"
-          prefix="cmux-tui-cargo-v1-$LEG-$workspace-"
-          {
-            echo "target-prefix=$prefix"
-            echo "target-key=$prefix$inputs"
-            echo "registry-prefix=cmux-tui-cargo-registry-v1-"
-            echo "registry-key=cmux-tui-cargo-registry-v1-$inputs"
-            echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Restore the cargo build from R2
-        id: r2-cargo-target
-        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
-        timeout-minutes: 4
-        continue-on-error: true
-        uses: ./.github/actions/cache-restore
-        env:
-          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-        with:
-          backend: r2
-          path: cmux-tui/target
-          key: ${{ steps.r2-cargo-key.outputs.target-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
-
-      - name: Restore the cargo registry from R2
-        id: r2-cargo-registry
-        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
-        timeout-minutes: 4
-        continue-on-error: true
-        uses: ./.github/actions/cache-restore
-        env:
-          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-        with:
-          backend: r2
-          path: ${{ steps.r2-cargo-key.outputs.registry }}
-          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
-          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
-
       # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
       # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
       # scripts/ci/machine-channel-warm-target.sh in the build step gives unchanged sources
@@ -1175,55 +1118,6 @@ jobs:
           name: ${{ inputs.artifact_prefix }}cmux-agent-screen-detection-${{ matrix.target }}
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
-
-      # A feat-cmux-next build off Blacksmith whose inputs R2 lacks saves them: dependencies only, as
-      # rust-cache keeps (scripts/ci/cargo_target_strip.py). Last in the job, after the staging and the
-      # uploads have read target/. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
-      - name: Strip the workspace's own output before the R2 save
-        id: r2-cargo-strip
-        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
-        continue-on-error: true
-        env:
-          REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
-            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
-          # Extracted sources come back from the .crate files in registry/cache.
-          rm -rf "$REGISTRY/src"
-          du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
-        timeout-minutes: 6
-        continue-on-error: true
-        uses: ./.github/actions/cache-save
-        env:
-          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
-        with:
-          backend: r2
-          path: cmux-tui/target
-          key: ${{ steps.r2-cargo-key.outputs.target-key }}
-
-      - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
-        timeout-minutes: 6
-        continue-on-error: true
-        uses: ./.github/actions/cache-save
-        env:
-          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
-        with:
-          backend: r2
-          path: ${{ steps.r2-cargo-key.outputs.registry }}
-          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
 
   build-windows:
     name: build x86_64-pc-windows-gnu

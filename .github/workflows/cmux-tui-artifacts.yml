@@ -1122,10 +1122,16 @@ jobs:
               return 0
             fi
             echo api >> "$reads"
+            local run_url
+            if [[ "$1" == "$OWNER_RUN_ID" ]]; then
+              run_url="$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID"
+            else
+              run_url="$API_URL/repos/$REPOSITORY/actions/runs/$1"
+            fi
             curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "$API_URL/repos/$REPOSITORY/actions/runs/$1" 2>/dev/null
+              "$run_url" 2>/dev/null
           }
           # A run still active past the lease since its (latest attempt's)
           # start is stuck: it no longer holds its key.
