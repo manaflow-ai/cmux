@@ -177,7 +177,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// Takes the keyboard from a view inside any pane of this window.
     private func resignPaneResponder(in window: NSWindow) {
-        if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
+        if let view = (window.firstResponder as? NSView)?.inTreeAnchor, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
             FocusRoute(.system, "focus model: resign pane").moveKeyboard(in: window, to: nil)
         }
     }
@@ -316,7 +316,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {
         guard let responder = window.firstResponder as? NSView else { return false }
-        return responder === view || responder.isDescendant(of: view)
+        return responder.isDescendant(of: view) || responder.inTreeAnchor.isDescendant(of: view)
     }
 
     /// A window this window owns became key (a sheet, a Chromium page

@@ -64,6 +64,8 @@ public final class InTreePages {
     public private(set) var source = "default"
     /// The engine's support, once Chromium loaded.
     public private(set) var engine = Engine.unknown
+    /// Views window mode was asked for at launch (`ViewsWindow.swift`): latched with the switch.
+    public private(set) var viewsWindowLatched = false
 
     /// Posted (object nil) when ``isActive`` changed: the engine turned out to lack the calls.
     public static let activeDidChange = Notification.Name("cmux.inTreePages.activeDidChange")
@@ -77,6 +79,7 @@ public final class InTreePages {
     public func latch(fileOverride: Bool?, tag: String?,
                              environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard latched == nil else { return }
+        viewsWindowLatched = Self.viewsWindowRequested(tag: tag, environment: environment)
         buildDefault = Self.decide(fileOverride: nil, tag: tag, environment: environment).0
         let (value, from) = Self.decide(fileOverride: fileOverride, tag: tag, environment: environment)
         latched = value
@@ -91,6 +94,8 @@ public final class InTreePages {
         case "0", "false", "off": return (false, "environment")
         default: break
         }
+        // Views window mode runs on in-tree pages (`ViewsWindow.swift`).
+        if Self.viewsWindowRequested(tag: tag, environment: environment) { return (true, "views-window") }
         if let fileOverride { return (fileOverride, "file") }
         if let tag, tag.hasPrefix(Self.defaultOnTagPrefix) { return (true, "tag") }
         return (false, "default")
@@ -109,6 +114,10 @@ public final class InTreePages {
         if case .unsupported = engine { return false }
         return true
     }
+
+    /// Whether pages show as Views children of the cmux window in this process (views window mode, a prototype): in
+    /// tree, and the views window switch was on at launch.
+    public var isViewsWindow: Bool { isActive && viewsWindowLatched }
 
     /// The browser read the engine's support once Chromium loaded.
     public func engineResolved(_ resolved: Engine) {

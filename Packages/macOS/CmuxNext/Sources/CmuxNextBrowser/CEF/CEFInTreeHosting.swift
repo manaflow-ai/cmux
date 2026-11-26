@@ -82,6 +82,11 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
         return InTreePageCensus(contentInWindow: now.contentInWindow, widgetDrawing: now.widgetDrawing)
     }
 
+    /// Whether the fork shows a page for this container (set by ``CEFInTreeHosting``). In views window mode the page's
+    /// view is in the window's Views widget, not in this container.
+    var showsPage: () -> Bool = { false }
+    var hostsPage: Bool { !subviews.isEmpty || showsPage() }
+
     /// Where the page shows none of its pixels (the New Tab page's hole, ``CEFPageHole``): the window backdrop shows
     /// there, and a press there goes to the host view (``hitTest(_:)``).
     var hole: CEFPageHole = .none {
@@ -224,7 +229,10 @@ final class CEFInTreeHosting {
         }
         guard let container, page != nil else { return }
         let content = calls.contentView(browser)
-        if let content, !content.isDescendant(of: container) { return attach(retry: true) }
+        // A views window page is no subview of its container: the fork names the container on the page instead.
+        if let content, InTreePageFocus.container(of: content) !== container || content.window !== container.window {
+            return attach(retry: true)
+        }
     }
 
     /// The page window's tabs changed; a live one names the window from now on.
@@ -259,6 +267,8 @@ final class CEFInTreeHosting {
     private func attach(retry: Bool) {
         guard let view, let browser, let calls else { return }
         let container = self.container ?? makeContainer(in: view)
+        // Views window mode: the fork shows the page in Views' content view, which goes in the window's slot.
+        if InTreePages.shared.isViewsWindow { ViewsWindowSlotView.install(over: container) }
         if let page = calls.setInTreeHosting(browser, container) {
             let was = self.page
             self.page = page
@@ -294,6 +304,7 @@ final class CEFInTreeHosting {
             let content = self.contentView
             return (content != nil && content?.window === made.window, Int(self.widgetDrawing ?? -1))
         }
+        made.showsPage = { [weak self] in self?.page != nil }
         made.hole = view.layerHosting.pageHole
         // Below every other subview of the host (the tracker's probe), as the hosted page was.
         view.addSubview(made, positioned: .below, relativeTo: nil)

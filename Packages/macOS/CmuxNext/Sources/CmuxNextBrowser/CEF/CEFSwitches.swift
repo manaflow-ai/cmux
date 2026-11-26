@@ -27,6 +27,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
     /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
+    /// Views window mode (`InTreePages.isViewsWindow`, a prototype): the fork adopts the cmux window as a Views widget
+    /// window and shows each in-tree page as a views::WebView of it (`--cmux-views-window`).
+    var viewsWindow = false
+    /// In views window mode, keep Chromium's AsyncLiveResize (`CMUX_NEXT_VIEWS_WINDOW_ASYNC_LIVE_RESIZE=1`). Off by default:
+    /// with it on, Chromium's window bridge waits for no frame at a window resize (its async path needs
+    /// NativeWidgetMacNSWindow's own frame interception, which an adopted window lacks); off, the bridge holds the
+    /// window's commit for the widget's frame at the new size, as Chrome's windows did before AsyncLiveResize.
+    var viewsWindowAsyncLiveResize = false
     /// Chromium presents a page's frame as soon as it has drawn it (`CEFFramePacing`), off by
     /// default: the Debug Settings read, taken at launch because Chromium reads its command line once.
     var noFrameRateLimit = false
@@ -122,6 +130,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
         if forkAPIVersion < Self.resizeSyncForkAPI, asyncLiveResize { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        if viewsWindow {
+            result.append(Self.viewsWindowSwitch)
+            if !viewsWindowAsyncLiveResize { result.append("disable-features=AsyncLiveResize") }
+        }
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
         // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
@@ -242,6 +254,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// ``processPerSitePageSchemes`` site (fork patch cmux_process_per_site_main_frame_cap).
     static let processPerSitePageCap = "cmux-process-per-site-main-frame-cap=\(pagesPerRenderer)"
 
+    /// The fork's views window switch (`InTreePages.viewsWindowSwitch` in CmuxNextDesign, the same name).
+    static let viewsWindowSwitch = "cmux-views-window"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -302,6 +317,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             asyncLiveResize: asyncLiveResize,
+            viewsWindowAsyncLiveResize: environment["CMUX_NEXT_VIEWS_WINDOW_ASYNC_LIVE_RESIZE"] == "1",
             noFrameRateLimit: CEFFramePacing.noFrameRateLimit.settledValue,
             initialProfileDirectory: initialProfileDirectory,
             keepsCodeSignClone: keepsCodeSignClone

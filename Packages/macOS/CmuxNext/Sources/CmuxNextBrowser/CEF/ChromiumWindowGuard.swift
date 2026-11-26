@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import os
 
 /// Last line of defense against Chromium's own top-level windows (a
@@ -65,7 +66,9 @@ final class ChromiumWindowGuard {
     }
 
     func facts(for window: NSWindow) -> ChromiumWindowFacts {
-        let chromium = widgetClass.map { window.isKind(of: $0) } ?? false
+        // A cmux window adopted as a Views widget window (views window mode) answers isKind(of:) for Chromium's widget
+        // class while its widget lives; it stays cmux's own window.
+        let chromium = !InTreePages.isViewsWindowAdopted(window) && (widgetClass.map { window.isKind(of: $0) } ?? false)
         return ChromiumWindowFacts(
             chromium: chromium,
             browserWindow: browserWindowClass.map { window.isKind(of: $0) } ?? false,
@@ -87,7 +90,7 @@ final class ChromiumWindowGuard {
         // Chromium never restores its page windows; cmux persists its own windows through the
         // daemon. Apply this per window because the CEF shim runs before lazy CEF window classes
         // necessarily exist, and newer forks may bypass its private restoration selector.
-        if let widgetClass, window.isKind(of: widgetClass), window.isRestorable {
+        if let widgetClass, window.isKind(of: widgetClass), !InTreePages.isViewsWindowAdopted(window), window.isRestorable {
             window.isRestorable = false
         }
         let verdict = ChromiumWindowRule.verdict(facts(for: window))

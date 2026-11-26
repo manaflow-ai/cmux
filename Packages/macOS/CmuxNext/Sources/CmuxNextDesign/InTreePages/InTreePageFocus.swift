@@ -12,6 +12,13 @@ public import AppKit
 public protocol InTreePageContainer: NSView {
     /// What `debug.layers` reports of the page (its census row).
     var inTreeCensus: InTreePageCensus { get }
+    /// Whether a page shows in this container now. In views window mode (`ViewsWindow.swift`) the page's view is no
+    /// subview of the container, so the container says.
+    var hostsPage: Bool { get }
+}
+
+extension InTreePageContainer {
+    public var hostsPage: Bool { !subviews.isEmpty }
 }
 
 /// One in-tree page in `debug.layers` `page_views` (its views and layers: ``InTreePageContainer/inTreeGeometry``).
@@ -64,11 +71,13 @@ public final class InTreePageFocus {
         grants.contains(ObjectIdentifier(container))
     }
 
-    /// The page container `view` is, or is inside; nil for any other view.
+    /// The page container `view` is, or is inside; nil for any other view. A view of a views window page (no subview of
+    /// its container) resolves to the container the fork names on the page (``InTreePages/viewsContainer(at:)``).
     public static func container(of view: NSView?) -> (any InTreePageContainer)? {
         var current = view
         while let next = current {
             if let container = next as? any InTreePageContainer { return container }
+            if let container = InTreePages.viewsContainer(at: next) as? any InTreePageContainer { return container }
             current = next.superview
         }
         return nil
@@ -81,7 +90,7 @@ public final class InTreePageFocus {
         var stack: [NSView] = [root]
         while let view = stack.popLast() {
             if let page = view as? any InTreePageContainer {
-                if !page.subviews.isEmpty { found.append(page) }
+                if page.hostsPage { found.append(page) }
                 continue
             }
             stack.append(contentsOf: view.subviews.reversed())
@@ -144,10 +153,10 @@ public final class InTreePageFocus {
              .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             guard event.window == nil || event.window === window, let frame = window.contentView?.superview,
                   let hit = frame.hitTest(frame.convert(event.locationInWindow, from: nil)) else { return false }
-            return hit === container || hit.isDescendant(of: container)
+            return hit === container || hit.isDescendant(of: container) || Self.container(of: hit) === container
         case .keyDown, .keyUp, .flagsChanged:
             guard let current = window.firstResponder as? NSView else { return false }
-            return current === container || current.isDescendant(of: container)
+            return current === container || current.isDescendant(of: container) || Self.container(of: current) === container
         default:
             return false
         }

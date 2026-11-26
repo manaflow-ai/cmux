@@ -7,7 +7,7 @@ import CmuxNextFocus
 /// field is a subview of that field while editing, so it classifies with it.
 enum FocusResponderClassifier {
     static func classify(_ responder: NSResponder?, in controller: WindowController) -> FocusEvent.Responder {
-        guard let view = responder as? NSView else { return .windowOrNone }
+        guard let view = (responder as? NSView)?.inTreeAnchor else { return .windowOrNone }
         if view.isDescendant(of: controller.sidebar.container) {
             return isText(view) ? .sidebarField : .sidebar
         }

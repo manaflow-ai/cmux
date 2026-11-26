@@ -667,6 +667,8 @@ final class CEFRuntime {
             asyncLiveResize: true,
             initialProfileDirectory: storage.initialProfileDirectory
         )
+        // Views window mode (a prototype, `InTreePages.isViewsWindow`): the fork adopts the cmux window as a Views widget.
+        switchSet.viewsWindow = InTreePages.shared.isViewsWindow
         // Chromium's key in cmux's own keychain item, never the shared "Chromium Safe Storage" one (CEFKeychainItem).
         let keychainItem = CEFKeychainItem.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
         if Self.applyNoKeychain(keychainOutcome, to: &switchSet) {
