@@ -59,7 +59,7 @@ public struct VNCRules: Sendable {
             case "credentialsRequired": throw RFBError.credentialsRequired
             case "passwordRequired": throw RFBError.passwordRequired
             case "noSupportedSecurityType": throw RFBError.noSupportedSecurityType(offered ?? [])
-            default: throw Self.unavailable
+            default: throw VNCRules.unavailable
             }
         }
     }
