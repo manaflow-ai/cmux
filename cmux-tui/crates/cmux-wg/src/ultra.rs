@@ -877,16 +877,22 @@ impl UltraUnderlay {
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            Some(Priority::Screen) => {
+            // Remote desktop media keeps its repair at any loss: its loss behaviour under
+            // the 1 % rule has not been measured (RFD 0164 B6).
+            None | Some(Priority::Media) => true,
+            Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
-            }
-            _ => true,
+            }),
         }
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
-        self.forward(datagram, priority);
+        match priority {
+            // Class 0 (input) goes on the best two paths; its repair below does not.
+            Some(p) if p.braid_class().duplicates() => self.inner.send_duplicated(datagram, p),
+            _ => self.forward(datagram, priority),
+        }
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
         if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
