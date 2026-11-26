@@ -123,7 +123,6 @@ mod cloud_team_keys;
 mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
-mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
@@ -192,6 +191,9 @@ mod safe_mode;
 mod repro;
 #[cfg(unix)]
 mod sandbox_run;
+// `cmux search QUERY`: sessions, workspaces, scrollback and browser history (cli/search.rs).
+#[cfg(unix)]
+mod search;
 #[cfg(unix)]
 mod start_stages;
 #[cfg(unix)]
@@ -1089,7 +1091,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
-        .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| hosts::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
@@ -1106,6 +1107,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
         .or_else(|| repro::run_if_requested(args))
+        .or_else(|| search::run_if_requested(args))
         .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
