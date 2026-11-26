@@ -354,7 +354,14 @@ def object_ids(root: str, rev: str, paths: list[str]) -> dict[str, str]:
     return {path: found.get(path, "-") for path in paths}
 
 
-def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str | None = None) -> tuple[str, dict]:
+def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str | None = None,
+                workflow_rev: str | None = None, recipe_rev: str | None = None) -> tuple[str, dict]:
+    """Fingerprint a source revision using the workflow and recipe from another revision when needed.
+
+    A reusable workflow runs from its merge ref while the build inputs come from the pull request
+    head. Older heads can therefore predate the workflow and its driver. Keep the source tree in the
+    input closure, but resolve the workflow and recipe blobs from the trusted merge ref.
+    """
     spec = JOBS[job]
     values: dict[str, str] = {}
     for item in extra:
@@ -371,12 +378,19 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
         raise Unresolved(f"no toolchain value for {', '.join(missing)}")
     try:
         commit = git(root, "rev-parse", "--verify", f"{rev}^{{commit}}")
-        workflow = git(root, "rev-parse", "--verify", f"{rev}:{spec.workflow}")
+        recipe = git(root, "rev-parse", "--verify", f"{(recipe_rev or workflow_rev or rev)}^{{commit}}")
+        workflow = git(root, "rev-parse", "--verify", f"{(workflow_rev or recipe)}:{spec.workflow}")
         value: dict = {"version": VERSION, "job": job, "workflow": workflow,
                        "toolchain": {name: values[name] for name in spec.required + OPTIONAL if name in values},
                        "flags": {name: values[name] for name in spec.flags}}
         if spec.product:
             value["inputs"] = product_inputs(root, commit)
+            if job == "nightly-pr-build" and recipe_rev:
+                # The merge-ref driver is the recipe used by the workflow. The app and helper
+                # contents remain keyed from the PR source revision above.
+                value["inputs"].update(object_ids(root, recipe, [
+                    "scripts/ci/nightly_pr_build.py", ".github/workflows/nightly-pr-build.yml"
+                ]))
         elif spec.inputs is None or spec.whole_tree:
             value["tree"] = git(root, "rev-parse", "--verify", f"{rev}^{{tree}}")
         else:

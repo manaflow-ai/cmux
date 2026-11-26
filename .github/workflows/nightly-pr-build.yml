@@ -42,14 +42,16 @@ jobs:
       - name: Route the change
         id: route
         run: python3 scripts/ci/nightly_pr_build.py route --base 'HEAD^1' --rev HEAD | tee -a "$GITHUB_OUTPUT"
-      # The fleet job builds the head, so the keys are the head's.
+      # The fleet job builds the PR head, while this reusable workflow and its driver come from the
+      # merge ref. Keeping the recipe revision separate lets an already-open PR predate this workflow.
       - name: Key the inputs at the head
         id: keys
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RECIPE_SHA: ${{ github.sha }}
         run: |
           git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
-          python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
+          python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" --recipe-rev "$RECIPE_SHA" | tee -a "$GITHUB_OUTPUT"
 
   # The gateway runner's hook takes only job ids ending in -fleet; `swift` was refused (run 45799805163).
   swift-fleet:
@@ -133,6 +135,12 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: false
+      - name: Use the merge ref's Nightly driver for the source checkout
+        env:
+          RECIPE_SHA: ${{ github.sha }}
+        run: |
+          git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$RECIPE_SHA"
+          git checkout "$RECIPE_SHA" -- scripts/ci/nightly_pr_build.py
       - name: Install Linux build dependencies
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         run: scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
