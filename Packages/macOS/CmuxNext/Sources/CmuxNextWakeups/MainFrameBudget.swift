@@ -99,19 +99,8 @@ public final class MainFrameBudget {
     private let totalNanos: UInt64
     private let passTargetNanos: UInt64
     private let idleTimeoutNanos: UInt64
-    /// Background work waits for the launch (CMUX-629; Leo: "technically only need to draw that one workspace open
-    /// and the sidebar"): set at the composition root before anything is queued, so nothing nobody sees (the next
-    /// Cmd-N's workspace, the pane spare, the binding table warm-up) runs until the open workspace is live. The app
-    /// ends it with ``releaseLaunchHold()`` at the launch settle, or its backstop (`LaunchBackgroundHold`). Queued work
-    /// stays queued and runs from the next frame on; it waits even past ``Budgets/idleTimeout``.
-    public private(set) var holdsBackgroundForLaunch = false
-
-    /// Holds background work until ``releaseLaunchHold()``.
-    public func holdBackgroundForLaunch() { holdsBackgroundForLaunch = true }
-
-    /// Ends the launch hold (later calls do nothing).
-    public func releaseLaunchHold() { holdsBackgroundForLaunch = false }
-
+    /// Background work waits for the launch (CMUX-629): ``holdBackgroundForLaunch()``, ``releaseLaunchHold()``.
+    public internal(set) var holdsBackgroundForLaunch = false
     /// The longest render pass since the window opened (charged to the next window).
     private var renderSinceRoll: UInt64 = 0
     /// The render pass this window is charged with.
@@ -210,10 +199,7 @@ public final class MainFrameBudget {
     /// idle time (``hasIdleTime(_:)``).
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
-        if workClass == .background, holdsBackgroundForLaunch {
-            stats.heldForLaunch += 1
-            return false
-        }
+        if workClass == .background, holdsBackgroundForLaunch { stats.heldForLaunch += 1; return false }
         let now = uptimeNanos()
         // A task outside any tick while no budgeted link runs (a request on an idle app): a window
         // older than one frame is over. Never while the link runs (its ticks own the window) and

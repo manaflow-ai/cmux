@@ -102,17 +102,11 @@ extension AppServices {
         DebugTimings.markLaunch("launch.post_window_warmups")
     }
 
-    /// The New Tab spare page and the page host pool's spare, once the open workspace is live (`LaunchBackgroundHold`).
+    /// The New Tab spare page and the page host pool's spare: pages nobody sees, once the open workspace is live (CMUX-629).
     func startHiddenPageSpares() {
-        newTabSpares.prewarm()
-        newTabSpares.start()
-        pageHostPool.start(
-            isMainWindow: { [weak self] window in
-                self?.windows.controllers.contains { $0.window === window } == true
-            },
-            fallback: { [weak self] window in
-                self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
-            })
+        newTabSpares.prewarm(); newTabSpares.start()
+        pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
+                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } })
         pageHostPool.noteLikely()
     }
 }
