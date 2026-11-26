@@ -630,17 +630,6 @@ export class SimBuilder {
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
   }
 
-  /** The agent's checklist (ACP `plan`): each entry `[content, status]`; none clears it. */
-  plan(entries: [string, "pending" | "in_progress" | "completed"][], after = 300): this {
-    return this.record(
-      "in",
-      "plan",
-      update("plan", { entries: entries.map(([content, status]) => ({ content, status, priority: "medium" })) }),
-      after,
-      `plan: ${entries.filter(([, status]) => status === "completed").length}/${entries.length}`,
-    );
-  }
-
   /** acpmux asks the person to allow call `id`, and `ms` later records the answer (`allow`, or `null`: still waiting). */
   permission(id: string, { ms = 4_000, allow = true as boolean | null, after = 100 } = {}): this {
     const permissionId = `perm-${id}`;
