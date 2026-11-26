@@ -534,7 +534,6 @@
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"token-copy","property":"outline","values":{"1.5px":1}}
 {"file":"agent-session/guest/guest.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"agent-session/guest/guest.css","kind":"token-copy","property":"outline","values":{"1.5px":3}}
-{"file":"apps/scene/scene.css","kind":"token-copy","property":"outline","values":{"1.5px":2}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"gallery/fixtures/inlineChips.gallery.css","kind":"radius","property":"border-radius","values":{"3px":1}}
 {"file":"gallery/fixtures/SubagentTrayMotionStage.tsx","kind":"spacing","property":"gap","values":{"6px":1}}

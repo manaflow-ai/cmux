@@ -301,6 +301,22 @@ function labelsOf(labels: ReadonlyMap<string, Label>, task: Task): Label[] {
   });
 }
 
+const NO_LABELS: readonly Label[] = Object.freeze([]);
+const rowLabels = new WeakMap<Task, readonly Label[]>();
+
+/** A row's labels: the same array while the task and each of its label objects hold. A label event
+ * replaces the label map but keeps the objects of the labels it did not change, so a row (a memo
+ * boundary) redraws only when a label it wears changes, not on every label event. Costs the row's
+ * own few labels; the cache is keyed by the task object and lets go of it with the task. */
+function labelsFor(labels: ReadonlyMap<string, Label>, task: Task): readonly Label[] {
+  const next = labelsOf(labels, task);
+  if (!next.length) return NO_LABELS;
+  const kept = rowLabels.get(task);
+  if (kept && kept.length === next.length && kept.every((label, index) => label === next[index])) return kept;
+  rowLabels.set(task, next);
+  return next;
+}
+
 /** The workflow's few statuses, not the tasks. */
 function statusOf(statuses: readonly Status[], task: Task): Status | undefined {
   return statuses.find((status) => status.id === task.status);
@@ -382,7 +398,6 @@ function useAssigneeEntries(mirror: Mirror, tasks: readonly Task[], strings: Str
 interface RowShared {
   store: TasksStore;
   strings: Strings;
-  labels: ReadonlyMap<string, Label>;
 }
 
 /** What every task's right-click menu lists: all statuses and assignees. It reaches the menus
@@ -434,12 +449,14 @@ function useRows({ store, state, strings }: LayoutProps): {
   const menu = useMemo(() => ({ store, statuses, entries, me }), [store, statuses, entries, me]);
   // A status event keeps the objects of the statuses it did not change: a row's own one holds.
   const statusById = useMemo(() => new Map(statuses.map((status) => [status.id, status])), [statuses]);
-  const shared: RowShared = { store, strings, labels: state.mirror.labels };
+  const shared: RowShared = { store, strings };
   return { shared, marks, menu, statusById };
 }
 
 interface TaskRowProps extends RowShared {
   task: Task;
+  /** The task's labels (`labelsFor`). */
+  labels: readonly Label[];
   /** The task's status, when the row shows it. */
   status?: Status;
   selected: boolean;
@@ -481,7 +498,7 @@ const TaskRow = memo(function TaskRow({
           <span className="tasks-title">{task.title}</span>
           <AttentionDot attention={task.attention} strings={strings} />
           <span className="tasks-spacer" />
-          <LabelDots labels={labelsOf(labels, task)} />
+          <LabelDots labels={labels} />
           <AssigneeBadge assignee={task.assignee} delegate={task.delegate} strings={strings} />
         </button>
       </TaskMenu>
@@ -541,6 +558,7 @@ function ListLayout({ store, state, strings }: LayoutProps) {
               key={row.task.id}
               {...shared}
               task={row.task}
+              labels={labelsFor(state.mirror.labels, row.task)}
               selected={state.selection === row.task.id}
               pending={marks.pending.has(row.task.id)}
               unsent={marks.unsent.get(row.task.id)}
@@ -622,6 +640,7 @@ function InboxLayout({ store, state, strings }: LayoutProps) {
                 key={row.task.id}
                 {...shared}
                 task={row.task}
+                labels={labelsFor(state.mirror.labels, row.task)}
                 selected={state.selection === row.task.id}
                 pending={marks.pending.has(row.task.id)}
                 unsent={marks.unsent.get(row.task.id)}
@@ -822,6 +841,7 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
                     key={task.id}
                     {...shared}
                     task={task}
+                    labels={labelsFor(state.mirror.labels, task)}
                     session={sessions.get(task.id)}
                     selected={state.selection === task.id}
                     pending={marks.pending.has(task.id)}
@@ -842,6 +862,8 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
 
 interface BoardCardProps extends RowShared {
   task: Task;
+  /** The task's labels (`labelsFor`). */
+  labels: readonly Label[];
   session: Session | undefined;
   selected: boolean;
   pending: boolean;
@@ -898,7 +920,7 @@ const BoardCard = memo(function BoardCard({
           ) : null}
           <span className="tasks-card-foot">
             <PriorityMark priority={task.priority} />
-            <LabelChips labels={labelsOf(labels, task)} />
+            <LabelChips labels={labels} />
           </span>
         </button>
       </TaskMenu>
