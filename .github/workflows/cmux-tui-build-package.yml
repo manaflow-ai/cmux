@@ -1313,13 +1313,17 @@ jobs:
         run: |
           eval "$(bash scripts/ci/windows-gnu-cross-build.sh env)"
           cd cmux-tui
-          exe="$(cargo test --release --locked --target x86_64-pc-windows-gnu --no-run \
-            --config 'profile.release.package.cmux-tui-core.codegen-units=16' \
-            -p cmux-tui-core --lib --message-format=json \
-            | jq -r 'select(.reason == "compiler-artifact" and .profile.test and .target.name == "cmux_tui_core") | .executable')"
-          test -f "$exe"
           mkdir -p ../dist-tests
-          cp "$exe" ../dist-tests/cmux-tui-core-tests.exe
+          # normalize_long_windows lives in cmux-tui-platform, the other two in cmux-tui-core.
+          for crate in cmux-tui-core cmux-tui-platform; do
+            lib="${crate//-/_}"
+            exe="$(cargo test --release --locked --target x86_64-pc-windows-gnu --no-run \
+              --config "profile.release.package.$crate.codegen-units=16" \
+              -p "$crate" --lib --message-format=json \
+              | jq -r --arg lib "$lib" 'select(.reason == "compiler-artifact" and .profile.test and .target.name == $lib) | .executable')"
+            test -f "$exe"
+            cp "$exe" "../dist-tests/$crate-tests.exe"
+          done
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -1339,7 +1343,9 @@ jobs:
         with:
           retention-days: 1
           name: cmux-tui-core-tests-x86_64-pc-windows-gnu
-          path: dist-tests/cmux-tui-core-tests.exe
+          path: |
+            dist-tests/cmux-tui-core-tests.exe
+            dist-tests/cmux-tui-platform-tests.exe
           if-no-files-found: error
 
   # The Windows-only checks of the Linux-built daemon. No Rust, Zig or MinGW here: it
@@ -1381,8 +1387,14 @@ jobs:
       - name: Test Windows long-path state handling
         shell: bash
         run: |
-          for t in normalize_long_windows registry_opens_and_persists_under_a_long_windows_state_root socket_start_lock_acquires_a_new_lock_file; do
-            ./dist-tests/cmux-tui-core-tests.exe "$t"
+          # A filter that matches no test passes in libtest, so each must run at least one.
+          for spec in cmux-tui-platform:normalize_long_windows \
+                      cmux-tui-core:registry_opens_and_persists_under_a_long_windows_state_root \
+                      cmux-tui-core:socket_start_lock_acquires_a_new_lock_file; do
+            out="$("./dist-tests/${spec%%:*}-tests.exe" "${spec#*:}")"; echo "$out"
+            if grep -q '^running 0 tests' <<<"$out"; then
+              echo "::error title=Windows test filter ran nothing::${spec#*:} matched no test in ${spec%%:*}"; exit 1
+            fi
           done
 
       - name: Verify long Windows state path
