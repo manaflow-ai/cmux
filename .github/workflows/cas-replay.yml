@@ -5,7 +5,9 @@ name: cas/1 replay (RFD 0166)
 # publishes. scripts/cas/web_ota_replay.py fetches the newest bundle archives
 # (cmux-next-web-bundle-publish.yml's `cmux-next-web-bundles` artifacts, kept 3 days), unpacks them and
 # runs cmux-cas's `cas-replay` over them, oldest first. The job summary shows the p50, p90 and max of
-# what a client holding the previous bundle reads by Range GET, against today's whole archive.
+# what a client holding the previous bundle reads by Range GET, against today's whole archive, and
+# beside it what per-file `zstd -19 --long=27 --patch-from` needs for the same merge (the RFD's
+# PATCH lever: the bundle is a few large minified files, where FastCDC chunks miss).
 #
 # It reports, it does not gate: the RFD's target (<= 10 % at p50) is not met yet. A red means the
 # crate's tests failed or the replay could not run (fewer than two publishes, a bad archive, a crash).

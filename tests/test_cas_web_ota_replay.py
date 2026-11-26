@@ -4,6 +4,7 @@ order as --archive-bytes, and the W1 summary takes p50 over the 1-behind rows on
 import io
 import json
 import os
+import random
 import subprocess
 import sys
 import tarfile
@@ -35,20 +36,25 @@ row(0, len(dirs) - 1, 99)
 '''
 
 
-def archive(path, body):
+def archive(path, files):
     with tarfile.open(path, "w:gz") as t:
-        info = tarfile.TarInfo("webviews/dist/app.js")
-        info.size = len(body)
-        t.addfile(info, io.BytesIO(body))
+        for name, body in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            t.addfile(info, io.BytesIO(body))
 
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         runs = os.path.join(tmp, "runs")
+        base = random.Random(0).randbytes(4000)  # incompressible, so archive sizes grow with i
         for i in range(4):
             d = os.path.join(runs, f"2026-11-25T0{i}:00:00Z-{100 + i}")
             os.makedirs(d)
-            archive(os.path.join(d, f"web-bundles-{i:064x}.tar.gz"), b"x" * (1000 * (i + 1)))
+            # app.js changes every publish, vendor.js never: patch-from moves app.js's delta only.
+            archive(os.path.join(d, f"web-bundles-{i:064x}.tar.gz"), {
+                "webviews/dist/app.js": base[:1000 * (i + 1)],
+                "webviews/dist/vendor.js": bytes(range(256)) * 400})
         fake = os.path.join(tmp, "cas-replay")
         with open(fake, "w") as f:
             f.write(FAKE)
@@ -65,6 +71,10 @@ def main():
         # 1-behind rows are 10, 20, 30 %: p50 20, max 30; the 99 % span row is reported apart.
         assert s["pairs"] == 3 and s["pct_p50"] == 20 and s["pct_max"] == 30, s
         assert s["span"]["behind"] == 3 and s["span"]["pct"] == 99, s
+        # Patch-from: unchanged vendor.js costs 0; app.js grows by 1000 random bytes a publish.
+        rows = [json.loads(x) for x in open(os.path.join(tmp, "work", "rows.jsonl"))]
+        assert all(1000 <= r["patch_bytes"] < 1200 for r in rows[:3]) and "patch_bytes" not in rows[3], rows
+        assert s["patch_pct_p50"] > 0 and s["patch_pct_max"] < 100, s
         gated = subprocess.run([sys.executable, SCRIPT, "--cas-replay", fake, "--from-dir", runs,
                                 "--work", os.path.join(tmp, "work"), "--max-p50", "10"],
                                capture_output=True, text=True, env=env)

@@ -11,8 +11,10 @@ replays that over the real feat-cmux-next publishes, with no network beyond fetc
   2. unpack each archive with scripts/cmux-next/web-bundle-archive.py unpack.
   3. run `cas-replay --archive-bytes SIZE... DIR...` (cmux-tui/crates/cmux-cas), oldest first:
      one JSON row per consecutive pair (1 merge behind) and one for oldest to newest.
-  4. print the W1 summary (p50 and p90 of range_bytes / archive bytes, 1 behind) as JSON and,
-     under GitHub Actions, a table in the step summary.
+  4. per consecutive pair, the per-file `zstd -19 --long=27 --patch-from` bytes (patch_bytes,
+     patch_pct): RFD 0166's candidate PATCH lever for large minified bundles (--no-patch-from skips).
+  5. print the W1 summary (p50 and p90 of range_bytes / archive bytes, 1 behind, and the same
+     for patch-from) as JSON and, under GitHub Actions, a table in the step summary.
 
 Usage:
   web_ota_replay.py --cas-replay BIN [--count N] [--work DIR] [--from-dir DIR] [--max-p50 PCT]
@@ -22,6 +24,8 @@ instead of the API. --max-p50 exits 1 when the 1-behind p50 is above PCT (RFD 01
 10); unset, the script only reports. Needs GH_TOKEN (actions: read) and GITHUB_REPOSITORY to fetch.
 """
 import argparse
+import concurrent.futures
+import filecmp
 import glob
 import json
 import os
@@ -88,6 +92,48 @@ def unpack(run_dirs, work):
     return trees, sizes
 
 
+def tree_files(root):
+    out = {}
+    for d, _, names in os.walk(root):
+        for n in names:
+            full = os.path.join(d, n)
+            out[os.path.relpath(full, root)] = full
+    return out
+
+
+def zstd_size(new, old=None):
+    """Bytes of `zstd -19 --long=27` of new, as a patch from old when given."""
+    cmd = ["zstd", "-q", "-c", "-19", "--long=27"]
+    if old:
+        cmd.append(f"--patch-from={old}")
+    with subprocess.Popen(cmd + [new], stdout=subprocess.PIPE) as p:
+        n = sum(len(b) for b in iter(lambda: p.stdout.read(1 << 20), b""))
+    if p.returncode:
+        raise SystemExit(f"zstd failed on {new}")
+    return n
+
+
+def patch_from_bytes(old_root, new_root, pool):
+    """What a client holding old_root downloads under per-file zstd patch-from: 0 for an
+    unchanged path, a patch for a changed one, the whole file (zstd) for a new path."""
+    old, new = tree_files(old_root), tree_files(new_root)
+    jobs = []
+    for rel, path in new.items():
+        prev = old.get(rel)
+        if prev and filecmp.cmp(prev, path, shallow=False):
+            continue
+        jobs.append(pool.submit(zstd_size, path, prev))
+    return sum(j.result() for j in jobs)
+
+
+def add_patch_from(rows, trees, sizes, jobs):
+    """Fill patch_bytes and patch_pct on the 1-behind rows (rows[i] is trees[i] -> trees[i+1])."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        for i, r in enumerate(rows[:len(trees) - 1]):
+            r["patch_bytes"] = patch_from_bytes(trees[i], trees[i + 1], pool)
+            r["patch_pct"] = round(100.0 * r["patch_bytes"] / sizes[i + 1], 2)
+
+
 def pct(values, q):
     s = sorted(values)
     return s[min(len(s) - 1, int(round(q * (len(s) - 1))))]
@@ -97,7 +143,7 @@ def summarize(rows):
     one = rows[:-1] if len(rows) > 1 else rows
     span = rows[-1] if len(rows) > 1 else None
     p = [r["pct_of_full"] for r in one]
-    return {
+    out = {
         "row": "W1", "pairs": len(one),
         "full_bytes_p50": statistics.median(r["full"] for r in one),
         "range_bytes_p50": statistics.median(r["range_bytes"] for r in one),
@@ -108,6 +154,13 @@ def summarize(rows):
             "pct": round(span["pct_of_full"], 2)},
         "target_pct_p50": 10,
     }
+    if one and all("patch_pct" in r for r in one):
+        pp = [r["patch_pct"] for r in one]
+        out["patch_bytes_p50"] = statistics.median(r["patch_bytes"] for r in one)
+        out["patch_pct_p50"] = round(statistics.median(pp), 2)
+        out["patch_pct_p90"] = round(pct(pp, 0.9), 2)
+        out["patch_pct_max"] = round(max(pp), 2)
+    return out
 
 
 def main():
@@ -117,6 +170,8 @@ def main():
     ap.add_argument("--work", default="cas-replay-w1")
     ap.add_argument("--from-dir")
     ap.add_argument("--max-p50", type=float)
+    ap.add_argument("--no-patch-from", action="store_true")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
     a = ap.parse_args()
     os.makedirs(a.work, exist_ok=True)
     if a.from_dir:
@@ -131,8 +186,10 @@ def main():
         cmd += ["--archive-bytes", str(s)]
     out = subprocess.run(cmd + trees, check=True, capture_output=True, text=True).stdout
     rows = [json.loads(line) for line in out.splitlines() if line.strip()]
+    if not a.no_patch_from:
+        add_patch_from(rows, trees, sizes, a.jobs)
     with open(os.path.join(a.work, "rows.jsonl"), "w") as f:
-        f.write(out)
+        f.writelines(json.dumps(r) + "\n" for r in rows)
     s = summarize(rows)
     print(json.dumps(s))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -146,6 +203,9 @@ def main():
             if s["span"]:
                 f.write(f"\nOldest to newest ({s['span']['behind']} behind): {s['span']['range_bytes'] / 1e6:.2f} MB"
                         f" of {s['span']['full'] / 1e6:.2f} MB ({s['span']['pct']}%).\n")
+            if "patch_pct_p50" in s:
+                f.write(f"\nPer-file `zstd -19 --long=27 --patch-from` (1 behind): {s['patch_bytes_p50'] / 1e6:.2f} MB"
+                        f" at p50 ({s['patch_pct_p50']}%), p90 {s['patch_pct_p90']}%, max {s['patch_pct_max']}%.\n")
     if a.max_p50 is not None and s["pct_p50"] > a.max_p50:
         print(f"W1 p50 {s['pct_p50']}% is above {a.max_p50}%", file=sys.stderr)
         return 1
