@@ -27,9 +27,11 @@ private let theme = CmuxMobileTheme.standard
 public struct ConnectionChip: View {
     /// Every link state a chip can show, each with its one word pair and one symbol, so a state
     /// reads the same on every surface (the Home list, Workspaces, agent chat, the browser, the
-    /// terminal). The only place a chip's word or symbol is chosen.
+    /// terminal). The only place a chip's word or symbol is chosen. No state says a refresh over
+    /// rows the phone has is under way (Leo, 2026-11-24: "they dont need to know that it's
+    /// updating before they KNOW it's updating"), and only a kind that ``paints`` draws.
     public enum Kind: String, Sendable, Hashable, CaseIterable {
-        case connecting, reconnecting, updating
+        case connecting, reconnecting
         /// The phone has no network.
         case offline
         /// The phone is online, the Mac is not.
@@ -41,18 +43,30 @@ public struct ConnectionChip: View {
             switch self {
             case .connecting: String(localized: "Connecting")
             case .reconnecting: String(localized: "Reconnecting")
-            case .updating: String(localized: "Updating")
             case .offline: String(localized: "Offline")
             case .macOffline: String(localized: "Mac offline")
             case .cantReach: String(localized: "Can't reach")
             }
         }
 
-        /// Connecting, Reconnecting or Updating: the link is still being brought up. A chip of these
-        /// kinds draws nothing (optimistic reconnect; ``ConnectionChip/body``).
+        /// Whether a chip of this kind is drawn at all. A link still trying (connecting,
+        /// reconnecting, or "Can't reach" while it redials) draws nothing: the screen
+        /// keeps its last-known rows and the link comes back on its own (Leo, 2026-11-24: "all the
+        /// connecting... indicators and the graying out of workspaces, nah let's not do that.
+        /// let's just keep optimistically connecting and reinforcing the connection"). Only a
+        /// fact the person can act on still shows: this phone has no network, or the Mac is off.
+        public var paints: Bool {
+            switch self {
+            case .connecting, .reconnecting, .cantReach: false
+            case .offline, .macOffline: true
+            }
+        }
+
+        /// Connecting or Reconnecting: the link is still being brought up (#55034).
+        /// ``paints`` also hides "Can't reach" while the link redials.
         public var isStillTrying: Bool {
             switch self {
-            case .connecting, .reconnecting, .updating: true
+            case .connecting, .reconnecting: true
             case .offline, .macOffline, .cantReach: false
             }
         }
@@ -60,7 +74,7 @@ public struct ConnectionChip: View {
         /// An SF Symbol; nil shows a spinner (still trying).
         public var symbol: String? {
             switch self {
-            case .connecting, .reconnecting, .updating: nil
+            case .connecting, .reconnecting: nil
             case .offline: "wifi.slash"
             case .macOffline: "moon.zzz"
             case .cantReach: "exclamationmark.triangle"
@@ -76,6 +90,8 @@ public struct ConnectionChip: View {
         public var word: String { kind.word }
         /// An SF Symbol; nil shows a spinner (still trying).
         public var symbol: String? { kind.symbol }
+        /// Whether it is drawn at all (``Kind/paints``).
+        public var paints: Bool { kind.paints }
 
         public init(_ kind: Kind, sentence: String) {
             self.kind = kind
@@ -95,17 +111,17 @@ public struct ConnectionChip: View {
     }
 
     public var body: some View {
-        // Still trying (Connecting, Reconnecting, Updating) never shows: the app keeps connecting in the
-        // background and the content stays as it was (Leo, 2026-11-24: "all the connecting... indicators
-        // ... nah ... let's just keep optimistically connecting"). Only a state the person can act on shows.
-        let shown = !content.kind.isStillTrying
-            && (quiet.isShown || Self.alreadyDownFor(downSince, now: Date()) >= quiet.delay)
-        chip
-            .opacity(shown ? 1 : 0)
-            .allowsHitTesting(shown)
-            .accessibilityHidden(!shown)
-            .animation(.easeOut(duration: 0.2), value: shown)
-            .modifier(QuietSince(quiet: quiet, downSince: downSince))
+        // A kind that does not paint (still trying) is no view at all: no room, no VoiceOver
+        // element, no Retry (``Kind/paints``).
+        if content.kind.paints {
+            let shown = quiet.isShown || Self.alreadyDownFor(downSince, now: Date()) >= quiet.delay
+            chip
+                .opacity(shown ? 1 : 0)
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
+                .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: shown)
+                .modifier(QuietSince(quiet: quiet, downSince: downSince))
+        }
     }
 
     /// How long the link has been down at `now`; a nil `downSince` (the caller held it)
@@ -181,13 +197,14 @@ public extension ConnectionChip {
         }
 
         public var body: some View {
-            let shown = !content.kind.isStillTrying
-                && (quiet.isShown || ConnectionChip.alreadyDownFor(downSince, now: Date()) >= quiet.delay)
-            symbol
-                .opacity(shown ? 1 : 0)
-                .accessibilityHidden(!shown)
-                .animation(.easeOut(duration: 0.2), value: shown)
-                .modifier(QuietSince(quiet: quiet, downSince: downSince))
+            if content.kind.paints {
+                let shown = quiet.isShown || ConnectionChip.alreadyDownFor(downSince, now: Date()) >= quiet.delay
+                symbol
+                    .opacity(shown ? 1 : 0)
+                    .accessibilityHidden(!shown)
+                    .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: shown)
+                    .modifier(QuietSince(quiet: quiet, downSince: downSince))
+            }
         }
 
         private var symbol: some View {

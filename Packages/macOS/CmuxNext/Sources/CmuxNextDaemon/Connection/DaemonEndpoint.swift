@@ -229,6 +229,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
     /// and window records, read before connecting (`LaunchSnapshot`).
     case launchSnapshot = "launch-snapshot-v1"
+    /// `flush-launch-snapshot`: the daemon writes the launch snapshot at once (the quit asks after its
+    /// last window record save, ``FlushLaunchSnapshotRequest``), so a relaunch draws that save.
+    case launchSnapshotFlush = "launch-snapshot-flush-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
@@ -325,8 +328,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
     /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// A terminal attach that declares it in `set-client-info` gets each plain `output` as a binary OUTPUT frame
+    /// (``AttachOutputFrame``): no JSON scan or base64 decode on the reader thread (CMUX-571).
+    case attachFrames = "attach-frames-v1"
     /// Opt into the authenticated screen-device UUID replay and lifecycle events.
     case screenDeviceIdentity = "screen-device-identity-v1"
+    /// `subscribe` starts with each terminal's agent presence (a stopped agent's with nulls), so a reconnect to the
+    /// same daemon keeps the presence the sidebar and tabs show instead of blanking it until each agent's next hook
+    /// event (hq#19373, ask c-ea62b204f6).
+    case agentPresenceReplay = "agent-presence-replay-v1"
     /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
     /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
     case treeSelectionDeltas = "tree-selection-deltas-v1"
@@ -613,6 +623,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserImport = "browser-import-v1"
     /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
     case classicImport = "classic-import-v1"
+    /// Classic offers use a metadata-only probe until the person accepts the import.
+    case classicImportProbe = "classic-import-probe-v1"
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
     /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
     case diffCommentsSend = "diff-comments-send-v1"
@@ -662,10 +674,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
-             .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
+             .launchSnapshot, .launchSnapshotFlush, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .screenDeviceIdentity, .treeSelectionDeltas,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .attachFrames, .screenDeviceIdentity, .agentPresenceReplay, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
@@ -683,7 +695,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .diffCommentsThreads, .gitFingerprint, .layoutSizesBatch, .languagePacks,
+             .browserImport, .classicImport, .classicImportProbe, .diffCommentsSend, .diffCommentsThreads, .gitFingerprint, .layoutSizesBatch, .languagePacks,
              .workspaceOpenURL:
             return .optional
         }

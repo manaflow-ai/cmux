@@ -3,6 +3,8 @@
 // Keep these short and plain. Every command named here must exist in the
 // action catalog; tests/next-docs.test.ts checks that.
 
+import { pinnedInstallCommand } from "../../app/lib/install-static-pin";
+
 export type DocBlock =
   | { h2: string }
   | { p: string }
@@ -74,8 +76,8 @@ export const nextDocPages: NextDocPage[] = [
       { p: "This page takes you from nothing to an agent that works for you on a cmux Cloud machine. Pick the way in that fits you. Each one ends at the same place: a chat that replies, on a machine that keeps going after you close the lid." },
       { note: "cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works." },
       { h2: "Point an agent at this page" },
-      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The agent reads this page and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
-      { code: "Read https://cmux.com/docs/nightly/next/start.md and follow its \"If you are an agent\" steps to set up cmux on this Mac and get me a working agent on cmux Cloud. Tell me only what I must do myself.", lang: "text" },
+      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
+      { code: "Set me up with cmux Cloud: https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/docs/cmux-next/start.md (follow its \"If you are an agent\" steps on this Mac, and tell me only what I must do myself)", lang: "text" },
       { h2: "If you are an agent" },
       { p: "A person asked you to set up cmux and cmux Cloud for them. Do these steps in order, on their Mac, in the folder they started you in." },
       { ol: [
@@ -444,8 +446,8 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { p: "The machine must accept your SSH key, and its host key must already be in your known_hosts. A new host key or a password prompt goes to your terminal, as ssh always does. cmux never accepts a host key for you, and it turns off agent, X11 and port forwarding for these commands. Without a terminal (with --yes in a script), ssh never prompts: an unknown host key stops the install." },
       { h2: "Install on this machine" },
-      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service:" },
-      { code: "curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server", lang: "bash" },
+      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service. It saves the installer in a new private folder, checks it against the SHA-256 the line carries, and runs it only when it matches:" },
+      { code: pinnedInstallCommand(" --server"), lang: "bash" },
       { p: "To see what it would do first, add --dry-run. To install one exact build, add --commit SHA; --channel stable or --channel nightly picks the latest build of that channel. With cmux already installed, run cmux server install." },
       { p: "The installer checks the download against the SHA-256 in the build's manifest, over HTTPS only. The script is one block that the shell reads to its end before it runs, so a download cut short runs nothing." },
       { h2: "What the service is" },
@@ -560,6 +562,40 @@ export const nextDocPages: NextDocPage[] = [
     links: ["cli"],
   },
   {
+    slug: "api-versions",
+    navKey: "nextApiVersions",
+    title: "API versions and the compatibility promise",
+    description: "Pin the cmux socket or the cmux Cloud API to a date, and it keeps answering the way it did for at least 12 months after it changes.",
+    body: [
+      { p: "Scripts and agents talk to cmux through two APIs: the socket of the cmux daemon (what the cmux CLI, the apps and the SDKs speak) and the cmux Cloud HTTP API at vm.cmux.dev. Code written against either should keep working when cmux updates, even code nobody looks at again. So both take a version, named by a date, and cmux keeps that version answering." },
+      { h2: "The promise" },
+      { ol: [
+        "No breaking change ships without a new dated version. Renaming, moving, retyping or removing a field, or changing what a value means, is breaking. Adding an optional field, a command, a route, an event or a capability is not: a client must ignore fields it does not know.",
+        "Every dated version keeps answering for at least 12 months after the version that replaced it. cmux translates requests and replies between the version you pinned and the current one, so you get the shape you wrote against.",
+        "A client that pins no version gets the current API, exactly as before. Pinning is how you opt in to the promise.",
+      ] },
+      { p: "The first dated version of both APIs is 2026-11-24. A pin older than the oldest version still served is refused, with a message that names the oldest and newest dates; it is never answered in a shape you did not ask for." },
+      { h2: "Pin the socket" },
+      { p: "Send the date you wrote your client against as api_version in set-client-info, once per connection. The daemon serves the newest version dated on or before it and answers with the version it served. From then on it translates both ways on that connection: replies and events come back in your version's shape." },
+      { code: "{\"id\":1,\"cmd\":\"set-client-info\",\"name\":\"my-agent\",\"api_version\":\"2026-11-24\"}\n{\"id\":1,\"ok\":true,\"data\":{\"api_version\":\"2026-11-24\",\"api_revision\":12}}", lang: "json" },
+      { p: "A pin later than the daemon knows gets its newest version, and the answer says which. identify with revisions set to true reports api_version (the newest) and min_api_version (the oldest still served)." },
+      { h2: "Pin the cmux Cloud API" },
+      { p: "Send the Cmux-Api-Version header with a date. The API serves the newest version dated on or before it, translates the request up and the JSON reply down, and names the version it served in the reply's Cmux-Api-Version header. A malformed date, or one older than the oldest version served, gets 400 UnsupportedApiVersion. No header: the current API." },
+      { code: "curl -H \"Authorization: Bearer $CMUX_API_KEY\" \\\n     -H 'Cmux-Api-Version: 2026-11-24' \\\n     https://vm.cmux.dev/v1/vms", lang: "bash" },
+      { h2: "What it costs" },
+      { p: "Little. An unpinned or current pin costs about 30 ns per socket reply and about 0.5 us per Cloud request. A pin one version back costs about 8 us per changed socket reply and about 9 us per Cloud reply." },
+      { h2: "Not covered yet" },
+      { p: "Terminal byte streams, session event stream items and the version 2 resource API (cmux.protocol/2) are outside the promise for now. The cmux CLI's own commands and flags follow the CLI contract instead." },
+      { h2: "Where it lives" },
+      { files: [
+        { path: "cmux-tui/spec/api-versioning.md", kind: "file", what: "the promise, how a new version is added, and the benchmarks" },
+        { path: "cmux-tui/spec/api-compat.json", kind: "file", what: "the socket's dated versions and the rules between them" },
+        { path: "workers/cmux-vm/src/api-version.ts", kind: "file", what: "the Cloud API's dated versions (API_VERSIONS)" },
+      ] },
+    ],
+    links: ["cli", "mcp", "cloud"],
+  },
+  {
     slug: "settings",
     navKey: "nextSettings",
     title: "Settings reference",
@@ -570,6 +606,48 @@ export const nextDocPages: NextDocPage[] = [
       { code: "{\n  \"history\": { \"commandRetentionDays\": 30 }\n}", lang: "json" },
       { p: "This page is generated from the settings schema, so it matches the app." },
     ],
+  },
+  {
+    slug: "network-requirements",
+    navKey: "nextNetwork",
+    title: "Network requirements for the iPhone app",
+    description: "The hosts, ports and protocols the cmux iPhone app and your Mac need to connect, in the order they try them, for IT admins.",
+    body: [
+      { p: "The cmux iPhone app connects to your Mac directly when it can, and through a relay when it cannot. It tries the ways below in order and uses the first that works. Every way carries the same end-to-end encrypted tunnel (WireGuard) between the phone and the Mac: no relay can read it. Both the phone's network and the Mac's network need at least one of them." },
+      { h2: "Always needed" },
+      { p: "Sign-in, the list of your Macs, and the setup of each connection use HTTPS on port 443. The app and the Mac need these hosts:" },
+      { ul: [
+        "mobile-api.cmux.dev, TCP 443: the cmux service (HTTPS, and a WebSocket for connection setup).",
+        "api.stack-auth.com, TCP 443: sign-in.",
+        "cmux.com, TCP 443: the sign-in page.",
+      ] },
+      { note: "If these are blocked, the app cannot sign in or find your Mac, and nothing below helps." },
+      { h2: "1. Direct" },
+      { p: "Fastest. The phone and the Mac send UDP to each other, on any port, after learning their public addresses from a STUN server:" },
+      { ul: [
+        "stun.cloudflare.com, UDP 3478: STUN.",
+        "UDP between the phone and the Mac, any port (on the same network, or through NAT).",
+      ] },
+      { h2: "2. Relay over TURN" },
+      { p: "When direct UDP fails, traffic goes through Cloudflare's TURN service. The app tries UDP first, then TLS:" },
+      { ul: [
+        "turn.cloudflare.com, UDP 3478 (and 53): TURN over UDP.",
+        "turn.cloudflare.com, TCP 443 (and 5349): TURN over TLS.",
+      ] },
+      { h2: "3. Relay through cmux (HTTPS)" },
+      { p: "When neither UDP nor the TURN host gets through, for example on a network that allows only approved hosts, the phone and the Mac carry the tunnel in a WebSocket to the cmux service. It is a normal HTTPS request on port 443 to the same host as sign-in:" },
+      { ul: [
+        "mobile-api.cmux.dev, TCP 443: wss://mobile-api.cmux.dev/v1/relay/... (HTTP/1.1 with Upgrade: websocket).",
+      ] },
+      { p: "A proxy or firewall must allow WebSocket upgrades to that host and keep the connection open. This way is slower than the others, so the app moves off it about a minute after a direct or TURN path works again." },
+      { h2: "TLS inspection" },
+      { p: "The app checks the certificates of cmux's hosts and of the TURN host against the public certificate authorities. A proxy that decrypts HTTPS and re-signs it with its own certificate makes those checks fail. Exempt mobile-api.cmux.dev, api.stack-auth.com, cmux.com and turn.cloudflare.com from TLS inspection." },
+      { h2: "When nothing works" },
+      { p: "If every way is blocked, the app says which part of the network is in the way and what to try: another network (a hotspot, or Wi-Fi outside the office), or the hosts and ports above for your IT team. It keeps retrying on its own. On the Mac, the same hosts and ports apply." },
+      { h2: "Summary for a firewall rule" },
+      { code: "Required:   TCP 443  mobile-api.cmux.dev, api.stack-auth.com, cmux.com\nRecommended: UDP 3478 stun.cloudflare.com\n            UDP 3478, TCP 443  turn.cloudflare.com\n            UDP, any port, between the phone and the Mac", lang: "text" },
+    ],
+    links: ["remote", "settings"],
   },
   {
     slug: "architecture",

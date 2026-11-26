@@ -82,6 +82,9 @@ extension ThemeCoordinator {
     func applyPaneBackground(_ pane: PaneController, waitsForTerminal: Bool? = nil) {
         let area = pane.view.contentHost, waits = waitsForTerminal ?? area.waitsForContent
         defer { area.waitsForContent = waits; area.waitingGround = waits ? TerminalHostView.ground(theme: resolver.resolve(area.themeScope.effectiveSpec)?.config, in: area) : nil }
+        // Its place among its workspace's panes picks its picture of the theme's pane art (`appearance.paneArt.*`).
+        let index = pane.workspace?.workspace.screens.flatMap(\.panes).firstIndex { $0.handle == pane.pane.handle } ?? 0
+        if index != pane.view.backdropState.artIndex { pane.view.backdropState.artIndex = index; pane.view.paintPaneBackdrop() }
         // Nothing stored anywhere below the app: the common case does no work.
         guard !appearanceScopes.backgrounds.isEmpty || pane.view.backdropState.hasOwnValues else { return }
         let own = { (property: AppearanceProperty) in self.ownValue(property, of: .pane(pane)) }

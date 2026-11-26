@@ -21,7 +21,7 @@ judged nothing: the base is always there.
      running the old build gets refused.
   4. new strict decoders: a line the pull request adds under cmux-tui/ or webviews/src/ that refuses
      unknown fields (`deny_unknown_fields`, `additionalProperties: false`, zod `.strict()`), and a resource
-     operation the spec newly marks `"extra": false`. Keep one strict on purpose (a token, a signature,
+     operation the spec newly marks `"unknown_params": "refuse"` (`"extra": false` alone drops the field). Keep one strict on purpose (a token, a signature,
      a local config file) with `skew: strict <why>` on the line or the line above.
 
   protocol_skew_check.py --base SHA [--old SHA ...] [--nightly-feed URL] [--head REF]
@@ -95,7 +95,8 @@ def nightly_commit(feed_url: str) -> str | None:
 def reachable(ref: str) -> bool:
     if git("cat-file", "-e", f"{ref}^{{commit}}", check=False).returncode == 0:
         return True
-    git("fetch", "-q", "--depth=1", "origin", ref, check=False)
+    shallow = git("rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
+    git("fetch", "-q", *(["--depth=1"] if shallow else []), "origin", ref, check=False)
     return git("cat-file", "-e", f"{ref}^{{commit}}", check=False).returncode == 0
 
 
@@ -159,10 +160,13 @@ def judge_decoders(base: str, head: str) -> list[str]:
                         f"`{ESCAPE} <why>` beside it")
     new_spec, old_spec = show(head, RESOURCE_SPEC), show(base, RESOURCE_SPEC)
     if new_spec and old_spec:
-        strict = re.compile(r"\"extra\"\s*:\s*false")
+        # `"extra": false` alone drops an undeclared param (catalog_validation.rs, #49712); only
+        # `"unknown_params": "refuse"` refuses the request.
+        strict = re.compile(r"\"unknown_params\"\s*:\s*\"refuse\"")
         rise = len(strict.findall(new_spec)) - len(strict.findall(old_spec))
         if rise > 0:
-            fail.append(f"{RESOURCE_SPEC}: {rise} more operation(s) refuse unknown params (\"extra\": false)")
+            fail.append(f"{RESOURCE_SPEC}: {rise} more operation(s) refuse unknown params "
+                        f"(\"unknown_params\": \"refuse\")")
     return fail
 
 

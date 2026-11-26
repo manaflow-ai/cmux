@@ -84,17 +84,16 @@ fn several_edits_publish_once_with_one_revision() {
 
 /// `set_exact` stores a row's default (the app decided the key stays: an
 /// `editor.` row, a build default such as NIGHTLY's
-/// `updates.downloadAutomatically`), where `set` removes it; it keeps the
+/// `updates.automatic`), where `set` removes it; it keeps the
 /// checks of `set`.
 #[test]
 fn set_exact_keeps_a_default_valued_key() {
-    let before =
-        state(r#"{"editor": {"wordWrap": "on"}, "updates": {"downloadAutomatically": true}}"#);
+    let before = state(r#"{"editor": {"wordWrap": "on"}, "updates": {"automatic": "download"}}"#);
     let exact = run(
         &before,
         vec![
             edit("editor.wordWrap", EditKind::SetExact(json!("off"))),
-            edit("updates.downloadAutomatically", EditKind::SetExact(json!(false))),
+            edit("updates.automatic", EditKind::SetExact(json!("notify"))),
         ],
         user(),
     )
@@ -102,7 +101,7 @@ fn set_exact_keeps_a_default_valued_key() {
     let written = exact.write.expect("the file changes");
     let file = root(&written);
     assert_eq!(file.pointer("/editor/wordWrap"), Some(&json!("off")), "{written}");
-    assert_eq!(file.pointer("/updates/downloadAutomatically"), Some(&json!(false)), "{written}");
+    assert_eq!(file.pointer("/updates/automatic"), Some(&json!("notify")), "{written}");
     assert_eq!(exact.outcome.applied, vec![0, 1]);
 
     let set = run(&before, vec![edit("editor.wordWrap", EditKind::Set(json!("off")))], user())
@@ -179,7 +178,7 @@ fn set_unset_keeps_a_value_the_file_holds() {
 #[test]
 fn reset_unchanged_removes_only_the_expected_value() {
     let before = state(
-        r#"{"appearance": {"backgroundOpacity": 1.0}, "layout": {"panePadding": 4}, "updates": {"downloadAutomatically": true}}"#,
+        r#"{"appearance": {"backgroundOpacity": 1.0}, "layout": {"panePadding": 4}, "updates": {"automatic": "download"}}"#,
     );
     let applied = run(
         &before,
@@ -196,7 +195,7 @@ fn reset_unchanged_removes_only_the_expected_value() {
     let file = root(&written);
     assert_eq!(file.get("appearance"), None, "the emptied object goes: {written}");
     assert_eq!(file.pointer("/layout/panePadding"), Some(&json!(4)));
-    assert_eq!(file.pointer("/updates/downloadAutomatically"), Some(&json!(true)));
+    assert_eq!(file.pointer("/updates/automatic"), Some(&json!("download")));
 
     // The stray-null pass: an expected null removes a stored null only.
     let nulls = state(r#"{"appearance": {"backgroundBlur": null, "chromeStyle": "card"}}"#);

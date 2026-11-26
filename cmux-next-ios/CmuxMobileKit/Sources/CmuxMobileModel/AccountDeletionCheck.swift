@@ -1,3 +1,4 @@
+import CmuxEgress
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -77,7 +78,7 @@ public struct AccountDeletionCheckClient: Sendable {
     ///   - origin: The cmux web origin account deletion goes to.
     ///   - timeout: Short: the user is waiting on the Delete Account button.
     ///   - load: The transport (tests inject one).
-    public init(origin: URL, timeout: TimeInterval = 10, load: @escaping Loader = { try await URLSession.shared.data(for: $0) }) {
+    public init(origin: URL, timeout: TimeInterval = 10, load: @escaping Loader = { try await CmuxEgress.shared(site: "CmuxMobileModel.AccountDeletionCheck").data(for: $0) }) {
         self.origin = origin
         self.timeout = timeout
         self.load = load

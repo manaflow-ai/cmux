@@ -8,7 +8,8 @@ extension ColorTransition {
     /// Glass's own tint), `glassOverlay` and `glassOverlayOpacity` (the old tint fading out over
     /// it during a blend, empty otherwise); `blending` is "true" while any of them runs a color
     /// transition; `seconds` is the transition in effect now; `picture` is the id of the picture
-    /// the art shows (``WindowMaterialView/shownPictureID``).
+    /// the art shows (``WindowMaterialView/shownPictureID``); a live wallpaper adds its `live_*` keys
+    /// (``BackdropLiveView``).
     @MainActor
     public static func presentedBackdrop(of window: NSWindow) -> [String: String] {
         guard let material = window.contentView.flatMap(materialView(in:)) else { return [:] }
@@ -35,6 +36,8 @@ extension ColorTransition {
         return ["sheet": shown(sheet), "tint": shown(tint), "glassTint": glass, "glassOverlay": overlayColor,
                 "glassOverlayOpacity": overlayOpacity, "blending": blending ? "true" : "false",
                 "seconds": String(current.seconds), "picture": material.shownPictureID]
+            // A live wallpaper's run state, rate, scale, frames and GPU time (the wallpaper-cost bench).
+            .merging(material.liveView.debugState) { own, _ in own }
     }
 
     @MainActor

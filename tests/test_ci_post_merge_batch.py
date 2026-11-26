@@ -68,6 +68,79 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
 
+    def test_dispatches_inside_the_window_once_ten_merges_pile_up(self) -> None:
+        # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A batch every ~10 merges.
+        runs = [run(1, "b" * 40, "2026-11-21T11:50:00Z")]
+        asked = []
+
+        def ahead(base):
+            asked.append(base)
+            return 10
+
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=ahead)[0], "dispatch")
+        self.assertEqual(asked, ["b" * 40])
+        action, reason = pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=lambda base: 9)
+        self.assertEqual(action, "skip")
+        self.assertIn("9 of 10 merges", reason)
+        # An unknown count (the compare call failed) and a count of 0 (off) leave the window alone in charge.
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=lambda base: None)[0], "skip")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=0, ahead=lambda base: 50)[0], "skip")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 5, every_merges=10, ahead=lambda base: 1)[0], "dispatch")
+
+    def test_the_count_never_overrides_a_batch_in_flight_or_a_tested_tip(self) -> None:
+        def ahead(base):
+            raise AssertionError("no compare call needed")
+
+        live = [run(2, "b" * 40, "2026-11-21T11:55:00Z", status="in_progress")]
+        self.assertEqual(pmb.tick_decision("a" * 40, live, NOW, 120, every_merges=10, ahead=ahead)[0], "skip")
+        tested = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, tested, NOW, 120, every_merges=10, ahead=ahead)[0], "skip")
+
+    def test_a_finishing_batch_starts_the_next(self) -> None:
+        # The judge's last step ticks with its own run id: that run is in progress and its judge job has not
+        # concluded yet, but it is neither in flight nor unjudged for the tick.
+        own = [run(7, "b" * 40, "2026-11-21T11:40:00Z", status="in_progress"), run(6, "c" * 40, "2026-11-21T11:20:00Z")]
+        unjudged = lambda rid: rid != 7  # noqa: E731
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12, self_run_id=7)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 3, self_run_id=7)[0], "skip")
+        self.assertEqual(pmb.tick_decision("b" * 40, own, NOW, 120, unjudged, 10, lambda base: 0, self_run_id=7)[0], "skip")
+        # Another batch already queued behind it still holds the next one back.
+        queued = [run(8, "d" * 40, "2026-11-21T11:58:00Z", status="queued"), *own]
+        self.assertEqual(pmb.tick_decision("a" * 40, queued, NOW, 120, unjudged, 10, lambda base: 12, self_run_id=7)[0], "skip")
+        # Without its id the same run reads as in flight.
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12)[0], "skip")
+
+    def test_every_merges_value(self) -> None:
+        self.assertEqual(pmb.every_merges(None), 10)
+        self.assertEqual(pmb.every_merges("bad"), 10)
+        self.assertEqual(pmb.every_merges("0"), 0)
+        self.assertEqual(pmb.every_merges("25"), 25)
+
+    def test_ahead_by_reads_one_compare(self) -> None:
+        calls = []
+
+        def api(path, **_):
+            calls.append(path)
+            return {"ahead_by": 11}
+
+        self.assertEqual(pmb.ahead_by("o/r", "b" * 40, "a" * 40, api=api), 11)
+        self.assertEqual(calls, [f"repos/o/r/compare/{'b' * 40}...{'a' * 40}?per_page=1"])
+
+        def broken(path, **_):
+            raise RuntimeError("HTTP 404")
+
+        with unittest.mock.patch("sys.stdout"):
+            self.assertIsNone(pmb.ahead_by("o/r", "b" * 40, "a" * 40, api=broken))
+        self.assertIsNone(pmb.ahead_by("o/r", "", "a" * 40, api=api))
+
+    def test_the_judge_ticks_the_next_batch_and_never_fails_for_it(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]["steps"]
+        last = steps[-1]
+        self.assertIn("tick", last["run"])
+        self.assertIn('--self-run-id "$GITHUB_RUN_ID"', last["run"])
+        self.assertTrue(last["continue-on-error"])
+        self.assertIn("inputs.mode != 'probe'", last["if"])
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
@@ -137,6 +210,56 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn("known red", notes[0])
 
+    def stuck_setup(self):
+        verdicts = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
+        runs = [run(3, "b" * 40, "2026-11-21T10:00:00Z"), run(2, "c" * 40, "2026-11-21T08:00:00Z"),
+                run(1, "d" * 40, "2026-11-21T06:00:00Z")]
+        red = {"rust / test (linux, 1)": ("rust", "failure"), "rust / test (linux, 2)": ("rust", "failure")}
+        older = {3: (red, True), 2: (red, True), 1: ({k: ("rust", "success") for k in red}, True)}
+        return verdicts, runs, older
+
+    def test_a_known_red_is_bisected_between_its_last_green_and_first_red(self) -> None:
+        # Batch run 45768539377 (2026-11-26) skipped 43 of 48 reds as known: they get a bisect, legs collapsed.
+        verdicts, runs, older = self.stuck_setup()
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
+        self.assertEqual(found, [])
+        stuck = pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites)
+        self.assertEqual(stuck, [("rust / test (linux, 1)", "rust", "d" * 40, "c" * 40)])
+
+    def test_a_stuck_red_waits_for_its_running_bisect_and_stops_after_rebisects(self) -> None:
+        verdicts, runs, older = self.stuck_setup()
+        probe = run(4, "c" * 40, "2026-11-21T08:30:00Z", status="in_progress", title=f"probe rust test at {'c' * 40}")
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites), [])
+        probe["status"] = "completed"
+        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites)), 1)
+        red = older[3][0]
+        more = [run(10 + i, f"{i:x}" * 40, f"2026-11-21T0{i}:30:00Z") for i in range(5, 5 + pmb.MAX_REBISECTS)]
+        for r in more:
+            older[r["id"]] = (red, True)
+        # More red batch runs since the first red one than MAX_REBISECTS, with a bisect done: named only.
+        runs2 = [run(3, "b" * 40, "2026-11-21T10:00:00Z")] + more[::-1] + runs[1:]
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs2, lambda rid: older[rid], self.suites), [])
+
+    def test_a_stuck_red_needs_a_green_in_reach(self) -> None:
+        verdicts, runs, older = self.stuck_setup()
+        older[1] = (older[2][0], True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, runs, lambda rid: older[rid], self.suites), [])
+
+    def test_a_stuck_probe_starts_mid_range_and_its_judge_accepts_it(self) -> None:
+        commits = ["c1", "c2", "c3", "c4", "c5"]
+        probe = pmb.stuck_probe("rust / test", "rust", "test", "g", "c5", "9", commits)
+        self.assertEqual((probe.sha, probe.good, probe.bad), ("c3", "g", "c5"))
+        self.assertEqual(pmb.stuck_probe("rust / test", "rust", "test", "c4", "c5", "9", commits).sha, "c5")
+        origin = {"id": 9, "head_sha": "c7", "path": f".github/workflows/{pmb.WORKFLOW}", "head_branch": "main",
+                  "display_title": "batch tick"}
+        covered = lambda good, head: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
+        self.assertEqual(pmb.probe_refusal(probe, "main", origin, [("rust / test", "rust", "g")], covered), "")
+
+    def test_a_one_commit_stuck_range_that_passes_is_a_flake(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c5", "c4", "c5", "1")
+        self.assertEqual(pmb.next_step(probe, "success", ["c5"])[0], "flake")
+        self.assertEqual(pmb.next_step(probe, "failure", ["c5"]), ("culprit", "c5"))
+
 
 class RateLimitTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -202,6 +325,16 @@ class RateLimitTest(unittest.TestCase):
             finally:
                 pmb.list_runs = saved
             self.assertIn("suites= drill ", out.read_text())
+
+    def test_a_probe_is_judged_against_its_known_good_commit(self) -> None:
+        # A bisect probe's suite judges its reds against `good` (gallery-health's `base`): a standing red
+        # there too is not the probed merge's, so the bisect hunts only the red that is new.
+        for good, base in (("c" * 40, "c" * 40), ("", "")):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                pmb.main(["plan", "--github-output", str(out), "--summary", str(Path(tmp) / "s"), "--mode", "probe",
+                          "--suite", "drill", "--probe-sha", "a" * 40, "--good", good])
+                self.assertIn(f"base={base}\n", out.read_text())
 
 class BisectTest(unittest.TestCase):
     def walk(self, commits: list[str], culprit: str) -> tuple[str, int]:
@@ -360,6 +493,21 @@ class GuardTest(unittest.TestCase):
         self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
 
+    def test_an_agents_revert_is_handed_to_autoland_and_a_teammates_is_not(self) -> None:
+        # Goal base-batch-reverts-culprit: "reverts it with no person". The label is next_autoland's hand-off.
+        calls = []
+        line = pmb.hand_off("o/r", 12, "", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/issues/12/labels", {"method": "POST", "fields": {"labels": ["ready-to-land"]}})])
+        self.assertIn("ready-to-land", line)
+        calls.clear()
+        self.assertIn("Held for lucasr1b", pmb.hand_off("o/r", 12, "lucasr1b", api=lambda path, **kw: calls.append(path)))
+        self.assertEqual(calls, [])
+
+        def refused(path, **kw):
+            raise RuntimeError("gh api: 403")
+
+        self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
+
 
 class PushTest(unittest.TestCase):
     """GitHub's workflow-scope check timing out is retried; any other refusal is not."""
@@ -493,3 +641,44 @@ class PushTokenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DispatchProbeRetryTests(unittest.TestCase):
+    probe = pmb.Probe("web", "web / Web tests (2/4)", "web-tests", "f" * 40, "a" * 40, "b" * 40, "1")
+    title = f"probe web web-tests at {'f' * 40}"
+
+    def fake(self, answers: list, listed: list[dict] | None = None):
+        calls: list[str] = []
+
+        def api(path, method="GET", **_):
+            calls.append(method)
+            if method == "GET":
+                return {"workflow_runs": listed or []}
+            answer = answers.pop(0)
+            if answer:
+                raise RuntimeError(f"gh api POST {path}: {answer}")
+            return None
+        return api, calls
+
+    def test_a_5xx_is_retried_until_the_dispatch_goes_through(self) -> None:
+        api, calls = self.fake(["gh: Failed to run workflow dispatch (HTTP 500)", "gh: Server Error (HTTP 502)", None])
+        waits: list[float] = []
+        with unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=waits.append)
+        self.assertEqual((calls, waits), (["POST", "GET", "POST", "GET", "POST"], [15, 45]))
+
+    def test_a_5xx_whose_run_started_is_not_dispatched_again(self) -> None:
+        api, calls = self.fake(["gh: Server Error (HTTP 502)"], listed=[{"display_title": self.title, "status": "queued"}])
+        with unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls, ["POST", "GET"])
+
+    def test_other_errors_and_a_lasting_5xx_raise(self) -> None:
+        api, calls = self.fake(["gh: Not Found (HTTP 404)"])
+        with self.assertRaises(RuntimeError):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls, ["POST"])
+        api, calls = self.fake(["gh: Server Error (HTTP 502)"] * 3)
+        with self.assertRaises(RuntimeError), unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls.count("POST"), 3)

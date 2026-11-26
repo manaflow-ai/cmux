@@ -66,6 +66,9 @@ pub struct RelayOptions {
     /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
     /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
     pub on_reconnect: Option<fn()>,
+    /// A joined machine's capacity report to its team's placement, this often
+    /// (`joined_capacity.rs`); none for any other relay.
+    pub capacity_every: Option<Duration>,
 }
 
 impl Default for RelayOptions {
@@ -79,6 +82,7 @@ impl Default for RelayOptions {
             refused_retry: Duration::from_secs(60),
             max_in_flight: 32,
             on_reconnect: None,
+            capacity_every: None,
         }
     }
 }
@@ -104,6 +108,8 @@ impl MeshRelay {
         let (daemon, own) = watch::channel(None);
         let refusals = Arc::new(Refusals::default());
         let beat = Arc::new(Beat::new());
+        // A chat moved here lists itself before its move answers (`Hub::list_on_mesh_now`).
+        *hub.mesh_beat.lock_or_recover() = Arc::downgrade(&beat);
         let beats = heartbeats(
             Arc::downgrade(hub),
             client.clone(),
@@ -113,6 +119,24 @@ impl MeshRelay {
             refusals.clone(),
             stopped.clone(),
         );
+        // A joined machine's capacity reports run beside its heartbeat, on the heartbeat's task:
+        // both end as the relay does.
+        let reports = options.capacity_every.map(|every| {
+            capacity_reports(
+                Arc::downgrade(hub),
+                client.clone(),
+                options.clone(),
+                every,
+                stopped.clone(),
+            )
+        });
+        let beats = async move {
+            tokio::join!(beats, async {
+                if let Some(reports) = reports {
+                    reports.await;
+                }
+            });
+        };
         let inbox =
             inbox(Arc::downgrade(hub), client, control, options, own, beat, refusals, stopped);
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
@@ -207,15 +231,27 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
     let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
+    // A joined relay's `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its
+    // owner) runs as the one a join writes now (`MeshControlFrom::same_user`, approve-all), as
+    // `host join --status` would rewrite it. Before, only that command upgraded it, and only
+    // the next daemon start read it: every fleet lane VM joined before `maxPolicy` kept the `ask`
+    // cap, so `acpmux new --machine LANE-VM --policy approve-all` from the coordinator's Mac was
+    // refused ("an approve-all start relayed through the mesh hub", 2026-11-25).
+    let mut control_from = config.control_from;
+    if joined {
+        crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
+    }
     let control = Arc::new(
-        MeshControlHook::new(config.control_from, ledger)
+        MeshControlHook::new(control_from, ledger)
             .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
     );
     // A joined relay's reconnect: a machine joined before the hub recorded capabilities states
     // them then, too.
     let on_reconnect =
         joined.then_some(crate::cli::cloud_join::state_capabilities_on_reconnect as fn());
-    let options = RelayOptions { on_reconnect, ..RelayOptions::default() };
+    // A joined machine is capacity for its team's placement (RFD 0004 step 3).
+    let capacity_every = joined.then_some(super::joined_capacity::EVERY);
+    let options = RelayOptions { on_reconnect, capacity_every, ..RelayOptions::default() };
     Some(MeshRelay::start(hub, client, control, options))
 }
 
@@ -260,7 +296,7 @@ const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 /// session was taken, so the sender's next message to it finds it in the hub's address book
 /// (the hub routes a name only to a session a heartbeat listed, `mesh.unknown_recipient`
 /// otherwise); waiting for the timer left a send right after the start refused for up to 30 s.
-struct Beat {
+pub(crate) struct Beat {
     nudge: tokio::sync::Notify,
     /// Requests made; a heartbeat covers every request made before it read the sessions.
     asked: std::sync::atomic::AtomicU64,
@@ -279,7 +315,7 @@ impl Beat {
 
     /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
     /// for at most `within`.
-    async fn now(&self, within: Duration) {
+    pub(crate) async fn now(&self, within: Duration) {
         let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let mut listed = self.listed.subscribe();
         self.nudge.notify_one();
@@ -445,6 +481,69 @@ async fn heartbeats(
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
 
+/// Reports this joined machine's free capacity every `every` (`joined_capacity.rs`), from the
+/// daemon's startup until the relay ends. A refusal (an older hub, a registry that is off) is
+/// logged once and asked again every [`super::joined_capacity::REFUSED_RETRY`]; no answer backs
+/// off as the other loops do. It never ends or pauses the relay: the heartbeat speaks for the
+/// credential. Nothing is sent at the end: the hub drops the machine two minutes after its last.
+async fn capacity_reports(
+    hub: Weak<Hub>,
+    client: Arc<dyn MeshHub>,
+    options: Arc<RelayOptions>,
+    every: Duration,
+    mut stop: watch::Receiver<bool>,
+) {
+    use super::joined_capacity::{REFUSED_RETRY, capacity_now};
+    if !started(&hub, &mut stop).await {
+        return;
+    }
+    let host = crate::pairing::machine_name();
+    let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
+    let (mut failing, mut refused) = (false, false);
+    loop {
+        let report = match hub.upgrade() {
+            Some(hub) if !hub.is_stopping() => capacity_now(&hub, &host).await,
+            _ => break,
+        };
+        let Some(report) = report else {
+            tracing::info!("joined capacity: this platform reports none");
+            return;
+        };
+        let wait = tokio::select! {
+            r = client.capacity(&report) => match r {
+                Ok(()) => {
+                    if std::mem::take(&mut failing) | std::mem::take(&mut refused) {
+                        tracing::info!("joined capacity: the hub takes reports again");
+                    }
+                    backoff.reset();
+                    every
+                }
+                Err(e) if e.refused && e.retry_after.is_none() => {
+                    if !std::mem::replace(&mut refused, true) {
+                        tracing::warn!(
+                            "joined capacity: the hub refused the report ({e}); asking again every {}s",
+                            REFUSED_RETRY.as_secs()
+                        );
+                    }
+                    backoff.reset();
+                    REFUSED_RETRY.max(every)
+                }
+                Err(e) => {
+                    if !std::mem::replace(&mut failing, true) {
+                        tracing::warn!("joined capacity: report failed ({e}); retrying with backoff");
+                    }
+                    after_failure(&mut backoff, &e).min(every).max(options.min_poll_gap)
+                }
+            },
+            () = ended(&mut stop, &hub) => break,
+        };
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = ended(&mut stop, &hub) => break,
+        }
+    }
+}
+
 async fn inbox(
     hub: Weak<Hub>,
     client: Arc<dyn MeshHub>,
@@ -518,6 +617,7 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
+                    hub.outbox.note_relay_lease(message.attempt);
                     let (client, control, in_flight, beat) =
                         (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
@@ -738,7 +838,7 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename, retry, hold or tag through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
@@ -848,8 +948,13 @@ async fn run_control(
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
-    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return Some(Ack::refused("unsupported control body version"));
+    // Version 2 is a `move` whose manifest the target pulls over the circuit
+    // (`hub/transfer_pull.rs` `MANIFEST_PULL_WIRE_VERSION`); every other op stays at 1.
+    let version = body.get("version").and_then(serde_json::Value::as_u64);
+    let pulled_move = op == crate::mesh_relay_config::MOVE_OP
+        && version == Some(crate::hub::transfer_pull::MANIFEST_PULL_WIRE_VERSION);
+    if version != Some(1) && !pulled_move {
+        return Some(Ack::refused(crate::hub::transfer_pull::OLD_VERSION_REFUSAL));
     }
     // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
     // is the daemon the hub stamped, never one the body names. The hook admitted only this
@@ -1219,13 +1324,18 @@ pub async fn deliver(
     if team && !hub.register_team_work(&session, prompt_id) {
         return None;
     }
+    // The class the sending daemon inlined as the text's first line (`mesh_send.rs` `carried`):
+    // the hub carries text only, so without it a block or question files as fyi and an idle
+    // receiver never starts a turn.
+    let (class, text) =
+        if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
             from_name, message.body
         )
     } else {
-        message.body.clone()
+        text.to_owned()
     };
     let mut request = json!({
         "sessionId": session.id,
@@ -1239,6 +1349,12 @@ pub async fn deliver(
             "startWork": message.start_work,
         }},
     });
+    if let Some(class) = class
+        && let Some(mux) =
+            request.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        mux.insert("class".into(), class.as_str().into());
+    }
     // The sending session's id, which its daemon set from the caller it proved
     // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The sender's harness
     // claim comes separately below, never as a bound harness.
@@ -1310,10 +1426,53 @@ fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
 }
 
+/// The class a relayed text's first line names (`[block]`, `[question]`, `[result]`, `[fyi]`, as
+/// `mesh_send.rs` `class_line` writes it) and the text after that line; no class and the whole
+/// text otherwise.
+fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) {
+    let (first, rest) = body.split_once('\n').unwrap_or((body, ""));
+    let class = first
+        .trim()
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .and_then(crate::prompt_class::PromptClass::parse);
+    match class {
+        Some(class) if !rest.trim().is_empty() => (Some(class), rest.trim_start_matches('\n')),
+        _ => (None, body),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+
+    /// A block or question sent over the mesh files as that class on the receiver, so an idle
+    /// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.
+    #[test]
+    fn inline_class_round_trips_the_senders_line() {
+        use crate::prompt_class::PromptClass;
+        for class in PromptClass::ALL {
+            let body =
+                format!("{}\n\nYou stopped on a 529.", super::super::mesh_send::class_line(class));
+            assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
+        }
+        assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+    }
+
+    #[test]
+    fn inline_class_leaves_other_texts_whole() {
+        for body in [
+            "plain text",
+            "[block]",
+            "[block]\n\n  ",
+            "[nope]\nx",
+            "see [block]\nx",
+            "[block] x\ny",
+        ] {
+            assert_eq!(inline_class(body), (None, body), "{body:?}");
+        }
+    }
 
     fn from(host: &str, name: &str) -> InMessage {
         InMessage {

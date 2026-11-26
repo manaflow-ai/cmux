@@ -15,7 +15,10 @@ description = "acpmux's ratatui terminal UI, outside the headless acpmux crate; 
 [dependencies]
 acpmux = { path = "../acpmux", default-features = false }
 anyhow = "1"
+chrono.workspace = true
 base64 = "0.22"
+# Bounded waits (`reconnect_wait.rs`): every waiting state declares its bound and recovery.
+cmux-bounded = { workspace = true, features = ["tokio"] }
 cmux-json.workspace = true
 cmux-scope.workspace = true
 crossterm = { workspace = true, features = ["event-stream"] }
@@ -30,4 +33,6 @@ tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", 
 unicode-width.workspace = true
 
 [dev-dependencies]
+# A paused clock for the bounded-wait tests (`reconnect_wait.rs`).
+tokio = { version = "1.52", features = ["test-util"] }
 uuid = { version = "1.20", features = ["v7"] }

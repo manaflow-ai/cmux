@@ -219,6 +219,9 @@ fn hold_socket(shared: &Arc<Shared>, stop: &CancellationToken) -> Res<()> {
         link.detail = None;
     });
     tracing::info!("{LOG}: online as \"{}\" ({})", printable(&hub.device.name), hub.device.id);
+    // An app that asked for the identity before the daemon signed in (or before a new device)
+    // runs another one; this tells it to take the daemon's.
+    shared.announce_online();
     refresh_devices(shared);
     // Within the hub's offline grace: the shares a daemon left running that ended meanwhile.
     check_adopted(shared);
@@ -299,7 +302,47 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
         }
         // Not relayed to the app: the approval is this daemon's to admit.
         super::approval::PUSH => receive_approval(shared, push.clone()),
+        super::approval::CONTROL_PUSH => receive_control_approval(shared, push.clone()),
         _ => shared.relay(text),
+    }
+}
+
+/// A control approval the hub carried here (`approval.rs`): the owner's tap on their own
+/// device grants this Mac's "control for my other signed-in machines", so nobody has to be at
+/// the Mac to answer its one ask. Off unless the person turned on
+/// `devices.allowControlFromMyDevices` on this Mac; off, every one is refused. Admitted or refused, audited either way, off the socket
+/// thread. The grant is written by the same consent writer the Mac's own Allow click uses, for
+/// the account the approval was admitted for, and only while this Mac is joined as that account.
+fn receive_control_approval(shared: &Arc<Shared>, push: Value) {
+    use super::approval;
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new().name("share-host-control".into()).spawn(move || {
+        let hub = shared.hub();
+        let dir = super::dir(&shared.home);
+        let decision = shared.with_seen_approvals(|seen| {
+            approval::receive_control(
+                &*hub,
+                &push,
+                approval::now_secs(),
+                seen,
+                approval::control_allowed(),
+                |entry| approval::append_audit(&dir, entry),
+                crate::cli::cloud_join::grant_signed_in_machines_for,
+            )
+        });
+        match decision {
+            Ok(()) => {
+                tracing::info!("{LOG}: the owner's device allowed control from their machines")
+            }
+            Err(refused) => tracing::info!(
+                "{LOG}: control approval refused: {} {}",
+                refused.code,
+                refused.message
+            ),
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("{LOG}: the control approval was not read: {e}");
     }
 }
 

@@ -45,7 +45,7 @@ enum ThemeBridge {
         if DesignSettings.shared.unfocusedPaneDim != dim { DesignSettings.shared.unfocusedPaneDim = dim }
         guard let colors = runtime.themeColors else { return }
         store.apply(input(colors, background: GhosttyRuntime.backgroundOverride, accent: GhosttyRuntime.themeName.flatMap(accent)))
-        store.applyTerminalConfigLines(runtime.phoneTerminalThemeLines)
+        store.applyTerminalConfig(lines: runtime.phoneTerminalThemeLines, backgroundImage: runtime.backgroundImage)
     }
 
     /// The pane dim for the config's `unfocused-split-opacity` and `unfocused-split-fill`.

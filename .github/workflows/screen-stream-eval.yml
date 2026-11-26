@@ -10,6 +10,10 @@ name: screen stream eval
 # run and is named in the job's error and in gate.json. It also publishes probe.json
 # (schema cmux.screen-share-fast/1) for the screen-share-fast goal board. It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
+# The daily targets are rd, webrtc and iphone-sim (the iPhone app's own viewer in a simulator: its key
+# and click to presented frame). iphone-sim runs last and builds the app, so the step's timeout is
+# 7200 s; a target that fails or is cut short leaves the earlier targets' results in results.json.
+# The gate judges rd alone and probe.json reads rd and the Apple targets, so iphone-sim only reports.
 
 # Daily: main's screen-stream-eval-dispatch.yml starts it (a schedule here would never fire, since
 # scheduled workflows run only from the default branch): the default targets, and an iPhone viewer run
@@ -24,7 +28,7 @@ on:
     inputs:
       targets:
         description: "targets (scripts/measure/screen-stream-eval/targets/NAME.sh)"
-        default: "rd,webrtc"
+        default: "rd,webrtc,iphone-sim"
       samples:
         description: "inputs per latency row"
         default: "200"
@@ -53,8 +57,11 @@ env:
 jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 300
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    # The job's clock includes the wait for the pinned worker's exclusive lease, which ran 2.5 h on
+    # 2026-11-22 and past the old 300 min on 2026-11-23 (run 45160093472, cancelled, nothing measured).
+    # 720 min leaves that wait room beside the step's own 7200 s.
+    timeout-minutes: 720
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -64,7 +71,9 @@ jobs:
           # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs
           # here, no other blob. The measure worker checks the tree out itself.
           filter: blob:none
-          sparse-checkout: /scripts/measure/screen-stream-eval/
+          sparse-checkout: |
+            /scripts/measure/screen-stream-eval/
+            /.gitmodules
           sparse-checkout-cone-mode: false
       - name: the last daily run with results
         id: previous
@@ -109,7 +118,7 @@ jobs:
           github-token: ${{ github.token }}
       - name: eval on a fleet Mac
         env:
-          TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
+          TARGETS: ${{ inputs.targets || 'rd,webrtc,iphone-sim' }}
           SAMPLES: ${{ inputs.samples || '200' }}
           REPEATS: ${{ inputs.repeats || '3' }}
           WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}
@@ -130,7 +139,7 @@ jobs:
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
           "$client" run --class exclusive --measurement --label measure --label gui-session-v1 ${target[@]+"${target[@]}"} \
-            --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 5400 \
+            --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 7200 \
             --artifact artifacts/screen-stream-eval/results.json \
             --arg="targets=$TARGETS" --arg="samples=$SAMPLES" --arg="repeats=$REPEATS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           out=artifacts/screen-stream-eval

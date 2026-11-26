@@ -1,4 +1,5 @@
 #if canImport(CmuxMobileLinkFFI)
+import CmuxEgress
 import CmuxMobileLinkFFI
 import Foundation
 import Network
@@ -109,15 +110,16 @@ public final class LocalLinkBrowser: @unchecked Sendable {
         resolving[name]?.cancel()
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
-        let connection = NWConnection(to: result.endpoint, using: parameters)
+        let connection = CmuxEgress.connection(to: result.endpoint, using: parameters, site: "CmuxMobileTransport.LocalLinkBrowser")
         resolving[name] = connection
+        let txt = pairs
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             guard let connection else { return }
             switch state {
             case .ready:
                 if case .hostPort(let host, let port)? = connection.currentPath?.remoteEndpoint {
                     let endpoint = LocalEndpoint(host: "\(host)", port: port.rawValue)
-                    _ = localLinkObserve(instance: name, txt: pairs, endpoints: [endpoint])
+                    _ = localLinkObserve(instance: name, txt: txt, endpoints: [endpoint])
                 }
                 connection.cancel()
             case .failed, .cancelled:

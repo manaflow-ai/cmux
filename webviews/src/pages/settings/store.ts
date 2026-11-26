@@ -41,6 +41,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t, text as localized } from "./strings";
+import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
@@ -92,10 +93,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
-  type ConnectionsRun,
-  type ConnectionsState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -105,9 +102,24 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type LooksRun,
+  type Standup,
+  type ArchivedRun,
+  type ArchivedState,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type TailnetVMReply,
+  type AutocloudAction,
+  type AutocloudAnswer,
+  type AutocloudState,
+  type Checklist,
+  type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -192,7 +204,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -240,6 +252,8 @@ export class SettingsStore {
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
+  /** Settings > Extensions cards waiting for `cmux.settings.extensions.changed`. */
+  private readonly extensionListeners = new Set<() => void>();
   private disposed = false;
   private openingThemeFile = false;
   private themeColorsRequested = false;
@@ -307,6 +321,10 @@ export class SettingsStore {
       this.listen("cmux.settings.models.changed", (models) =>
         this.queryClient.setQueryData(settingsKeys.models, models),
       ),
+      // An extension was installed, removed or saved (hot reload): Settings > Extensions reads again.
+      this.listen("cmux.settings.extensions.changed", () => {
+        for (const listener of this.extensionListeners) listener();
+      }),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
         this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
@@ -742,6 +760,18 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
@@ -796,6 +826,11 @@ export class SettingsStore {
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
    * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
   readonly chiefCalls = {
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
+
+  /** The Slack row owns its TS state; the host forwards authenticated Cloud requests only. */
+  readonly slackCalls = {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
@@ -889,6 +924,23 @@ export class SettingsStore {
   async runHub(run: HubRun): Promise<HubState | null> {
     await this.request("cmux.settings.hub.run", run);
     return this.hubState();
+  }
+
+  /** Settings > Automations (Cloud automations); null when the host has none. */
+  async autocloudState(): Promise<AutocloudState | null> {
+    const reply = await this.request("cmux.settings.autocloud.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Automations action: the CLI's answer (a preview, a run log, a saved automation and a new
+   * webhook's secret, once) and the card as it is after it. A refused call answers `{ok: false}`
+   * with the host's words. */
+  async runAutocloud(run: AutocloudAction): Promise<{ answer: AutocloudAnswer; state: AutocloudState | null }> {
+    const reply = await this.request("cmux.settings.autocloud.run", run);
+    const answer: AutocloudAnswer = reply.ok
+      ? (reply.value ?? { ok: false })
+      : { ok: false, error: { code: "host.refused", message: reply.error.message } };
+    return { answer, state: await this.autocloudState() };
   }
 
   /** Settings > Connections (hosted MCP servers); null when the host has none. */
@@ -1015,6 +1067,13 @@ export class SettingsStore {
     return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
   }
 
+  /** Runs `listener` each time the installed extensions change: an install, a removal, a hide, or a
+   * save of an extension's manifest that the daemon reloaded. */
+  onExtensionsChanged(listener: () => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
+  }
+
   /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
    * daemon's refusal text. The running extension hears the change at once. */
   async setExtensionSettings(
@@ -1076,6 +1135,20 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Sidebar > Archived Workspaces: the archived rows; null when the host has no list or the
+   * read failed. */
+  async archived(): Promise<ArchivedState | null> {
+    const reply = await this.request("cmux.settings.archived.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Opens, restores or deletes one archived row; the refusal's text, else null. */
+  async runArchived(run: ArchivedRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.archived.run", run);
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value?.error ?? null;
+  }
+
   /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
    * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
    * own words (a toggle while a preview is open), else null. */
@@ -1089,6 +1162,32 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Appearance > Looks: one `cmux setup` verb. Answers its JSON, the consent card an
+   * install without `yes` answers, or the CLI's refusal in its own words; null when the host has no
+   * Looks part or no CLI (a call it could not run), so the card draws nothing. */
+  async looks(run: LooksRun): Promise<LooksOutcome | null> {
+    const reply = await this.request("cmux.settings.looks", run);
+    if (!reply.ok) {
+      if (run.verb === "gallery" || run.verb === "preview") return null;
+      return { kind: "refusal", code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) };
+    }
+    return readLooksAnswer(reply.value);
+  }
+
+  /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
+   * standup`); null when the host cannot run it (an older build, no CLI). */
+  async customizeStandup(): Promise<Standup | null> {
+    const reply = await this.request("cmux.settings.customize.library", { verb: "standup" });
+    return reply.ok ? (reply.value?.standup ?? null) : null;
+  }
+
+  /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
+   * page knows of; null when the host has no CLI or did not answer. */
+  async customizeChecklist(has: ChecklistFact[]): Promise<Checklist | null> {
+    const reply = await this.request("cmux.settings.customize.checklist", { has });
+    return reply.ok ? (reply.value?.checklist ?? null) : null;
   }
 
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
@@ -1146,6 +1245,18 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Adds one Cloud machine to the person's tailnet. The key is sent once and the page drops it after this call. */
+  async joinTailnetVM(params: SettingsOps["cmux.settings.tailnet.joinVM"][0]): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.joinVM", params);
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
+  /** Removes one Cloud machine from the person's tailnet. */
+  async leaveTailnetVM(vm: string): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.leaveVM", { vm });
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
   /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first
    * refusal's text, else null. Every id is tried even after a refusal, so one stuck share never
    * keeps the rest open. */
@@ -1190,6 +1301,7 @@ export class SettingsStore {
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
+    this.extensionListeners.clear();
     this.queryClient.clear();
   }
 
@@ -1477,6 +1589,14 @@ export class SettingsStore {
 
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
+  }
+
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
   }
 
   /**

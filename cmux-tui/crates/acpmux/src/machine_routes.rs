@@ -232,10 +232,6 @@ pub async fn dial(hub: &Hub, key: &str) -> Result<crate::hub_carrier::HubStream,
     carrier.dial_service(key, CircuitService::CmuxTuiSession).await.map_err(|e| refusal_of(&e))
 }
 
-/// The most circuits one route carries at once: a person opens a few workspaces on a machine,
-/// and each circuit costs a ticket call and a relay circuit.
-const MAX_CIRCUITS: usize = 32;
-
 #[cfg(unix)]
 async fn serve(
     hub: Weak<Hub>,
@@ -266,7 +262,9 @@ async fn serve(
                 continue;
             }
         };
-        if !same_user(&stream) || circuits.len() >= MAX_CIRCUITS {
+        // No count cap: each circuit is one socket here and one relay circuit, which the
+        // relay bounds itself (256 live a slot); a descriptor shortage only pauses accept.
+        if !same_user(&stream) {
             continue;
         }
         let Some(hub) = hub.upgrade() else { return };

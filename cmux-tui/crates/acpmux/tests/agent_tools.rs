@@ -211,6 +211,8 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
             "cmux-subsessions",
             "cmux-forum",
             "acpmux",
+            // The hosted tools (`hosted_mcp.rs`), on by default.
+            acpmux::hosted_mcp::SERVER_NAME,
             acpmux::agent_tools::SAVED_SERVERS_NAME
         ],
         "{upstreams}"

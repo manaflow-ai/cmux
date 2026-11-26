@@ -24,13 +24,14 @@ import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS, nearestLevel } from "./composerPickerModel";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { BoltIcon } from "./BoltIcon";
 import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
+import { useModelPickerStyle } from "./chatDisplay";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
@@ -41,13 +42,11 @@ import { curatedSections, modelSections } from "./modelSections";
 import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
-import { listsFeedModels } from "./feedHarnesses";
-import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
-import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
+import { type QuickFamily, type QuickModel, hostTabBrand } from "./quickModelMenuModel";
 import { QuickModelColumns } from "./QuickModelColumns";
 import { EffortPicker } from "./EffortPicker";
 import { PickerChoiceGroup } from "./PickerChoiceGroup";
@@ -55,7 +54,10 @@ import { UsedMark } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { graphemePrefix } from "../../ui/initials";
+import { usePopupSettle } from "../../ui/popupSettle";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
+import { asPlainKey, useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
+import type { ListCommand } from "../../ui/keyStyle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
   PickerButton,
@@ -70,6 +72,7 @@ import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor }
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
+import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
 type ModelChoice = {
   id: string;
@@ -141,9 +144,12 @@ function sectionsFor(
   const cached = choiceCache.get(entry);
   if (cached?.lang === lang) return cached.sections;
   const seen = new Set<string>();
+  // A route of another brand's tab (Antigravity in Gemini's) lists only that brand's models.
+  const hostBrand = hostTabBrand(entry.mark ?? entry.id);
   const choices = entry.models.flatMap((model): ModelChoice[] => {
     const defaultChoice = entry.family === "prime" && isDefaultChoice(model);
     if (isDefaultChoice(model) && !defaultChoice) return [];
+    if (hostBrand && agentBrand(model.id) !== hostBrand) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
@@ -674,10 +680,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
-  const addHarnessText = t("modelPicker.addHarness");
+  const addHarnessText = props.addAgentLabel ?? t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
-  const notInstalledText = t("harnesses.notInstalled");
   const signedOutText = t("harnesses.signedOut");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
@@ -705,7 +710,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const [localRefreshStatus, setLocalRefreshStatus] = useState<"fetching" | "updated" | "error">();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
+  const settleMenu = usePopupSettle<HTMLDivElement>((node) => {
+    menu.current = node;
+  });
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
   // A pick hands the keyboard to the composer's prompt, not back to the model button (promptFocus.ts).
@@ -792,7 +800,10 @@ export function ModelPicker(props: ModelPickerProps) {
     () =>
       modelsNeeded
         ? new ModelSearchIndex(
-            harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry)),
+            // A harness that is not installed lists no models, also in a search (Lucas 2026-11-25).
+            harnesses.filter(
+              (entry) => entry.pickable && !blockedProfile(entry) && !entry.notInstalled && offered(entry),
+            ),
             (entry) => choicesFor(entry, lang),
             (entry) => entry.name,
           )
@@ -1137,19 +1148,15 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
+        // A harness that is not installed lists no models, also in a search (Lucas 2026-11-25: "we
+        // should not display their models if they are not installed"). Its tab offers Install.
+        !entry.notInstalled &&
         offered(entry) &&
         // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
         (!entry.unavailable || entry.ids.includes(harness ?? "")),
     );
-    // The harnesses set up here first, then the vendors' own ones a pick installs (Gemini CLI for a
-    // Gemini model), then those listing the feed's models until they run (OpenCode serves Gemini
-    // too), then those no pick can install (their pick opens the Harnesses page).
-    const rank = (entry: HarnessChoice) => {
-      if (!needsSetup(entry)) return 0;
-      const id = entry.acpmuxHarness ?? entry.id;
-      if (entry.notInstalled && !INSTALL_COMMANDS[id]) return 3;
-      return entry.notInstalled && listsFeedModels(id) ? 2 : 1;
-    };
+    // The harnesses set up here first, then those a pick signs in first.
+    const rank = (entry: HarnessChoice) => (needsSetup(entry) ? 1 : 0);
     const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
     const groupOf = new Map<ModelChoice, ModelChoice>();
@@ -1169,8 +1176,8 @@ export function ModelPicker(props: ModelPickerProps) {
       seen.add(model);
       const effort = modelEffort(model, typed.effort);
       // The harness travels on its own: the menu heads each harness's matches with its name. One
-      // that a pick sets up first says so ("Not installed": the pick installs it).
-      const setup = entry.notInstalled ? notInstalledText : loginFor(entry) !== undefined ? signedOutText : undefined;
+      // that a pick signs in first says so ("Signed out").
+      const setup = loginFor(entry) !== undefined ? signedOutText : undefined;
       const hint = [model.provider, effort, typed.fast ? fastText : undefined, setup].filter(Boolean).join(" · ");
       const row = quickRow(entry.id, model);
       return [
@@ -1188,12 +1195,16 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
+  const pickerStyle = useModelPickerStyle();
   const quickFamilies = useMemo(() => {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!quick || harnessFixed || current?.folder) return undefined;
+    // Model Picker Style "menu" (chatDisplay.ts MODEL_PICKER_STYLE_KEY, a look's pick, after the
+    // Claude Code app): every chip opens that compact menu, a New Tab's too; More models still
+    // opens the full picker with every harness.
+    if (!quick || harnessFixed || current?.folder || pickerStyle === "menu") return undefined;
     // Keep the columns trigger mounted before its first press. Replacing the list trigger as it
     // opens loses that press's click, so another popover never receives its outside dismissal.
     // The rows stay lazy until the picker opens.
@@ -1220,15 +1231,27 @@ export function ModelPicker(props: ModelPickerProps) {
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
-      const { shown, more } = signedOutHere
-        ? { shown: [], more: [] }
-        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
-      // A harness this machine does not have lists its catalog models, none of them pickable, with
-      // its Install… row.
+      // A harness this machine does not have lists no model, only "Not installed" and its Install…
+      // row (Lucas 2026-11-25: "never show models unless the user has it installed").
       const missing = !!entry.notInstalled;
-      // With onSetUpPick a pick of one installs the harness first, so its rows stay pickable.
-      const tabRow = (model: ModelChoice) =>
-        missing && !onSetUpPick ? { ...row(entry, model), disabled: true } : row(entry, model);
+      const { shown, more } =
+        signedOutHere || missing
+          ? { shown: [], more: [] }
+          : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
+      // The Chief is listed only for a chat that runs on it (composerPickerEntries): its tab says why
+      // it lists no model, in the Chief's own words.
+      const ownModelless = !missing && !signedOutHere && picksOwnModel(entry.family);
+      // One whose probe failed (Gemini CLI with no API key) says so on its tab and its Account row.
+      // A started chat that runs on it keeps it plain: the chat works there, and its tab opens on it
+      // (leadRoute skips an unavailable route). So does a named launch
+      // setup ("Claude (work)"), whose tab still starts it (railByHarness).
+      const unavailableHere =
+        !!entry.unavailable &&
+        !missing &&
+        !signedOutHere &&
+        !launchSuffix(entry.id) &&
+        !(forkHarnesses && entry.ids.includes(harness ?? ""));
+      const tabRow = (model: ModelChoice) => row(entry, model);
       list.push({
         id: entry.id,
         name: entry.name,
@@ -1237,7 +1260,9 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
-        ...(entry.unavailable ? { unavailable: true } : {}),
+        ...(entry.unavailable && !(forkHarnesses && entry.ids.includes(harness ?? "")) ? { unavailable: true } : {}),
+        ...(ownModelless ? { note: t("picker.chiefOwnModel") } : {}),
+        ...(unavailableHere ? { note: unavailableText } : {}),
         ...(missing ? { note: t("harnesses.notInstalled") } : {}),
         ...(missing && onAddAgent ? { setUp: onAddAgent } : {}),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
@@ -1265,6 +1290,7 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [
     modelsNeeded,
     quick,
+    pickerStyle,
     harnessFixed,
     forkTargets,
     forkHarnesses,
@@ -1275,7 +1301,6 @@ export function ModelPicker(props: ModelPickerProps) {
     loginFor,
     needsSetup,
     onAddAgent,
-    onSetUpPick,
     favorites,
     starredText,
     harness,
@@ -1286,6 +1311,7 @@ export function ModelPicker(props: ModelPickerProps) {
     props.profiles,
     signedOut,
     claudeConnect,
+    unavailableText,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
@@ -1435,6 +1461,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     // Candidate acceptance belongs to the IME. WebKit can report only keyCode 229 on commit.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.target === search.current) {
+      fieldStyleKeys(event);
+      if (event.defaultPrevented) return;
+    }
     const shortcut = event.ctrlKey && ["n", "p", "j", "k"].includes(event.key.toLowerCase());
     if (shortcut) {
       event.preventDefault();
@@ -1475,6 +1505,46 @@ export function ModelPicker(props: ModelPickerProps) {
       close();
       trigger.current?.focus();
     }
+  };
+  // `app.keyStyle`. The search field keeps its typing (Emacs' Ctrl-N/P are its own already); Vim's
+  // Esc (Emacs' Ctrl-G) gives the keyboard to the model list. There j/k, gg/G, l, h and Esc are the
+  // field's arrows, Return, Left and Escape, and / goes back to the field.
+  const modelListTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const modelsListElement = () => menu.current?.ownerDocument.getElementById(`${menuId}-models`) ?? null;
+  const fieldStyleKeys = useListKeys({
+    onCommand: (command) => {
+      if (command === "list.next" || command === "list.previous") return move(command === "list.next" ? 1 : -1);
+      const list = modelsListElement();
+      if (command !== "list.leave" || !list || rowCount === 0) return false;
+      focusRoute(list, "person", "key style list key", { preventScroll: true });
+    },
+  });
+  const listStyleKeys = useListKeys({
+    onCommand: (command, _native, pressed) => {
+      const event = pressed as unknown as ReactKeyboardEvent<HTMLInputElement>;
+      if (command === "list.next" || command === "list.previous") return move(command === "list.next" ? 1 : -1);
+      if (command === "list.first" || command === "list.last") {
+        if (rowCount) setActive(command === "list.first" ? 0 : rowCount - 1);
+        return;
+      }
+      if (command === "list.search")
+        return void focusRoute(search.current, "person", "key style list key", { preventScroll: true });
+      const keys: Partial<Record<ListCommand, string>> = {
+        "list.open": "Enter",
+        "list.back": "ArrowLeft",
+        "list.leave": "Escape",
+      };
+      const key = keys[command];
+      if (!key) return false;
+      keyDown(asPlainKey(event, key));
+    },
+  });
+  const modelListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    listStyleKeys(event);
+    // The list has the keyboard only after a key style's leave: the field's own keys still work
+    // there (arrows, Return, Escape, a digit), except on a row a Tab reached.
+    if (!event.defaultPrevented && event.target === event.currentTarget)
+      keyDown(event as unknown as ReactKeyboardEvent<HTMLInputElement>);
   };
   // The chip draws one harness: the one a switch to another harness is starting, else the running
   // one. Browsing another harness in the open menu changes neither its mark nor its name.
@@ -1797,8 +1867,11 @@ export function ModelPicker(props: ModelPickerProps) {
       </ContextMenu>
       {open && (
         <PickerDialog
-          ref={menu}
+          ref={settleMenu}
           id={menuId}
+          // The App's menu glass under the page, as the quick model menus and every Menu (ui/glass/hostGlass.ts).
+          data-host-glass="menu"
+          data-host-glass-cover=""
           data-reasoning-column={columnEffort ? true : undefined}
           className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
@@ -1968,7 +2041,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onClick={refreshCatalog}
                 >
                   {refreshStatus === "fetching" ? (
-                    <Spinner size={14} loading />
+                    <WaitSpinner size={14} until={<Icon name="action.reload" size={14} />} />
                   ) : (
                     <Icon name="action.reload" size={14} />
                   )}
@@ -1978,6 +2051,8 @@ export function ModelPicker(props: ModelPickerProps) {
             <ScrollArea fade className="min-h-0 flex-1" viewportClassName={MODELS_VIEWPORT}>
               <PickerOptionList
                 id={`${menuId}-models`}
+                tabIndex={modelListTakesKeys ? -1 : undefined}
+                onKeyDown={modelListKeyDown}
                 className="acpmux-mp-models"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
@@ -2018,20 +2093,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   )}
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
-                    <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
-                    {/* Catalog models remain discoverable before install, while every row is inert. */}
-                    {choicesFor(selected, lang).map((model) => (
-                      <PickerOption
-                        key={model.id}
-                        type="button"
-                        active={false}
-                        disabled
-                        aria-disabled="true"
-                        className={`acpmux-mp-row ${modelRow} ${rowFill(false)} text-muted`}
-                      >
-                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
-                      </PickerOption>
-                    ))}
+                    <div className={emptyNote}>{t("harnesses.notInstalledNamed", { agent: selected.name })}</div>
+                    {/* Install leads the list, above the inert catalog models. */}
                     {onAddAgent && (
                       <button
                         type="button"

@@ -3,27 +3,7 @@
   "max_bound_ms": 2000,
   "known_over_bound": [
     {
-      "id": "tabgrid.terminal.placeholder",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
-      "id": "tabgrid.terminal.connecting",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
       "id": "tabgrid.terminal.unavailable",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
-      "id": "tabgrid.browser.globe",
-      "item": "item 1a (mobile-open-fast)",
-      "fix": "cmux#54985"
-    },
-    {
-      "id": "tabgrid.stream.icon",
       "item": "item 1a (mobile-open-fast)",
       "fix": "cmux#54985"
     },
@@ -31,41 +11,6 @@
       "id": "chat.user.empty",
       "item": "item 1b (ios-optimistic-send)",
       "fix": "cmux#54993"
-    },
-    {
-      "id": "chat.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "status.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "browser.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "simulator.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "agentChats.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "feed.connecting",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "cloud.chat.connecting",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
     }
   ],
   "patterns": [
@@ -99,14 +44,6 @@
     }
   ],
   "placeholders": [
-    {
-      "id": "agentChats.connection.chip",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift",
-      "line": 332,
-      "bound_ms": 0,
-      "waits_for": "the agent chats list's link held stale or reconnecting",
-      "root_fix": "3"
-    },
     {
       "id": "agentChats.loading",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift",
@@ -164,14 +101,6 @@
       "root_fix": "1b"
     },
     {
-      "id": "chat.tool.fullOutput.loading",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ToolViews.swift",
-      "line": 139,
-      "bound_ms": 2000,
-      "waits_for": "a tool call's full output on its way from the Mac",
-      "root_fix": "1b"
-    },
-    {
       "id": "chat.user.empty",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatScreen.swift",
       "line": 1123,
@@ -186,14 +115,6 @@
       "bound_ms": 2000,
       "waits_for": "Cloud automations' first load",
       "root_fix": "1c"
-    },
-    {
-      "id": "cloud.chat.connecting",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/CloudChatsScreen.swift",
-      "line": 171,
-      "bound_ms": 0,
-      "waits_for": "a Cloud chat connecting through a Mac (up to 40 s)",
-      "root_fix": "3"
     },
     {
       "id": "cloud.chats.loading",
@@ -218,14 +139,6 @@
       "bound_ms": 2000,
       "waits_for": "the task composer's drafts",
       "root_fix": "1c"
-    },
-    {
-      "id": "feed.connecting",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileFeed/FeedScreen.swift",
-      "line": 350,
-      "bound_ms": 0,
-      "waits_for": "the feed before the Mac answers: \"Connecting to your Mac\"",
-      "root_fix": "3"
     },
     {
       "id": "home.conversations.loading",
@@ -316,38 +229,6 @@
       "root_fix": "1b"
     },
     {
-      "id": "tabgrid.browser.globe",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/BrowserTab.swift",
-      "line": 394,
-      "bound_ms": 1000,
-      "waits_for": "a browser tab's card with no snapshot and no last-known picture: a globe",
-      "root_fix": "1a"
-    },
-    {
-      "id": "tabgrid.stream.icon",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/StreamedBrowserPage.swift",
-      "line": 319,
-      "bound_ms": 1000,
-      "waits_for": "a streamed browser or simulator card with no frame yet: a globe or iPhone icon",
-      "root_fix": "1a"
-    },
-    {
-      "id": "tabgrid.terminal.connecting",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift",
-      "line": 214,
-      "bound_ms": 1000,
-      "waits_for": "the tab grid's terminal card before its first frame: a skeleton of bars",
-      "root_fix": "1a"
-    },
-    {
-      "id": "tabgrid.terminal.placeholder",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Screen/TerminalTabPage.swift",
-      "line": 253,
-      "bound_ms": 1000,
-      "waits_for": "the tab grid's terminal card with no snapshot or screen text: a black card with the program's name",
-      "root_fix": "1a"
-    },
-    {
       "id": "tabgrid.terminal.unavailable",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift",
       "line": 142,
@@ -406,6 +287,11 @@
   ],
   "exempt": [
     {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/QuietUpdatingGallery.swift",
+      "text": "ConnectionChip(.init(.macOffline, sentence: \"Mac Studio is offline.\"), downSince: nil)",
+      "reason": "design gallery: the quiet-updating variants drawn for review, not in a flow"
+    },
+    {
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
       "text": "TerminalConnectingView(topInset: 60)",
       "reason": "design gallery: draws the state for review, not in a flow"
@@ -449,6 +335,33 @@
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ParityViews.swift",
       "text": "Text(\"Preparing the summary…\").font(.footnote).foregroundStyle(.secondary)",
       "reason": "work the person asked for (an agent writing a continuation summary), not content on its way: progress, not a placeholder"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"b\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .below)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"c\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .above)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"before\": SkeletonList(rows: 3, delay: .zero, caption: caption)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    }
+  ],
+  "known_layout_shifts": [
+    {
+      "flow": "offline-send",
+      "max_shift_frames": 4,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
     }
   ]
 }

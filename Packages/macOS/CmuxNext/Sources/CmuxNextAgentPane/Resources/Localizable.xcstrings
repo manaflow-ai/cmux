@@ -1,6 +1,16 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.github.requested": {"comment":"The new chat folder picker after the person asked their GitHub organization's owners to install the cmux App (GitHub sent the request to the owners).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the organization's owners to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي المؤسسة الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika organizacije da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Organisationens ejere er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber der Organisation wurden gebeten, cmux zu genehmigen. Ihre Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de la organización que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de l'organisation ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari dell'organizzazione di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"組織のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ស្ថាប័នឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"조직 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Organisasjonens eiere er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli organizacji o zatwierdzenie cmux. Jej repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários da organização que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам организации отправлен запрос на одобрение cmux. Её репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าขององค์กรอนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Kuruluş sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам організації надіслано запит на схвалення cmux. Її репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu tổ chức phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请组织所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請組織擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
+    "agentPane.github.requestedOwner": {"comment":"The new chat folder picker after the person asked a GitHub organization's owners to install the cmux App; %@ is the organization's name.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the owners of %@ to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي %@ الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika %@ da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Ejerne af %@ er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber von %@ wurden gebeten, cmux zu genehmigen. Die Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de %@ que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de %@ ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari di %@ di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"%@ のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ %@ ឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"%@ 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Eierne av %@ er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli %@ o zatwierdzenie cmux. Repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários de %@ que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам %@ отправлен запрос на одобрение cmux. Репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าของ %@ อนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"%@ sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам %@ надіслано запит на схвалення cmux. Репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu %@ phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请 %@ 的所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請 %@ 的擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
+    "agentPane.insertPhoto.prompt": {"comment":"Insert Photo: the open panel's button that inserts the chosen pictures into the focused pane.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert"}}}},
+    "agentPane.insertPhoto.noTarget": {"comment":"Insert Photo: refusal when the focused pane is neither an agent chat nor a terminal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert Photo puts a picture into an agent chat or a terminal; focus one first."}}}},
+    "agentPane.insertPhoto.localOnly": {"comment":"Insert Photo: refusal in a remote (Cloud or SSH) terminal without a path argument.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert Photo picks files on this Mac; a remote terminal can't read them. Pass a path on that machine with --arg path=<file>."}}}},
+    "agentPane.cloudChatEnded.titleOn": {"comment":"Agent pane: notice title on a Mac tab whose Cloud chat ended; %@ is the Cloud machine's name (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت محادثة Cloud على %@."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat na %@ je završen."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten på %@ er slut."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Cloud-Chat auf %@ wurde beendet."}},"en":{"stringUnit":{"state":"translated","value":"The Cloud chat on %@ ended."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat en Cloud de %@ terminó."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le chat Cloud sur %@ s’est terminé."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat Cloud su %@ è terminata."}},"ja":{"stringUnit":{"state":"needs_review","value":"%@ の Cloud チャットは終了しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud នៅលើ %@ បានបញ្ចប់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"%@의 Cloud 채팅이 종료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten på %@ er avsluttet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat w Cloud na %@ się zakończył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat no Cloud em %@ terminou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud на %@ завершился."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud บน %@ จบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ üzerindeki Cloud sohbeti sona erdi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud на %@ завершився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện Cloud trên %@ đã kết thúc."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"%@ 上的 Cloud 聊天已结束。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"%@ 上的 Cloud 聊天已結束。"}}}},
+    "agentPane.cloudChatEnded.title": {"comment":"Agent pane: notice title on a Mac tab whose Cloud chat ended (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت محادثة Cloud."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud chat je završen."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten er slut."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Cloud-Chat wurde beendet."}},"en":{"stringUnit":{"state":"translated","value":"The Cloud chat ended."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat en Cloud terminó."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le chat Cloud s’est terminé."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat Cloud è terminata."}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloud チャットは終了しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែក Cloud បានបញ្ចប់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 채팅이 종료되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-chatten er avsluttet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat w Cloud się zakończył."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat no Cloud terminou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат в Cloud завершился."}},"th":{"stringUnit":{"state":"needs_review","value":"แชต Cloud จบแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud sohbeti sona erdi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат у Cloud завершився."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện Cloud đã kết thúc."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Cloud 聊天已结束。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Cloud 聊天已結束。"}}}},
+    "agentPane.cloudChatEnded.promptBack": {"comment":"Agent pane: the line under the Cloud-chat-ended notice when the message went back into the composer (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت بعد وقت قصير من بدئها: ربما نفد استخدام وكيلها، أو توقّف الجهاز. رسالتك عادت إلى مربع الكتابة: أرسلها مجددًا، أو اختر وكيلًا أو جهازًا آخر أولًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Završio je ubrzo nakon početka: agent je možda potrošio korištenje ili je mašina stala. Tvoja poruka je ponovo u polju za pisanje: pošalji je ponovo ili prvo izaberi drugog agenta ili mašinu."}},"da":{"stringUnit":{"state":"needs_review","value":"Den sluttede kort efter start: agenten kan være løbet tør for forbrug, eller maskinen stoppede. Din besked er tilbage i skrivefeltet: send den igen, eller vælg først en anden agent eller maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"Er endete kurz nach dem Start: Der Agent hat vielleicht kein Nutzungskontingent mehr, oder die Maschine hat angehalten. Deine Nachricht ist wieder im Eingabefeld: Sende sie erneut oder wähle zuerst einen anderen Agenten oder eine andere Maschine."}},"en":{"stringUnit":{"state":"translated","value":"It ended soon after it started: its agent may be out of usage, or the machine stopped. Your message is back in the composer: send it again, or pick another agent or machine first."}},"es":{"stringUnit":{"state":"needs_review","value":"Terminó poco después de empezar: puede que su agente se haya quedado sin uso o que la máquina se haya detenido. Tu mensaje volvió al editor: envíalo de nuevo o elige antes otro agente o máquina."}},"fr":{"stringUnit":{"state":"needs_review","value":"Il s’est terminé peu après son début : son agent n’a peut-être plus d’utilisation, ou la machine s’est arrêtée. Votre message est revenu dans la zone de saisie : renvoyez-le, ou choisissez d’abord un autre agent ou une autre machine."}},"it":{"stringUnit":{"state":"needs_review","value":"È terminata poco dopo l’avvio: il suo agente potrebbe aver esaurito l’utilizzo, o la macchina si è fermata. Il tuo messaggio è tornato nel compositore: invialo di nuovo o scegli prima un altro agente o un’altra macchina."}},"ja":{"stringUnit":{"state":"needs_review","value":"開始直後に終了しました。エージェントの使用量が上限に達したか、マシンが停止した可能性があります。メッセージは入力欄に戻っています。もう一度送るか、先に別のエージェントやマシンを選んでください。"}},"km":{"stringUnit":{"state":"needs_review","value":"វាបានបញ្ចប់ភ្លាមៗបន្ទាប់ពីចាប់ផ្តើម៖ ភ្នាក់ងាររបស់វាប្រហែលអស់ការប្រើប្រាស់ ឬម៉ាស៊ីនបានឈប់។ សាររបស់អ្នកបានត្រឡប់ទៅប្រអប់សរសេរវិញ៖ ផ្ញើវាម្តងទៀត ឬជ្រើសភ្នាក់ងារ ឬម៉ាស៊ីនផ្សេងជាមុនសិន។"}},"ko":{"stringUnit":{"state":"needs_review","value":"시작 직후 종료되었습니다. 에이전트의 사용량이 소진되었거나 머신이 멈췄을 수 있습니다. 메시지가 입력창으로 돌아왔습니다. 다시 보내거나 먼저 다른 에이전트나 머신을 선택하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Den avsluttet kort etter start: agenten kan ha brukt opp kvoten, eller maskinen stoppet. Meldingen din er tilbake i skrivefeltet: send den igjen, eller velg først en annen agent eller maskin."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończył się wkrótce po starcie: agentowi mógł skończyć się limit albo maszyna się zatrzymała. Twoja wiadomość wróciła do pola tekstu: wyślij ją ponownie albo najpierw wybierz innego agenta lub maszynę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Terminou logo depois de começar: o agente pode ter ficado sem uso, ou a máquina parou. Sua mensagem voltou para o campo de texto: envie de novo ou escolha antes outro agente ou máquina."}},"ru":{"stringUnit":{"state":"needs_review","value":"Он завершился вскоре после начала: возможно, у агента закончился лимит или машина остановилась. Ваше сообщение снова в поле ввода: отправьте его ещё раз или сначала выберите другого агента или машину."}},"th":{"stringUnit":{"state":"needs_review","value":"แชตจบลงไม่นานหลังเริ่ม เอเจนต์อาจใช้งานถึงขีดจำกัดแล้ว หรือเครื่องหยุดทำงาน ข้อความของคุณกลับมาอยู่ในช่องพิมพ์แล้ว ส่งอีกครั้ง หรือเลือกเอเจนต์หรือเครื่องอื่นก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başladıktan kısa süre sonra sona erdi: ajanın kullanımı bitmiş veya makine durmuş olabilir. Mesajınız yazma alanına geri döndü: yeniden gönderin ya da önce başka bir ajan veya makine seçin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Він завершився невдовзі після початку: можливо, в агента закінчився ліміт або машина зупинилася. Ваше повідомлення знову в полі введення: надішліть його ще раз або спершу виберіть іншого агента чи машину."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện kết thúc ngay sau khi bắt đầu: agent có thể đã hết lượt dùng, hoặc máy đã dừng. Tin nhắn của bạn đã trở lại ô soạn: gửi lại, hoặc chọn agent hay máy khác trước."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"它在开始后不久就结束了：智能体可能已用尽用量，或机器已停止。你的消息已放回输入框：再次发送，或先选择其他智能体或机器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"它在開始後不久就結束了：智慧代理可能已用盡用量，或機器已停止。你的訊息已放回輸入框：再次傳送，或先選擇其他智慧代理或機器。"}}}},
+    "agentPane.cloudChatEnded.dismiss": {"comment":"Agent pane: button that closes the Cloud-chat-ended notice (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إغلاق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk"}},"de":{"stringUnit":{"state":"needs_review","value":"Schließen"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ignorer"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi"}},"ja":{"stringUnit":{"state":"needs_review","value":"閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрыть"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закрити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉"}}}},
+    "agentPane.cloudChatEnded.detail": {"comment":"Agent pane: the line under the Cloud-chat-ended notice when no message came back (cmux#55066).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اختفى جهازها أو علامة تبويبها هناك. أرسل رسالة لبدء محادثة جديدة هنا، أو اختر وكيلًا أو جهازًا آخر أولًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Njegova mašina ili kartica tamo je nestala. Pošalji poruku da ovdje započneš novi chat ili prvo izaberi drugog agenta ili mašinu."}},"da":{"stringUnit":{"state":"needs_review","value":"Dens maskine eller fane der forsvandt. Send en besked for at starte en ny chat her, eller vælg først en anden agent eller maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"Seine Maschine oder sein Tab dort ist weg. Sende eine Nachricht, um hier einen neuen Chat zu starten, oder wähle zuerst einen anderen Agenten oder eine andere Maschine."}},"en":{"stringUnit":{"state":"translated","value":"Its machine or its tab there went. Send a message to start a new chat here, or pick another agent or machine first."}},"es":{"stringUnit":{"state":"needs_review","value":"Su máquina o su pestaña allí desapareció. Envía un mensaje para empezar un chat nuevo aquí o elige antes otro agente o máquina."}},"fr":{"stringUnit":{"state":"needs_review","value":"Sa machine ou son onglet là-bas a disparu. Envoyez un message pour démarrer un nouveau chat ici, ou choisissez d’abord un autre agent ou une autre machine."}},"it":{"stringUnit":{"state":"needs_review","value":"La sua macchina o la sua scheda lì non c’è più. Invia un messaggio per iniziare qui una nuova chat o scegli prima un altro agente o un’altra macchina."}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンまたはそこでのタブがなくなりました。メッセージを送ってここで新しいチャットを始めるか、先に別のエージェントやマシンを選んでください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីន ឬផ្ទាំងរបស់វានៅទីនោះបានបាត់។ ផ្ញើសារដើម្បីចាប់ផ្តើមការជជែកថ្មីនៅទីនេះ ឬជ្រើសភ្នាក់ងារ ឬម៉ាស៊ីនផ្សេងជាមុនសិន។"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 또는 그곳의 탭이 사라졌습니다. 메시지를 보내 여기서 새 채팅을 시작하거나 먼저 다른 에이전트나 머신을 선택하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Maskinen eller fanen der forsvant. Send en melding for å starte en ny chat her, eller velg først en annen agent eller maskin."}},"pl":{"stringUnit":{"state":"needs_review","value":"Jego maszyna lub karta tam zniknęła. Wyślij wiadomość, aby zacząć tu nowy czat, albo najpierw wybierz innego agenta lub maszynę."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A máquina ou a aba dele lá sumiu. Envie uma mensagem para começar um novo chat aqui ou escolha antes outro agente ou máquina."}},"ru":{"stringUnit":{"state":"needs_review","value":"Его машина или вкладка там пропала. Отправьте сообщение, чтобы начать здесь новый чат, или сначала выберите другого агента или машину."}},"th":{"stringUnit":{"state":"needs_review","value":"เครื่องหรือแท็บของแชตนั้นหายไปแล้ว ส่งข้อความเพื่อเริ่มแชตใหม่ที่นี่ หรือเลือกเอเจนต์หรือเครื่องอื่นก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makinesi veya oradaki sekmesi gitti. Burada yeni bir sohbet başlatmak için mesaj gönderin ya da önce başka bir ajan veya makine seçin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Його машина або вкладка там зникла. Надішліть повідомлення, щоб почати тут новий чат, або спершу виберіть іншого агента чи машину."}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy hoặc thẻ của nó ở đó đã mất. Gửi tin nhắn để bắt đầu cuộc trò chuyện mới ở đây, hoặc chọn agent hay máy khác trước."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"它的机器或那里的标签页已不在。发送消息在这里开始新的聊天，或先选择其他智能体或机器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"它的機器或那裡的分頁已不在。傳送訊息在這裡開始新的聊天，或先選擇其他智慧代理或機器。"}}}},
     "agentPane.computerUse.notSetUp": {"comment":"Native New Tab: notice when a prompt that names @computer-use is held while Computer Use is not set up","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer use is not set up"}},"ar":{"stringUnit":{"state":"needs_review","value":"لم يتم إعداد استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara nije podešeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug er ikke konfigureret"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung ist nicht eingerichtet"}},"es":{"stringUnit":{"state":"needs_review","value":"El uso del ordenador no está configurado"}},"fr":{"stringUnit":{"state":"needs_review","value":"L’utilisation de l’ordinateur n’est pas configurée"}},"it":{"stringUnit":{"state":"needs_review","value":"L’uso del computer non è configurato"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作が設定されていません"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រមិនទាន់បានរៀបចំទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용이 설정되지 않았습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk er ikke konfigurert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera nie jest skonfigurowana"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O uso do computador não está configurado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером не настроено"}},"th":{"stringUnit":{"state":"needs_review","value":"ยังไม่ได้ตั้งค่าการใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar kullanımı ayarlanmadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером не налаштовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa thiết lập sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"尚未设置电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"尚未設定電腦操作"}}}},
     "editor.refusal.noEditor": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No code editor is installed on this Mac."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يوجد محرر شيفرة مثبت على جهاز Mac هذا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Na ovom Macu nije instaliran nijedan uređivač koda."}},"da":{"stringUnit":{"state":"needs_review","value":"Der er ingen kodeeditor installeret på denne Mac."}},"de":{"stringUnit":{"state":"needs_review","value":"Auf diesem Mac ist kein Code-Editor installiert."}},"es":{"stringUnit":{"state":"needs_review","value":"No hay ningún editor de código instalado en este Mac."}},"fr":{"stringUnit":{"state":"needs_review","value":"Aucun éditeur de code n’est installé sur ce Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"Su questo Mac non è installato alcun editor di codice."}},"ja":{"stringUnit":{"state":"needs_review","value":"この Mac にはコードエディタがインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនមានកម្មវិធីកែកូដដែលបានដំឡើងនៅលើ Mac នេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac에 설치된 코드 편집기가 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingen koderedigerer er installert på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Na tym Macu nie zainstalowano żadnego edytora kodu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nenhum editor de código está instalado neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"На этом Mac не установлен ни один редактор кода."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีโปรแกรมแก้ไขโค้ดติดตั้งอยู่บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac'te yüklü kod düzenleyici yok."}},"uk":{"stringUnit":{"state":"needs_review","value":"На цьому Mac не встановлено жодного редактора коду."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có trình soạn thảo mã nào được cài trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上没有安装代码编辑器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上沒有安裝程式碼編輯器。"}}}},
     "editor.refusal.notInstalled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The editor %@ is not installed on this Mac."}},"ar":{"stringUnit":{"state":"needs_review","value":"المحرر %@ غير مثبت على جهاز Mac هذا."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uređivač %@ nije instaliran na ovom Macu."}},"da":{"stringUnit":{"state":"needs_review","value":"Editoren %@ er ikke installeret på denne Mac."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Editor %@ ist auf diesem Mac nicht installiert."}},"es":{"stringUnit":{"state":"needs_review","value":"El editor %@ no está instalado en este Mac."}},"fr":{"stringUnit":{"state":"needs_review","value":"L’éditeur %@ n’est pas installé sur ce Mac."}},"it":{"stringUnit":{"state":"needs_review","value":"L’editor %@ non è installato su questo Mac."}},"ja":{"stringUnit":{"state":"needs_review","value":"エディタ %@ はこの Mac にインストールされていません。"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីកែ %@ មិនបានដំឡើងនៅលើ Mac នេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"편집기 %@이(가) 이 Mac에 설치되어 있지 않습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Redigereren %@ er ikke installert på denne Macen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Edytor %@ nie jest zainstalowany na tym Macu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O editor %@ não está instalado neste Mac."}},"ru":{"stringUnit":{"state":"needs_review","value":"Редактор %@ не установлен на этом Mac."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ติดตั้งโปรแกรมแก้ไข %@ บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ düzenleyicisi bu Mac'te yüklü değil."}},"uk":{"stringUnit":{"state":"needs_review","value":"Редактор %@ не встановлено на цьому Mac."}},"vi":{"stringUnit":{"state":"needs_review","value":"Trình soạn thảo %@ chưa được cài trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 上没有安装编辑器 %@。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 上沒有安裝編輯器 %@。"}}}},
@@ -10817,258 +10827,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعطلت لوحة الوكيل."
+            "value": "تتعطل لوحة الوكيل باستمرار. سيعيد cmux تحميلها قريبًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta se srušio."
+            "value": "Panel agenta se stalno ruši. cmux će ga uskoro ponovo učitati."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet gik ned."
+            "value": "Agentpanelet bliver ved med at gå ned. cmux indlæser det igen om lidt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agentenbereich ist abgestürzt."
+            "value": "Der Agentenbereich stürzt immer wieder ab. cmux lädt ihn gleich neu."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent pane crashed."
+            "value": "The agent pane keeps crashing. cmux will load it again shortly."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El panel del agente se bloqueó."
+            "value": "El panel del agente se sigue bloqueando. cmux lo volverá a cargar en breve."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le panneau de l’agent a planté."
+            "value": "Le panneau de l’agent plante sans cesse. cmux va le recharger sous peu."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il pannello dell’agente si è arrestato."
+            "value": "Il pannello dell’agente continua ad arrestarsi. cmux lo ricaricherà a breve."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントペインがクラッシュしました。"
+            "value": "エージェントペインがクラッシュを繰り返しています。cmux がまもなく再読み込みします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ទាំងភ្នាក់ងារបានគាំង។"
+            "value": "ផ្ទាំងភ្នាក់ងារគាំងជាបន្តបន្ទាប់។ cmux នឹងផ្ទុកវាឡើងវិញក្នុងពេលឆាប់ៗ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 패널이 충돌했습니다."
+            "value": "에이전트 패널이 계속 충돌합니다. cmux가 곧 다시 로드합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentpanelet krasjet."
+            "value": "Agentpanelet krasjer gang på gang. cmux laster det inn på nytt om litt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Panel agenta uległ awarii."
+            "value": "Panel agenta wciąż ulega awarii. cmux wkrótce załaduje go ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O painel do agente travou."
+            "value": "O painel do agente continua travando. O cmux vai recarregá-lo em breve."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента аварийно завершилась."
+            "value": "Панель агента постоянно аварийно завершается. cmux скоро загрузит её снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บานหน้าต่างเอเจนต์ขัดข้อง"
+            "value": "บานหน้าต่างเอเจนต์ขัดข้องซ้ำ ๆ cmux จะโหลดใหม่ในอีกสักครู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan bölmesi çöktü."
+            "value": "Ajan bölmesi sürekli çöküyor. cmux birazdan yeniden yükleyecek."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Панель агента аварійно завершилася."
+            "value": "Панель агента постійно аварійно завершується. cmux незабаром завантажить її знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ngăn tác tử đã gặp sự cố."
+            "value": "Ngăn tác tử liên tục gặp sự cố. cmux sẽ sớm tải lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格已崩溃。"
+            "value": "代理窗格反复崩溃。cmux 稍后会重新载入它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理窗格已當機。"
-          }
-        }
-      }
-    },
-    "agentPane.crashed.reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة التحميل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ponovo učitaj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genindlæs"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neu laden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recargar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recharger"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ricarica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再読み込み"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទុកឡើងវិញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 로드"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Last inn på nytt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Załaduj ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recarregar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезагрузить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหลดใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeniden yükle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезавантажити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tải lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新载入"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入"
+            "value": "代理窗格反覆當機。cmux 稍後會重新載入。"
           }
         }
       }
@@ -23139,6 +23018,138 @@
       }
     }
   },
+    "agentPane.error.folderMissing": {
+     "comment": "Agent pane: a folder picked for a chat no longer exists (a reboot wiped it, it was removed). %@ is its path.",
+     "extractionState": "manual",
+     "localizations": {
+      "ar": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "لم يعد المجلد %@ موجودًا. اختر مجلدًا آخر."
+       }
+      },
+      "bs": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ više ne postoji. Odaberi drugi folder."
+       }
+      },
+      "da": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ findes ikke længere. Vælg en anden mappe."
+       }
+      },
+      "de": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Der Ordner %@ existiert nicht mehr. Wähle einen anderen Ordner."
+       }
+      },
+      "en": {
+       "stringUnit": {
+        "state": "translated",
+        "value": "The folder %@ no longer exists. Pick another folder."
+       }
+      },
+      "es": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La carpeta %@ ya no existe. Elige otra carpeta."
+       }
+      },
+      "fr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Le dossier %@ n’existe plus. Choisissez un autre dossier."
+       }
+      },
+      "it": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La cartella %@ non esiste più. Scegli un’altra cartella."
+       }
+      },
+      "ja": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "フォルダー %@ はもう存在しません。別のフォルダーを選んでください。"
+       }
+      },
+      "km": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "ថត %@ លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+       }
+      },
+      "ko": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+       }
+      },
+      "nb": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ finnes ikke lenger. Velg en annen mappe."
+       }
+      },
+      "pl": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ już nie istnieje. Wybierz inny folder."
+       }
+      },
+      "pt-BR": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "A pasta %@ não existe mais. Escolha outra pasta."
+       }
+      },
+      "ru": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папки %@ больше нет. Выберите другую папку."
+       }
+      },
+      "th": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "โฟลเดอร์ %@ ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+       }
+      },
+      "tr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ klasörü artık yok. Başka bir klasör seç."
+       }
+      },
+      "uk": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папка %@ більше не існує. Виберіт іншу папку."
+       }
+      },
+      "vi": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Thư mục %@ không còn tồn tại. Hãy chọn thư mục khác."
+       }
+      },
+      "zh-Hans": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "文件夹 %@ 已不存在。请选择其他文件夹。"
+       }
+      },
+      "zh-Hant": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "資料夾 %@ 已不存在。請選擇其他資料夾。"
+       }
+      }
+     }
+    },
     "agentPane.error.transport": {
     "extractionState": "manual",
     "localizations": {
@@ -44034,6 +44045,402 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法複製儲存庫。請檢查網址與 Git 存取權限後再試。"
+          }
+        }
+      }
+    },
+    "terminalHistory.open": {
+      "comment": "Native terminal agent pane control that opens earlier transcript history as a read-only chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier history — open as chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل السابق — فتح كمحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ranija istorija — otvori kao chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historik — åbn som chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frühere Historie — als Chat öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial anterior — abrir como chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique antérieur — ouvrir comme chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia precedente — apri come chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以前の履歴 — チャットとして開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិមុន — បើកជាជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 기록 — 채팅으로 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historikk — åpne som chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wcześniejsza historia — otwórz jako czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico anterior — abrir como chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предыдущая история — открыть как чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติก่อนหน้า — เปิดเป็นแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceki geçmiş — sohbet olarak aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередня історія — відкрити як чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trước đó — mở dưới dạng trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更早的历史记录 — 作为聊天打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "較早的歷史記錄 — 以聊天開啟"
+          }
+        }
+      }
+    },
+    "terminalHistory.openDays": {
+      "comment": "Native terminal agent pane control that includes the number of transcript days available.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier history (%lld days) — open as chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل السابق (%lld يومًا) — فتح كمحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ranija istorija (%lld dana) — otvori kao chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historik (%lld dage) — åbn som chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frühere Historie (%lld Tage) — als Chat öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial anterior (%lld días) — abrir como chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique antérieur (%lld jours) — ouvrir comme chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia precedente (%lld giorni) — apri come chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以前の履歴（%lld日間）— チャットとして開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិមុន (%lld ថ្ងៃ) — បើកជាជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 기록(%lld일) — 채팅으로 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidligere historikk (%lld dager) — åpne som chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wcześniejsza historia (%lld dni) — otwórz jako czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico anterior (%lld dias) — abrir como chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предыдущая история (%lld дн.) — открыть как чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติก่อนหน้า (%lld วัน) — เปิดเป็นแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceki geçmiş (%lld gün) — sohbet olarak aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередня історія (%lld днів) — відкрити як чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trước đó (%lld ngày) — mở dưới dạng trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更早的历史记录（%lld 天）— 作为聊天打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "較早的歷史記錄（%lld 天）— 以聊天開啟"
+          }
+        }
+      }
+    },
+    "terminalHistory.unavailable": {
+      "comment": "Read-only terminal transcript page error when the local agent history service is unavailable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat history is unavailable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجل الدردشة غير متاح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Istorija chata nije dostupna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chathistorikken er ikke tilgængelig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chatverlauf ist nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El historial del chat no está disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’historique du chat n’est pas disponible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cronologia della chat non è disponibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャット履歴を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិជជែកមិនអាចប្រើបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 기록을 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatthistorikken er ikke tilgjengelig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia czatu jest niedostępna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O histórico do chat está indisponível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История чата недоступна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติแชตไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet geçmişi kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія чату недоступна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử trò chuyện không khả dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天记录不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天記錄無法使用。"
           }
         }
       }

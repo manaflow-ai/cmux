@@ -982,3 +982,38 @@ async fn lane_report_ship_without_findings_and_non_review_first_sentence() {
         Some("[review-2] echo: Fixed the missing callback. · turn 2, idle")
     );
 }
+
+/// Leo, 2026-11-24: "do they get stranded!?" A lane whose cut turn acpmux gives up on (its
+/// retries ran out) tells its parent once it is stranded: the parent last heard it was paused.
+#[tokio::test]
+async fn lane_report_a_lane_whose_retries_run_out_reports_itself_blocked() {
+    let hub = hub();
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20, 20]);
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-down", json!({})).await;
+    Client::as_session(&hub, &coord)
+        .await
+        .send(
+            "session/prompt",
+            json!({"sessionId": lane, "prompt": [{"type": "text", "text": "net-down"}]}),
+        )
+        .await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let exhausted =
+            person.ok("_acpmux/events", json!({"sessionId": lane, "limit": 5000})).await["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["kind"] == "auto_resume_exhausted");
+        let got = person.reports(&coord).await;
+        let last = got.last().map(|r| text(r).to_owned()).unwrap_or_default();
+        if exhausted && last.lines().next().is_some_and(|l| l.contains(", blocked")) {
+            assert!(last.contains("stream disconnected"), "{last}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "exhausted {exhausted}, last report: {last}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}

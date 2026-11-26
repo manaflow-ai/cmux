@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -9,10 +9,9 @@ import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
 import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolder, githubFolderRepo, type GitHubStatus } from "./githubRepos";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
-import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import {
   folderRepo,
@@ -86,12 +85,43 @@ export function FolderPopover({
   const [query, setQuery] = useState("");
   const typed = query.trim();
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  // Add project's page to open on: its GitHub page when it opens again after a Connect to GitHub.
+  const [sourcesPage, setSourcesPage] = useState<"github">();
+  // Connect to GitHub from Add project sends the person to the browser, and the palette closes. When the connect
+  // ends connected, the palette opens again on its GitHub page with the repositories (cmux#53226: "it should
+  // connect and then this menu should remain open with all of the github repositories afterwards").
+  // Armed by the close a Connect to GitHub causes, with the status GitHub had then: the next status read decides
+  // (the app back from the browser, or the app saying GitHub changed). Connected: the palette opens again; anything
+  // else (the person cancelled in the browser) disarms it, so a later connect elsewhere never opens it unasked.
+  const [reopenGitHub, setReopenGitHub] = useState<{ from: GitHubStatus | undefined }>();
+  const githubState = sources?.github?.state;
+  const githubConnectOut = githubState !== undefined && (githubState.waiting || githubState.connecting === true);
+  if (reopenGitHub && githubState?.connecting !== true && githubState?.status !== reopenGitHub.from) {
+    setReopenGitHub(undefined);
+    if (githubState?.status?.state === "ready") {
+      setSourcesPage("github");
+      setSourcesOpen(true);
+    }
+  }
   const [cloning, setCloning] = useState<string>();
   const cloningName = cloning ?? cloningRepository;
   const cloudFolders = sources?.cloudFolders;
   const cloud = cloudFolders !== undefined;
   const github = sources?.github;
-  // The repositories whose worktrees are open under their row, by group key.
+  // The repository the person wanted when Connect or Choose more repositories… started came back listed (the app
+  // finished GitHub's return): it becomes the chat's folder with no second click (Leo 2026-11-25).
+  const returned = github?.state.returned;
+  const takeReturned = github?.onTakeReturned;
+  const returnedPrivate = github?.state.repos?.find((item) => item.fullName === returned)?.private ?? false;
+  useEffect(() => {
+    if (!returned) return;
+    // Taken first: the store forgets it, so this runs once per return.
+    takeReturned?.();
+    rememberAddedRepo({ fullName: returned, private: returnedPrivate });
+    if (githubFolder(returned) !== current) onPick(githubFolder(returned));
+  }, [returned, takeReturned, returnedPrivate, current, onPick]);
+  // The repositories whose worktrees are open under their row, by their folders: a repository whose details arrive
+  // while it is open (its GitHub origin, so a new group key) stays open (`openKeys`).
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [searchCollapsed, setSearchCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   // A click on a worktree count holds the menu's height while the pointer stays in it, so the rows under the
@@ -130,7 +160,11 @@ export function FolderPopover({
     () => projectSuffixes(groups.map((group) => ({ cwd: group.lead.id, label: group.name }))),
     [groups],
   );
-  const rows = useMemo(() => shownRepoRows(groups, query, expanded), [groups, query, expanded]);
+  const openKeys = useMemo(
+    () => new Set(groups.filter((group) => group.members.some((member) => expanded.has(member.id))).map((g) => g.key)),
+    [groups, expanded],
+  );
+  const rows = useMemo(() => shownRepoRows(groups, query, openKeys), [groups, query, openKeys]);
   // Each shown folder's row: a repository's (`group` only) or a worktree's under it.
   const shown = useMemo(() => {
     const byValue = new Map<
@@ -139,7 +173,7 @@ export function FolderPopover({
     >();
     for (const { group, worktrees } of rows) {
       const count = typed ? worktrees.length : group.members.length - 1;
-      const open = typed ? count > 0 && !searchCollapsed.has(group.key) : expanded.has(group.key);
+      const open = typed ? count > 0 && !searchCollapsed.has(group.key) : openKeys.has(group.key);
       const hasAction = !typed && group.key === worktreeActionGroup;
       byValue.set(group.lead.id, { group, disclosure: count > 0 || hasAction ? { count, open } : undefined });
       if (hasAction && open) {
@@ -148,17 +182,28 @@ export function FolderPopover({
       if (open) for (const worktree of worktrees) byValue.set(worktree.id, { group, worktree });
     }
     return byValue;
-  }, [expanded, rows, searchCollapsed, typed, worktreeActionGroup]);
+  }, [openKeys, rows, searchCollapsed, typed, worktreeActionGroup]);
   const disclosureLabel = ({ count, open }: { count: number; open: boolean }) =>
     open ? t("project.hideWorktrees") : count ? t("project.showWorktrees", { n: count }) : t("project.newWorktree");
-  const toggle = (key: string, open: boolean) => {
-    const setKeys = typed ? setSearchCollapsed : setExpanded;
-    const include = typed ? !open : open;
-    setKeys((before) => {
-      if (before.has(key) === include) return before;
+  const toggle = (group: (typeof groups)[number], open: boolean) => {
+    if (typed) {
+      setSearchCollapsed((before) => {
+        if (before.has(group.key) === !open) return before;
+        const next = new Set(before);
+        if (open) next.delete(group.key);
+        else next.add(group.key);
+        return next;
+      });
+      return;
+    }
+    setExpanded((before) => {
+      const ids = group.members.map((member) => member.id);
+      if (ids.some((id) => before.has(id)) === open) return before;
       const next = new Set(before);
-      if (include) next.add(key);
-      else next.delete(key);
+      for (const id of ids) {
+        if (open) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
   };
@@ -189,23 +234,40 @@ export function FolderPopover({
       ),
     [cloudFolders, typed],
   );
-  const sections = useMemo(() => {
-    const headings = new Map<string, string>();
-    let previousPeer: string | undefined;
-    for (const [value, folder] of cloudRows) {
-      if (folder.peer !== previousPeer) headings.set(value, folder.machine);
-      previousPeer = folder.peer;
-    }
-    return headings;
-  }, [cloudRows]);
   // Actions stay under the folders; the arrows reach them after the last folder.
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
   const pinned = sources ? [ACTION_ADD, ...(onNoProject ? [ACTION_NONE] : [])] : onBrowse ? [ACTION_BROWSE] : [];
-  const listValues = useMemo(
+  const rowBlocks = useMemo(
     () => orderedRows({ cloud, cloudRows, githubRows, shown, typed, typedPath }),
     [cloud, cloudRows, githubRows, shown, typed, typedPath],
   );
+  // The rows the menu first showed, kept while it stays open with nothing typed (keptRows). Typing orders by the
+  // search, and opening or closing a repository's worktrees moves the rows on purpose: both start from the list as it
+  // is then.
+  const folds = typed ? undefined : expanded;
+  const [kept, setKept] = useState<ShownRows>();
+  const keeping = open && !typed && rowBlocks.some((block) => block.rows.length > 0);
+  let keptNow = keeping ? kept : undefined;
+  if (keeping && (!keptNow || keptNow.folds !== folds)) keptNow = shownRows(rowBlocks, folds);
+  if (keptNow !== kept) setKept(keptNow);
+  const listValues = useMemo(
+    () => (keptNow ? keptRows(keptNow, rowBlocks, current) : rowBlocks.flatMap((block) => block.rows)),
+    [keptNow, rowBlocks, current],
+  );
+  // Each machine's heading is on its first folder as the list shows it: the kept order, not the live one, so a folder
+  // that arrives first for its machine while the menu is open never takes the heading off the rows shown.
+  const sections = useMemo(() => {
+    const headings = new Map<string, string>();
+    let previousPeer: string | undefined;
+    for (const value of listValues) {
+      const folder = cloudRows.get(value);
+      if (!folder) continue;
+      if (folder.peer !== previousPeer) headings.set(value, folder.machine);
+      previousPeer = folder.peer;
+    }
+    return headings;
+  }, [cloudRows, listValues]);
   // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
   const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
@@ -220,13 +282,16 @@ export function FolderPopover({
   // Every worktree a repository can open counts too, open or not, in one order that expanding never changes: the
   // kept widest lines are picked by an estimate, so a different order on expand measured a different line and the
   // width moved a few px.
+  const listed = new Set(listValues);
   const worktreeLines: FitLine[] = open
-    ? rows.flatMap(({ group, worktrees }) =>
-        (typed ? worktrees : group.members.filter((member) => member !== group.lead)).map((member): FitLine => ({
-          text: worktreeLabel(member),
-          kind: "worktree",
-        })),
-      )
+    ? rows
+        .filter(({ group }) => listed.has(group.lead.id))
+        .flatMap(({ group, worktrees }) =>
+          (typed ? worktrees : group.members.filter((member) => member !== group.lead)).map((member): FitLine => ({
+            text: worktreeLabel(member),
+            kind: "worktree",
+          })),
+        )
     : [];
   if (open && !typed && worktreeActionGroup !== undefined)
     worktreeLines.push({ text: t("project.newWorktree"), kind: "worktree" });
@@ -256,14 +321,26 @@ export function FolderPopover({
       if (!open) {
         // The repositories added as projects, as they are now: one added since the last open is listed.
         // Only where a repository can be picked: none in a Sandboxed chat (no GitHub source), or a menu with no sources.
-        setAdded(github ? readAddedRepos() : NO_REPOS);
+        // The chip's own repository is one the person added, picked before this store kept them (or from
+        // another surface): it is listed, never an empty menu under a repository chip.
+        const currentRepo = github && current ? githubFolderRepo(current) : undefined;
+        const known = github ? readAddedRepos() : NO_REPOS;
+        if (currentRepo && !known.some((repo) => repo.fullName.toLowerCase() === currentRepo.toLowerCase())) {
+          rememberAddedRepo({
+            fullName: currentRepo,
+            private:
+              github?.state.repos?.find((repo) => repo.fullName.toLowerCase() === currentRepo.toLowerCase())?.private ??
+              false,
+          });
+          setAdded(readAddedRepos());
+        } else setAdded(known);
         // The closed menu grouped nothing: find the current folder's repository once, at the open.
         const opening = groupByRepo(
           folders.filter((folder) => !/^\/+$/.test(folder.id)),
           current,
           "main",
         ).find((group) => group.members.some((member) => member.id === current));
-        if (opening && opening.lead.id !== current) setExpanded(new Set([opening.key]));
+        if (opening && opening.lead.id !== current) setExpanded(new Set(opening.members.map((member) => member.id)));
       }
     }
     if (!next) {
@@ -358,9 +435,7 @@ export function FolderPopover({
           data-github={githubRepo ? "" : undefined}
           data-current={checked ? "" : undefined}
         >
-          <span className="acpmux-location-action-icon" aria-hidden="true">
-            {githubRepo ? <GitHubGlyph /> : <MenuFolderIcon />}
-          </span>
+          <LocationIcon location={githubRepo ? githubFolder(githubRepo.fullName) : cloudFolder?.id} />
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{githubRepo?.fullName ?? cloudFolder?.label}</span>
             {cloudFolder && <span className="acpmux-menu-description">{cloudFolder.id}</span>}
@@ -413,23 +488,19 @@ export function FolderPopover({
     const suffix = leadSuffix(folder);
     const { disclosure } = place;
     const repo = folderRepo(folder);
+    // With Cloud picked the chip names a clone of a GitHub repository by that repository.
+    const leadCurrent =
+      folder.id === current ||
+      (repo?.github !== undefined && githubFolderRepo(current)?.toLowerCase() === repo.github.toLowerCase());
     return (
       <span
         className="acpmux-location-row"
         // tooltip-allow: the row shows the folder's name; the tooltip is its full path
         title={folder.id}
-        data-current={folder.id === current ? "" : undefined}
+        data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
-        data-github={repo?.github ? "" : undefined}
       >
-        {repo?.github ? (
-          // A clone of a GitHub repository reads as one, like a repository added as a project.
-          <span className="acpmux-location-action-icon" aria-hidden="true">
-            <GitHubGlyph />
-          </span>
-        ) : (
-          <ProjectBadge project={{ cwd: folder.id, label: folder.label, repo }} />
-        )}
+        <LocationIcon location={folder.id} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{group.name}</span>
           {suffix && (
@@ -466,7 +537,7 @@ export function FolderPopover({
                 setHeldHeight(Math.round(menuBox.getBoundingClientRect().height));
                 menuBox.addEventListener("pointerleave", () => setHeldHeight(undefined), { once: true });
               }
-              toggle(group.key, !disclosure.open);
+              toggle(group, !disclosure.open);
             }}
           >
             <BranchIcon />
@@ -475,7 +546,7 @@ export function FolderPopover({
           </button>
         )}
         <span className="acpmux-location-check" aria-hidden="true">
-          {folder.id === current && <CheckIcon />}
+          {leadCurrent && <CheckIcon />}
         </span>
       </span>
     );
@@ -487,7 +558,7 @@ export function FolderPopover({
     if (!place?.disclosure) return false;
     const open = key === "ArrowRight";
     if (place.disclosure.open === open) return false;
-    toggle(place.group.key, open);
+    toggle(place.group, open);
     return true;
   };
 
@@ -623,7 +694,12 @@ export function FolderPopover({
           options={sources}
           current={current}
           currentPeer={currentPeer}
-          onClose={() => setSourcesOpen(false)}
+          {...(sourcesPage ? { startPage: sourcesPage } : {})}
+          onClose={() => {
+            setSourcesOpen(false);
+            setSourcesPage(undefined);
+            if (githubConnectOut) setReopenGitHub({ from: githubState?.status });
+          }}
           onBrowse={onBrowse && browse}
           onPick={(value) => {
             // A GitHub repository added as a project is listed in this menu from now on (cmux#53226).
@@ -643,10 +719,10 @@ export function FolderPopover({
   );
 }
 
-/// The list's values in order. Cloud: the added repositories, then the machines' folders. This Mac: each
+/// The list's values in order: each
 /// repository's rows (its lead, New Worktree, its open worktrees) kept together and placed by when its newest
 /// folder was used, the added repositories among them by theirs; with words typed, the folders in the search's
-/// order, the typed path, then the repositories that match.
+/// order, the typed path, then the repositories that match. Cloud adds each machine's folders after them.
 function orderedRows({
   cloud,
   cloudRows,
@@ -661,23 +737,89 @@ function orderedRows({
   shown: ReadonlyMap<string, { group: { key: string; members: readonly FolderChoice[] } }>;
   typed: string;
   typedPath: string | undefined;
-}): string[] {
-  const repos: { repo: AddedRepo; block: string[] }[] = [];
-  githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
-  if (cloud) return [...repos.map((repo) => repo.block[0]!), ...cloudRows.keys()];
-  const blocks: { block: string[]; at: number | undefined }[] = [];
+}): RowBlock[] {
+  const repos: { repo: AddedRepo; block: RowBlock }[] = [];
+  githubRows.forEach((repo, value) => repos.push({ repo, block: { key: value, rows: [value], ids: [value] } }));
+  const blocks: { block: RowBlock; at: number | undefined }[] = [];
   let previous: string | undefined;
   shown.forEach((place, value) => {
     const group = place.group;
     if (group.key !== previous) {
-      blocks.push({ block: [], at: newestUse(group.members) });
+      blocks.push({
+        block: { key: "\u0000repo:" + group.key, rows: [], ids: group.members.map((member) => member.id) },
+        at: newestUse(group.members),
+      });
       previous = group.key;
     }
-    blocks[blocks.length - 1]!.block.push(value);
+    blocks[blocks.length - 1]!.block.rows.push(value);
   });
-  const path = typedPath ? [typedPath] : [];
-  if (typed) return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block)];
-  return [...mergeByRecentUse(blocks, repos).flat(), ...path];
+  const path = typedPath ? [{ key: typedPath, rows: [typedPath], ids: [typedPath] }] : [];
+  // Cloud: the machines' own folders under their headings, after the one list.
+  const machines = cloud ? [...cloudRows.keys()].map((value) => ({ key: value, rows: [value], ids: [value] })) : [];
+  if (typed) return [...blocks.map(({ block }) => block), ...path, ...repos.map(({ block }) => block), ...machines];
+  return [...mergeByRecentUse(blocks, repos), ...path, ...machines];
+}
+
+/// A run of the list's rows that stays together: a repository's rows, an added repository, a machine folder. `ids`:
+/// the folders it stands for (a repository's every member, shown or folded), which name it across a late change of
+/// its repository's details.
+type RowBlock = { key: string; rows: string[]; ids: string[] };
+
+/// The rows the menu showed at its first paint with rows: each folder's place, the rows themselves, and the folded or
+/// opened repositories they were drawn with.
+export type ShownRows = { places: ReadonlyMap<string, number>; rows: ReadonlySet<string>; folds: unknown };
+
+function shownRows(blocks: readonly RowBlock[], folds: unknown): ShownRows {
+  const places = new Map<string, number>();
+  blocks.forEach((block, at) => block.ids.forEach((id) => places.has(id) || places.set(id, at)));
+  return { places, rows: new Set(blocks.flatMap((block) => block.rows)), folds };
+}
+
+/// The list as `kept` showed it, while the menu stays open with nothing typed (cmux#53226: rows moved under the
+/// pointer as chats, folders and repositories arrived or re-sorted, and the menu grows up from its chip, so even a row
+/// added at the end moved every row above it). Each block keeps its place and its rows, found by its folders, so a
+/// repository whose details arrive late is the same block. Its lead row is always the live one: a main checkout that
+/// arrives under an open repository's listed worktrees leads it, with its disclosure, and the rows under it move down
+/// one (the repository's row is the main checkout's, cmux#53226); its other rows keep their shown order. A block that arrives later waits for the next
+/// open, except the current folder's (listed after the kept ones); a block that went away leaves.
+export function keptRows(kept: ShownRows, blocks: readonly RowBlock[], current: string | undefined): string[] {
+  const placed: { at: number; rows: string[] }[] = [];
+  const late: string[] = [];
+  const keptOrder = new Map([...kept.rows].map((row, index) => [row, index]));
+  blocks.forEach((block) => {
+    let at: number | undefined;
+    for (const id of block.ids) {
+      const place = kept.places.get(id);
+      if (place !== undefined && (at === undefined || place < at)) at = place;
+    }
+    if (at === undefined) {
+      if (current !== undefined && block.ids.includes(current)) late.push(...block.rows);
+      return;
+    }
+    // The live lead first (it carries the repository's disclosure), then the other rows as they were shown.
+    const [lead, ...rest] = block.rows;
+    const others = rest.filter((row) => keptOrder.has(row)).sort((a, b) => keptOrder.get(a)! - keptOrder.get(b)!);
+    placed.push({ at, rows: lead === undefined ? others : [lead, ...others] });
+  });
+  placed.sort((left, right) => left.at - right.at);
+  return [...placed.flatMap((block) => block.rows), ...late];
+}
+
+/// The one place a location's icon is chosen: GitHub's mark only for a repository from the GitHub connection
+/// (`github:owner/name`), which is no folder here. Any folder on this Mac, or on a Cloud machine, is a folder: a
+/// clone or a worktree whose `origin` is on GitHub too (cmux#53226).
+export function isGitHubLocation(location: string | undefined): boolean {
+  return githubFolderRepo(location) !== undefined;
+}
+
+/// A row's icon for `location` (isGitHubLocation), marked with the one it drew (`data-icon`).
+export function LocationIcon({ location }: { location: string | undefined }) {
+  const github = isGitHubLocation(location);
+  return (
+    <span className="acpmux-location-action-icon" aria-hidden="true" data-icon={github ? "github" : "folder"}>
+      {github ? <GitHubGlyph /> : <MenuFolderIcon />}
+    </span>
+  );
 }
 
 /// When a chat here last worked in any of `members`, if one did.

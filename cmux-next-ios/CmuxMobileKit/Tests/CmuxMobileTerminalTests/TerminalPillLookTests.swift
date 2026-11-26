@@ -35,5 +35,18 @@ import UIKit
         #expect(Self.rgb(look.background) == Self.rgb(Color(uiColor: CmuxMobileGhosttyApp.background)))
         #expect(Self.rgb(look.ink) == Self.rgb(Color(uiColor: CmuxMobileGhosttyApp.foreground)))
     }
+
+    /// The composer is the agent chat's card (``ComposerCard``) on the theme's colors: the same
+    /// fill and glass tint as the pills, and a hairline; the chat's own card is plain glass.
+    @Test func theComposerCardTakesTheThemeLikeThePills() throws {
+        let theme = try #require(CmuxMobileTerminalTheme(lines: ["background = #fdf6e3", "foreground = #657b83"]))
+        let look = TerminalPillLook(theme: theme)
+        let card = look.card
+        #expect(card.ink == look.ink)
+        #expect(card.fill == look.background.opacity(TerminalPillLook.fillOpacity))
+        #expect(card.tint == look.background.opacity(TerminalPillLook.tintOpacity))
+        #expect(card.border != nil)
+        #expect(ComposerCardLook.app == ComposerCardLook())
+    }
 }
 #endif

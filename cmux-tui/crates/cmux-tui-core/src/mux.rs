@@ -8,6 +8,7 @@ mod agent_hooks_at_rest;
 mod agent_plugin_reports_at_rest;
 mod agent_reports_at_rest;
 mod terminal_size_clamp;
+pub(crate) use journal_plugin_demand::demand_tapped as journal_plugin_demand_tapped;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
 use terminal_exit_snapshot::{
@@ -26,8 +27,8 @@ mod terminal_host_records;
 #[cfg(any(unix, windows))]
 use terminal_host_records::{
     HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
-    request_terminal_host_end, terminal_host_record_liveness,
-    terminate_discovered_terminal_host_in,
+    request_terminal_host_end, schedule_discovered_terminal_host_cleanup,
+    terminal_host_record_liveness, terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use agent_hooks_at_rest::{JournalFollowerFilter, JournalRowFollower};
@@ -202,6 +203,7 @@ mod cloud_conversations;
 mod construct;
 mod conversations;
 mod deadline_fanout;
+mod terminal_warm_compact;
 #[cfg(test)]
 use deadline_fanout::DeadlineCompletion;
 use deadline_fanout::{
@@ -222,6 +224,7 @@ mod host_death_tests;
 mod idle_close;
 mod journal;
 mod journal_maintenance;
+mod journal_plugin_demand;
 mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
@@ -524,7 +527,6 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
-const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 /// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
@@ -716,6 +718,9 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
+    /// Terminal output and agent events for the held journal plugin's watch
+    /// (`mux/journal_plugin_demand.rs`).
+    journal_plugin_demand: journal_plugin_demand::DemandTap,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
@@ -734,6 +739,8 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    /// Terminal agents' warm compaction timer (`terminal_warm_compact.rs`).
+    terminal_warm_compact: terminal_warm_compact::TerminalWarmCompact,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// The chat-index project import's wake (`project_chats.rs`).
@@ -913,6 +920,9 @@ pub struct Mux {
     pub(crate) control_clients: crate::server::ClientRegistry,
     /// One whole-tree `list-workspaces` build for concurrent readers.
     pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
+    /// The ring of changed workspace ids for `list-workspaces {since}`
+    /// (server/list_workspaces_delta.rs).
+    pub(crate) workspace_delta: crate::server::list_workspaces_delta::WorkspaceDelta,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -936,6 +946,8 @@ pub struct Mux {
     terminal_reaper: Mutex<terminal_reap::TerminalReaperSlot>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
+    /// Immediate-write requests to that writer (`flush-launch-snapshot`).
+    launch_snapshot_flush: Mutex<Option<Arc<crate::server::LaunchSnapshotFlush>>>,
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,

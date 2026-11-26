@@ -72,12 +72,16 @@
     "cloud.machine.chief_start",
     "cloud.machine.fork",
     "cloud.machine.io",
+    "cloud.machine.setup_desktop",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_clone_token",
+    "cloud.owner.github_complete",
     "cloud.owner.github_connect",
+    "cloud.owner.github_list",
     "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
@@ -355,6 +359,7 @@
     "theme.scheme.convert",
     "theme.scheme.export",
     "theme.scheme.from_image",
+    "theme.slots.resolve",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -441,6 +446,7 @@
       "feed-local-list",
       "feed-local-read",
       "float-pane",
+      "flush-launch-snapshot",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -513,6 +519,7 @@
       "read-scrollback",
       "reattach-view",
       "release-surface-size",
+      "release-workspace-names",
       "reload-config",
       "remote-terminal-snapshot",
       "remove-screens-from-screen-group",
@@ -1325,6 +1332,12 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "apps-cloud-machine",
       "streams": [
         "control"
       ]
