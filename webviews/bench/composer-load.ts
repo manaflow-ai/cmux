@@ -1,6 +1,7 @@
 // l10n-allow-file: benchmark diagnostics, not shipped UI.
 import type { Frame, Page } from "playwright";
 import { waitForPageHook, watchPageErrors } from "./support/benchPage";
+import leoNightly from "./profiles/leo-nightly.json";
 
 type Surface = Page | Frame;
 type LoadReceipt = {
@@ -26,6 +27,36 @@ const stage = (xs: number[], p: number) => {
   return Math.round(sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * p))]! * 100) / 100;
 };
 const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
+
+/// The typing budgets on the app's display: a key on screen within 16 ms at p95 and 33 ms at p99 (#44416) on Leo's
+/// 120 Hz display (bench/profiles/leo-nightly.json metrics.display_hz, the 11-26 profile; #58092 draws the sim ladder at
+/// it for the same reason).
+export const APP_BUDGET_P95_MS = 16;
+export const APP_BUDGET_P99_MS = 33;
+export const APP_DISPLAY_HZ = Number(leoNightly.metrics?.display_hz) || 120;
+
+/// The app's budgets as read on a harness whose display refreshes every `refreshMs` (pure). A key waits for the
+/// display's next refresh before its frame starts, a wait spread evenly over one refresh, so its keydown to paint
+/// carries up to one refresh the work did not cause: on the app's 120 Hz display 8.3 ms, on headless Chromium and
+/// Playwright's WebKit, both locked at 60 Hz, 16.7 ms. A 60 Hz harness read 16 ms at p95 against that wait alone
+/// (its p95 is 15.8 ms with no work at all: WebKit's L0 keys read 18), so the budget measured the display, not the
+/// page. The same allowance for the work, past one refresh of the harness's display instead of the app's, is the
+/// budget plus the difference of the two refreshes: 24.3 and 41.3 ms at 60 Hz, the app's own at 120 Hz. A harness as
+/// fast as the app or faster keeps the app's budgets.
+export function displayBudgets(refreshMs: number, appHz = APP_DISPLAY_HZ): { p95: number; p99: number } {
+  const extra = Number.isFinite(refreshMs) ? Math.max(0, refreshMs - 1000 / appHz) : 0;
+  const round = (ms: number) => Math.round(ms * 100) / 100;
+  return { p95: round(APP_BUDGET_P95_MS + extra), p99: round(APP_BUDGET_P99_MS + extra) };
+}
+
+/// The refresh of the display a page drew at, from its frame intervals (pure): their 10th percentile. A dropped
+/// frame makes an interval longer and never shorter, so even a busy page's fastest intervals are its display's
+/// refresh; with no intervals, Chromium's own 60 Hz.
+export function displayRefreshMs(intervals: readonly number[]): number {
+  const sorted = intervals.filter((ms) => Number.isFinite(ms) && ms > 0).sort((a, b) => a - b);
+  if (sorted.length < 10) return 1000 / 60;
+  return sorted[Math.floor((sorted.length - 1) * 0.1)]!;
+}
 
 export async function seedComposer(surface: Surface, turns: number, errors?: string[]) {
   // Not a bare waitForFunction: a page that threw while it mounted installs no hook, and the wait
@@ -244,6 +275,8 @@ export async function runComposerLoad(
   const presented = samples.flatMap((s) => (Number.isFinite(s.submitted) ? [s.submitted!] : []));
   const paintP95 = stage(toPaint, 0.95);
   const paintP99 = stage(toPaint, 0.99);
+  const refreshMs = displayRefreshMs(result.watch.frames);
+  const budgets = displayBudgets(refreshMs);
   const clocksAfter = await readClocks(page, loads);
   const frames = new Map<number, number>();
   for (const sample of samples) frames.set(sample.frame_timestamp_ms, (frames.get(sample.frame_timestamp_ms) ?? 0) + 1);
@@ -330,10 +363,14 @@ export async function runComposerLoad(
     driver_late_max_ms: Math.max(0, ...late),
     driver_late_max_key: late.indexOf(Math.max(0, ...late)),
     load_rates: loadRates,
-    budget_p95_ms: 16,
-    budget_p99_ms: 33,
+    display_refresh_ms: Math.round(refreshMs * 100) / 100,
+    app_display_hz: APP_DISPLAY_HZ,
+    app_budget_p95_ms: APP_BUDGET_P95_MS,
+    app_budget_p99_ms: APP_BUDGET_P99_MS,
+    budget_p95_ms: budgets.p95,
+    budget_p99_ms: budgets.p99,
     budget_policy: "report-only",
-    target_met: errors.length === 0 && keys >= 200 && paintP95 <= 16 && paintP99 <= 33,
+    target_met: errors.length === 0 && keys >= 200 && paintP95 <= budgets.p95 && paintP99 <= budgets.p99,
     renders: result.renders,
     samples,
   };
