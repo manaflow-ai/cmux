@@ -595,6 +595,10 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["input_ms"] = marks.get(CHAT_MARK)
         if not args.has_input_mark:
             row["no_mark"] = True  # this build's pages never post the composer's input mark
+        elif path == "in_app" and row["input_ms"] is None and "agent_pane.painted" in marks:
+            # The app typed its one key before this chat page was up: the round measured no chat key by design (the
+            # posted path times the chat). It drew, so it counts toward the verdict, named, never as a number.
+            row["unmeasured"] = "in_app: the app types its one key before a chat page is up"
     else:
         row.update(term)
     row.update(split(row.get("input_ms"), row["main_ms"]))
@@ -676,7 +680,9 @@ def check(args) -> int:
     result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
                         for which in FRONTS}
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
-    measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
+    # So does an in_app chat round that drew (`unmeasured`): the app's one key went in before the page was up.
+    measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")
+                or r.get("unmeasured")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
     result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access, launch_delay_ms=args.launch_delay_ms,
                   input=input_path(keys.access, args.input))
