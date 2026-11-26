@@ -386,6 +386,8 @@ class Route:
     build_label: str = ""
     # A granted default (see Granted default): every label of runs_on, GRANT_LABEL first, SIM_LABEL included.
     grant_labels: tuple[str, ...] = ()
+    # The picker read the simulator Macs and found none free for the run (see Granted default): it stays put.
+    starved: bool = False
 
     @property
     def runs_on(self) -> str:
@@ -418,6 +420,11 @@ class Route:
 
 def ephemeral(label: str) -> Route:
     return Route(label, label, False)
+
+
+def starved(label: str) -> Route:
+    """The default, kept because the picker measured no free simulator Mac for the run (see Granted default)."""
+    return Route(label, label, False, starved=True)
 
 
 def retry_label(default: str) -> str:
@@ -565,7 +572,7 @@ def resolve(
             return Route(sim_first, retry_label(default), True)
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
             f"{needed} needed; {load.live.sim_first} {sim_first or 'sim-first'} free; staying on {default}")
-        return ephemeral(default)
+        return starved(default)
     # Simulator jobs take the first owned pool only, as the live path above
     # routes them, since SIM_LABEL is on that pool's runners. The replay of
     # newer runs still spreads over the whole order.
@@ -580,10 +587,10 @@ def resolve(
         return ephemeral(default)
     if not pr_runner_pool.persistent(choice.runner):
         log(f"{choice.reason or 'no owned pool has room'}; staying on {default}")
-        return ephemeral(default)
+        return starved(default)
     if needed and free < needed:
         log(f"{SIM_LABEL}: {free} of {capacity} free, {needed} needed; staying on {default}")
-        return ephemeral(default)
+        return starved(default)
     log(f"{choice.reason} -> {choice.runner} with {SIM_LABEL} ({free} of {capacity} free, {needed} needed)")
     return Route(choice.runner, retry_label(default), True)
 
@@ -976,8 +983,17 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     xcode-26.6 at 12:07Z behind 29 queued simulator jobs; it never started, and its concurrency group held every
     later base push run of the workflow pending or cancelled with no jobs, so the base had no kit result. A push,
     dispatch or schedule run keeps the Blacksmith default, which always serves.
+
+    A starved route (the picker read the simulator Macs, live or from the snapshot, and found none free for the
+    run) keeps its default too, so the labels match the "staying on" the picker logged. On 2026-11-25 cmux#53546's
+    ios job 139577184055 logged "staying on blacksmith-6vcpu-macos-26" and still took cmux-mac + glaeda-ios-sim +
+    xcode-26.6, where it waited 39 min and its re-run 41 min; the Mac queue was 80 of the head's 151 min (48 of
+    68.7 min on cmux#55016). Blacksmith always serves. A route the picker did not measure is still granted.
     """
     if fork or owner != OWNER or route.persistent or blocker:
+        return route
+    if route.starved:
+        log(f"the picker found no free simulator Mac; staying on {route.label}, not {GRANT_LABEL}")
         return route
     if (event or "").strip() not in ("", "pull_request", "pull_request_target"):
         log(f"a {event.strip()} run has no re-run off a starved grant; staying on {route.label}")
