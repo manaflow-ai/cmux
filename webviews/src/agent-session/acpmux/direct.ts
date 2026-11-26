@@ -11129,15 +11129,18 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
-      else if (
-        compaction.state !== "running" &&
-        running?.seq !== undefined &&
-        this.rows
-          .rowsFrom(running.seq + 1)
-          .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined)
-      )
+      else if (compaction.state !== "running" && running && this.ownSteerBelow(running.id))
         this.rows.placeAfterCurrent(id);
     }
+  }
+
+  /// Whether the person's own steer sorts after compaction row `id` (they steered while it ran).
+  /// One look over the rows since it (a few). False once the row already went under the steer
+  /// (`settleCompactions` moved it at the steer's turn start), so it moves at most once.
+  private ownSteerBelow(id: string): boolean {
+    return this.rows
+      .rowsFrom(this.rows.orderOf(id))
+      .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined);
   }
 
   /// Puts a background shell's update on the call that started it, and says whether it found the
@@ -11448,6 +11451,11 @@ export class AcpmuxDirectClient {
           version: row.version + 1,
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
+        // The turn a steer sent while the compaction ran starts: its note goes under that steer now,
+        // where its live line stood, so its end only swaps the words and never moves it there later
+        // (74.8 px stray in chat-flow-shift-budget's compaction-steer on a chat with earlier
+        // compactions; Leo, 2026-11-25: "layout shifts and awkward looking animations").
+        if (mayGoOn && this.ownSteerBelow(row.id)) this.rows.placeAfterCurrent(row.id);
       }
   }
 
