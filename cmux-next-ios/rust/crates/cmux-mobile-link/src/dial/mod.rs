@@ -195,6 +195,11 @@ pub struct DialOptions {
     /// STUN and TURN gather, as before the offer went out first. Off.
     #[doc(hidden)]
     pub init_after_gather: bool,
+    /// Measurement only: in relay first, an answer that comes before the
+    /// phone's gather ended waits for it before the tunnel starts, as before
+    /// the tunnel went first. Off.
+    #[doc(hidden)]
+    pub tunnel_after_gather: bool,
     /// Test support: called with each plain UDP datagram's length as
     /// WireGuard hands it to the OS (the bytes a radio sends).
     #[doc(hidden)]
@@ -347,6 +352,7 @@ impl Default for DialOptions {
             refuse_udp_to: None,
             drop_udp_to: None,
             init_after_gather: false,
+            tunnel_after_gather: false,
             on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,

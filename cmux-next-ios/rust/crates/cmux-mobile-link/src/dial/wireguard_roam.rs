@@ -1122,6 +1122,100 @@ impl Session {
         tracing::debug!(session = self.session_id, port, timings = %timeline.summary(), "WireGuard answer gathered");
     }
 
+    /// Relay first: the phone's tunnel started on `wg-resp` before its
+    /// gather ended. Ask STUN again on the tunnel's socket (`stun`: the
+    /// gather's STUN half had not ended) and take the TURN allocation
+    /// still under way (`turn`) when it lands, then announce what they
+    /// found, through signaling and inside the tunnel, as
+    /// [`Self::gather_after_answer`] does for the Mac. An allocation that
+    /// came to nothing is taken later ([`Self::retry_missing_turn`]).
+    pub(super) fn gather_after_offer(
+        self: &Arc<Self>,
+        stun: bool,
+        turn: Option<super::LateAllocation>,
+        timeline: Timeline,
+    ) {
+        let session = Arc::clone(self);
+        tokio::spawn(async move { session.trickle_offer(stun, turn, timeline).await });
+    }
+
+    async fn trickle_offer(
+        self: &Arc<Self>,
+        stun: bool,
+        turn: Option<super::LateAllocation>,
+        timeline: Timeline,
+    ) {
+        let roams = self.roams.load(Ordering::Relaxed);
+        let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
+        let mut asked = 0;
+        if stun {
+            let servers = self.stun_servers().await;
+            asked = servers.len();
+            if asked > 0
+                && self.control.send(Control::Gather { stun: servers, reflexive: reflexive_tx }).is_err()
+            {
+                return;
+            }
+        }
+        let reflexive = async {
+            let mut clock = StunClock::new(asked > 0, None);
+            let mut found: Vec<SocketAddr> = Vec::new();
+            while found.len() < asked {
+                let Some(address) = clock.next(reflexive_rx.recv()).await else { break };
+                if !found.contains(&address) {
+                    found.push(address);
+                }
+                clock.answered();
+            }
+            found
+        };
+        let waited_turn = turn.is_some();
+        let allocated = async {
+            match turn {
+                Some(turn) => turn.await,
+                None => Allocated::default(),
+            }
+        };
+        let (reflexive, allocated) = tokio::join!(reflexive, allocated);
+        let blocked = asked > 0 && reflexive.is_empty();
+        if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
+            self.options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(&self.options));
+        }
+        let turn = allocated.carrier;
+        diagnose_gather(&self.options, blocked, turn.as_ref(), waited_turn);
+        let turn_missed = waited_turn && missed_turn(true, turn.as_ref(), &self.options);
+        let _one_at_a_time = self.roaming.lock().await;
+        if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
+            // A roam gathered (and took TURN) on its own socket meanwhile.
+            return;
+        }
+        let Ok(net) = self.net() else { return };
+        let mut endpoints = lock(&self.endpoints).clone();
+        let known = endpoints.len();
+        for text in offered(reflexive.iter().copied(), &self.options) {
+            if !endpoints.contains(&text) {
+                endpoints.push(text);
+            }
+        }
+        let (mut relayed, mut relayed_tls) = lock(&self.relayed).clone();
+        if let Some(turn) = turn {
+            timeline.mark(if turn.transport.is_stream() { "turn_tls_allocated" } else { "turn_allocated" });
+            endpoints.push(turn.relayed.to_string());
+            (relayed, relayed_tls) = relayed_of(Some(&turn));
+            self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
+            let _ = net.refresh().await;
+        }
+        drop(_one_at_a_time);
+        if turn_missed {
+            self.retry_missing_turn();
+        }
+        if endpoints.len() != known {
+            self.announce(endpoints, relayed, relayed_tls);
+        }
+        timeline.mark("endpoints_trickled");
+        tracing::debug!(session = self.session_id, timings = %timeline.summary(), "WireGuard offer gathered");
+    }
+
     /// Hand `turn` to the underlay and watch its stream.
     fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
         // UDP too: its allocation dies when its server stops answering

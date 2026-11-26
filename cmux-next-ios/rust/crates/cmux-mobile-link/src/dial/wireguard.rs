@@ -2951,7 +2951,8 @@ fn prepare_gathered(
 
 /// The phone's TURN allocation as a future of its own (relay first), which
 /// the session takes over when the tunnel starts before it lands.
-pub(super) type LateAllocation = Pin<Box<dyn Future<Output = Allocated> + Send + 'static>>;
+pub(super) type LateAllocation =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Allocated> + Send + 'static>>;
 
 /// Relay first, an answer before the gather ended: what the tunnel starts
 /// on. Host endpoints (or the STUN half's, if it ended) and the TURN
