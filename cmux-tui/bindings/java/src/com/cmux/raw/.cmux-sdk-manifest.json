@@ -111,6 +111,16 @@
       "size": 2674
     },
     {
+      "path": "AppsCloudMachineEvent.java",
+      "sha256": "29e472400e8cc4d2466e8bd8dbe249bf72244a9e374e17ee683fcf3aab0786e1",
+      "size": 3702
+    },
+    {
+      "path": "AppsCloudMachineEventKind.java",
+      "sha256": "bf67f21a09a721f336ddf1498c8712ebb8a6626235b4cf5b9da193f1db549b0e",
+      "size": 963
+    },
+    {
       "path": "AttachSurfaceRequest.java",
       "sha256": "d9dbed614b45cac0d8ab679e315b69eb1515e49fec7e0ee249811b509feccdb2",
       "size": 16042
@@ -1382,8 +1392,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "108b2f4a57b8e150440c655e41140c49291b6b5a3443eff64419d2fe1054b8fa",
-      "size": 21023
+      "sha256": "849f7788a1d2179b6806b8ac0b63562e578492354657e0c155ebcd2dbd141974",
+      "size": 21226
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -2297,8 +2307,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "8186674fb628494793ec7ebd05784a58249645722c7463a8aa362d717dd5f14b",
-      "size": 8511
+      "sha256": "f4ae9616b7ac41afa5caa8221238d058ca3f8f3c562dd71aa0ac98dab8ecaf90",
+      "size": 8591
     },
     {
       "path": "ProtocolEvent.java",
@@ -3857,7 +3867,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "72e2abeeccae8cd3adabaafb1ab36bd798ab010bdaf54cbe3af89bf9cbd53c97",
+  "ir_sha256": "9c6b5069bad16f8c454589491f996f886b7c73f2eaf820e22960354808414b1e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

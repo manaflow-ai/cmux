@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 72e2abeeccae8cd3adabaafb1ab36bd798ab010bdaf54cbe3af89bf9cbd53c97. */
+/* cmux-tui mux protocol 12, IR 9c6b5069bad16f8c454589491f996f886b7c73f2eaf820e22960354808414b1e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "72e2abeeccae8cd3adabaafb1ab36bd798ab010bdaf54cbe3af89bf9cbd53c97" as const;
+export const SDK_IR_SHA256 = "9c6b5069bad16f8c454589491f996f886b7c73f2eaf820e22960354808414b1e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4139,6 +4139,14 @@ export const EVENT_METADATA = {
     "capability": "agent-session-share-events-v1",
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "apps-cloud-machine": {
+    "since": 12,
+    "capability": "apps-v1",
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -32763,6 +32771,51 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "apps-cloud-machine": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the verified app connection whose apps-machine-state-watch names this machine; nothing is sent after that connection's list replaces or drops it. record (kind record only) is the platform's machine record. No bearer or raw frame."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "apps-cloud-machine"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "record",
+            "live",
+            "lost"
+          ]
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "record": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
         }
       }
     },
