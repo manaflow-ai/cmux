@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.omnibar.remoteSuggestions.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sends what you type to the search engine. Never addresses, files or local hosts."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يرسل ما تكتبه إلى محرك البحث. لا يرسل العناوين أو الملفات أو المضيفين المحليين أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Šalje ono što upišete pretraživaču. Nikada adrese, datoteke ni lokalne hostove."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sender det, du skriver, til søgemaskinen. Aldrig adresser, filer eller lokale værter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sendet Eingaben an die Suchmaschine. Nie Adressen, Dateien oder lokale Hosts."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envía lo que escribes al motor de búsqueda. Nunca direcciones, archivos ni hosts locales."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envoie votre saisie au moteur de recherche. Jamais d'adresses, de fichiers ni d'hôtes locaux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Invia ciò che digiti al motore di ricerca. Mai indirizzi, file o host locali."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "入力した文字を検索エンジンに送ります。アドレス、ファイル、ローカルホストは送りません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ញើអ្វីដែលអ្នកវាយទៅម៉ាស៊ីនស្វែងរក។ មិនដែលផ្ញើអាសយដ្ឋាន ឯកសារ ឬម៉ាស៊ីនមូលដ្ឋានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "입력한 내용을 검색 엔진에 보냅니다. 주소, 파일, 로컬 호스트는 보내지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sender det du skriver til søkemotoren. Aldri adresser, filer eller lokale verter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wysyła wpisywany tekst do wyszukiwarki. Nigdy adresów, plików ani hostów lokalnych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Envia o que você digita ao mecanismo de pesquisa. Nunca endereços, arquivos ou hosts locais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отправляет вводимый текст поисковой системе. Никогда не отправляет адреса, файлы и локальные хосты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ส่งสิ่งที่คุณพิมพ์ไปยังเครื่องมือค้นหา ไม่ส่งที่อยู่ ไฟล์ หรือโฮสต์ในเครื่อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yazdıklarınızı arama motoruna gönderir. Adresleri, dosyaları ve yerel ana bilgisayarları asla göndermez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Надсилає введений текст пошуковій системі. Ніколи не надсилає адреси, файли й локальні хости."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gửi những gì bạn nhập đến công cụ tìm kiếm. Không bao giờ gửi địa chỉ, tệp hay máy chủ cục bộ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将你输入的内容发送给搜索引擎。绝不发送网址、文件或本地主机。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將你輸入的內容傳送給搜尋引擎。絕不傳送網址、檔案或本機主機。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
