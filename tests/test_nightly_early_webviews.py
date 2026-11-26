@@ -18,6 +18,9 @@ EARLY = "early-nightly-webviews"
 RED_ON_BUILT = (f"needs.{EARLY}.outputs.red_sha == '' || needs.{EARLY}.outputs.red_sha != "
                 "needs.resolve-nightly-cmux-tui-client.outputs.build_sha")
 
+# The steps of nightly-next-one that compile this repo's code: a failure there is the tree, not the runner.
+COMPILE_STEPS = ("chief-build", "mobile-host-build", "app-release-build", "chief-bundle")
+
 
 def one_line(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
@@ -63,6 +66,16 @@ class EarlyNightlyWebviewsTests(unittest.TestCase):
         cond = one_line(self.jobs["retry-nightly-next"]["if"])
         self.assertIn("needs.nightly-next-one.outputs.webview_red != 'true'", cond)
         self.assertIn(RED_ON_BUILT, cond)
+
+    def test_retry_skips_a_compile_red_on_the_same_commit(self) -> None:
+        # Run 45556730650: the retry rebuilt an E0063 red on the same tree for 1 h of the signer slot.
+        job = self.jobs["nightly-next-one"]
+        red = one_line(job["outputs"].get("compile_red"))
+        for step in COMPILE_STEPS:
+            self.assertIn(step, [s.get("id") for s in job["steps"]], f"nightly-next-one has no {step} step")
+            self.assertIn(f"steps.{step}.outcome == 'failure'", red, f"compile_red misses {step}")
+        self.assertIn("needs.nightly-next-one.outputs.compile_red != 'true'",
+                      one_line(self.jobs["retry-nightly-next"]["if"]))
 
     def test_a_skipped_signer_still_wakes_the_loop_and_reports(self) -> None:
         self.assertIn(EARLY, self.needs("wake-nightly-next-tick"))
