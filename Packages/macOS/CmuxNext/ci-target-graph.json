@@ -38,6 +38,7 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextAgentUpdates",
+        "CmuxNextBrowser",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -47,6 +48,7 @@
         "CmuxNextIcons",
         "CmuxNextOnboarding",
         "CmuxNextPages",
+        "CmuxNextPopups",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -2571,6 +2573,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextSignposts"
       ],
