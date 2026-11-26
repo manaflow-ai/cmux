@@ -49,7 +49,8 @@ jobs:
           git -c protocol.version=2 fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA"
           python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
 
-  swift:
+  # The gateway runner's hook takes only job ids ending in -fleet; `swift` was refused (run 45799805163).
+  swift-fleet:
     name: nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
     if: ${{ needs.route.outputs.swift == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
@@ -91,7 +92,7 @@ jobs:
             --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout 3600 || status=$?
           case "$status" in
             0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
-            75|124) echo "::warning title=nightly app compile::the fleet job did not finish (exit $status); not judged" ;;
+            69|75|124) echo "::warning title=nightly app compile::the fleet job gave no verdict (exit $status: 69 controller unavailable, 75 or 124 did not finish); not judged" ;;
             *) echo "::error title=nightly app compile::the app does not compile the way the Nightly compiles it ($ARCH, exit $status); the NIGHTLY would fail on this change"
                exit "$status" ;;
           esac
