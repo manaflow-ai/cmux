@@ -2,19 +2,25 @@
 // ids repeat across chats. It lasts while the page does, so a message scrolled out of the virtualized
 // transcript and back keeps its state, and the row estimator (model.ts) reads it: in Minimal Mode a
 // closed message is its line alone, an opened one its whole card.
+// Its values are the open-state store's "message" space (disclosureStore.ts): one store, whose
+// listeners and row record the list reads.
+import { pageSpace } from "./disclosureStore";
 
-const opened = new Set<string>();
+const opened = pageSpace("message");
 
 const key = (sessionId: string | undefined, rowId: string) => `${sessionId ?? ""}\u0000${rowId}`;
 
 /// Whether the person opened the message on row `rowId` of chat `sessionId`.
 export const messageOpened = (sessionId: string | undefined, rowId: string): boolean =>
-  opened.has(key(sessionId, rowId));
+  opened.get(key(sessionId, rowId)) === true;
 
 /// Records that the person opened (or closed) the message on row `rowId` of chat `sessionId`.
 export function setMessageOpened(sessionId: string | undefined, rowId: string, open: boolean): void {
-  if (open) opened.add(key(sessionId, rowId));
-  else opened.delete(key(sessionId, rowId));
+  // The row the change shows in: a thread's key (`<row id>\u0000<thread id>`, inboxNotice.ts) and a
+  // newest-whole key name their row first.
+  const row = rowId.split("\u0000")[0]!;
+  if (open) opened.set(key(sessionId, rowId), true, sessionId, [row]);
+  else opened.delete(key(sessionId, rowId), sessionId, [row]);
 }
 
 /// Opens (or closes) every message of a digest with the digest itself: a group's head shows what
