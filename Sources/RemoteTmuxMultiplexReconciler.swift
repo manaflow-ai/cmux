@@ -60,6 +60,19 @@ enum RemoteTmuxMultiplexReconciler {
         var isEmpty: Bool {
             pendingKills.isEmpty && detached.isEmpty && pendingSelect == nil
         }
+
+        /// The intents an explicit `cmux ssh-tmux` attach starts from: closing a mirror keeps its
+        /// session out of the stream's own reconciles, but asking for the host again (or for that
+        /// session) is asking for it back (#53678). Kills in flight stay.
+        func liftingDetach(forAttachOf sessionName: String?) -> Intents {
+            var lifted = self
+            if let sessionName {
+                lifted.detached.removeAll { $0.name == sessionName }
+            } else {
+                lifted.detached = []
+            }
+            return lifted
+        }
     }
 
     /// A live mirror whose session was renamed remotely: same stable id, new name.
