@@ -25,6 +25,7 @@ pub mod power;
 pub mod preview;
 pub mod push;
 pub mod record;
+pub mod record_reads;
 pub mod refusals;
 pub mod rules;
 pub mod vm_host;

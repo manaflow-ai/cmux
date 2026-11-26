@@ -6,7 +6,7 @@
 use cmux_cloud_machine::record::{self, Machine, Operation, Status};
 use cmux_cloud_machine::{
     cap, changes, error, github, github_setup, harness_copy, limits, list_facts, models, preview,
-    push, rules, vm_host,
+    push, record_reads, rules, vm_host,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -37,6 +37,19 @@ struct ChangesRequest {
     machine: String,
     #[serde(default)]
     id: String,
+}
+
+/// The record reads' state, the machines the app holds sessions for, whether Cloud is turned off,
+/// and the read: `cloud_machine_reads_finish`'s request (`_apply` and `_reconcile` add to it).
+#[derive(Deserialize)]
+struct ReadsRequest {
+    #[serde(default)]
+    state: record_reads::Reads,
+    #[serde(default)]
+    sessions: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    disabled: bool,
+    read: i64,
 }
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
@@ -200,6 +213,69 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             json!({"delayMs": changes::next_delay(request.delay_ms, request.listed), "settleDelayMs": changes::SETTLE_DELAY_MS})
         }
         // The pushed state's rules; the app holds the sockets.
+        // The order of record reads (`record_reads`): each op answers the new state and the steps
+        // the app runs, in order (`apply`, `add` or `remove` a machine's session).
+        b"cloud_machine_reads_begin" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                state: record_reads::Reads,
+                #[serde(default)]
+                machine: Option<String>,
+            }
+            let Request { mut state, machine } = read(request)?;
+            let ticket = state.begin(machine.as_deref());
+            json!({"state": state, "read": ticket})
+        }
+        b"cloud_machine_reads_finish" => {
+            let ReadsRequest { mut state, mut sessions, disabled, read: ticket } = read(request)?;
+            let steps = state.finish(ticket, &mut sessions, disabled);
+            json!({"state": state, "steps": steps})
+        }
+        b"cloud_machine_reads_apply" => {
+            // No `flatten`: it buffers the state, and its integer-keyed maps then fail to read.
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                state: record_reads::Reads,
+                #[serde(default)]
+                sessions: std::collections::BTreeSet<String>,
+                #[serde(default)]
+                disabled: bool,
+                read: i64,
+                machine: String,
+                #[serde(default)]
+                destroyed: bool,
+                current: bool,
+            }
+            let Request {
+                mut state,
+                mut sessions,
+                disabled,
+                read: ticket,
+                machine,
+                destroyed,
+                current,
+            } = read(request)?;
+            let steps = state.apply(&machine, destroyed, ticket, current, &mut sessions, disabled);
+            json!({"state": state, "steps": steps})
+        }
+        b"cloud_machine_reads_reconcile" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                state: record_reads::Reads,
+                #[serde(default)]
+                sessions: std::collections::BTreeSet<String>,
+                #[serde(default)]
+                disabled: bool,
+                read: i64,
+                list: Vec<record_reads::Listed>,
+            }
+            let Request { mut state, mut sessions, disabled, read: ticket, list } = read(request)?;
+            let steps = state.reconcile(&list, ticket, &mut sessions, disabled);
+            json!({"state": state, "steps": steps})
+        }
         b"cloud_machine_push_url" => {
             #[derive(Deserialize)]
             struct Request {
