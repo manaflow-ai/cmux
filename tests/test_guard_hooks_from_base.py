@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -33,6 +34,8 @@ git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 SETTINGS = ROOT / ".claude/settings.json"
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
 # A stand-in for the update-branch warning: it says which copy ran.
@@ -433,7 +436,7 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(outside, [], "git read config from outside the test's directory")
 
     def test_ci_runs_this_test(self):
-        self.assertIn("tests/test_guard_hooks_from_base.py", (ROOT / ".github/workflows/cmux-next.yml").read_text())
+        self.assertIn("tests/test_guard_hooks_from_base.py", inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text()))
 
 
 if __name__ == "__main__":
