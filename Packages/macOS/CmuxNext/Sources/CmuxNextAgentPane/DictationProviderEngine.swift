@@ -21,9 +21,17 @@ public struct DictationProviderEngine {
     ) {
         claims.providerTranscription = { [weak settings] in
             guard let settings,
-                  settings.snapshot.agentPaneComposer.dictationEngine != .onDevice,
                   let environment = environment() else { return nil }
-            return { audio, locale in try await transcribe(audio, locale: locale, environment: environment) }
+            let composer = settings.snapshot.agentPaneComposer
+            guard composer.dictationEngine != .onDevice else { return nil }
+            let capturedSettings = [
+                "engine": composer.dictationEngine.rawValue,
+                "url": composer.dictationEngineURL,
+                "model": composer.dictationEngineModel
+            ]
+            return { audio, locale in
+                try await transcribe(audio, locale: locale, environment: environment, settings: capturedSettings)
+            }
         }
     }
 
