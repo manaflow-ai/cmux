@@ -712,7 +712,7 @@ fn tool_specs(session: &str, socket: &Path, allow: Option<&str>) -> Vec<Value> {
         spec("cmux-sessions", "offer-mcp", base("ACPMUX_OFFER_SESSION")),
         spec("cmux-subsessions", "subsession-mcp", caller(base("ACPMUX_SESSION_ID"))),
         spec("cmux-forum", "forum-mcp", caller(base("ACPMUX_SESSION_ID"))),
-        spec("acpmux", "acpmux-mcp", acpmux),
+        spec(crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp", acpmux),
     ]
 }
 

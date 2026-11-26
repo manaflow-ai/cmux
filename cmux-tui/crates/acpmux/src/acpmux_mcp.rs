@@ -306,7 +306,9 @@ fn allowed(all: Value, allow: Option<&str>) -> Value {
     let Some(allow) = allow else { return all };
     let allow: Vec<String> = allow.split(',').map(|t| t.trim().to_owned()).collect();
     let keep = |tool: &Value| {
-        tool["name"].as_str().is_some_and(|n| allow.contains(&format!("{SERVER_NAME}_{n}")))
+        tool["name"].as_str().is_some_and(|n| {
+            allow.contains(&format!("{}_{n}", crate::acpmux_mcp_names::FOLD_PREFIX))
+        })
     };
     Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
 }

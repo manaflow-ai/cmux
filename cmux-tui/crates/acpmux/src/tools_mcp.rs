@@ -275,7 +275,12 @@ fn pick<'a>(servers: &'a [Served], params: &mut Value) -> Result<&'a Served, Str
     match (named.as_ref().and_then(Value::as_str), servers) {
         (Some(name), _) => servers
             .iter()
-            .find(|s| s.name == name)
+            // cmux's agent server under a name it had before the rename (`acpmux_mcp_names.rs`).
+            .find(|s| {
+                s.name == name
+                    || (s.name == crate::acpmux_mcp_names::SERVER_NAME
+                        && crate::acpmux_mcp_names::is_server_name(name))
+            })
             .ok_or_else(|| format!("this process serves no {name} (it serves {})", list())),
         (None, [only]) => Ok(only),
         (None, _) => Err(format!("name the server in _meta \"{SERVER_META}\": one of {}", list())),
