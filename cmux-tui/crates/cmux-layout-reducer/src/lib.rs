@@ -974,6 +974,7 @@ pub mod shown_resize;
 pub mod sidebar_bridge;
 pub mod sidebar_caps;
 pub mod sidebar_doc;
+pub mod sidebar_doc_target;
 pub mod sidebar_drag;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
