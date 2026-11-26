@@ -502,6 +502,8 @@ pub mod method {
     pub const MUX_ROOMS: &str = "_acpmux/rooms";
     /// One watched room's snapshot or change, as `cmux-presence` records and deltas.
     pub const MUX_ROOM: &str = "_acpmux/room";
+    /// Whom the caller follows, or nobody; rides its rooms' records (RFD 0141 phase 3).
+    pub const MUX_FOLLOW: &str = "_acpmux/follow";
     /// A client's heartbeat for its person on one device (`hub/here.rs`).
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
