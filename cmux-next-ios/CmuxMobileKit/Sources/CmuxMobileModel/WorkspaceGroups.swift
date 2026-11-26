@@ -125,35 +125,22 @@ extension SidebarArrangement {
     }
 
     /// The Mac's mixed sidebar order with groups (cmux-next
-    /// `PersonalSidebar.mixedSections`): walk every personal row by place;
-    /// before row i come the groups whose `top_index` is i (members in personal
-    /// order), then row i when it is loose. Workspaces without a row follow,
-    /// then the groups placed after every row. Each workspace gets its place
-    /// in that order and its group.
+    /// `PersonalSidebar.mixedSections`): each workspace gets its place in that
+    /// order and its group. The rule is Rust's `workspace_group_slots` (its
+    /// tests hold every case); where the Rust library does not link (the
+    /// macOS and Linux package builds) workspaces keep their personal order
+    /// and show no group.
     func applyGroups(to workspaces: inout [Workspace], registryID: String) {
-        let ordered = (rows ?? []).sorted { $0.index < $1.index }
+        #if os(iOS)
         let byID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let mine = ordered.filter { $0.session == registryID }
-        let groupOf: [String: String] = Dictionary(
-            mine.compactMap { row in row.group.flatMap { byID[$0] != nil ? (row.key, $0) : nil } }, uniquingKeysWith: { first, _ in first })
-        let sortedGroups = groups.sorted { $0.index < $1.index }
-        var sequence: [String] = []
-        func emit(_ group: MacWorkspaceGroup) {
-            sequence += mine.filter { groupOf[$0.key] == group.id }.map(\.key)
+        let slots = workspaceGroupSlots(
+            rows: (rows ?? []).map { PhoneSidebarRow(session: $0.session, key: $0.key, index: Int64($0.index), group: $0.group) },
+            groups: groups.map(\.phone), workspaceIds: workspaces.map(\.id), registryId: registryID)
+        for (i, slot) in zip(workspaces.indices, slots) {
+            workspaces[i].sidebarIndex = Int(slot.sidebarIndex)
+            workspaces[i].group = slot.group.flatMap { byID[$0] }
         }
-        for (index, row) in ordered.enumerated() {
-            for group in sortedGroups where group.topIndex == index { emit(group) }
-            if row.session == registryID, groupOf[row.key] == nil { sequence.append(row.key) }
-        }
-        let rowed = Set(mine.map(\.key))
-        sequence += workspaces.map(\.id).filter { !rowed.contains($0) }
-        for group in sortedGroups where group.topIndex.map({ $0 >= ordered.count }) ?? true { emit(group) }
-        let position = Dictionary(sequence.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        for i in workspaces.indices {
-            let id = workspaces[i].id
-            workspaces[i].sidebarIndex = position[id] ?? sequence.count + i
-            workspaces[i].group = groupOf[id].flatMap { byID[$0] }
-        }
+        #endif
     }
 }
 
@@ -166,14 +153,11 @@ extension SidebarArrangement {
 /// group opened again by itself, and a second tap seemed to be needed
 /// ("disclosure groups not being properly closable"). An edit holds its
 /// members' group over refreshes while it is in flight, and after the Mac's
-/// yes until a refresh shows it or `confirmWindow` passes; then the Mac's
+/// yes until a refresh shows it or its confirm window passes; then the Mac's
 /// state wins again (another device may change it). Only the latest edit of
-/// a workspace counts: a refused earlier tap does not undo a later one.
+/// a workspace counts: a refused earlier tap does not undo a later one. The
+/// hold rule and its windows are Rust's `pending_group_edit_step`.
 struct PendingGroupEdits: Sendable {
-    /// How long an answered edit outlasts refreshes that do not show it.
-    static let confirmWindow: TimeInterval = 10
-    /// An edit the Mac never answered gives way after this long.
-    static let unansweredWindow: TimeInterval = 30
 
     private struct Edit: Sendable {
         var group: MacWorkspaceGroup?
@@ -230,44 +214,43 @@ struct PendingGroupEdits: Sendable {
         return latest
     }
 
-    /// One Mac's refreshed rows, with the edits they do not show yet.
+    /// One Mac's refreshed rows, with the edits they do not show yet (no
+    /// hold where the Rust library does not link: the Mac's group shows).
     mutating func apply(to rows: inout [Workspace], now: Date) {
+        #if os(iOS)
         guard !edits.isEmpty else { return }
         for index in rows.indices {
             let id = rows[index].id
             guard let edit = edits[id] else { continue }
-            let incoming = rows[index].group
-            guard edit.holds else { continue }
-            let expired = edit.answeredAt.map { now.timeIntervalSince($0) > Self.confirmWindow }
-                ?? edit.sentAt.map { now.timeIntervalSince($0) > Self.unansweredWindow } ?? false
-            if expired || (edit.answeredAt != nil && Self.shows(incoming, edit.group)) {
-                edits[id] = nil
-                continue
+            let pending = PendingGroupEdit(
+                group: edit.group?.phone, holds: edit.holds, sentAt: edit.sentAt?.timeIntervalSinceReferenceDate,
+                answeredAt: edit.answeredAt?.timeIntervalSinceReferenceDate)
+            switch pendingGroupEditStep(edit: pending, incoming: rows[index].group?.phone, now: now.timeIntervalSinceReferenceDate) {
+            case .pass: continue
+            case .forget: edits[id] = nil
+            case let .hold(group): rows[index].group = group.map(MacWorkspaceGroup.init(phone:))
             }
-            rows[index].group = Self.merged(incoming, edit.group)
         }
-    }
-
-    /// The Mac's group carries the edit (its place among groups may differ).
-    static func shows(_ incoming: MacWorkspaceGroup?, _ expected: MacWorkspaceGroup?) -> Bool {
-        guard let incoming, let expected else { return incoming == nil && expected == nil }
-        return incoming.id == expected.id && incoming.name == expected.name && incoming.color == expected.color
-            && incoming.isCollapsed == expected.isCollapsed
-    }
-
-    /// The edit over the Mac's group: the Mac's place, the edit's fields.
-    static func merged(_ incoming: MacWorkspaceGroup?, _ expected: MacWorkspaceGroup?) -> MacWorkspaceGroup? {
-        guard var expected else { return nil }
-        guard var incoming, incoming.id == expected.id else {
-            expected.index = incoming?.index ?? expected.index
-            return expected
-        }
-        incoming.name = expected.name
-        incoming.color = expected.color
-        incoming.isCollapsed = expected.isCollapsed
-        return incoming
+        #endif
     }
 }
+
+#if os(iOS)
+import CmuxMobileLinkFFI
+
+extension MacWorkspaceGroup {
+    /// The group as Rust's `PhoneWorkspaceGroup`.
+    var phone: PhoneWorkspaceGroup {
+        PhoneWorkspaceGroup(id: id, name: name, color: color, isCollapsed: isCollapsed, index: Int64(index),
+                            topIndex: topIndex.map(Int64.init), room: room, isPinned: isPinned)
+    }
+
+    init(phone: PhoneWorkspaceGroup) {
+        self.init(id: phone.id, name: phone.name, color: phone.color, isCollapsed: phone.isCollapsed, index: Int(phone.index),
+                  topIndex: phone.topIndex.map(Int.init), room: phone.room, isPinned: phone.isPinned)
+    }
+}
+#endif
 
 /// The Mac's workspace group actions, for a backend that can send them
 /// (cmux-next-ios/SECURITY.md "Workspace groups").
