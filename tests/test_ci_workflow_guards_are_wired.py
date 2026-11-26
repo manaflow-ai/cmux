@@ -30,6 +30,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import validate_test_execution_registry as registry
 
 # A guard is identified by what it reads, not by where it lives, so a test that
 # is moved or renamed keeps its obligation. Both spellings occur in-tree: a
@@ -347,22 +349,19 @@ def workflow_guards() -> set[str]:
     return found
 
 
-def _registry_validator():
-    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-    import validate_test_execution_registry
-
-    return validate_test_execution_registry
-
-
 def invoked_by_workflows() -> set[str]:
     """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
     pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
     plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
-    validator = _registry_validator()
-    workflows = ROOT / ".github" / "workflows"
-    invoked = set(INVOKED_PATH.findall(validator.all_workflow_text(workflows)))
-    live_lanes = validator.runner_lanes(workflows)
-    for entry in validator.load_tree(ROOT):
+    # Workflow comments often cite the guard that documents a job.
+    text = registry.all_workflow_text(WORKFLOW_DIR)
+    commands = [line.split("#", 1)[0] for line in text.splitlines()]
+    slow_checks = "scripts/ci/cmux-next-slow-checks.txt"
+    if any(f"< {slow_checks}" in line for line in commands):
+        commands.extend(line.split("#", 1)[0] for line in (ROOT / slow_checks).read_text().splitlines())
+    invoked = set(INVOKED_PATH.findall("\n".join(commands)))
+    live_lanes = registry.runner_lanes(WORKFLOW_DIR)
+    for entry in registry.load_tree(ROOT):
         if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
             invoked.add(entry["path"])
     return invoked
@@ -373,7 +372,7 @@ def registered_manual() -> set[str]:
     registry is where a knowingly unwired test says why and how to run it, so it needs no second entry here."""
     return {
         entry["path"]
-        for entry in _registry_validator().load_tree(ROOT)
+        for entry in registry.load_tree(ROOT)
         if entry.get("lane") == "manual" and str(entry.get("reason") or "").strip() and isinstance(entry.get("path"), str)
     }
 

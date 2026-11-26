@@ -111,6 +111,10 @@ path = "tests/test_cmux_next_dev_daily_notify_cli.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dev_daily_sign_ephemeral.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_dev_daily_tree_wait.py"
@@ -271,6 +275,10 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_app_compile_deferred.py"
 lane = "linux-guard"
 
 [[test]]
@@ -547,6 +555,10 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_tree_key_verb.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_tree_key_verb.py"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_request_pr.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_request_rerun.py"

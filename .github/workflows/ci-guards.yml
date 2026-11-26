@@ -362,6 +362,54 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_base_red_skip.py
 
+      - name: Validate apt package handling on runner images
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_apt_skips_baked_packages.py
+
+      - name: Validate iroh Apple suite coverage
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_iroh_apple_suites_have_mac_home.py
+
+      - name: Validate commands on owned Mac runners
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_mac_jobs_no_sudo.py
+
+      - name: Validate the Linux batch workflow
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_pipeline_linux_batch.py
+
+      - name: Validate relay journey build caching
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_relay_journey_build_cache.py
+
+      - name: Validate dispatch workflow registration
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflows_registered.py
+
+      - name: Validate API workerd green markers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_api_workerd_green_marker.py
+
+      - name: Validate the hot verify workspace mirror seed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_mirror_seed.py
+
+      - name: Validate job routing on router failure
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_path_route_skips_on_failure.py
+
+      - name: Validate app compile deferral on pull requests
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_app_compile_deferred.py
+
+      - name: Validate cmux-tui tree requests for pull requests
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_tree_request_pr.py
+
+      - name: Validate fleet fallback reporting
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_fleet_fallback.py
+
       - name: Validate the head fail-fast of PR runs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_head_fail_fast.py
@@ -1709,6 +1757,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
+      - name: Validate kit benchmarks after a lint failure
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_kit_bench_runs_after_red_step.py
+
+      - name: Validate iOS live lease ownership
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_live_lease_owner.py
+
+      - name: Validate opaque App Store screenshots
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_png_opaque.py
+
       - name: Validate TestFlight notes generator
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_notes.py
@@ -1974,6 +2034,22 @@ jobs:
       - name: Validate the cmux-next tour files
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 scripts/cmux-next/media/tour.py --check scripts/cmux-next/media/tours
+
+      - name: Validate ephemeral daily signing
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_daily_sign_ephemeral.py
+
+      - name: Validate the nightly feed watcher
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_feed_watch.py
+
+      - name: Validate nightly notarization channels
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_notarize_channel_matches.py
+
+      - name: Validate release reads during publication
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
 
       - name: Validate that a nightly tour starts from the last toured tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
