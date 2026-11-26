@@ -473,7 +473,10 @@ GATED = {name: "pull_request" for name in (
     "cmux-next-hot-verify.yml", "cmux-next-pr-autofix.yml",
     "cmux-next-shell-integration.yml", "cmux-vm.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml",
     "ios-e2e.yml", "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml",
-    "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml")}
+    "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
+    # 17.4k runner-min per 10.8 h on pull request heads (11-25 05:30Z-16:18Z), every push of every head before:
+    # rust-workspaces' plan, reads and workspace matrix; cmux-tui-spec's changes router and acpmux/clippy jobs.
+    "rust-workspaces.yml", "cmux-tui-spec.yml")}
 GATED["backend-migrations.yml"] = "pull_request_target"
 # Only the draft tier: its one job runs only when the motion-golden label is the one added (a person asks for it).
 DRAFT_ONLY = {"cmux-next-motion-golden.yml": "pull_request"}
@@ -627,6 +630,47 @@ class GatedWorkflowTests(unittest.TestCase):
                                     )
                                     self.assertEqual(full, runs, (event_name, draft, labels, base, head_repo,
                                                                   switch, land))
+
+
+# ci-web.yml is a workflow_call callee of ci.yml (job `web`), so it sees the caller's pull request event. Its heavy
+# jobs carry the land condition; its verdict jobs (react-apps-check, Web status) still run on every head and accept
+# those skips only on a cheap head, read from WEB_LAND_TIER (the same expression). Measured 2026-11-25: the React
+# shards, base replay and webviews-typecheck were about 90k runner min/day on feat-cmux-next heads not handed to land.
+CI_WEB_LAND_TIER_JOBS = ("react-apps-check-shard", "webviews-typecheck")
+CI_WEB_VERDICT_JOBS = ("react-apps-check", "web-status")
+
+
+class CiWebLandTierTests(unittest.TestCase):
+    TEXT = (ROOT / ".github" / "workflows" / "ci-web.yml").read_text()
+
+    def test_the_heavy_jobs_carry_the_land_condition(self) -> None:
+        jobs = _job_ifs(self.TEXT)
+        for job in CI_WEB_LAND_TIER_JOBS:
+            self.assertIn(land_tier_condition("pull_request"), jobs[job] or "", job)
+
+    def test_the_jobs_that_need_the_shards_skip_with_them(self) -> None:
+        jobs = _job_ifs(self.TEXT)
+        self.assertNotIn("always()", jobs["react-apps-base-check"])
+        self.assertNotIn("!cancelled()", jobs["react-apps-base-check"])
+        self.assertIn("needs.react-apps-check-shard.result != 'skipped'", jobs["webviews-test-durations"])
+
+    def test_the_verdict_jobs_still_run_and_read_the_same_condition(self) -> None:
+        jobs = _job_ifs(self.TEXT)
+        env = f"WEB_LAND_TIER: ${{{{ {land_tier_condition('pull_request')} }}}}"
+        for job in CI_WEB_VERDICT_JOBS:
+            self.assertNotIn("CI_LAND_TIER", jobs[job] or "", job)
+            start = self.TEXT.index(f"\n  {job}:\n")
+            end = self.TEXT.find("\n  # ", start + 1)
+            block = self.TEXT[start:] if end < 0 else self.TEXT[start:end]
+            self.assertIn(env, block, job)
+            self.assertIn('os.environ.get("WEB_LAND_TIER")', block, job)
+            self.assertNotIn('os.environ.get("WEB_LAND_TIER") == "true"', block, job)  # an unset flag fails closed
+        self.assertIn('may_skip.add("webviews-typecheck")', self.TEXT)
+
+    def test_ci_yml_reruns_web_on_the_land_label(self) -> None:
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("labeled", _trigger_types(ci, "pull_request"))
+        self.assertIn('"ready-to-land"', _job_ifs(ci)["web"] or "")
 
 if __name__ == "__main__":
     unittest.main()

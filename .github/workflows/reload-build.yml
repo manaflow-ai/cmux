@@ -1126,6 +1126,7 @@ jobs:
             /scripts/ci/
             /scripts/cmux-next/web-ota-pointer.py
             /Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+            /.gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Repair a reused self-hosted checkout
@@ -1133,7 +1134,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # One signed file per commit, written once: a rerun of a published commit keeps it (a rebuild's bytes
