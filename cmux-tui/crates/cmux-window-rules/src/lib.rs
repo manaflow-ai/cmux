@@ -36,6 +36,8 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`naming`]: the names a workspace takes (from a moved tab, its front
+//!   tab while no one named it, Name from Activity's prompt and reply).
 
 pub mod appearance;
 pub mod browser;
@@ -46,6 +48,7 @@ pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod naming;
 pub mod notifications;
 pub mod remote;
 pub mod restore;

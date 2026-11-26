@@ -45,7 +45,8 @@
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
-//! and whether it earns an undo toast),
+//! and whether it earns an undo toast; `workspace_name_*`: the names a
+//! workspace takes, its automatic label and Name from Activity's prompt),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -102,6 +103,7 @@ pub mod tab_drag;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
+mod workspace_naming;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -619,6 +621,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
+            }
+            operation if workspace_naming::handles(operation) => {
+                workspace_naming::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };
