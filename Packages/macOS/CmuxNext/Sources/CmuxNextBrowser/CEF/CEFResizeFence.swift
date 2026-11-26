@@ -36,6 +36,8 @@ final class CEFResizeFences {
     private let makePort: @MainActor (CALayer) -> mach_port_t?
     /// How a live drag uses the fences (``CEFFenceMode/current`` by default).
     let mode: CEFFenceMode
+    /// Which resized page views may join a window's fence (``CEFFenceMembers/current`` by default).
+    let members: CEFFenceMembers
     /// ``CEFFenceMode/commit``: the fences whose window has not committed yet, and the observer after every commit that
     /// hands them to their pages (added at launch, so a fence opened in the display cycle's own callout is handed after
     /// that same pass's commit: an observer added during a stage misses that stage).
@@ -47,17 +49,22 @@ final class CEFResizeFences {
     ///   - makePort: the fence of the window of a layer (`-[CAContext createFencePort]` by default; tests pass a port
     ///     of their own).
     ///   - mode: how a live drag uses the fences (``CEFFenceMode/current`` by default).
+    ///   - members: which resized page views may join (``CEFFenceMembers/current`` by default).
     init(clock: any Clock<Duration> = ContinuousClock(),
          makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) },
-         mode: CEFFenceMode = .current) {
+         mode: CEFFenceMode = .current, members: CEFFenceMembers = .current) {
         self.clock = clock
         self.makePort = makePort
         self.mode = mode
+        self.members = members
         if mode == .commit {
             afterCommit = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: Self.afterCommitOrder,
                                               drawsNothingAfterCommit: true) { [weak self] _ in self?.windowsCommitted() }
         }
     }
+
+    /// Whether something of `view` shows in `window` (``CEFFenceMembers/shown``). Red stub: every view shows.
+    static func shows(_ view: NSView, in window: NSWindow) -> Bool { true }
 
     /// ``CEFFenceMode/commit``: the windows' commits of this pass went; their fences go to their pages and their
     /// deadlines start.
@@ -173,6 +180,22 @@ final class CEFResizeFences {
 /// the window's layout, before its commit: the renderer's frame at a step's size (the resize message, a begin frame,
 /// the draw, the display's) comes after that, or after the next step's fence replaced it, so the commit is held for no
 /// page.
+/// Which resized page views join a window's fence: `CMUX_NEXT_CEF_FENCE_MEMBERS` (a `CMUX_NEXT_` knob, kept by the launch
+/// strip), a bench arm while the page-sync bench measures it (2026-11-26). Every window-corner step waited on one page
+/// nobody sees: the next Cmd-N's reserved workspace, mounted alpha 0 and 100 000 pt off the content with its autoresizing
+/// on (`addPrewarmedSubview`), takes the window's size each step and joins, and a hidden page seldom presents, so the
+/// fence expires (page-sync fd1 seed 1: 114 of 160 corner fences waited on 5 pages for the 4 shown). The osr pages got
+/// the same rule in 17dd9461: a page nobody sees keeps its size and joins no window fence.
+enum CEFFenceMembers: String, Sendable {
+    /// Every resized page view in the window joins (the shipped behaviour).
+    case all
+    /// Only a page view something of which shows in its window joins (``CEFResizeFences/shows(_:in:)``).
+    case shown
+
+    /// The launch's rule (`all` unless `CMUX_NEXT_CEF_FENCE_MEMBERS` names another).
+    nonisolated static let current = CEFFenceMembers(rawValue: ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_FENCE_MEMBERS"] ?? "") ?? .all
+}
+
 enum CEFFenceMode: String, Sendable {
     /// Every resized page joins its turn's fence (the default).
     case each
