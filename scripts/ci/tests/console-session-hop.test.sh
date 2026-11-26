@@ -12,10 +12,12 @@ fail() { echo "FAIL: $*" >&2; fails=$((fails + 1)); }
 
 # Fakes: the console user is "person"; MANAGER is launchctl's session; SUDO_GRANTS lists what sudo -n allows.
 mkdir -p "$WORK/bin"
-cat > "$WORK/bin/stat" <<'EOF'
-#!/bin/sh
-echo person
-EOF
+# console-session.sh asks bench_launch.py (IOConsoleUsers, #54474) who the console user is, by its path next to the
+# script: run a copy of the script beside a fake bench_launch.py that answers "person".
+mkdir -p "$WORK/tree/scripts/ci/frame-pacing" "$WORK/tree/scripts/cmux-next"
+cp "$ROOT/scripts/ci/frame-pacing/console-session.sh" "$WORK/tree/scripts/ci/frame-pacing/console-session.sh"
+echo 'print("person")' > "$WORK/tree/scripts/cmux-next/bench_launch.py"
+SCRIPT="$WORK/tree/scripts/ci/frame-pacing/console-session.sh"
 cat > "$WORK/bin/id" <<'EOF'
 #!/bin/sh
 echo 501
@@ -41,7 +43,7 @@ exit 1
 EOF
 chmod +x "$WORK/bin/"*
 
-run() { MANAGER="$1" SUDO_GRANTS="$2" PATH="$WORK/bin:$PATH" bash "$ROOT/scripts/ci/frame-pacing/console-session.sh" echo RAN 2>/dev/null; }
+run() { MANAGER="$1" SUDO_GRANTS="$2" PATH="$WORK/bin:$PATH" bash "$SCRIPT" echo RAN 2>/dev/null; }
 
 # sudo grants other commands but not launchctl: runs where it is.
 out=$(run Background "purge fs_usage true") || fail "no launchctl grant exited non-zero"
@@ -80,7 +82,7 @@ echo "sudo: a password is required" >&2
 exit 1
 EOS
 chmod +x "$WORK/bin/"*
-runx() { PATH="$WORK/bin:$PATH" TMPDIR="$WORK" bash "$ROOT/scripts/ci/frame-pacing/console-session.sh" "$@"; }
+runx() { PATH="$WORK/bin:$PATH" TMPDIR="$WORK" bash "$SCRIPT" "$@"; }
 
 # CONSOLE_SESSION=own: runs in this user's gui domain with no sudo and keeps the exit code.
 rc=0; out=$(MANAGER=Background GUI=1 SUDO_GRANTS="" CONSOLE_SESSION=own runx sh -c 'echo OWN; exit 7' 2>/dev/null) || rc=$?
