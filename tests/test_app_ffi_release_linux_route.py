@@ -4,7 +4,7 @@
 2026-11-19: runs 44600407530 and 44612287186 sat in "place the build" on vars.LINUX_RUNNER (cmux-fleet-linux-x64,
 2,600 PR jobs queued, 0 idle runners) for hours; no FFI release published and the pin guard went 30 h stale. The
 placement, rescue, publish and re-pin jobs now ask for cmux-gcp-nightly-x64 on attempts 1 and 2 (one-job JIT VMs
-the HQ booter starts ahead of the PR lanes), behind the build's own switch vars.CI_RELEASE_PIN_SLOT.
+the HQ booter starts ahead of the PR lanes), by literal (the CI_RELEASE_PIN_SLOT switch was frozen on, cmux#53974).
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/app-ffi-release.yml"
 REPIN = WORKFLOW.with_name("app-ffi-repin.yml")
-LANE = "vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64'"
+LANE = "|| github.run_attempt <= 2 && 'cmux-gcp-nightly-x64'"
 CONTROL_JOBS = ("placement", "rescue", "publish", "repin")
 
 
