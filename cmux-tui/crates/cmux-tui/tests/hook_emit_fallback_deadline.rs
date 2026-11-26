@@ -15,6 +15,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -37,10 +38,14 @@ fn temp_dir(name: &str) -> PathBuf {
 
 /// Runs the installed fallback (`emit ... >/dev/null 2>&1||:;echo {}`) once and returns its wall time.
 fn emit(dir: &Path, socket: &Path, event: &str, bounded: bool) -> Duration {
+    emit_with_budget(dir, socket, event, bounded.then_some(DEADLINE_MS))
+}
+
+fn emit_with_budget(dir: &Path, socket: &Path, event: &str, budget: Option<&str>) -> Duration {
     let start = Instant::now();
     let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .args(["agent", "hook", "emit", "--source", "claude", "--event", event])
-        .args(if bounded { vec!["--deadline-ms", DEADLINE_MS] } else { vec![] })
+        .args(budget.map(|ms| vec!["--deadline-ms", ms]).unwrap_or_default())
         .env("CMUX_TUI_SOCKET", socket)
         .env("CMUX_MUX_SOCKET", socket)
         .env("HOME", dir)
@@ -73,15 +78,19 @@ fn emit(dir: &Path, socket: &Path, event: &str, bounded: bool) -> Duration {
 }
 
 /// A daemon that accepts and reads, then answers each line after `delay` (never when `None`).
-fn serve(socket: &Path, delay: Option<Duration>) {
+fn serve(socket: &Path, delay: Option<Duration>) -> Arc<AtomicUsize> {
     let listener = UnixListener::bind(socket).unwrap();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { return };
+            let requests = observed.clone();
             std::thread::spawn(move || {
                 let mut writer = stream.try_clone().unwrap();
                 for line in BufReader::new(stream).lines() {
                     let Ok(line) = line else { return };
+                    requests.fetch_add(1, Ordering::Relaxed);
                     let Some(delay) = delay else {
                         std::thread::sleep(Duration::from_secs(3600));
                         return;
@@ -97,6 +106,7 @@ fn serve(socket: &Path, delay: Option<Duration>) {
             });
         }
     });
+    requests
 }
 
 fn measure(state: &str, delay: Option<Option<Duration>>, bounded: bool) -> Duration {
@@ -136,6 +146,23 @@ fn emit_with_its_installed_deadline_answers_inside_the_hook_timeout() {
         let worst = measure(state, delay, true);
         assert!(worst <= BUDGET, "{state}: emit took {worst:?}, over {BUDGET:?}");
     }
+}
+
+/// Use a budget below the daemon client's 2 s I/O timeout, so the watchdog
+/// must finish a blocked socket request itself.
+#[test]
+fn emit_deadline_interrupts_a_stalled_daemon_request() {
+    let dir = temp_dir("short-deadline");
+    let socket = dir.join("d.sock");
+    let requests = serve(&socket, None);
+    let elapsed = emit_with_budget(&dir, &socket, "Stop", Some("500"));
+    eprintln!("EMIT-STALLED-DAEMON budget_ms=500 elapsed_ms={}", elapsed.as_millis());
+    assert!(requests.load(Ordering::Relaxed) > 0, "emit never reached the stalled daemon");
+    assert!(
+        (Duration::from_millis(450)..Duration::from_millis(1800)).contains(&elapsed),
+        "stalled daemon took {elapsed:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Keep the writer open, so the real emit cannot finish reading its input.
@@ -180,7 +207,7 @@ fn emit_with_stalled_input_honors_or_rejects_its_budget() {
         if exit == 0 {
             eprintln!("EMIT-STALLED-INPUT budget_ms={budget} elapsed_ms={}", elapsed.as_millis());
             assert!(
-                (Duration::from_millis(150)..Duration::from_millis(1500)).contains(&elapsed),
+                (Duration::from_millis(150)..BUDGET).contains(&elapsed),
                 "200 ms deadline completed after {elapsed:?}"
             );
             assert!(output.stderr.is_empty(), "{output:?}");

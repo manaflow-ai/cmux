@@ -11,6 +11,7 @@
 //! command answers 0 with no output, which is the fallback's safe answer: the
 //! shell already discards emit's output and prints `{}`.
 
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 /// Runs the command on a worker thread and answers 0 at the deadline if it has
@@ -21,9 +22,13 @@ pub(super) fn within(deadline: Duration, command: impl FnOnce() -> i32 + Send + 
         let _ = answered.send(command());
     });
     if worker.is_err() {
-        return 0;
+        return 1;
     }
-    answer.recv_timeout(deadline).unwrap_or(0)
+    match answer.recv_timeout(deadline) {
+        Ok(code) => code,
+        Err(RecvTimeoutError::Timeout) => 0,
+        Err(RecvTimeoutError::Disconnected) => 1,
+    }
 }
 
 #[cfg(test)]
@@ -64,5 +69,10 @@ mod tests {
         });
         assert_eq!(code, 0);
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_worker_failure_is_not_a_successful_deadline() {
+        assert_eq!(within(Duration::from_secs(5), || panic!("worker failed")), 1);
     }
 }
