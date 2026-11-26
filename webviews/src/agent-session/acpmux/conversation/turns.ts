@@ -3202,13 +3202,19 @@ function supersededFooters(
   let lastSteer = -1;
   // Stacked steers share the turn footer. Leave the whole turn available to Copy, including
   // when the next prompt ends it without a summary.
-  for (let index = 0; !stacked && index < turn.length; index += 1) {
+  for (let index = 0; (!stacked || live) && index < turn.length; index += 1) {
     const row = turn[index]!;
     // A steer still waiting is the person's too: while the turn runs its footer comes with it (below).
     // A steer the agent has not read yet: acpmux's record of it (`waiting`), or the pane's own row
     // still on its way (`sentSteer`).
     const unread = row.steer === "waiting" ? personCameIn({ ...row, steer: "landed" }) : live && sentSteer(row);
     if (!personCameIn(row) && !unread) continue;
+    // A recorded steer is already stacked. A local send still draws inline until its record
+    // arrives, with Copy for the stretch since the last recorded steer.
+    if (stacked && continuesTurn(row)) {
+      from = index + 1;
+      continue;
+    }
     const at = (out ?? drawn).findIndex((each) => each.id === row.id);
     if (unread) {
       // While the turn runs its footer comes with it, right above where it is drawn (or where the

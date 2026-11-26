@@ -234,15 +234,44 @@ for (const family of ["claude", "codex"])
     }
   });
 
+test("a local steer still has its stretch to copy before it joins the stack", () => {
+  const previous = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...previous, "turn-fold-steered": "stacked" };
+  try {
+    const prompt = row("u", "user", { text: "Check the transfer" });
+    const before = row("r1", "assistant", { text: "First reply" });
+    const landed = row("s1", "user", { text: "Check again", steer: "landed" });
+    const after = row("r2", "assistant", { text: "Second reply" });
+    const rows = [
+      prompt,
+      before,
+      landed,
+      after,
+      row("local", "user", {
+        text: "Hold there",
+        pending: true,
+        delivery: { state: "sending", queued: true, promptId: "s2", sessionId: "test", sentAt: at + 10_000 },
+      }),
+    ];
+    const view = turnView(rows, new Set(), { working: true, agentFamily: "codex", now: at });
+    expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s2`]);
+    expect(footers(view)[0]?.turnCopy).toEqual([{ text: after.text }]);
+  } finally {
+    if (previous === undefined) delete globalThis.cmuxExperiments;
+    else globalThis.cmuxExperiments = previous;
+  }
+});
+
 for (const ending of ["summary", "next prompt"] as const)
   test(`stacked steers keep one Copy for the whole turn when it ends on a ${ending}`, () => {
     const previous = globalThis.cmuxExperiments;
     globalThis.cmuxExperiments = { ...previous, "turn-fold-steered": "stacked" };
     try {
+      const prompt = row("u", "user", { text: "Check the transfer" });
       const reply = row("r1", "assistant", { text: "Transfer is ready." });
       const tool = bash("b1");
       const rows = [
-        row("u", "user", { text: "Check the transfer" }),
+        prompt,
         reply,
         tool,
         row("s1", "user", { text: "Hold there", steer: "landed" }),
