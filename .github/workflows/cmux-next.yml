@@ -871,7 +871,7 @@ jobs:
     # Why: note-358
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Why: note-88
-    timeout-minutes: 8
+    timeout-minutes: 10
     permissions:
       # Why: note-89
       actions: read
@@ -3202,7 +3202,7 @@ jobs:
           REF: ${{ github.sha }}
           # Why: note-193
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
-          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,HandlerCoverageTests,AcpmuxClientTests
+          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,HandlerCoverageTests,AcpmuxClientTests,AcpmuxPaneInitializeParamsContractTests,AcpmuxPaneInitializeFailSafeTests
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           set -uo pipefail

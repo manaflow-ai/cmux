@@ -254,8 +254,10 @@ class HistoryFetchTests(unittest.TestCase):
                               capture_output=True, text=True)
 
     def has(self, sha: str) -> bool:
+        # No lazy fetch: in this partial clone a missing commit is otherwise fetched from the promisor remote
+        # by the probe itself, and every commit reads as present.
         return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
-                              capture_output=True).returncode == 0
+                              env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True).returncode == 0
 
     def test_deepens_until_the_merge_base_and_no_further(self):
         result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128")

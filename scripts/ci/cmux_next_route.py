@@ -323,6 +323,8 @@ BUNDLE_INPUTS = (
     "schemas/type-scale/scene-type.json",
     # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+    # The peek pin the composer status imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
