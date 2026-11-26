@@ -56,13 +56,18 @@ extension LayoutModel {
         return change.send(in: self) ? .equalized : .refused
     }
 
-    /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
-    /// equalize springs (`explicitReflowUntil`); the sizing that follows a split or a close moves
-    /// with that gesture instead.
+    /// Equalizes the same-axis chain holding `split` (a divider's double-click): every cell of that chain, on both sides
+    /// of the divider and above or below it in the tree, gets an equal share (``EvenSplitRatios/changes(equalizingChainOf:in:)``).
+    /// Setting only `split`'s own ratio assumed every nested same-axis split was even already, so a chain with one
+    /// dragged split stayed uneven (#57175). The ratios go out as one change (one undo step). An explicit equalize
+    /// springs (`explicitReflowUntil`); the sizing that follows a split or a close moves with that gesture instead.
     public func equalizeSplit(_ split: SplitID) {
-        guard let tree = screens.lazy.compactMap({ $0.layout.tree(containing: split) }).first,
-              let ratio = tree.equalizedRatio(for: split) else { return }
+        guard let tree = screens.lazy.compactMap({ $0.layout.tree(containing: split) }).first else { return }
+        let changes = EvenSplitRatios.changes(equalizingChainOf: split, in: tree)
+        guard !changes.isEmpty else { return }
+        let change = EndedValues(changes.map { .ratio($0.split, $0.ratio) })
+        guard change.canSend(in: self) else { return }
         explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
-        setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+        change.send(in: self)
     }
 }

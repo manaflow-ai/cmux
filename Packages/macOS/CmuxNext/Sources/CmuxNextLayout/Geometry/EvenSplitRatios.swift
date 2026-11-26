@@ -21,6 +21,28 @@ public nonisolated enum EvenSplitRatios {
         return result
     }
 
+    /// The ratio changes that give every cell of the same-axis chain holding `split` an equal share: the chain's top is
+    /// the highest ancestor reached through splits of `split`'s axis alone, so the panes on both sides of the divider and
+    /// their same-axis neighbours (above it and below it in the tree) all end even (a divider's double-click, #57175).
+    /// Perpendicular subtrees count as one cell and keep their own ratios. Unchanged splits are left out; empty when
+    /// `split` is not in `root`.
+    public static func changes(equalizingChainOf split: SplitID, in root: SplitNode) -> [SplitRatioChange] {
+        var path: [SplitNode] = []
+        guard splitPath(to: split, in: root, path: &path), case let .split(_, axis, _, _, _)? = path.last else { return [] }
+        var top = path.removeLast()
+        while case let .split(_, parentAxis, _, _, _)? = path.last, parentAxis == axis { top = path.removeLast() }
+        return changes(equalizing: top, axis: axis)
+    }
+
+    /// Fills `path` with the split nodes from `node` down to `split` itself.
+    private static func splitPath(to split: SplitID, in node: SplitNode, path: inout [SplitNode]) -> Bool {
+        guard case let .split(id, _, _, a, b) = node else { return false }
+        path.append(node)
+        if id == split || splitPath(to: split, in: a, path: &path) || splitPath(to: split, in: b, path: &path) { return true }
+        path.removeLast()
+        return false
+    }
+
     private static func equalize(_ node: SplitNode, axis: SplitAxis, into result: inout [SplitRatioChange]) {
         guard case let .split(id, nodeAxis, ratio, a, b) = node, nodeAxis == axis else { return }
         let wa = Double(a.cellCount(along: axis)), wb = Double(b.cellCount(along: axis))

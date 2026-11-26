@@ -240,7 +240,9 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
+        // Every second click of a run is a double-click: a quick third press (clickCount 3) starts a drag, a fourth
+        // equalizes again, so a person double-clicking twice in a row never gets a stray drag in place of the second.
+        if event.clickCount >= 2, event.clickCount.isMultiple(of: 2) {
             onDrag?(.doubleClick)
             return
         }
