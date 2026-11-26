@@ -47,7 +47,7 @@ fn free_bytes(dir: &Path) -> Result<u64> {
 fn arg<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> Result<T> {
     match args.iter().position(|a| a == name) {
         Some(i) => args
-            .get(i + 1)
+            .get(i.saturating_add(1))
             .ok_or(format!("{name} needs a value"))?
             .parse()
             .map_err(|_| format!("bad {name}").into()),
@@ -55,8 +55,20 @@ fn arg<T: std::str::FromStr>(args: &[String], name: &str, default: T) -> Result<
     }
 }
 
+/// The `p` quantile of `sorted` (nearest rank; 0 when empty).
 fn pct(sorted: &[f64], p: f64) -> f64 {
-    sorted[((sorted.len() - 1) as f64 * p).round() as usize]
+    let rank = (sorted.len().saturating_sub(1) as f64 * p).round();
+    let at: Option<usize> = format!("{rank:.0}").parse().ok();
+    at.and_then(|i| sorted.get(i)).copied().unwrap_or(0.0)
+}
+
+/// `x` GiB (or any unit of `unit` bytes) in bytes, refusing negatives and overflow.
+fn bytes_of(x: f64, unit: u64) -> Result<u64> {
+    let b = (x * unit as f64).round();
+    if !(0.0..=u64::MAX as f64).contains(&b) {
+        return Err(format!("{x} is out of range").into());
+    }
+    Ok(format!("{b:.0}").parse()?)
 }
 
 fn main() -> Result<()> {
@@ -73,10 +85,10 @@ fn main() -> Result<()> {
     let keep = args.iter().any(|a| a == "--keep");
     let link_mib_s: f64 = arg(&args, "--link-mib-s", 70.0)?;
     let streams: usize = arg(&args, "--streams", 4)?;
-    let total = (size_gib * (1u64 << 30) as f64) as u64;
+    let total = bytes_of(size_gib, 1 << 30)?;
     std::fs::create_dir_all(&work)?;
     let free = free_bytes(&work)?;
-    let need = 2 * total + (floor_gib * (1u64 << 30) as f64) as u64;
+    let need = total.saturating_mul(2).saturating_add(bytes_of(floor_gib, 1 << 30)?);
     if free < need {
         return Err(format!("{free} bytes free; need {need} (2x tree + floor)").into());
     }
@@ -85,7 +97,9 @@ fn main() -> Result<()> {
 
     // Build: files of file_mib, chunked, framed into ~256 MiB packs.
     let t = Instant::now();
-    let nfiles = usize::try_from(total / ((file_mib as u64) << 20))?.max(1);
+    let file_bytes = u64::try_from(file_mib)?.checked_shl(20).ok_or("--file-mib too big")?;
+    let nfiles =
+        usize::try_from(total.checked_div(file_bytes).ok_or("--file-mib must be > 0")?)?.max(1);
     let (mut files, mut indexes) = (Vec::with_capacity(nfiles), Vec::new());
     let mut seen = HashSet::new();
     let mut w = pack::Writer::default();
@@ -100,15 +114,18 @@ fn main() -> Result<()> {
     };
     for i in 0..nfiles {
         let n = file_mib << 20;
-        let data =
-            if i % 4 == 3 { noise(n, (i % 8) as u64 + 1_000_000) } else { noise(n, i as u64) };
+        let data = if i % 4 == 3 {
+            noise(n, ((i % 8) as u64).saturating_add(1_000_000))
+        } else {
+            noise(n, i as u64)
+        };
         let mut chunks = Vec::new();
         for (at, len) in cdc::chunks(&data) {
-            let piece = &data[at..at + len];
+            let piece = data.get(at..at.saturating_add(len)).ok_or("chunk past the end")?;
             let id = Id::of(piece);
             if seen.insert(id) {
                 let f = store::encode(piece, 1)?;
-                pending += f.len();
+                pending = pending.saturating_add(f.len());
                 w.push(id, &f)?;
             }
             chunks.push(manifest::Chunk { id, len: u32::try_from(len)? });
@@ -165,20 +182,19 @@ fn measure(
     streams: usize,
 ) -> Result<serde_json::Value> {
     use std::sync::atomic::Ordering::Relaxed;
-    let src = || DirSource {
-        dir: packs.to_path_buf(),
-        rtt: Duration::from_millis(rtt_ms),
-        bytes_per_s: (mib_s * 1048576.0) as u64,
-    };
+    let bytes_per_s = bytes_of(mib_s, 1 << 20)?;
+    let src =
+        || DirSource { dir: packs.to_path_buf(), rtt: Duration::from_millis(rtt_ms), bytes_per_s };
 
     // Listing and stat on an empty store: manifest only.
     let store_a = work.join(format!("store-{name}-a"));
     let lazy = Lazy::new(m.clone(), indexes.to_vec(), Store::new(&store_a), src());
     let t = Instant::now();
-    let mut listed = 0;
+    let mut listed = 0usize;
+    let mid = m.files.get(m.files.len() / 2).map_or("", |f| f.path.as_str());
     for _ in 0..1000 {
-        listed += lazy.list("d000").map_or(0, |l| l.len());
-        let _ = lazy.stat(&m.files[m.files.len() / 2].path);
+        listed = listed.saturating_add(lazy.list("d000").map_or(0, |l| l.len()));
+        let _ = lazy.stat(mid);
     }
     let list_stat_us = t.elapsed().as_secs_f64() * 1e6 / 1000.0;
     if lazy.stats().requests.load(Relaxed) != 0 {
@@ -195,12 +211,13 @@ fn measure(
     };
     let mut order: Vec<usize> = (0..m.files.len()).collect();
     for i in (1..order.len()).rev() {
-        order.swap(i, (rnd() % (i as u64 + 1)) as usize);
+        let j = rnd().checked_rem(u64::try_from(i)?.saturating_add(1)).unwrap_or(0);
+        order.swap(i, usize::try_from(j)?);
     }
     let mut lat = Vec::new();
     for &i in order.iter().take(samples) {
-        let f = &m.files[i];
-        let off = rnd() % (f.size - 4096);
+        let f = m.files.get(i).ok_or("sample index out of range")?;
+        let off = rnd().checked_rem(f.size.saturating_sub(4096)).unwrap_or(0);
         let t = Instant::now();
         let got = lazy.read(&f.path, off, 4096)?;
         lat.push(t.elapsed().as_secs_f64() * 1e3);
@@ -209,7 +226,8 @@ fn measure(
         }
     }
     lat.sort_by(f64::total_cmp);
-    let first_wire = lazy.stats().wire_bytes.load(Relaxed) / lat.len().max(1) as u64;
+    let first_wire =
+        lazy.stats().wire_bytes.load(Relaxed).checked_div(lat.len() as u64).unwrap_or(0);
     drop(lazy);
     std::fs::remove_dir_all(&store_a)?;
 

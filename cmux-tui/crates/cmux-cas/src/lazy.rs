@@ -51,7 +51,8 @@ impl Source for DirSource {
         }
         let mut f = std::fs::File::open(self.dir.join(format!("{}.pack", pack.hex())))?;
         f.seek(SeekFrom::Start(start))?;
-        let mut buf = vec![0u8; usize::try_from(end - start)?];
+        let len = end.checked_sub(start).ok_or("range ends before it starts")?;
+        let mut buf = vec![0u8; usize::try_from(len)?];
         f.read_exact(&mut buf)?;
         if self.bytes_per_s > 0 {
             std::thread::sleep(std::time::Duration::from_secs_f64(
@@ -117,17 +118,17 @@ impl<S: Source> Lazy<S> {
         for (i, f) in manifest.files.iter().enumerate() {
             by_path.insert(f.path.clone(), i);
             let mut parent = String::new();
-            let parts: Vec<&str> = f.path.split('/').collect();
-            for (n, part) in parts.iter().enumerate() {
-                let node = if n + 1 == parts.len() {
+            let mut parts = f.path.split('/').peekable();
+            while let Some(part) = parts.next() {
+                let node = if parts.peek().is_none() {
                     Node::File { size: f.size, exec: f.exec }
                 } else {
                     Node::Dir
                 };
-                dirs.entry(parent.clone()).or_default().insert((*part).to_owned(), node);
+                dirs.entry(parent.clone()).or_default().insert(part.to_owned(), node);
                 if node == Node::Dir {
                     parent = if parent.is_empty() {
-                        (*part).to_owned()
+                        part.to_owned()
                     } else {
                         format!("{parent}/{part}")
                     };
@@ -159,8 +160,7 @@ impl<S: Source> Lazy<S> {
 
     /// What `path` is (`""` is the root), from the manifest alone.
     pub fn stat(&self, path: &str) -> Option<Node> {
-        if let Some(&i) = self.by_path.get(path) {
-            let f = &self.manifest.files[i];
+        if let Some(f) = self.by_path.get(path).and_then(|&i| self.manifest.files.get(i)) {
             return Some(Node::File { size: f.size, exec: f.exec });
         }
         self.dirs.contains_key(path).then_some(Node::Dir)
@@ -173,8 +173,8 @@ impl<S: Source> Lazy<S> {
     }
 
     fn file(&self, path: &str) -> Result<&File> {
-        let i = self.by_path.get(path).ok_or_else(|| format!("no file {path:?} in the tree"))?;
-        Ok(&self.manifest.files[*i])
+        let f = self.by_path.get(path).and_then(|&i| self.manifest.files.get(i));
+        f.ok_or_else(|| format!("no file {path:?} in the tree").into())
     }
 
     /// Fetch the chunks of `want` the store lacks, coalesced into Range GETs, each frame checked
@@ -214,7 +214,7 @@ impl<S: Source> Lazy<S> {
         let mut cover = Vec::new();
         let mut at = 0u64;
         for c in &f.chunks {
-            let next = at + u64::from(c.len);
+            let next = at.saturating_add(u64::from(c.len));
             if next > offset && at < end {
                 cover.push((at, *c));
             }
@@ -225,12 +225,14 @@ impl<S: Source> Lazy<S> {
         }
         let chunks: Vec<Chunk> = cover.iter().map(|(_, c)| *c).collect();
         self.fetch(&chunks)?;
-        let mut out = Vec::with_capacity(usize::try_from(end - offset)?);
+        let mut out = Vec::with_capacity(usize::try_from(end.saturating_sub(offset))?);
         for (start, c) in cover {
             let bytes = self.store.get(&c.id)?;
             let from = usize::try_from(offset.saturating_sub(start))?;
-            let to = usize::try_from((end - start).min(u64::from(c.len)))?;
-            out.extend_from_slice(&bytes[from..to]);
+            let to = usize::try_from(end.saturating_sub(start).min(u64::from(c.len)))?;
+            out.extend_from_slice(
+                bytes.get(from..to).ok_or("chunk shorter than its manifest length")?,
+            );
         }
         Ok(out)
     }
@@ -240,13 +242,13 @@ impl<S: Source> Lazy<S> {
     pub fn prefetch(&self, cursor: &mut usize, budget: u64) -> Result<bool> {
         let mut batch: Vec<Chunk> = Vec::new();
         let mut bytes = 0u64;
-        while *cursor < self.manifest.files.len() && bytes < budget {
-            let f = &self.manifest.files[*cursor];
+        while bytes < budget {
+            let Some(f) = self.manifest.files.get(*cursor) else { break };
             for c in &f.chunks {
-                bytes += u64::from(c.len);
+                bytes = bytes.saturating_add(u64::from(c.len));
             }
             batch.extend_from_slice(&f.chunks);
-            *cursor += 1;
+            *cursor = cursor.saturating_add(1);
         }
         self.fetch(&batch)?;
         Ok(*cursor >= self.manifest.files.len())
@@ -258,7 +260,8 @@ impl<S: Source> Lazy<S> {
     pub fn prefetch_all(&self, streams: usize, batch: u64) -> Result<()> {
         let files = &self.manifest.files;
         let total = self.manifest.size().max(1);
-        let step = usize::try_from((batch * files.len() as u64 / total).max(1))?;
+        let per = batch.saturating_mul(u64::try_from(files.len())?).checked_div(total).unwrap_or(0);
+        let step = usize::try_from(per.max(1))?;
         let next = std::sync::atomic::AtomicUsize::new(0);
         let failed: std::sync::Mutex<Option<crate::Error>> = std::sync::Mutex::new(None);
         std::thread::scope(|s| {
@@ -269,9 +272,10 @@ impl<S: Source> Lazy<S> {
                         if from >= files.len() {
                             return;
                         }
-                        let to = (from + step).min(files.len());
+                        let to = from.saturating_add(step).min(files.len());
+                        let run = files.get(from..to).unwrap_or_default();
                         let want: Vec<Chunk> =
-                            files[from..to].iter().flat_map(|f| f.chunks.iter().copied()).collect();
+                            run.iter().flat_map(|f| f.chunks.iter().copied()).collect();
                         if let Err(e) = self.fetch(&want) {
                             failed.lock().unwrap_or_else(|p| p.into_inner()).get_or_insert(e);
                             return;
