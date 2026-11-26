@@ -16,6 +16,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| acpmux-duress | `scripts/ci/cmux-tui-rust-check.sh duress` | Shared acpmux baseline and RFD 0050 drill on an exclusive Mac; CLI/socket p50/p99, errors, liveness and observed CPU/RAM load. Import rejects missing operations, load counters, cleanup or mismatched source commits. Mac RAM uses physical minus free/inactive pages; this is not Linux MemAvailable. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |

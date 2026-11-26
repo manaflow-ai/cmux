@@ -60,7 +60,7 @@
 //! Writes `duress-bench.json` (schema `acpmux.duress-bench.v1`) and `duress-bench.md` to
 //! `$FAST_CHECKS_OUT` (else a scratch folder it prints) and prints the table. No gate yet.
 //! Refuses to run unless `ACPMUX_DURESS=1`, and on any host whose name contains `cosmic-gray`.
-//! Linux only. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
+//! Linux and macOS (Mac: explicit `baseline,rfd0050` legs only). Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
 //! scratch folder, off the home) is searched for ENOSPC, panics and socket loss
 //! (`daemonLogFindings`; the disk leg also reads `home/daemon.log` a CLI-started daemon wrote).
 //!
@@ -68,6 +68,11 @@
 //! the checkout root; `legs=a,b` after `--nocapture` picks legs for a before/after:
 //!
 //! ```text
+//! # Linux or Mac, builds and runs the ignored bench explicitly; fetch the populated JSON:
+//! cmux-ci run --class exclusive --measurement --os macos --ref SHA --key UNIQUE \
+//!   --script scripts/ci/cmux-tui-rust-check.sh --arg duress \
+//!   --artifact .build/artifacts/acpmux-duress/duress-bench.json
+//! # Linux custom legs:
 //! cmux-ci test --route fleet -- 'cd cmux-tui && ACPMUX_DURESS=1 cargo test -p acpmux --release \
 //!   --test duress_daemon -- --ignored --nocapture duress_bench legs=relay,bigchat'
 //! ```
@@ -86,7 +91,13 @@
 //!
 //! (`ACPMUX_DURESS_LEGS=relay,bigchat` works too; libtest takes `legs=...` as a name filter that
 //! matches nothing, so `duress_bench` must be named with it.)
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
+
+#[cfg(target_os = "macos")]
+#[path = "support/duress_macos.rs"]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos::{harness_in, procs};
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -221,6 +232,11 @@ impl Knobs {
             .map(|v| v.split(',').map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()).collect())
             .unwrap_or_else(|| ALL_LEGS.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>());
         let legs = host150::expand(legs);
+        #[cfg(target_os = "macos")]
+        assert!(
+            legs.iter().all(|leg| matches!(leg.as_str(), "baseline" | "rfd0050")),
+            "Mac duress supports explicit legs=baseline,rfd0050; disk, cgroup and starvation legs are Linux-only"
+        );
         for leg in &legs {
             assert!(
                 ALL_LEGS.contains(&leg.as_str()) || host150::is_extra(leg),
@@ -304,7 +320,11 @@ impl Stress {
 // The host's own state.
 
 fn hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most the buffer length; reserve a trailing NUL.
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len() - 1) };
+    assert_eq!(rc, 0, "duress bench: cannot read host identity");
+    String::from_utf8_lossy(&buf[..buf.iter().position(|b| *b == 0).unwrap()]).into_owned()
 }
 
 fn cores() -> usize {
@@ -312,7 +332,9 @@ fn cores() -> usize {
 }
 
 fn load1() -> Option<f64> {
-    std::fs::read_to_string("/proc/loadavg").ok()?.split_whitespace().next()?.parse().ok()
+    let mut load = 0.0;
+    // SAFETY: one writable double, as requested.
+    (unsafe { libc::getloadavg(&mut load, 1) } == 1).then_some(load)
 }
 
 fn psi_cpu_some_avg10() -> Option<f64> {
@@ -322,6 +344,7 @@ fn psi_cpu_some_avg10() -> Option<f64> {
 }
 
 /// Every process's pid, and its `/proc/PID/stat` fields from the state on.
+#[cfg(target_os = "linux")]
 fn procs() -> Vec<(i32, Vec<String>)> {
     let Ok(dir) = std::fs::read_dir("/proc") else { return vec![] };
     dir.flatten()
@@ -335,13 +358,7 @@ fn procs() -> Vec<(i32, Vec<String>)> {
 }
 
 fn proc_count() -> usize {
-    std::fs::read_dir("/proc")
-        .map(|d| {
-            d.flatten()
-                .filter(|e| e.file_name().to_str().is_some_and(|n| n.parse::<u32>().is_ok()))
-                .count()
-        })
-        .unwrap_or(0)
+    procs().len()
 }
 
 /// Live (not zombie) processes in process group `pgid`. Fields from the state: 0 state, 2 pgrp.
@@ -510,6 +527,11 @@ fn sudo(args: &[&str]) -> Result<(), String> {
 }
 
 /// The home on a tmpfs of [`TMPFS_MB`], or why not.
+#[cfg(target_os = "macos")]
+fn set_fsize(_pid: u32, _limit: u64) -> Result<(), String> {
+    Err("the disk leg requires Linux prlimit".into())
+}
+
 fn mount_tmpfs(home: &Path) -> Result<(), String> {
     std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
     // SAFETY: getuid/getgid have no preconditions.
@@ -548,6 +570,7 @@ fn fill(filler: &Path) -> Result<u64, String> {
     Ok(written)
 }
 
+#[cfg(target_os = "linux")]
 fn set_fsize(pid: u32, limit: u64) -> Result<(), String> {
     let mut old: libc::rlimit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: reading this process's... the target's limits into `old`.
@@ -1363,6 +1386,7 @@ fn poll_liveness(cli: &Cli, tracked: &Tracked, until: Instant, out: &Mutex<Liven
 }
 
 /// The pid of a stand-in harness working in `cwd`.
+#[cfg(target_os = "linux")]
 fn harness_in(cwd: &Path) -> Option<i32> {
     let want = std::fs::canonicalize(cwd).ok()?;
     procs().into_iter().map(|(pid, _)| pid).find(|pid| {
@@ -1654,7 +1678,12 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         stress_json.insert("cpuLoops".into(), json!(loops));
         stress_json.insert("memUsedPctBefore".into(), json!(rfd0050::mem_used_pct()));
         match rfd0050::hog_bytes() {
-            Some(0) | None => notes.push("rfd0050 ram: no hog (already at 90% used)".into()),
+            None => {
+                notes.push("rfd0050 ram: unavailable host memory counters; no load claim".into())
+            }
+            Some(0) => {
+                notes.push("rfd0050 ram: no hog (target reached or insufficient headroom)".into())
+            }
             Some(bytes) => match Stressor::spawn("rfd0050-ram", &rfd0050::hog_script(bytes), cap) {
                 Ok(s) => {
                     stressors.push(s);
@@ -2642,7 +2671,7 @@ fn markdown(report: &Value) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host"]
+#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux or Mac host"]
 async fn duress_bench() {
     let host = hostname();
     if host.to_ascii_lowercase().contains("cosmic-gray") {
@@ -2674,6 +2703,10 @@ async fn duress_bench() {
         "schema": "acpmux.duress-bench.v1",
         "host": host,
         "cores": cores(),
+        "os": std::env::consts::OS,
+        "memoryMetric": if cfg!(target_os = "macos") {
+            "physical minus free and inactive pages (Mach); inactive treated as reclaimable"
+        } else { "MemTotal minus MemAvailable (/proc/meminfo)" },
         "commit": commit(),
         "knobs": {"legs": k.legs, "windowSecs": k.window.as_secs(), "capSecs": k.cap.as_secs(),
                   "cpuX": k.cpu_x, "sessions": k.sessions, "n": k.n, "peers": k.peers},
