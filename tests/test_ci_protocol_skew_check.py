@@ -155,6 +155,14 @@ class SkewTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn('"extra": false', out)
 
+    def test_a_new_operation_born_strict_passes(self) -> None:
+        self.repo.commit({skew.RESOURCE_SPEC: '{"a": {"params": {"extra": false}}}'})
+        base = self.base(strips=True)
+        self.repo.commit({skew.RESOURCE_SPEC:
+                          '{"a": {"params": {"extra": false}}, "b": {"params": {"extra": false}}}'})
+        code, out = self.run_gate(base)
+        self.assertEqual(code, 0, out)
+
     def test_a_skew_the_base_already_has_against_an_old_build_only_warns(self) -> None:
         old = self.base(strips=False)
         known = json.loads(policy())["known_params"]
