@@ -2791,13 +2791,14 @@ SETUP_ONLY_STEPS = {
         # Installs build tools: zig (install-zig-ci.sh: its version from ghostty-zig-version.sh and the submodules'
         # build.zig.zon, the reviewed versions from toolchains.json and the Zig SDK's build.zig.zon, the tarball's
         # sha256 from zig-tarballs.sha256), the prebuilt GhosttyKit for the pinned ghostty submodule
-        # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh: the checksum manifest, the archive validator,
+        # (download-prebuilt-ghosttykit.sh, through the LAN cache broker when there is one: lan_cache_fetch.py; else
+        # ensure-ghosttykit.sh: the checksum manifest, the archive validator,
         # ghostty.h, ensure-metal-toolchain.sh) and AXe (install-axe-ci.sh), under the selected Xcode. No app, worker or
         # test code.
         "Install build prerequisites": (
             "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh", "scripts/ci/zig-tarballs.sha256",
             "cmux-tui/build-support/notices/toolchains/toolchains.json", "cmux-tui/bindings/zig/build.zig.zon",
-            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ensure-ghosttykit.sh",
+            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ci/lan_cache_fetch.py", "scripts/ensure-ghosttykit.sh",
             "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
             "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules",
             "scripts/install-axe-ci.sh", *XCODE_PINS),
@@ -5981,6 +5982,8 @@ GUARD_JOB_IDS = (("cmux-next.yml", "checks"), ("cmux-next-guards.yml", "own-chan
 _PRODUCT = "builds, tests or generates from product code (Swift, Rust, web), so its red is never a guard's"
 _PLACE = "places, routes or waits for runners and runs: no verdict of its own on the tree"
 _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its own"
+_FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's other heavy runs once the job it "
+              "needs is red; it reads no tree and gives no verdict of its own")
 # Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
@@ -5999,6 +6002,7 @@ GUARD_WORKFLOWS = {
                                       "request's red is its",
         "tooling-tests-base-red": "decides whether tooling-tests skips while the base is red (base_red_skip.py); "
                                   "it checks nothing itself",
+        "tooling-tests-fail-fast": _FAIL_FAST,
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -6019,7 +6023,10 @@ GUARD_WORKFLOWS = {
                          "swift-test", "fast-tier-fleet-mac",
                          "daemon-test", "generated-files", "generated-verdict", "release-compile-fast",
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
-                         "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
+                         "dev-landing-compile", "release-compile-revert", "compile-status",
+                         "generated-files-linux"), _PRODUCT),
+        **dict.fromkeys(("app-compile-fleet-fail-fast", "fast-tier-fail-fast", "fast-tier-cargo-fail-fast",
+                         "web-bundles-fail-fast", "generated-files-fail-fast"), _FAIL_FAST),
         **dict.fromkeys(("request-nightly-next", "request-cmux-next-dev-publish", "pr-red-checks",
                          "push-attribution", "same-tree-status-daemon", "same-tree-status-scheme"), _PUBLISH),
         "pure-checks-coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the pure checks, "
@@ -6136,6 +6143,7 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-felt/", "cmux-tui/crates/cmux-follow-cam/",
                   "cmux-tui/crates/cmux-mobile-core/", "cmux-tui/crates/cmux-mobile-last-place/",
                   "cmux-tui/crates/cmux-output-paint/", "cmux-tui/crates/cmux-process/",
+                  "cmux-tui/crates/cmux-rd-screen/",  # cmux-mobile-link-ffi's screen stream rules
                   "cmux-tui/crates/cmux-relay-snapshot/", "cmux-tui/crates/cmux-remote-protocol/",
                   "cmux-tui/crates/cmux-share-approval/", "cmux-tui/crates/cmux-tab-snapshots/",
                   "cmux-tui/crates/cmux-tailnet-join/", "cmux-tui/crates/cmux-tailnet/",
