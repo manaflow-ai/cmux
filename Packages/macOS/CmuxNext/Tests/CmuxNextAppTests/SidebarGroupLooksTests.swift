@@ -247,10 +247,15 @@ import Testing
 
     /// The three choices carry a title in every language the catalog has.
     @Test func theChoicesAreLocalizedEverywhere() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/CmuxNextSettings/Localizable.xcstrings")
-        let catalog = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        let strings = try #require(catalog["strings"] as? [String: [String: Any]])
+        // The table is one file per key (Localizable.xcstrings.d/<key>.xcstrings, scripts/cmux-next/string_catalogs.py).
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/CmuxNextSettings/Localizable.xcstrings.d")
+        var strings: [String: [String: Any]] = [:]
+        for name in ["Folder", "Chip", "Tree", "Card"] {
+            let url = directory.appendingPathComponent("settings.choice.groupBackground\(name).xcstrings")
+            let catalog = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            for (key, entry) in try #require(catalog["strings"] as? [String: [String: Any]]) { strings[key] = entry }
+        }
         let folder = try #require((strings["settings.choice.groupBackgroundFolder"]?["localizations"] as? [String: Any])?.keys)
         for key in ["Chip", "Tree", "Card"] {
             let locales = try #require((strings["settings.choice.groupBackground\(key)"]?["localizations"] as? [String: Any])?.keys, "\(key) has no strings")

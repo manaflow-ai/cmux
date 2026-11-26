@@ -83,6 +83,7 @@ impl Hub {
         self.append(session, "mux", "turn_result", msg);
         if let Some(turn) = turn {
             super::turn_shots::turn_ended(&self.scope, session, &turn);
+            super::turn_frames::turn_ended(session, &turn);
         }
     }
 }

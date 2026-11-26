@@ -17,22 +17,18 @@ extension UpdaterService {
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
-        relaunchBehind = { [weak services] willQuit, declined, inFront in
-            let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-            // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
-            services?.quit.onQuitRefused = { behind.quitRefused() }
-            behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
-        }
+        useReopenHelpers(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "") { [weak services] stop in services?.quit.onQuitRefused = { stop() } }
         onNextQuitRefused = { [weak services] action in services?.quit.onQuitRefused = action }
         let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
         useIdleGate(idle.answer, nextCheck: idle.nextCheck)
-        // A plain quit, install and relaunch, no afterimage (no state directory); a failed install brings the windows back (`UpdateWindowHandoff`; Leo, 2026-11-24: "not the wannabe smooth transition thing").
+        // Restart to Update is a plain quit and relaunch, no afterimage (Leo, 2026-11-24: "not the wannabe smooth transition thing"):
+        // the windows leave as the quit starts, the relaunched app restores them the normal way; a failed install brings them back (`UpdateWindowHandoff`).
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow(); handoff.relaunchDecided() } // layout first (LayoutCacheWriter)
-        handoff.savesBeforeLeaving = { [weak services] in if let services { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.isIncognito($0, in: services) }; await services.cache.savePageFramesForQuit() } }; handoff.cameBack = { [weak services] in services?.launchImages.pictures?.resume() }; handoff.attach(to: self) // pictures saved on screen: an ordered-out window shows no chat (blank agent panes, Leo 2026-11-24)
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow() } // layout first (LayoutCacheWriter)
+        handoff.savesBeforeLeaving = { [weak services] in if let services { await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.isIncognito($0, in: services) }; await services.cache.savePageFramesForQuit() } }; handoff.pausesPictures = { [weak services] in services?.launchImages.pictures?.stop() }; handoff.cameBack = { [weak services] in services?.launchImages.pictures?.resume() }; handoff.attach(to: self) // pictures saved on screen, at the click (ask-ad4a68e740): an ordered-out window shows no chat (blank agent panes, Leo 2026-11-24)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the

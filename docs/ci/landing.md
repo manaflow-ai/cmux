@@ -118,6 +118,12 @@ Leo and every agent:
   a BLOCK at the head and merge freezes hold it. Follow
   [dogfood, re-dogfood and merge receipts](../../skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- To skip `update_branch` re-tests, add the `merge-train` label to a ready `feat-cmux-next` PR. next-autoland
+  stacks up to 12 labelled PRs onto the base and pushes the combined tip to `lane/merge-train`. That branch's
+  standing PR ("merge-train: combined tip (never merged)") runs CI once for all of them. On green, each member
+  lands pinned to its head. On red, the train bisects, the culprit gets a `merge-train` failure status and the
+  rest land. A PR that changes `.github/workflows/` can't board.
+  Source: `tools/fleet-reconcilers/merge_train.py` in cmuxterm-hq. `MERGE_TRAIN=0` turns it off.
 - A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
   its own PR, which lands at once; don't note it and leave it for an owner. Two fixes that are
   each red on the other's red get combined into one PR. A base lint red also skips the tests
@@ -164,7 +170,7 @@ Where things are:
   `tooling-tests` the script tests; `web / ...` the webview typecheck and test shards; `cmux-next/compile`
   the app compile. Which suites run is chosen from your diff ([PR CI coverage](../../skills/cmux-testing/references/pr-ci-coverage.md)).
 - Runners: most Linux jobs on our own branches run on the one `cmux-linux` label since 2026-11-22
-  (cmux#48644; fork PRs use `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`), and the rest pick from the fleet's
+  (cmux#48644; fork PRs use `ubuntu-24.04`), and the rest pick from the fleet's
   Linux pool (`RUNNER_POOLS`). Mac jobs on our own Mac minis by
   capability label ([runner labels](../ci-runner-capability-labels.md), [runners](../ci-runners.md)).
   A job queued for long is a capacity problem, not your PR's.

@@ -191,7 +191,8 @@ export const MAX_REVOKED_INSTALLS = 100
  * unknown, so a dropped install's token and key stay refused. withInstallAuthority drops its
  * incarnation in the same commit.
  */
-export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+export const pruneRevokedInstalls = (input: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
+  const state = dropOrphanPresenceKeys(input)
   const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
   if (revoked.length <= keep) return state
   const held = new Set([
@@ -212,6 +213,23 @@ export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKE
     if (keys) delete keys[i.id]
   }
   return { ...state, installs, grants, ...(state.confirm && keys ? { confirm: { ...state.confirm, presence_keys: keys } } : {}) }
+}
+
+/**
+ * Drops revoked presence keys whose install is gone from the head. evictStaleInstalls used to revoke
+ * a victim's key and then delete the install, leaving the revoked key (a JWK and its audit fields)
+ * behind for good: the probe account's head refilled with them after cmux-platform#1843's eviction
+ * landed and sign-in answered owner.state_full again (11-25). Every lookup treats a missing install
+ * as unknown, so such a key could never be used again. A live key is never dropped here.
+ */
+export const dropOrphanPresenceKeys = (state: UserState): UserState => {
+  const keys = state.confirm?.presence_keys
+  if (!state.confirm || !keys) return state
+  const orphans = Object.entries(keys).filter(([install, k]) => k.revoked_at !== null && !state.installs[install]).map(([install]) => install)
+  if (orphans.length === 0) return state
+  const next = { ...keys }
+  for (const install of orphans) delete next[install]
+  return { ...state, confirm: { ...state.confirm, presence_keys: next } }
 }
 
 /**
@@ -242,19 +260,50 @@ export const evictStaleInstalls = (state: UserState, now: number, incoming = 1, 
   const victims = active
     .sort((a, b) => Number(named.has(a.id)) - Number(named.has(b.id)) || a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, over)
-  let next = state
+  // Each victim is revoked as revokeOne does, but every map is copied once for the whole batch: a
+  // revokeOne per victim copied installs, grants, presence keys and ssh_revoke_pending each time, so
+  // healing a head of 3000 installs took seconds of CPU in one commit (CI shard timeouts,
+  // https://github.com/manaflow-ai/cmux/issues/56145). Keep it in step with revokeOne.
+  const gone = new Set(victims.map((i) => i.id))
+  const keyed = new Set<string>()
+  const installs = { ...state.installs }
+  const grants = { ...state.grants }
+  const pending = { ...state.ssh_revoke_pending }
+  let pendingChanged = false
+  const confirm = state.confirm
+  const keys = confirm ? { ...confirm.presence_keys } : undefined
+  const audit: Array<NonNullable<UserState["confirm"]>["audit"][number]> = []
+  const level = confirm ? homeUser.userLevelOf(confirm) : undefined
   const outbox: Array<OutboxItem> = []
   for (const cur of victims) {
-    const r = revokeOne(next, next.installs[cur.id]!, now)
-    if (!r.ok) continue
-    outbox.push(...(r.outbox ?? []))
-    const installs = { ...r.state.installs }
-    const grants = { ...r.state.grants }
+    const next = { ...cur, revoked_at: now }
+    const teams = state.user ? [...new Set([state.user.personal_team, ...(cur.bound_team ? [cur.bound_team] : []), ...(cur.sso_team ? [cur.sso_team] : []), ...Object.keys(state.team_index ?? {})])] : []
+    if (teams.length > 0 && state.user) {
+      pending[cur.id] = { user: state.user.id, teams, at: now }
+      pendingChanged = true
+    }
+    const key = keys?.[cur.id]
+    if (keys && key && key.revoked_at === null) {
+      keys[cur.id] = { ...key, revoked_at: now }
+      keyed.add(cur.id)
+      audit.push({ at: now, kind: "key_revoked" as const, by: "system:install.revoke", from: level!, to: level!, install: cur.id })
+    }
+    const g = grants[cur.grant]
+    if (g?.grantee === cur.id) delete grants[cur.grant]
+    else if (g) grants[g.id] = { ...g, revoked_at: now }
     delete installs[cur.id]
-    if (grants[cur.grant]?.grantee === cur.id) delete grants[cur.grant]
-    next = { ...r.state, installs, grants }
+    outbox.push({ kind: "install.upsert", entity: cur.id, payload: { ...next, public_jwk: undefined, user: state.user?.id } })
   }
-  return { state: next, outbox, evicted: victims.map((i) => i.id) }
+  const next: UserState = {
+    ...state,
+    installs,
+    grants,
+    ...(pendingChanged ? { ssh_revoke_pending: pending } : {}),
+    push_targets: Object.fromEntries(Object.entries(state.push_targets ?? {}).filter(([, t]) => !gone.has(t.install))),
+    ...(confirm && keys && keyed.size > 0 ? { confirm: { ...confirm, presence_keys: keys, challenges: confirm.challenges.filter((c) => !keyed.has(c.install)), audit: [...confirm.audit, ...audit].slice(-homeUser.MAX_AUDIT) } } : {})
+  }
+  // Each victim's presence key goes with its install: a revoked key with no install is dead weight.
+  return { state: dropOrphanPresenceKeys(next), outbox, evicted: victims.map((i) => i.id) }
 }
 
 /**
@@ -267,6 +316,7 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   return r.ok && r.changed !== false ? { ...r, state: pruneRevokedInstalls(r.state) } : r
 }
 
+// evictStaleInstalls applies these same effects in one batch: change both together.
 const revokeOne = (state: UserState, cur: typeof Install.Type, now: number): ReduceResult<UserState> => {
   if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
   const next = { ...cur, revoked_at: now }

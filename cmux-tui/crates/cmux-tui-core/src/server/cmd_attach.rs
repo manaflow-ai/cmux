@@ -247,7 +247,10 @@ pub(super) fn attach_surface(
             let terminal = TerminalPublicId::parse(terminal)
                 .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
             mux.wake_lazy_terminal(&terminal);
-            mux.resource_surface_for_terminal(&terminal)
+            // The tab's view, not the runtime's catalog id: a terminal reopened or projected into
+            // a new tab keeps its first surface id, and the client listening on its tab's surface
+            // drops every event the stream names the runtime by (cmux#53022).
+            mux.view_surface_for_terminal(&terminal)
                 .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
         }
     };

@@ -102,6 +102,7 @@ public final class SettingsApplier {
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
+        if design.fadeInactivePanes != snapshot.fadeInactivePanes { design.fadeInactivePanes = snapshot.fadeInactivePanes }
         if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
         if design.layoutScrollModifier != snapshot.layoutScrollModifier { design.layoutScrollModifier = snapshot.layoutScrollModifier }
         if design.pagesHandleCommandScroll != snapshot.pagesHandleCommandScroll {
@@ -145,6 +146,7 @@ public final class SettingsApplier {
         }
 
         design.setPaneChrome(snapshot.paneChrome)
+        Self.applyMenuLook(snapshot, to: design)
         // `experiments.menuStyleV2` for the right-click NSMenu (CmuxNextActions reads no DesignSettings).
         let menuStyleV2 = design.experiment("menuStyleV2")
         if registry.contextMenuStyleV2 != menuStyleV2 { registry.contextMenuStyleV2 = menuStyleV2 }
