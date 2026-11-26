@@ -7,6 +7,7 @@
 // bottom toast still never covers the composer; the top row hangs under the chat's header.
 import type { DeckAlign, DragFeel } from "../../ui/NoticeDeck";
 import { NoticeStack, type NoticeQueue, type StackLayout } from "../../ui/NoticeStack";
+import type { ToastLook } from "../../ui/toastsV2.experiment";
 import { useT } from "./i18n";
 import "./toastLayer.css";
 
@@ -17,6 +18,7 @@ export function ToastLayer({
   layout = "stacked",
   align = "center",
   drag = "ghosts",
+  look,
 }: {
   queue: NoticeQueue;
   /** The box at the chat's top edge (under the header) where the top anchors' decks are drawn. */
@@ -25,6 +27,8 @@ export function ToastLayer({
   align?: DeckAlign;
   /** How a dragged toast feels; the pane ships `ghosts` (ToastLayer.gallery.tsx says why). */
   drag?: DragFeel;
+  /** The toasts-v2 arm (the gallery pins one); default the experiment's. */
+  look?: ToastLook;
 }) {
   const t = useT();
   return (
@@ -35,7 +39,9 @@ export function ToastLayer({
         align={align}
         drag={drag}
         topHost={topHost}
+        look={look}
         dismissLabel={t("toast.dismiss")}
+        label={t("toast.region")}
       />
     </div>
   );

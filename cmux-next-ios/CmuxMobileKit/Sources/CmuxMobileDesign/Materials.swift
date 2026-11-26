@@ -11,7 +11,7 @@ extension View {
 
     /// Glass capsule for banners, toasts and secondary CTAs.
     public func cmuxMobileGlassCapsule(interactive: Bool = false) -> some View {
-        glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
+        cmuxMobileFloatingGlass(in: .capsule, interactive: interactive)
     }
 
     /// The composer card: glass, radius 24, with a 1 pt `separator` stroke under
@@ -20,13 +20,13 @@ extension View {
         modifier(ComposerGlass())
     }
 
-    /// An inset input field background: `surfaceRaised`, radius 14, at least
+    /// An inset input field background: the inset content level, radius 14, at least
     /// 52 tall, growing with its text (Dynamic Type) so it never clips.
     public func cmuxMobileInputField() -> some View {
         padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(minHeight: theme.metrics.inputHeight)
-            .background(theme.colors.surfaceRaised, in: .rect(cornerRadius: theme.metrics.inputRadius, style: .continuous))
+            .cmuxMobileContentSurface(.inset, in: .rect(cornerRadius: theme.metrics.inputRadius, style: .continuous))
     }
 }
 
@@ -36,7 +36,7 @@ private struct ComposerGlass: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: theme.metrics.composerRadius, style: .continuous)
         content
-            .glassEffect(.regular, in: shape)
+            .cmuxMobileFloatingGlass(in: shape)
             .overlay {
                 if contrast == .increased {
                     shape.strokeBorder(theme.colors.separator, lineWidth: 1)
@@ -144,12 +144,12 @@ public struct CodeBoxes: View {
             .font(theme.type.codeDigit)
             .foregroundStyle(theme.colors.label)
             .frame(width: scaledBox.width, height: scaledBox.height)
-            .background(theme.colors.surfaceRaised, in: .rect(cornerRadius: theme.metrics.codeBoxRadius, style: .continuous))
+            .cmuxMobileContentSurface(.inset, in: .rect(cornerRadius: theme.metrics.codeBoxRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.metrics.codeBoxRadius, style: .continuous)
                     .strokeBorder(theme.colors.label, lineWidth: isCurrent ? 2 : 0)
             }
-            .animation(theme.motion.snap.animation, value: isCurrent)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: isCurrent)
     }
 }
 #endif

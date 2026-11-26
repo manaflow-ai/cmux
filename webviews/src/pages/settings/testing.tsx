@@ -1,10 +1,12 @@
 // Test helpers: the page rendered on the mock provider (over the pane-protocol mock transport
 // pair) with memory history. Import it after installDom() (./testDom). Not shipped.
-import { createMemoryHistory } from "@tanstack/react-router";
-import { act } from "react";
+import { createMemoryHistory, type AnyRouter } from "@tanstack/react-router";
+import { act, type ReactNode } from "react";
 import { fileURLToPath } from "node:url";
 import type { Root } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
+import { CARD_IDS, loadCards } from "./components/cardModules";
+import { SettingsContext } from "./context";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
 import { SettingsStore } from "./store";
 import { setLocale } from "./strings";
@@ -44,15 +46,22 @@ export async function renderPage(
     path?: string;
     locale?: string;
     setup?: (provider: MockSettingsProvider) => void;
+    /** Leave every card's More Options closed (the default opens them, so a test reaches every row). */
+    closedMore?: boolean;
+    /** Draw the page while the store still starts, as the app does: a read the mock holds stays pending. */
+    drawBeforeStart?: boolean;
   } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
+  // Every card's chunk, once per process: the app loads a section's cards before it draws (its route
+  // loader and paint gate), and a test reads the page a few macrotasks after a navigation.
+  await loadCards(CARD_IDS);
   const mock = createMockClient(options.mock);
   options.setup?.(mock.provider);
   const store = new SettingsStore(mock.client);
-  await act(async () => {
-    await store.start();
-  });
+  const started = store.start();
+  if (options.drawBeforeStart) void started.catch(() => undefined);
+  else await act(async () => await started);
   const history = createMemoryHistory({ initialEntries: [options.path ?? "/settings/general"] });
   const container = document.createElement("div");
   container.id = "root";
@@ -61,6 +70,45 @@ export async function renderPage(
   await act(async () => {
     root = createRoot(container);
     root.render(<SettingsPage store={store} history={history} />);
+  });
+  await settle();
+  if (!options.closedMore) await openMoreOptions(container);
+  return {
+    provider: mock.provider,
+    store,
+    container,
+    history,
+    unmount() {
+      act(() => root?.unmount());
+      container.remove();
+      store.dispose();
+      mock.close();
+    },
+  };
+}
+
+/** One card alone on the mock provider's started store, outside the page layout (a card the
+ * checked-in schema export does not place yet). `history` is unused: the card has no router. */
+export async function renderCard(
+  card: ReactNode,
+  options: { mock?: MockOptions; setup?: (provider: MockSettingsProvider) => void } = {},
+): Promise<Rendered> {
+  setLocale("en");
+  const mock = createMockClient(options.mock);
+  options.setup?.(mock.provider);
+  const store = new SettingsStore(mock.client);
+  await act(async () => await store.start());
+  const history = createMemoryHistory({ initialEntries: ["/settings/agents"] });
+  const container = document.createElement("div");
+  document.body.append(container);
+  let root: Root | null = null;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SettingsContext.Provider value={{ store, router: null as unknown as AnyRouter }}>
+        {card}
+      </SettingsContext.Provider>,
+    );
   });
   await settle();
   return {
@@ -77,6 +125,14 @@ export async function renderPage(
   };
 }
 
+/** Opens every closed More Options on the page (a page a test renders, or one it navigated to). */
+export async function openMoreOptions(container: ParentNode): Promise<void> {
+  const closed = [...container.querySelectorAll<HTMLElement>('.more-options[aria-expanded="false"]')];
+  if (closed.length === 0) return;
+  await act(async () => closed.forEach((toggle) => toggle.click()));
+  await settle();
+}
+
 export function rowElement(container: ParentNode, key: string): HTMLElement {
   const row = container.querySelector<HTMLElement>(`[data-row-key="${key}"]`);
   if (!row) throw new Error(`row ${key} is not rendered`);
@@ -84,7 +140,10 @@ export function rowElement(container: ParentNode, key: string): HTMLElement {
 }
 
 /** Sets a form control's value the way typing does, so React sees the change. */
-export async function changeValue(element: HTMLInputElement | HTMLSelectElement, value: string): Promise<void> {
+export async function changeValue(
+  element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  value: string,
+): Promise<void> {
   await act(async () => {
     const proto = Object.getPrototypeOf(element) as object;
     Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(element, value);
@@ -112,6 +171,24 @@ export async function click(element: Element): Promise<void> {
     (element as HTMLElement).click();
   });
   await settle();
+}
+
+/** Resets a row the way a person does now that rows have no Reset button: right-click its title,
+ * then Reset to Default (Use Theme Color on a color row). */
+export async function resetRow(container: ParentNode, key: string): Promise<void> {
+  const title = rowElement(container, key).querySelector(".row-title");
+  if (!title) throw new Error(`row ${key} has no title`);
+  await act(async () => {
+    title.dispatchEvent(
+      new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+    );
+  });
+  const items = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")];
+  const item = items.find(
+    (button) => button.textContent === "Reset to Default" || button.textContent === "Use Theme Color",
+  );
+  if (!item) throw new Error(`row ${key} has no reset item`);
+  await click(item);
 }
 
 /** The params of every `op` call the provider received, without the idempotency key. */

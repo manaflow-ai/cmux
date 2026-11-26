@@ -18,7 +18,7 @@
 import { useContext, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
-import { formatDuration } from "../conversation/turns";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -32,6 +32,8 @@ import { TASK_ICONS } from "./taskIcons";
 import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { Clock } from "../../../ui/Typography";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -73,7 +75,9 @@ export function TasksSection({
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-    // elsewhere; with neither, the row is not a button and its tooltip says why.
+    // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
+    // so the command keeps the row (as text the reason squeezed "bun test …" to "bun t…",
+    // cmuxterm-hq#19495).
     const shows = !!toolCallId && !!onShowCall && (calls?.has(toolCallId) ?? false);
     const why: StringKey | undefined = !toolCallId
       ? "sessionInfo.tasks.noTerminal.noCall"
@@ -88,8 +92,10 @@ export function TasksSection({
         key={arrivalKey(command)}
         className="acpmux-session-info-task acpmux-session-info-task--command"
         data-state={command.state}
-        data-enter={enters ? "top" : undefined}
+        data-closed={why !== undefined ? "" : undefined}
+        // On the row, not the button: a disabled button takes no hover, so its own tooltip never shows.
         title={why && t(why)}
+        data-enter={enters ? "top" : undefined}
         onAnimationEnd={
           enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
         }
@@ -98,6 +104,7 @@ export function TasksSection({
           type="button"
           className="acpmux-session-info-task__open"
           disabled={why !== undefined}
+          aria-description={why && t(why)}
           onClick={() => {
             if (local && openTasks && toolCallId) openTasks(toolCallId);
             else void openCommand(toolCallId, { local, showCall: onShowCall });
@@ -105,7 +112,7 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
+          {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
@@ -136,21 +143,27 @@ export function TasksSection({
       </>
     );
     return (
-      <li
+      <WithFacts
         key={`scheduled:${entry.item.id}`}
-        className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
-        data-kind={entry.item.kind}
-        data-state={entry.status.state}
-        title={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
+        facts={[{ value: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text }]}
       >
-        {shows ? (
-          <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
-            {body}
-          </button>
-        ) : (
-          body
+        {(facts) => (
+          <li
+            {...facts}
+            className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
+            data-kind={entry.item.kind}
+            data-state={entry.status.state}
+          >
+            {shows ? (
+              <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
+                {body}
+              </button>
+            ) : (
+              body
+            )}
+          </li>
         )}
-      </li>
+      </WithFacts>
     );
   };
   // The ended commands and scheduled items as one list, latest first.
@@ -193,7 +206,7 @@ export function TasksSection({
                       ? row(
                           entry.command,
                           entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                            ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                            ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
                             : undefined,
                           t(COMMAND_STATE[entry.command.state]),
                         )

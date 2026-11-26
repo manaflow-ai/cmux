@@ -1,4 +1,4 @@
-//! `for_each_line_rev` over a real file (`store.rs`).
+//! `for_each_line_rev` over a real file (`store/log_line.rs`).
 
 use super::*;
 use std::os::unix::fs::PermissionsExt;

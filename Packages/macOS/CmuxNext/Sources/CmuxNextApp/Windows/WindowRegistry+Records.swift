@@ -1,3 +1,4 @@
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextLayout
 import CoreGraphics
@@ -5,35 +6,9 @@ import Foundation
 
 // Persistence: the registry is saved in the daemon's `personal` window
 // projection (`WindowStateStore`), one `WindowRecord` per window, together
-// with that window's own `WindowState` fields.
+// with that window's own `WindowState` fields. Rebuilding it from them: CmuxNextAppCore's `WindowRegistry+SavedRecords`.
 
 extension WindowRegistry {
-    /// Rebuilds membership from saved records, front window first. A
-    /// workspace listed by two records (older builds let every window show
-    /// any workspace) stays with the frontmost; records left with nothing
-    /// are dropped (a window exists only while it holds a workspace), so an
-    /// empty record from an older build or another client never shows.
-    init(records: [WindowRecord]) {
-        self.init()
-        let ordered = records.sorted { $0.order < $1.order }
-        var owned = Set<String>()
-        for record in ordered {
-            var ids = record.workspaceKeys.map(\.rawValue)
-            if ids.isEmpty, let shown = record.workspaceKey?.rawValue { ids = [shown] }
-            ids = ids.filter { owned.insert($0).inserted }
-            guard !ids.isEmpty else { continue }
-            appendRestored(Window(id: record.id, workspaceIDs: ids, frame: record.frame?.rect, display: record.display))
-            // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
-            if record.isClosed { setRestored(record.id, open: false) }
-        }
-        // Front window most recent. With every window closed, none opens (#31514: `WindowManager.restore`).
-        for window in windows.reversed() { activate(window.id) }
-    }
-
-    private mutating func appendRestored(_ window: Window) {
-        openWindow(id: window.id, workspaceIDs: window.workspaceIDs, frame: window.frame, display: window.display)
-    }
-
     /// The saved record of window `id` (nil for an incognito window), with the window-local fields from
     /// `state` (nil when no state exists yet) and `order` (front = 0).
     /// `selectedTabs` is the remembered tab per pane of its workspaces; `machines` the machine each
@@ -42,12 +17,14 @@ extension WindowRegistry {
     func record(_ id: String, state: WindowState?, order: Int, isFullScreen: Bool = false,
                 selectedTabs: [String: String] = [:], machines: [String: String] = [:]) -> WindowRecord? {
         // Incognito windows are never restored: nothing of them is saved.
-        guard let window = window(id), !isIncognito(id) else { return nil }
+        // A window that owns nothing is only a view of other windows' workspaces (`openView`): they are saved with their
+        // owners, and a record that named one would take it from its owner at the next launch (`init(records:)`).
+        guard let window = window(id), !isIncognito(id), !window.ownedIDs.isEmpty else { return nil }
         let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
         var record = WindowRecord(
             id: id,
             workspaceKey: selected.map(WorkspaceKey.init(rawValue:)),
-            workspaceKeys: window.workspaceIDs.map(WorkspaceKey.init(rawValue:)),
+            workspaceKeys: window.ownedIDs.map(WorkspaceKey.init(rawValue:)), // a guest is its owner's to save
             machine: state.flatMap { $0.machineID == MachineRegistry.localID ? nil : $0.machineID },
             screenID: state?.activeScreenID.map(ResourceID.init(rawValue:)),
             frame: window.frame.map(WindowFrame.init(rect:)),
@@ -79,14 +56,6 @@ extension WindowRegistry {
         }
         return record
     }
-}
-
-extension WindowFrame {
-    init(rect: CGRect) {
-        self.init(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
-    }
-
-    var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
 // MARK: Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md)

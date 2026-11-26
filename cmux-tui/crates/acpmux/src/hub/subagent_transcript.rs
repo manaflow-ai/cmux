@@ -158,7 +158,8 @@ async fn readable_claude_sessions(
         let Some(parent) = meta.parent_id.as_ref().filter(|_| meta.fork_seq.is_some()) else {
             break;
         };
-        let ancestor = hub.sessions.lock().ok().and_then(|sessions| sessions.get(parent).cloned());
+        // An evicted ancestor comes back (`evict.rs`): the chain reads on through it.
+        let ancestor = hub.session_get(parent);
         let Some(ancestor) = ancestor else { break };
         if ancestor.purged.load(std::sync::atomic::Ordering::SeqCst) {
             break;
@@ -570,7 +571,7 @@ mod tests {
         hub.apply_peer_notice(
             "other",
             peer.generation,
-            crate::peer::PeerNotice::Sessions(vec![
+            crate::peer::PeerNotice::sessions_from_values(vec![
                 json!({"sessionId": "remote-parent", "name": "remote-parent", "status": "idle",
                 "agentSessionId": "sibling", "updatedAt": 1}),
             ]),

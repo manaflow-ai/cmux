@@ -122,6 +122,8 @@ mod tests {
             idle_deadline_ms: NOW_MS + CLIENT_CONTROL_IDLE_TIMEOUT_MS,
             parked,
             last_seen_ms: 0,
+            pending_handover: false,
+            inline: Default::default(),
         }
     }
 

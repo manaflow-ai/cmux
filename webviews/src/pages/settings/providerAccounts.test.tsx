@@ -185,6 +185,10 @@ test("Claude's Add account takes an API key by its reference, with the name type
   expect(added.querySelector("[data-account-auth]")?.textContent).toBe("Authenticated · API key");
   expect(added.querySelector("[data-account-folder]")).toBeNull();
   expect(added.querySelector('[data-account-action="signOut"]')).toBeNull();
+  // Remove sends on the click, with no question first.
+  await act(async () => added.querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "claude-2" });
   page.unmount();
 });
 
@@ -211,9 +215,19 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   expect(row().querySelector(".harness-account-name")?.textContent).toContain("Work");
   await press("signOut");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountSignOut", account: "codex-2" });
+  // Remove sends on the click: the login folder and the CLI's own sign-in stay, so nothing asks.
   await press("remove");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
   expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
+  page.unmount();
+});
+
+test("a signed-out account shows no usage, even one read before its sign-out", async () => {
+  const usage = { windows: [{ id: "session", usedPercent: 50, windowMins: 300 }], plan: "plus" };
+  const page = await withAccounts({
+    accounts: accounts.map((account) => (account.id === "codex-2" ? { ...account, usage, signedIn: false } : account)),
+  });
+  expect(card(page.container).querySelector('[data-account="codex-2"] [data-account-usage]')).toBeNull();
   page.unmount();
 });
 
@@ -267,3 +281,14 @@ function page0(): HarnessesState["harnesses"] {
     { id: "codex", name: null, kind: "acp", source: "path", problem: null },
   ];
 }
+
+// Feature map `usage-per-account` (Leo, 2026-11-23): "a hover line names the last miss cause".
+test("an account's usage hover names its last prompt cache miss and its cause, and a cause it does not know reads as unknown", async () => {
+  const { cacheMissLine } = await import("./components/ProviderAccounts");
+  const at = Date.UTC(2026, 10, 23, 14, 5);
+  expect(cacheMissLine({ cause: "expired", at }, "en-US")).toMatch(/^Last prompt cache miss .*: the cache expired$/);
+  expect(cacheMissLine({ cause: "model", at }, "en-US")).toEndWith(": the model changed");
+  expect(cacheMissLine({ cause: "something-new", at }, "en-US")).toEndWith(": cause unknown");
+  expect(cacheMissLine({ cause: "expired", at: 0 })).toBeUndefined();
+  expect(cacheMissLine(undefined)).toBeUndefined();
+});

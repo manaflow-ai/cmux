@@ -25,7 +25,7 @@ enum WindowInvariants {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }
-        for window in value.openWindows where manager.controller(for: window.id) == nil {
+        for window in value.openWindows where manager.controller(for: window.id) == nil && !manager.deferredWindows.contains(window.id) {
             problems.append("open window \(window.id) has no controller")
         }
         return problems
@@ -42,6 +42,8 @@ enum WindowInvariants {
                     "id": .string(window.id),
                     "open": .bool(window.isOpen),
                     "workspaces": .array(window.workspaceIDs.map(JSONValue.string)),
+                    "guests": .array(window.guests.sorted().map(JSONValue.string)), // another window's, shown here too
+                    "space": manager.states[window.id].map { .string($0.profileID.rawValue) } ?? .null,
                     "selected": manager.states[window.id]?.workspaceID.map(JSONValue.string) ?? .null,
                     "has_controller": .bool(controller != nil),
                     "visible": .bool(controller?.window?.isVisible ?? false),

@@ -9,6 +9,46 @@ use super::supervisor::{ApiError, Host, HostKey, HostState, Inner, Out, Supervis
 
 pub(crate) const AGENT_INVENTORY_INVALIDATION_CAPABILITY: &str = "agent-cli-app-invalidation-v1";
 pub(super) const INVENTORY_STREAM: &str = "agent_cli.changed";
+/// `apps-provider-changed {family}`: a provider tells readable subscribers its family changed.
+pub(crate) const PROVIDER_CHANGED_CAPABILITY: &str = "app-provider-changed-v1";
+
+/// The read op `cmux-app-host/schema/v2/events.json` names for `stream`: an app hears the stream
+/// only when it may call that op. `None` for a stream the table does not declare.
+#[cfg(test)]
+pub(super) fn declared_reads(stream: &str) -> Option<&'static str> {
+    declared(stream).map(|(reads, _)| reads)
+}
+
+/// The `reads` op and its `readsParams` (`Null` when the table names none): `github.changed`
+/// reads `integration.request` with `{provider: "github", method: "GET"}`, so it needs
+/// `integration:github:read`, not any integration grant.
+pub(super) fn declared(stream: &str) -> Option<(&'static str, &'static Value)> {
+    static TABLE: std::sync::OnceLock<Vec<(String, String, Value)>> = std::sync::OnceLock::new();
+    TABLE
+        .get_or_init(|| {
+            let table: Value =
+                serde_json::from_str(include_str!("../../../cmux-app-host/schema/v2/events.json"))
+                    .unwrap_or_default();
+            table["events"]
+                .as_object()
+                .map(|events| {
+                    events
+                        .iter()
+                        .filter_map(|(name, event)| {
+                            Some((
+                                name.clone(),
+                                event["reads"].as_str()?.to_string(),
+                                event.get("readsParams").cloned().unwrap_or(Value::Null),
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .iter()
+        .find(|(name, _, _)| name == stream)
+        .map(|(_, reads, params)| (reads.as_str(), params))
+}
 
 /// A sequence belongs to this supervisor boot and its current provider connection.
 #[derive(Default)]
@@ -39,11 +79,25 @@ impl Supervisor {
         };
         let grant = Self::grant_for(inner, key);
         let table = ScopeTable::get();
-        ["list", "get"].iter().any(|verb| {
-            let op = format!("{family}.{verb}");
-            matches!(table.check(&op, &Value::Null, &grant), Decision::Allow(_))
-                && matches!(table.check(&op, &Value::Null, &host.grant), Decision::Allow(_))
-        })
+        let allowed = |op: &str, params: &Value| {
+            matches!(table.check(op, params, &grant), Decision::Allow(_))
+                && matches!(table.check(op, params, &host.grant), Decision::Allow(_))
+        };
+        // An extension signal source's stream (`signal_sources.rs`): its scope, or its own app.
+        if let Some(source) = Self::signal_source_for_stream(inner, stream) {
+            return !key.preview && key.app == source.app
+                || grant.scopes.contains(&source.scope)
+                    && host.grant.scopes.contains(&source.scope);
+        }
+        // A stream the SDKs' table declares is readable with its `reads` op and `readsParams`
+        // (`theme.changed` reads `settings.get`); a provider family's stream, with that family's
+        // list or get.
+        match declared(stream) {
+            Some((op, params)) => allowed(op, params),
+            None => ["list", "get"]
+                .iter()
+                .any(|verb| allowed(&format!("{family}.{verb}"), &Value::Null)),
+        }
     }
 
     /// Recomputed at every emitted lifecycle boundary, including an otherwise empty output list.
@@ -115,6 +169,45 @@ impl Supervisor {
         };
         self.emit(demand_event.into_iter().collect());
         result
+    }
+
+    /// The verified app's provider of `family` says its data changed: the readable subscribers of
+    /// `<family>.changed` get an empty invalidation and read again (`agent_chat.changed` for the
+    /// threads list). The provider names no stream, owner or payload. `agent_cli` keeps its
+    /// demand-sequenced `apps-agent-inventory-changed`.
+    pub fn provider_changed(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        family: &str,
+    ) -> Result<Value, ApiError> {
+        if !hosting_app_connection(&claim) {
+            return Err(ApiError::new(
+                "apps.provider.forbidden",
+                "only the verified app provider reports a change",
+            ));
+        }
+        if family == "agent_cli" {
+            return Err(ApiError::new(
+                "bad-request",
+                "agent_cli changes go through apps-agent-inventory-changed",
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if inner.providers.get(family) != Some(&client) {
+            return Err(ApiError::new(
+                "apps.provider.unknown",
+                "this connection does not provide that family",
+            ));
+        }
+        // A changed calendar makes every cached read stale before anyone reads again.
+        if family == super::system_calendar::FAMILY {
+            inner.system_calendar.clear();
+        }
+        let stream = format!("{family}.changed");
+        self.signals_pushed_locked(&inner, &stream);
+        Self::publish_stream_locked(&inner, &stream, json!({}));
+        Ok(json!({}))
     }
 
     /// Host sends only queue; holding the lock orders delivery with revocation and unsubscribe.

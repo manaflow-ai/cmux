@@ -3,24 +3,34 @@
 // the chat/window (these should be one and hte same) be more cohesive? well idk but the
 // chatgpt(codex) has it on the outside while claude indeed has it on the inside"). The same long draft
 // in Claude's look with the thumb:
-//   - `edge`, shipped: down the box's own right edge, stopping above Send, as Claude desktop draws it
-//     and as the chat's runs down the pane's (composerLocation.css);
+//   - `lane`, shipped: in a lane between the draft and the mic and Send, down to the box's bottom
+//     inset, as Claude desktop draws it (Leo 2026-11-22, his clip of Claude: "IT ACTUALLY GOES IN A
+//     REASONABLE LOOKING PLACE, INSTEAD OF OUR THUMB THAT STOPS ATOP BUTTONS"; composerLocation.css);
+//   - `edge`: down the box's own right edge, ending a block inset above the button row (shipped
+//     before: its end sat on the buttons' tops);
 //   - `edge-full`: down the box's right edge for its full height, beside the mic and Send;
-//   - `lane`: in a lane between the draft and the mic and Send (the placement before);
 //   - `outside`: just outside the box's right edge, in the column's gutter, as Codex desktop.
-// The alternates are gallery-only CSS over the shipped rules.
+// The alternates are gallery-only CSS over the shipped rules. The thumb shows only while the draft
+// scrolls (Leo 2026-11-22: "the thumb only appears when it's relevant"), so each variant
+// draws it as it scrolls: the field carries the scrolling mark (scrollers.ts SCROLLING_ATTRIBUTE)
+// until a real scroll's timer clears it.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
+import { COMPOSER_MD_FIELD } from "./composerSelectors";
+import { SCROLLING_ATTRIBUTE } from "../../scrollers";
 
 const BOX = ".acpmux-composer-box[data-composer-grid]";
 const FIELD = `${BOX} > .acpmux-composer-field-menu > .acpmux-md-field`;
 const SCALE = "var(--cmux-interface-scale, 1)";
+// The right edge: the prompt spans the actions' column too, its padding giving that column back.
+const EDGE = `${FIELD} { grid-column: 2 / -1; margin-right: calc(2px * ${SCALE}); padding-right: calc(var(--acpmux-actions-width, 64px) + var(--acpmux-composer-lead-gap) + max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px)))); }
+${FIELD} .acpmux-md-placeholder { right: calc(var(--acpmux-actions-width, 64px) + var(--acpmux-composer-lead-gap) + 8px * ${SCALE}); }`;
 const ALT: Record<string, string> = {
-  "edge-full": `${FIELD} { --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px); }`,
-  lane: `${FIELD} { grid-column: 2; padding-right: max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px))); --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px); }
-${FIELD} .acpmux-md-placeholder { right: calc(8px * ${SCALE}); }`,
-  outside: `${FIELD} { margin-right: -12px; padding-right: calc(var(--acpmux-actions-width, 64px) + 22px + max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px)))); --cmux-minimal-scroller-inset-end: var(--cmux-minimal-scroller-inset, 0px); }`,
+  edge: `${EDGE}
+${FIELD} { --cmux-minimal-scroller-inset-end: calc(var(--acpmux-prompt-control-top) + var(--acpmux-composer-control) + var(--acpmux-composer-block-inset)); }`,
+  "edge-full": EDGE,
+  outside: `${FIELD} { grid-column: 2 / -1; margin-right: -12px; padding-right: calc(var(--acpmux-actions-width, 64px) + 22px + max(0px, calc(8px * ${SCALE} - var(--cmux-scroller-size, 8px)))); }`,
 };
 const ALT_ID = "composer-scrollbar-alt";
 
@@ -37,9 +47,10 @@ const placement =
       ctx.document.head.append(style);
     }
     await ctx.waitFor(() => {
-      const field = ctx.document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field");
+      const field = ctx.document.querySelector<HTMLElement>(COMPOSER_MD_FIELD);
       return field !== null && field.scrollHeight > field.clientHeight + 1;
     });
+    ctx.document.querySelector(COMPOSER_MD_FIELD)!.setAttribute(SCROLLING_ATTRIBUTE, "");
   };
 
 const draft = Array.from(
@@ -50,7 +61,13 @@ const snapshot = chat([
   user("Add retries to the fetch helper, with a backoff.", 12),
   assistant("Added `withRetry` to `fetchJson`: three tries with jittered backoff.", 11),
 ]);
-const variant = (name: string, note: string) => ({ note, ready: { draft }, snapshot, play: placement(name) });
+const variant = (name: string, note: string) => ({
+  composerLook: "claude" as const,
+  note,
+  ready: { draft },
+  snapshot,
+  play: placement(name),
+});
 
 export default agentPaneEntry({
   id: "agent-pane.composer-scrollbar",
@@ -60,9 +77,15 @@ export default agentPaneEntry({
   widths: { narrow: 400, normal: 760, wide: 1100 },
   covers: ["agent-session/acpmux/composerScrollLane.ts"],
   variants: {
-    edge: variant("edge", "Shipped: down the box's right edge, stopping above Send (Claude desktop)."),
+    lane: variant(
+      "lane",
+      "Shipped: in a lane between the draft and the mic and Send, to the box's bottom inset (Claude desktop).",
+    ),
+    edge: variant(
+      "edge",
+      "Down the box's right edge, stopping above Send (shipped before: it stopped on the buttons' tops).",
+    ),
     "edge-full": variant("edge-full", "Down the box's right edge for its full height, beside the mic and Send."),
-    lane: variant("lane", "In a lane between the draft and the mic and Send (the placement before)."),
     outside: variant("outside", "Just outside the box's right edge, in the column's gutter (Codex desktop)."),
   },
 });

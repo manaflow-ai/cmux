@@ -119,7 +119,16 @@ private nonisolated final class Invocation: Sendable {
             case .end: receiveStderr(Data(), handle: handle)
             }
         }
-        process.terminationHandler = { [self] finished in exited(finished.terminationStatus) }
+        let (replyReader, stderrReader) = (output.fileHandleForReading, errors.fileHandleForReading)
+        process.terminationHandler = { [self] finished in
+            exited(finished.terminationStatus)
+            // A git or cmux grandchild that kept stdout or stderr holds their end of file off: after the drain
+            // grace both read ends close and count as ended (cmuxterm-hq#8747), as one that reached end of file.
+            ChildOutputEnds.closeAfterExit(reading: [replyReader, stderrReader]) { [self] in
+                receiveReply(Data(), handle: replyReader)
+                receiveStderr(Data(), handle: stderrReader)
+            }
+        }
         let cancelled = state.withLock { state -> Bool in
             if state.outcome != nil { return true }
             state.continuation = continuation
@@ -135,6 +144,7 @@ private nonisolated final class Invocation: Sendable {
             return
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             // No child holds a write end, so no EOF comes: release the readers here.
@@ -186,6 +196,7 @@ private nonisolated final class Invocation: Sendable {
     private func receiveStderr(_ data: Data, handle: FileHandle) {
         if data.isEmpty {
             handle.readabilityHandler = nil
+            try? handle.close()
             state.withLock { $0.stderrReader = nil }
             return
         }
@@ -200,6 +211,7 @@ private nonisolated final class Invocation: Sendable {
         // The group exists now, so a stop reaches git and cmux children too.
         guard let stdin else { return }
         do {
+            // concurrency-allow: in the stderr readability handler, on Foundation's pipe queue, never the main thread
             try stdin.write(contentsOf: request)
             try stdin.close()
         } catch {
@@ -210,6 +222,7 @@ private nonisolated final class Invocation: Sendable {
     private func receiveReply(_ data: Data, handle: FileHandle) {
         if data.isEmpty {
             handle.readabilityHandler = nil
+            try? handle.close()
             state.withLock { state in
                 state.replyClosed = true
                 state.replyReader = nil

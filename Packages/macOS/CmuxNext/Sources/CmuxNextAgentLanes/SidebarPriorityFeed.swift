@@ -37,15 +37,19 @@ public final class SidebarPriorityFeed {
         public var toggleShown: @MainActor () -> Void
         /// Session ids in actual open tabs, read inside the panel observation.
         public var openedSessions: @MainActor () -> Set<String>
+        /// Opens a chat by its session id, for an archived chat no lane lists (a closed one).
+        public var openSession: @MainActor (String) -> Void
 
         public init(shortcut: @escaping @MainActor () -> String?, open: @escaping @MainActor (AgentActivityLane) -> Void,
                     rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void,
-                    openedSessions: @escaping @MainActor () -> Set<String> = { [] }) {
+                    openedSessions: @escaping @MainActor () -> Set<String> = { [] },
+                    openSession: @escaping @MainActor (String) -> Void = { _ in }) {
             self.shortcut = shortcut
             self.open = open
             self.rowAction = rowAction
             self.toggleShown = toggleShown
             self.openedSessions = openedSessions
+            self.openSession = openSession
         }
     }
 
@@ -56,6 +60,8 @@ public final class SidebarPriorityFeed {
     private let ranking = AgentPriorityRanking()
     /// Bumped when a snooze ends or an idle chat ages out, so the rows redraw with no other change.
     private let clock = PriorityClock()
+    /// How many archived rows the open Archived fold shows (Show More adds a page).
+    private let archivedPage = ArchivedPage()
     private let nextChange = DemandTimer(owner: "sidebar-priority-next-change")
 
     public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats) {
@@ -64,8 +70,21 @@ public final class SidebarPriorityFeed {
         self.chats = chats
     }
 
-    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it).
-    public func start(_ view: SidebarView) -> Task<Void, Never> {
+    /// The window's Allow and Deny on its answerable rows and Needs You items (``SidebarApprovals``);
+    /// nil: no row answers.
+    var approvals: SidebarApprovals?
+
+    /// Feeds `view` until the task is cancelled (the window's sidebar bridge owns it), with
+    /// `approvals` answering its rows and its Needs You tray.
+    public func start(_ view: SidebarView, approvals: SidebarApprovals? = nil) -> Task<Void, Never> {
+        self.approvals = approvals
+        let feed = observe(view)
+        guard let approvals else { return feed }
+        return feed.cancelling(approvals.followLanes())
+            .cancelling(approvals.followTray(view) { SidebarSessionTreeFeed.shared.workspaces(showing: $0) })
+    }
+
+    private func observe(_ view: SidebarView) -> Task<Void, Never> {
         view.onPriorityAction = { [weak self] action in self?.perform(action) }
         // task-owner: the sidebar bridge (cancelled in teardown); event-driven (Observation)
         // The task holds the feed: it lives as long as the window's sidebar shows it.
@@ -100,9 +119,23 @@ public final class SidebarPriorityFeed {
         let visible = Set(built.lanes.filter {
             !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
         }.map(\.id))
-        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }
+        let answerable = approvals?.answerable ?? [:]
+        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
+            var entry = entry
+            entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
+            return entry
+        }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
-                                    collapsed: state.collapsed, shortcut: hooks.shortcut())
+                                    collapsed: state.collapsed, shortcut: hooks.shortcut(),
+                                    archived: shown ? archived(open: state.archivedOpen) : SidebarArchivedChats())
+    }
+
+    /// The Archived fold: only its count while folded (no row is built or sorted), else the newest
+    /// archives up to the page.
+    private func archived(open: Bool) -> SidebarArchivedChats {
+        let count = chats.archivedChats.count
+        guard open, count > 0 else { return SidebarArchivedChats(count: count) }
+        return SidebarArchivedChats(count: count, rows: chats.archivedEntries(limit: archivedPage.limit), folded: false)
     }
 
     /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold, the bell and a
@@ -111,9 +144,17 @@ public final class SidebarPriorityFeed {
         switch action {
         case .open(let id): if let lane = chats.lane(id) { hooks.open(lane) }
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
+        case .answer(let id, let request, let allow): approvals?.answer(session: id, request: request, allow: allow)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
         case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()
+        case .restore: hooks.rowAction(action)
+        case .openArchived(let id):
+            if let lane = chats.lane(id) { hooks.open(lane) } else { hooks.openSession(id) }
+        case .setArchivedFolded(let folded):
+            if folded { archivedPage.limit = SidebarArchivedChats.pageSize }
+            marks.setArchivedOpen(!folded)
+        case .showMoreArchived: archivedPage.limit += SidebarArchivedChats.pageSize
         }
     }
 
@@ -132,6 +173,12 @@ public final class SidebarPriorityFeed {
             scheduleNextChange(chats.snapshot())
         }
     }
+}
+
+/// The open Archived fold's page; observed, so Show More redraws.
+@Observable @MainActor
+final class ArchivedPage {
+    var limit = SidebarArchivedChats.pageSize
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.

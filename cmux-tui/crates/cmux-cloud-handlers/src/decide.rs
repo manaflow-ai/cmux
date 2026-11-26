@@ -56,12 +56,6 @@ pub fn machine(lookup: &Lookup) -> Result<Pick, Said> {
     if lookup.cloud_count == 1 { Ok(Pick::Only) } else { Err(Said::key("noMachine")) }
 }
 
-/// Whether a machine can take an attach now or after a resume: not changing state, and either
-/// answering or with no app link (a legacy machine may be paused behind a stale record).
-pub fn attachable(changing: bool, connected: bool, has_app_link: bool) -> bool {
-    !changing && (connected || !has_app_link)
-}
-
 /// What New Cloud Workspace does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,6 +106,56 @@ pub fn new_machine_start(is_default: bool, by_user: bool, has_window: bool) -> N
     }
 }
 
+/// How long after a typing prewarm's resume failed the next keystroke may not try again. A failed
+/// resume (a 503 retried for up to 30 s inside the call) was asked again on every keystroke: the
+/// page clears its dedupe on a declined hint, and the machine is `paused` again once the call fails.
+pub const PREWARM_RETRY_AFTER_MS: u64 = 15_000;
+
+/// The facts of a typing prewarm (`cloudMachine.prewarm`): a hint, never a gesture.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PrewarmFacts {
+    /// The App may call Cloud: signed in, Cloud on, not unavailable.
+    pub allowed: bool,
+    /// The machine list is the loaded one for the signed-in account.
+    pub loaded: bool,
+    /// The machine's status in that list (`paused`, `running`, ...); None when it is not listed.
+    pub status: Option<String>,
+    /// Milliseconds since this machine's last prewarm resume failed; None when none did.
+    pub since_failure_ms: Option<u64>,
+}
+
+/// What a typing prewarm does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Prewarm {
+    /// Resume the machine now (script-originated).
+    Resume,
+    /// Do nothing, for this reason.
+    Skip(&'static str),
+}
+
+/// Resumes only a `paused` machine of the loaded list while Cloud may be called: not one that
+/// runs, is `pausing`, `starting` or unknown, and not within [`PREWARM_RETRY_AFTER_MS`] of a
+/// failed resume.
+pub fn prewarm(facts: &PrewarmFacts) -> Prewarm {
+    if !facts.allowed {
+        return Prewarm::Skip("notAllowed");
+    }
+    if !facts.loaded {
+        return Prewarm::Skip("notLoaded");
+    }
+    match facts.status.as_deref() {
+        None => return Prewarm::Skip("notListed"),
+        Some("paused") => {}
+        Some(_) => return Prewarm::Skip("notPaused"),
+    }
+    match facts.since_failure_ms {
+        Some(ms) if ms < PREWARM_RETRY_AFTER_MS => Prewarm::Skip("coolingDown"),
+        _ => Prewarm::Resume,
+    }
+}
+
 /// Where the workspace setup's creation is. Mirroring removes the progress row normally;
 /// explicit teardown ends the wizard even when it already opened a workspace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -146,11 +190,14 @@ pub enum Creation {
 }
 
 /// The creation's state from its facts: still `listed`, its machine (`has_session`), `failed`.
+/// A failure outranks the row's leaving: a creation no window shows (a CLI's, an agent's) ends
+/// as it fails, so `cloud list-machines` never keeps a failed create, and its caller still hears
+/// why it failed, not "declined".
 pub fn creation(listed: bool, has_session: bool, failed: bool) -> Creation {
     match (listed, has_session, failed) {
-        (false, false, _) => Creation::Gone,
         (_, true, _) => Creation::Created,
-        (true, false, true) => Creation::Failed,
+        (_, false, true) => Creation::Failed,
+        (false, false, false) => Creation::Gone,
         (true, false, false) => Creation::Pending,
     }
 }
@@ -171,6 +218,9 @@ pub struct Settled {
     pub workspace_id: Option<String>,
     /// The paid plan a refusal names.
     pub plan: Option<String>,
+    /// When the request was made, unix seconds: whether the machine is `reused`
+    /// ([`fields::note_reuse`]).
+    pub asked_at: Option<f64>,
 }
 
 /// A run's failure: its reason, the error code a caller can act on, and whether it is a
@@ -190,7 +240,9 @@ pub struct Failure {
 pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     // A machine the server returned is made, whatever phase raced it (as `creation` decides).
     if let Some(machine) = &settled.machine {
-        return Ok(fields::created_machine(machine, settled.workspace_id.as_deref()));
+        let mut made = fields::created_machine(machine, settled.workspace_id.as_deref());
+        fields::note_reuse(&mut made, machine, settled.asked_at);
+        return Ok(made);
     }
     match settled.state {
         Some(Creation::Failed) => {
@@ -221,54 +273,133 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     }
 }
 
-/// How Open Desktop shows a machine's desktop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Desktop {
-    /// The remote view pane on the machine's `cmux-rd` host, watching the agent.
-    Rd,
-    /// The pane on the app's own VNC client (development builds).
-    Native,
-    /// The noVNC page in a Chromium tab.
-    Web,
-}
-
-/// The facts of an Open Desktop.
+/// A Cloud machine row supplied to the palette target picker.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct DesktopFacts {
-    /// `--viewer`, else the machine's default.
-    pub viewer: Option<String>,
-    pub default_viewer: String,
-    /// The machine allows a desktop at all.
-    pub allows: bool,
-    /// Its capabilities declare `desktop` (the rd host).
-    pub capability: bool,
-    /// It has a private IPv4 address and a desktop URL that names it.
-    pub reachable: bool,
-    /// This build has the native viewer.
-    pub native_available: bool,
+pub struct PaletteMachine {
+    pub id: String,
     pub title: String,
+    pub status: String,
+    /// Whether the machine advertises the desktop service.
+    pub desktop: bool,
 }
 
-pub fn desktop(facts: &DesktopFacts) -> Result<Desktop, Said> {
-    let refused = || Said::with("desktopUnavailable", [facts.title.clone()]);
-    if !facts.allows {
-        return Err(refused());
-    }
-    let viewer = facts.viewer.as_deref().unwrap_or(&facts.default_viewer);
-    if viewer == "rd" {
-        return if facts.capability { Ok(Desktop::Rd) } else { Err(refused()) };
-    }
-    if !facts.reachable {
-        return Err(refused());
-    }
-    if viewer == "native" {
-        return if facts.native_available { Ok(Desktop::Native) } else { Err(refused()) };
-    }
-    Ok(Desktop::Web)
+/// The machine state shown by the shared palette target picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetState {
+    Ready,
+    Resume,
+    DesktopUnavailable,
+    Starting,
+    Unavailable,
+    Empty,
 }
 
+/// The inline action offered by a target row. The app supplies localized labels and performs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetIntent {
+    Choose,
+    StartDesktop,
+    CreateDesktop,
+}
+
+/// One row returned to a palette target picker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaletteTargetRow {
+    pub id: String,
+    pub title: String,
+    pub state: PaletteTargetState,
+    pub intent: Option<PaletteTargetIntent>,
+}
+
+fn palette_status(
+    status: &str,
+    desktop: bool,
+    wants_desktop: bool,
+) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
+    let status = status.trim().to_ascii_lowercase();
+    match status.as_str() {
+        // These are in-flight transitions. Keep the row visible with its transition state,
+        // but do not offer setup/recovery until the Cloud control plane settles it.
+        "pausing" => (
+            PaletteTargetState::Resume,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        "paused" | "suspended" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "starting" | "creating" | "provisioning" | "resuming" | "booting" => {
+            (PaletteTargetState::Starting, (!wants_desktop).then_some(PaletteTargetIntent::Choose))
+        }
+        "running" | "ready" | "connected" | "active" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "deleting" => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        _ => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop && !desktop {
+                Some(PaletteTargetIntent::CreateDesktop)
+            } else {
+                (!wants_desktop).then_some(PaletteTargetIntent::Choose)
+            },
+        ),
+    }
+}
+
+/// Build stable, GUI-ready rows for a machine target picker.
+///
+/// Machines advertising a desktop always precede machines without that capability. Within each
+/// capability group rows are ordered by actionability (ready, resume, starting, unavailable)
+/// while preserving the inventory order for ties. The empty desktop case offers the create path.
+pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<PaletteTargetRow> {
+    if wants_desktop && machines.is_empty() {
+        return vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop),
+        }];
+    }
+    let mut rows: Vec<(usize, PaletteTargetRow, bool, u8)> = machines
+        .iter()
+        .enumerate()
+        .map(|(index, machine)| {
+            let (state, intent) = palette_status(&machine.status, machine.desktop, wants_desktop);
+            let actionability = match state {
+                PaletteTargetState::Ready => 0,
+                PaletteTargetState::Resume => 1,
+                PaletteTargetState::Starting => 2,
+                PaletteTargetState::DesktopUnavailable => 3,
+                PaletteTargetState::Unavailable | PaletteTargetState::Empty => 4,
+            };
+            let title = machine.title.trim();
+            (
+                index,
+                PaletteTargetRow { id: machine.id.clone(), title: title.to_owned(), state, intent },
+                machine.desktop,
+                actionability,
+            )
+        })
+        .collect();
+    rows.sort_by_key(|(index, _, desktop, actionability)| (!*desktop, *actionability, *index));
+    rows.into_iter().map(|(_, row, _, _)| row).collect()
+}
+
+/// How Open Desktop shows a machine's desktop.
 /// A Cloud machine's state, as the diagnostics summary reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -353,18 +484,6 @@ pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -
         GitHubApp::Unknown => "gitHubFallbackUnknown",
     };
     vec![Said::key(reason), body("gitHubConfirmBody", "gitHubConfirmNoIdentity")]
-}
-
-/// The question a destructive Cloud action asks before it runs (its title, body and button are
-/// the app's strings `<prompt>Title`, `<prompt>Body`, `<prompt>Button`); none for any other action.
-pub fn confirmation(action: &str) -> Option<&'static str> {
-    match action {
-        "cloudKillMachine" => Some("killMachine"),
-        "palette.cloud.deleteSnapshot" => Some("deleteSnapshot"),
-        "cloudFileRemove" => Some("removeFile"),
-        "cloudFirewallDelete" => Some("deleteFirewallRule"),
-        _ => None,
-    }
 }
 
 /// An error's own words, without a trailing period (it sits inside a sentence).

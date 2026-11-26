@@ -1,5 +1,9 @@
 public import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Resolves fresh same-account reachability and a locally verified pair grant per dial.
@@ -10,6 +14,13 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     }
 
     private static let maximumVerifiedDiscoveryReuseAge: TimeInterval = 30
+    /// How old the last broker snapshot may be for a dial on a cached signed grant to go at
+    /// once (the broker is read behind it). The Mac admits only on its own broker check
+    /// (`CmxIrohOnlineAdmissionRegistry`), so this bounds stale routes, not trust: a Mac whose
+    /// endpoint moved in that time costs one failed dial, which marks the peer stale.
+    static let maximumCachedGrantDiscoveryAge: TimeInterval = 10 * 60
+    /// A cached grant this close to its expiry is renewed before the dial (`grant`).
+    private static let grantRenewalLead: TimeInterval = 72 * 60 * 60
 
     public typealias LANFallbackProvider = @Sendable (
         _ target: CmxIrohBrokerBindingMetadata,
@@ -38,6 +49,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
     private var verifiedDiscoverySnapshot: VerifiedDiscoverySnapshot?
     private var authoritativeDiscovery: CmxIrohDiscoveryResponse?
+    /// When `authoritativeDiscovery` was read from the broker (or handed in verified).
+    private var authoritativeDiscoveryAt: Date?
+    /// Peers whose last context was built on a cached signed grant and an older snapshot
+    /// (`cachedGrantDiscovery`): an admission refusal of that dial sends the next one to the hub.
+    private var cachedGrantDialPeers: Set<CmxIrohPeerIdentity> = []
     /// Peers whose last dial produced staleness evidence (an empty dial plan
     /// or an unreachable-class failure). Their next dial bypasses every
     /// discovery reuse window and fetches a fresh broker snapshot.
@@ -86,6 +102,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
         }
         authoritativeDiscovery = verifiedDiscovery
+        authoritativeDiscoveryAt = verifiedDiscovery.map { _ in now() }
     }
 
     /// Creates a provider with generation-aware private-network validation.
@@ -123,6 +140,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
         }
         authoritativeDiscovery = verifiedDiscovery
+        authoritativeDiscoveryAt = verifiedDiscovery.map { _ in now() }
     }
 
     /// Creates a provider owned by the unified connectivity endpoint engine.
@@ -157,6 +175,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
         }
         authoritativeDiscovery = verifiedDiscovery
+        authoritativeDiscoveryAt = verifiedDiscovery.map { _ in now() }
     }
 
     public func context(
@@ -169,6 +188,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.unsupportedRoute
         }
         lanAuthorities.removeValue(forKey: targetIdentity)
+        cachedGrantDialPeers.remove(targetIdentity)
         let localIdentity = try await localEndpointIdentity()
         guard localBindingExpectation.platform == .ios,
               localBindingExpectation.endpointID == localIdentity else {
@@ -187,6 +207,30 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         if !requiresFreshDiscovery, let verified = takeVerifiedDiscovery(at: clock) {
             discovery = verified
         } else {
+            if !requiresFreshDiscovery,
+               let prior = cachedGrantDiscovery(for: targetIdentity, at: clock) {
+                // Dial at once on the cached signed grant and the last broker snapshot; the
+                // broker is read behind the dial. A Mac that refuses it (`noteDialFailure`) sends
+                // the next dial to the hub; a snapshot that cannot build a usable plan falls
+                // through to the hub now.
+                let resolved = try? await resolveContext(
+                    for: request,
+                    targetIdentity: targetIdentity,
+                    routeHints: routeHints,
+                    discovery: prior,
+                    persistOffline: false,
+                    at: clock
+                )
+                try Task.checkCancellation()
+                if let resolved, !Self.dialPlanIsEmpty(resolved.dialPlan) {
+                    cachedGrantDialPeers.insert(targetIdentity)
+                    refreshDiscoveryBehindDial(
+                        identity: targetIdentity,
+                        deviceID: request.expectedPeerDeviceID
+                    )
+                    return resolved
+                }
+            }
             do {
                 discovery = try await sharedDiscover(
                     surface: DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
@@ -268,6 +312,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetIdentity: CmxIrohPeerIdentity,
         routeHints: [CmxIrohPathHint],
         discovery: CmxIrohDiscoveryResponse,
+        persistOffline: Bool = true,
         at clock: Date
     ) async throws -> CmxIrohClientContext {
         guard discovery.routeContractVersion == 1 else {
@@ -334,7 +379,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 at: clock
             )
         }
-        if let offlinePolicy {
+        // A context built on an older snapshot (`cachedGrantDiscovery`) does not restamp the
+        // offline cache with it: only a broker read extends what an offline dial may use.
+        if persistOffline, let offlinePolicy {
             try? await offlinePolicy.cache.save(
                 localBinding: localBinding,
                 targetBinding: targetBinding,
@@ -369,6 +416,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             lanAuthorities.removeAll(keepingCapacity: false)
             verifiedDiscoverySnapshot = nil
             authoritativeDiscovery = nil
+            authoritativeDiscoveryAt = nil
+            cachedGrantDialPeers.removeAll(keepingCapacity: false)
             staleDiscoveryPeers.removeAll(keepingCapacity: false)
             staleDiscoveryDeviceIDs.removeAll(keepingCapacity: false)
         }
@@ -382,7 +431,58 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 verifiedAt: now()
             )
             authoritativeDiscovery = verifiedDiscovery
+            authoritativeDiscoveryAt = now()
         }
+    }
+
+    /// The last broker snapshot, when a dial to `target` may go at once on it: it is at most
+    /// `maximumCachedGrantDiscoveryAge` old and a signed grant for `target` is cached and not
+    /// due for renewal, so `grant` returns it without the broker (and verifies it again).
+    private func cachedGrantDiscovery(
+        for target: CmxIrohPeerIdentity,
+        at clock: Date
+    ) -> CmxIrohDiscoveryResponse? {
+        guard let discovery = authoritativeDiscovery,
+              let fetchedAt = authoritativeDiscoveryAt,
+              let cached = grantCache[target] else {
+            return nil
+        }
+        let age = clock.timeIntervalSince(fetchedAt)
+        guard age >= 0, age <= Self.maximumCachedGrantDiscoveryAge,
+              cached.expiresAt > clock.addingTimeInterval(Self.grantRenewalLead) else {
+            return nil
+        }
+        return discovery
+    }
+
+    /// Reads the broker behind a dial made on `cachedGrantDiscovery`. The read joins one in
+    /// flight (`sharedDiscover`). When the fresh snapshot no longer lists the Mac as a pairable
+    /// target, its grant is dropped and the next dial goes to the hub.
+    private func refreshDiscoveryBehindDial(
+        identity: CmxIrohPeerIdentity,
+        deviceID: String?
+    ) {
+        Task { [weak self] in
+            guard let self,
+                  let fresh = try? await self.sharedDiscover() else { return }
+            await self.checkTargetStillListed(fresh, identity: identity, deviceID: deviceID)
+        }
+    }
+
+    private func checkTargetStillListed(
+        _ discovery: CmxIrohDiscoveryResponse,
+        identity: CmxIrohPeerIdentity,
+        deviceID: String?
+    ) {
+        let targets = discovery.bindings.filter {
+            $0.endpointID == identity && $0.platform == .mac
+        }
+        let locals = discovery.bindings.filter { localBindingExpectation.matches($0) }
+        guard targets.count != 1 || !targets[0].pairingEnabled || locals.count != 1 else {
+            return
+        }
+        invalidateGrant(for: identity)
+        markDiscoveryStale(identity: identity, deviceID: deviceID)
     }
 
     /// Consumes the startup or refresh response once, preventing an immediate
@@ -427,6 +527,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         do {
             let response = try await task.value
             authoritativeDiscovery = response
+            authoritativeDiscoveryAt = now()
             diagnostics?.record(DiagnosticEvent(
                 .discoverySucceeded,
                 surface: surface,
@@ -465,6 +566,19 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     ) async {
         guard request.route.kind == .iroh,
               case let .peer(targetIdentity, _) = request.route.endpoint else {
+            return
+        }
+        // A Mac that refused a dial made on the cached grant and an older snapshot: the next
+        // dial goes to the hub for both (`cachedGrantDiscovery`). Only for such a dial, so a
+        // refusal of a hub-checked dial costs no broker quota.
+        if cachedGrantDialPeers.contains(targetIdentity),
+           Self.indicatesRefusedAdmission(failure) {
+            cachedGrantDialPeers.remove(targetIdentity)
+            invalidateGrant(for: targetIdentity)
+            markDiscoveryStale(
+                identity: targetIdentity,
+                deviceID: request.expectedPeerDeviceID
+            )
             return
         }
         let planWasEmpty = Self.dialPlanIsEmpty(dialPlan)
@@ -537,6 +651,19 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     /// was bad: the peer could not be reached on the plan we used. Auth,
     /// admission, cancellation, and local-policy failures stay out; refetching
     /// discovery cannot repair those and would only burn broker quota.
+    /// The Mac answered and refused the credential or its lease.
+    private static func indicatesRefusedAdmission(
+        _ failure: DiagnosticFailureKind
+    ) -> Bool {
+        switch failure {
+        case .admissionDenied, .authorizationFailed, .admissionRevalidationFailed,
+             .admissionLeaseExpired:
+            true
+        default:
+            false
+        }
+    }
+
     private static func indicatesUnreachablePeer(
         _ failure: DiagnosticFailureKind
     ) -> Bool {
@@ -1026,7 +1153,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         keys: CmxIrohGrantVerificationKeySet,
         now: Date
     ) async throws -> CmxIrohPairGrantResponse {
-        let refreshBoundary = now.addingTimeInterval(72 * 60 * 60)
+        let refreshBoundary = now.addingTimeInterval(Self.grantRenewalLead)
         if let cached = grantCache[targetIdentity],
            cached.initiator == initiator,
            cached.acceptor == acceptor,

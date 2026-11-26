@@ -245,4 +245,71 @@ if grep -Fq 'cef-line' <<<"$tui_section"; then
   exit 1
 fi
 
-echo "PASS: xcodebuild failures retain diagnostics and quiet builds emit heartbeats"
+# A build that stops (no output, no new process, no CPU) is ended with status 124,
+# as run 43673773157's deadlocked build service should have been, instead of
+# heartbeating until the job's timeout. Without the watchdog this fixture sleeps
+# 30 seconds and exits 0.
+cat >"$TMP_DIR/fake-stalled.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "SwiftDriver MessagesLabHome normal arm64 (in target 'MessagesLabHome' from project 'CmuxMessagesLab')"
+python3 -c 'import time; time.sleep(30)'
+echo "fake stalled build finished"
+EOF
+chmod +x "$TMP_DIR/fake-stalled.sh"
+stall_started="$(date '+%s')"
+set +e
+CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.1 CMUX_XCODEBUILD_STALL_SECONDS=2 \
+  "$WRAPPER" -- "$TMP_DIR/fake-stalled.sh" >"$TMP_DIR/stalled.log" 2>&1
+status=$?
+set -e
+stall_took=$(( $(date '+%s') - stall_started ))
+if [[ "$status" -ne 124 ]]; then
+  echo "FAIL: a stalled build must end with status 124, got $status after ${stall_took}s" >&2
+  cat "$TMP_DIR/stalled.log" >&2
+  exit 1
+fi
+if [[ "$stall_took" -ge 20 ]]; then
+  echo "FAIL: the stalled build must end soon after its stall window, took ${stall_took}s" >&2
+  exit 1
+fi
+grep -Fq '::error::xcodebuild stalled: no output' "$TMP_DIR/stalled.log"
+grep -Fq 'xcodebuild termination: stalled' "$TMP_DIR/stalled.log"
+grep -Fq -- '--- stalled build process tree ---' "$TMP_DIR/stalled.log"
+if grep -Fq 'fake stalled build finished' "$TMP_DIR/stalled.log"; then
+  echo "FAIL: the stalled build's process tree must be ended" >&2
+  exit 1
+fi
+
+# A silent build that is still using CPU (one long Swift-driver step) is not
+# stalled, however long its silence.
+# Why 4 s: on Linux, ps prints CPU time in whole seconds and the idle clock counts whole seconds, so a 2 s window
+# could close after about 1 s of wall time with the busy loop's CPU still reading the same whole second. On a loaded
+# guard runner that read as a stall (status 124; cmux-next guards run 45383801233, job 138410334575). A 4 s window
+# needs only about a third of a core to tick the next whole CPU second inside it. macOS ps keeps fractions.
+cat >"$TMP_DIR/fake-busy-silent.sh" <<'EOF'
+#!/usr/bin/env bash
+python3 -c '
+import time
+end = time.time() + 7
+while time.time() < end:
+    pass
+'
+echo "fake busy build finished"
+EOF
+chmod +x "$TMP_DIR/fake-busy-silent.sh"
+set +e
+CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.1 CMUX_XCODEBUILD_STALL_SECONDS=4 CMUX_XCODEBUILD_STALL_CPU_SECONDS=0.5 \
+  "$WRAPPER" -- "$TMP_DIR/fake-busy-silent.sh" >"$TMP_DIR/busy-silent.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 0 ]] || ! grep -Fq 'fake busy build finished' "$TMP_DIR/busy-silent.log"; then
+  echo "FAIL: a silent build that uses CPU must run to the end, got $status" >&2
+  cat "$TMP_DIR/busy-silent.log" >&2
+  exit 1
+fi
+if grep -Fq 'xcodebuild stalled' "$TMP_DIR/busy-silent.log"; then
+  echo "FAIL: a build using CPU must never be called stalled" >&2
+  exit 1
+fi
+
+echo "PASS: xcodebuild failures retain diagnostics, quiet builds emit heartbeats, and stalled builds end"

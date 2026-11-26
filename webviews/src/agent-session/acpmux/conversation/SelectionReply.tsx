@@ -1,6 +1,7 @@
 // Reply to a part of a message: selecting transcript text shows a small Reply chip above the
-// selection's end; where that spot holds text (the line before, a "Sent to" line over the reply) it
-// takes the nearest spot that covers no other text (selectionReplyPlace). It never floats in the
+// selection's end; where that spot holds text (the line before, a "Sent to" line over the reply, the
+// selection's own words) it takes the nearest spot above or below the selection that covers no text
+// (selectionReplyPlace). It never floats in the
 // margin past the column or leaves the visible transcript; clicking it quotes the selection into the composer,
 // the same Quote in Reply the selection's right-click menu runs (AgentPaneContextMenu.swift
 // `quote`, App.tsx `chat.quoteReply`). Leo, 2026-11-03: "would it make sense to have a direct
@@ -18,15 +19,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
-import { experimentArm } from "../../../experiments/experiment";
 import { Quote } from "./icons";
-import { selectionReplyWrap } from "./selectionReplyWrap.experiment";
 import {
   quoteInReply,
+  sameReplyTarget,
   selectionReplyPlace,
   selectionReplyTarget,
   transcriptClip,
-  unselectedTextProbe,
+  transcriptRoot,
+  transcriptTextProbe,
   useSelectionReplyLook,
   type SelectionReplyPlace,
   type SelectionReplyTarget,
@@ -52,6 +53,27 @@ export function RowReplyButton({ text }: { text: string }) {
 }
 
 /// The chip over the selection's end. Mounted once per pane (App.tsx), on the document's body.
+/// Calls `place` whenever the transcript under `root` or one of its rows changes size, rows the
+/// transcript mounts later included; the returned function stops watching.
+function watchTranscriptRows(view: Window & typeof globalThis, root: Element, place: () => void): () => void {
+  const sizes = new view.ResizeObserver(place);
+  const watched = new WeakSet<Element>();
+  const watchRows = () => {
+    for (const element of [root, ...Array.from(root.querySelectorAll("[data-row-id]"))]) {
+      if (watched.has(element)) continue;
+      watched.add(element);
+      sizes.observe(element);
+    }
+  };
+  watchRows();
+  const mounts = view.MutationObserver ? new view.MutationObserver(watchRows) : undefined;
+  mounts?.observe(root.querySelector(".acpmux-thread") ?? root, { childList: true });
+  return () => {
+    sizes.disconnect();
+    mounts?.disconnect();
+  };
+}
+
 export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const t = useT();
   const current = useSelectionReplyLook();
@@ -62,9 +84,6 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const chip = useRef<HTMLButtonElement>(null);
   // Undefined while the chip is measured; null where no spot takes it (it hides).
   const [placed, setPlaced] = useState<SelectionReplyPlace | null>();
-  // The chip's width with its label: a compact chip is narrower, and the next placement (a scroll)
-  // must try the full chip first.
-  const fullWidth = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
@@ -100,11 +119,33 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
     };
   }, [doc, enabled]);
 
+  // While the chip shows, a row of the transcript changing size (a row opening or closing above the
+  // selection, a reply streaming in) moves the selected words, so the chip is placed again and
+  // follows them: placed once on pointerup, it stayed while the click that followed opened a row
+  // and the words moved under it (Leo's 2026-11-21 05:30Z video). The rows themselves are watched,
+  // not the scroller's spacer, which keeps its size in a short chat or a fold kept at the end;
+  // rows the transcript mounts later are watched as they come. Nothing is observed while no chip
+  // shows; the chip itself is on the body, outside what is observed.
+  const showing = target !== undefined;
+  useEffect(() => {
+    if (!enabled || !showing) return;
+    const view = doc.defaultView as (Window & typeof globalThis) | null;
+    const selection = doc.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    const root = transcriptRoot(doc, range?.endContainer ?? null);
+    if (!view?.ResizeObserver || !root) return;
+    const place = () =>
+      setTarget((previous) => {
+        const next = selectionReplyTarget(doc);
+        return previous && next && sameReplyTarget(previous, next) ? previous : next;
+      });
+    return watchTranscriptRows(view, root, place);
+  }, [doc, enabled, showing]);
+
   // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
   useLayoutEffect(() => {
     if (!target) return setPlaced(undefined);
-    if (chip.current && chip.current.dataset.compact !== "true") fullWidth.current = chip.current.offsetWidth;
-    const size = { width: fullWidth.current, height: chip.current?.offsetHeight ?? 0 };
+    const size = { width: chip.current?.offsetWidth ?? 0, height: chip.current?.offsetHeight ?? 0 };
     const selection = doc.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
     if (!range) return setPlaced(undefined);
@@ -114,10 +155,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       height: clip.bottom,
       top: clip.top,
     };
-    setPlaced(
-      selectionReplyPlace(target, size, pane, unselectedTextProbe(doc, range), experimentArm(selectionReplyWrap)) ??
-        null,
-    );
+    setPlaced(selectionReplyPlace(target, size, pane, transcriptTextProbe(doc)) ?? null);
   }, [doc, target]);
 
   const quote = useCallback(() => {
@@ -133,20 +171,18 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
 
   if (!enabled || !target) return null;
   const label = t("message.quoteReply");
-  // Its glyph alone where its label would cover someone else's words (selectionReplyPlace step 6).
-  const compact = placed?.compact === true;
   const hidden = placed === null;
   return createPortal(
     <button
       ref={chip}
       type="button"
-      className="cv-selection-reply"
-      data-look={compact ? "icon" : current}
-      data-compact={compact ? "true" : undefined}
+      className="cv-selection-reply ui-glass"
+      data-look={current}
       data-hidden={hidden ? "true" : undefined}
       aria-hidden={hidden ? true : undefined}
       aria-label={label}
-      title={current === "icon" || compact ? label : undefined}
+      // tooltip-allow: only the icon look has a tooltip; the chip look shows its words and has none.
+      title={current === "icon" ? label : undefined}
       style={
         placed
           ? { left: placed.left, top: placed.top }
@@ -158,7 +194,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       onClick={quote}
     >
       <Quote size={14} />
-      {current === "chip" && !compact && <span>{label}</span>}
+      {current === "chip" && <span>{label}</span>}
     </button>,
     doc.body,
   );

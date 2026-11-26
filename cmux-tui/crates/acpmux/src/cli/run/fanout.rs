@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::cli::select;
+use std::sync::Arc;
 
 /// The sessions a `send --tag` goes to: every one carrying `tag` that is not closed, except the
 /// sender's own session, newest first as the daemon lists them. Each is `(target, name)`: a
@@ -36,6 +37,25 @@ pub(crate) fn tag_targets(
         .collect()
 }
 
+/// [`tag_targets`] of `client`'s daemon's list: `via` the v2 list every live row, fetched as
+/// the list writes it (a tag is never judged on a summary), else the v1 list.
+pub(crate) async fn targets_via(
+    client: &Arc<Client>,
+    via: crate::cli::list_read::Via,
+    tag: &str,
+    own: Option<&str>,
+) -> Result<Vec<(String, String)>> {
+    let source = via.open(client).await?;
+    let sessions = match source {
+        Some(mut source) => source.rows(acpmux_client::wire::ListView::Live, &|_| true).await?,
+        None => {
+            let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default()
+        }
+    };
+    Ok(tag_targets(&sessions, tag, own))
+}
+
 /// Queue `text` for each session `tag` names. Each send is a `--no-wait` one with its own
 /// prompt id; one failure is reported on its line and the rest still go. Exit 1 when any failed,
 /// 4 (no such session) when nothing carries the tag.
@@ -48,10 +68,9 @@ pub(super) async fn send_to_tag(
     json_out: bool,
 ) -> Result<()> {
     let client = connect(true).await?;
-    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
-    let sessions = listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let own = std::env::var("ACPMUX_SESSION_ID").ok();
-    let targets = tag_targets(&sessions, tag, own.as_deref());
+    let via = crate::cli::list_read::Via::daemon();
+    let targets = targets_via(&client, via, tag, own.as_deref()).await?;
     if targets.is_empty() {
         return Err(errors::AppError::no_session(&format!("--tag {tag}")).into());
     }
@@ -83,7 +102,12 @@ pub(super) async fn send_to_tag(
             let g = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or("");
             match g("status") {
                 "queued" => {
-                    println!("{}\tqueued (acpmux send --status {})", g("name"), g("deliveryId"))
+                    println!(
+                        "{}\tqueued ({} send --status {})",
+                        g("name"),
+                        crate::cli::entry::program(),
+                        g("deliveryId")
+                    )
                 }
                 "dry-run" => println!("{}\twould send", g("name")),
                 _ => println!("{}\tfailed: {}", g("name"), g("error")),
@@ -113,37 +137,5 @@ pub(super) fn print_info_fields(info: &Value, fields: &str, json_out: bool) -> R
 }
 
 #[cfg(test)]
-mod tests {
-    use super::tag_targets;
-    use serde_json::json;
-
-    #[test]
-    fn tag_targets_skip_closed_sessions_other_tags_and_the_sender() {
-        let sessions = vec![
-            json!({"sessionId": "a", "name": "ao-cli-ls", "status": "running", "tags": {"area": {"value": "acpmux"}}}),
-            json!({"sessionId": "b", "name": "ao-old", "status": "closed", "tags": {"area": {"value": "acpmux"}}}),
-            json!({"sessionId": "c", "name": "cloud-x", "status": "idle", "tags": {"area": {"value": "cloud"}}}),
-            json!({"sessionId": "d", "qualifiedSessionId": "huge-blue/d", "name": "huge-blue/ao-peer", "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}),
-            json!({"sessionId": "e", "name": "huge-blue/no-receipt", "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}),
-            json!({"sessionId": "me", "name": "ao-cli-audit", "status": "running", "tags": {"area": {"value": "acpmux"}}}),
-        ];
-        // A peer's session with the sender's bare id is another session: it still gets the message.
-        let mut twin = sessions.clone();
-        twin.push(json!({"sessionId": "me", "qualifiedSessionId": "huge-blue/me", "name": "huge-blue/twin",
-                         "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}));
-        let got = tag_targets(&twin, "area=acpmux", Some("me"));
-        assert!(got.contains(&("huge-blue/me".to_owned(), "huge-blue/twin".to_owned())), "{got:?}");
-        assert!(!got.iter().any(|(target, _)| target == "me"), "{got:?}");
-        let got = tag_targets(&sessions, "area=acpmux", Some("me"));
-        assert_eq!(
-            got,
-            vec![
-                ("a".to_owned(), "ao-cli-ls".to_owned()),
-                ("huge-blue/d".to_owned(), "huge-blue/ao-peer".to_owned())
-            ]
-        );
-        // A peer's session goes by its peer/id; one without that key is skipped, never sent by its
-        // bare id (which may name nothing here, or another session).
-        assert_eq!(tag_targets(&sessions, "area", None).len(), 4);
-    }
-}
+#[path = "fanout_tests.rs"]
+mod tests;

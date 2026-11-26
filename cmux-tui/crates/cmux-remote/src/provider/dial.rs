@@ -16,14 +16,18 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::UnixStream;
 use zeroize::Zeroizing;
 
 use crate::link::LinkError;
 use crate::provider::socks;
+use crate::provider::tailnet::{
+    TailnetCarrierMode, TailnetHints, direct_candidates, merge_direct_candidates,
+};
 
 /// The bounds a dialed carrier must satisfy. Blanket-implemented, so any
 /// Tokio stream qualifies; the trait exists only because a trait object can
@@ -39,6 +43,13 @@ pub type DialedStream = Box<dyn DialedIo>;
 #[async_trait]
 pub trait Dialer: Send + Sync + fmt::Debug {
     fn name(&self) -> &'static str;
+    /// Whether each lane may have a link of its own over this carrier. A dial that costs a
+    /// relay circuit of its own (a ticket, a relay allocation, the far machine joining and a
+    /// Noise exchange before the route's own) answers false: every lane's link then shares one
+    /// dial, as `--lanes single` would.
+    fn parallel_links(&self) -> bool {
+        true
+    }
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError>;
 }
 
@@ -59,8 +70,33 @@ pub async fn resolve_dial_target(host: &str, port: u16) -> Result<Vec<SocketAddr
     Ok(addresses)
 }
 
-/// The operating system's TCP stack. Tries every resolved address in order,
-/// with Nagle disabled because the link carries keystrokes.
+/// How long one resolved address may take to accept a TCP connect before the
+/// next address is tried, for dialers that try addresses one after the other
+/// ([`SocksDialer`]; [`OsTcpDialer`] hedges instead). A name that resolves to an
+/// address that black-holes SYNs (an IPv6 address on a network with no IPv6
+/// route, a stale record) otherwise held the dial for the kernel's whole SYN
+/// retry window (over two minutes on Linux) before the next address was tried.
+/// The last address has no bound of its own here. The whole dial stays
+/// under the caller's own deadline ([`crate::provider::DIRECT_DIAL_TIMEOUT`]
+/// for a direct WebSocket).
+pub const PER_ADDRESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Await one address's connect: within [`PER_ADDRESS_CONNECT_TIMEOUT`] when
+/// another address follows it, or unbounded here for the last one, which has
+/// the rest of the caller's deadline (a cold tunnel's first WireGuard
+/// handshake retries at 5 s, so the only address must not be cut at 5 s).
+/// `Err(())` means the bound passed.
+async fn bounded_unless_last<T>(last: bool, connect: impl Future<Output = T>) -> Result<T, ()> {
+    if last {
+        Ok(connect.await)
+    } else {
+        tokio::time::timeout(PER_ADDRESS_CONNECT_TIMEOUT, connect).await.map_err(|_| ())
+    }
+}
+
+/// The operating system's TCP stack, hedged over the resolved addresses
+/// ([`super::hedge`]: a new socket when one's SYN goes unanswered), with
+/// Nagle disabled because the link carries keystrokes.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsTcpDialer;
 
@@ -72,20 +108,60 @@ impl Dialer for OsTcpDialer {
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         let addresses = resolve_dial_target(host, port).await?;
-        let mut last_error = None;
-        for address in addresses {
-            match TcpStream::connect(address).await {
-                Ok(stream) => {
-                    let _ = stream.set_nodelay(true);
-                    return Ok(Box::new(stream));
-                }
-                Err(error) => last_error = Some(error),
-            }
-        }
-        Err(LinkError::Transport(match last_error {
-            Some(error) => format!("connect {host}:{port}: {error}"),
-            None => format!("connect {host}:{port}: no addresses"),
-        }))
+        let stream =
+            super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+                .await
+                .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
+        let _ = stream.set_nodelay(true);
+        Ok(Box::new(stream))
+    }
+}
+
+/// The operating-system dialer with an optional, cached Tailscale hint source.
+/// The hint source is consulted without I/O, so a stale or unavailable
+/// tailscaled cannot delay the ordinary transport race.
+pub struct TailnetDialer {
+    mode: TailnetCarrierMode,
+    hints: Arc<dyn TailnetHints>,
+}
+
+impl fmt::Debug for TailnetDialer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("TailnetDialer").field("mode", &self.mode).finish_non_exhaustive()
+    }
+}
+
+impl TailnetDialer {
+    pub fn new(mode: TailnetCarrierMode, hints: Arc<dyn TailnetHints>) -> Self {
+        Self { mode, hints }
+    }
+}
+
+#[async_trait]
+impl Dialer for TailnetDialer {
+    fn name(&self) -> &'static str {
+        "tcp"
+    }
+
+    async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
+        let hinted = direct_candidates(host, port, self.mode, self.hints.as_ref());
+        let resolved = match resolve_dial_target(host, port).await {
+            Ok(addresses) => addresses,
+            Err(_) if !hinted.is_empty() => Vec::new(),
+            Err(error) => return Err(error),
+        };
+        let addresses = merge_direct_candidates(&hinted, &resolved);
+        let stream = super::hedge::connect_tcp_preferring(
+            host,
+            port,
+            &addresses,
+            hinted.len(),
+            super::hedge::HedgePolicy::INTERNET,
+        )
+        .await
+        .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
+        let _ = stream.set_nodelay(true);
+        Ok(Box::new(stream))
     }
 }
 
@@ -172,7 +248,8 @@ impl Dialer for SocksDialer {
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         let addresses = resolve_dial_target(host, port).await?;
         let mut last_error = None;
-        for address in addresses {
+        let last = addresses.len().saturating_sub(1);
+        for (index, address) in addresses.into_iter().enumerate() {
             let mut stream = UnixStream::connect(&self.path).await.map_err(|error| {
                 LinkError::Transport(format!(
                     "wireguard hub {} is not reachable: {error}",
@@ -180,9 +257,22 @@ impl Dialer for SocksDialer {
                 ))
             })?;
             let token = self.token.as_ref().map(HubClientToken::as_bytes);
-            match socks::client_connect(&mut stream, address, token).await {
-                Ok(()) => return Ok(Box::new(stream)),
-                Err(error) => last_error = Some(error),
+            // The hub dials `address` inside its tunnel before it answers the CONNECT, so the
+            // answer is bounded like a direct TCP connect to that address.
+            match bounded_unless_last(
+                index == last,
+                socks::client_connect(&mut stream, address, token),
+            )
+            .await
+            {
+                Ok(Ok(())) => return Ok(Box::new(stream)),
+                Ok(Err(error)) => last_error = Some(error.to_string()),
+                Err(_) => {
+                    last_error = Some(format!(
+                        "CONNECT to {address} was not answered within {} s",
+                        PER_ADDRESS_CONNECT_TIMEOUT.as_secs()
+                    ));
+                }
             }
         }
         Err(LinkError::Transport(match last_error {

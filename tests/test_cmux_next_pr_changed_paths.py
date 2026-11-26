@@ -4,7 +4,7 @@
 action-areas, repair and generated-drift each read `pulls/N/files` (a call per
 100 files) on every push to a feat-cmux-next pull request, and every such call
 spends the repository's shared GITHUB_TOKEN quota. action-areas and repair
-already fetch the whole commit graph, so they list the same set from git:
+fetch the commit graph back to the merge base, so they list the same set from git:
 the merge base to the head, with a rename as both of its paths, as
 `.filename, .previous_filename` gives. generated-drift reads action-areas'
 list. Any failure falls back to the files API, so the checks still conclude.
@@ -24,7 +24,13 @@ import unittest
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())
@@ -180,7 +186,159 @@ class ChangedPathsTests(unittest.TestCase):
     def test_generated_drift_still_runs_when_action_areas_fails(self):
         job = WORKFLOW["jobs"]["generated-drift"]
         self.assertEqual(job["needs"], ["action-areas"])
-        self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+        self.assertIn("(!cancelled() && ", job["if"], job["if"])  # after the draft-head term (tests/test_head_tier.py)
+
+
+FETCH_HISTORY = ROOT / "scripts/cmux-next/fetch-pr-history.sh"
+
+
+class HistoryFetchTests(unittest.TestCase):
+    """fetch-pr-history.sh: a depth 1 clone gets the history back to the merge base, not every branch's.
+
+    The remote has a long base history, a PR branched off it a few commits back, a base that moved on, a merge
+    commit of the two, and an unrelated branch whose commits no fetch should bring.
+    """
+
+    MOVES = 80  # base commits since the PR branched: more than 8, fewer than 128
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.remote = git_fixture_env.init_repo(root / "remote", "-b", "feat")
+        r = self.remote
+        git(r, "config", "uploadpack.allowFilter", "true")
+        git(r, "config", "uploadpack.allowAnySHA1InWant", "true")
+        # One fast-import stream: about 490 commits in a second, not one process each.
+        stream, mark = [], 0
+
+        def commit(ref: str, path: str, text: str, parents: list[str]) -> str:
+            nonlocal mark
+            mark += 1
+            data = text.encode()
+            stream.append(f"commit {ref}\nmark :{mark}\ncommitter t <t@example.com> {1700000000 + mark} +0000\n"
+                          f"data 1\nc\n" + "".join(f"{'from' if i == 0 else 'merge'} {p}\n" for i, p in enumerate(parents))
+                          + f"M 100644 inline {path}\ndata {len(data)}\n{text}\n")
+            return f":{mark}"
+
+        tip = None
+        for i in range(400):  # longer than the deepest try: a whole history would show
+            tip = commit("refs/heads/feat", "base.txt", f"{i}\n", [tip] if tip else [])
+        fork = tip
+        other = fork
+        for i in range(5):
+            other = commit("refs/heads/other", "other.txt", f"{i}\n", [other])
+        head = fork
+        for i in range(3):
+            head = commit("refs/heads/pr", "pr.txt", f"{i}\n", [head])
+        base = fork
+        for i in range(self.MOVES):
+            base = commit("refs/heads/feat", "base.txt", f"moved {i}\n", [base])
+        merge = commit("refs/pull/1/merge", "pr.txt", "2\n", [base, head])
+        marks = root / "marks"
+        subprocess.run(["git", "-C", str(r), "fast-import", "--quiet", f"--export-marks={marks}"],
+                       input="".join(stream).encode(), check=True, capture_output=True)
+        by_mark = dict(line.split() for line in marks.read_text().splitlines())
+        self.fork, self.other, self.head, self.base, self.merge = (by_mark[m] for m in (fork, other, head, base, merge))
+        # The checkout as actions/checkout leaves it: init, then the merge commit alone at depth 1, no blobs.
+        self.clone = git_fixture_env.init_repo(root / "clone")
+        git(self.clone, "remote", "add", "origin", f"file://{r}")
+        git(self.clone, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin", self.merge)
+        git(self.clone, "checkout", "-q", "--detach", self.merge)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fetch(self, **env: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(FETCH_HISTORY), self.merge, self.base, self.head], cwd=self.clone,
+                              # No history store unless a test makes one: a cloud runner VM has a real one.
+                              env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0",
+                                   "CMUX_PR_HISTORY_STORE": f"{self.tmp.name}/no-store.git", **env},
+                              capture_output=True, text=True)
+
+    def has(self, sha: str) -> bool:
+        return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True).returncode == 0
+
+    def test_deepens_until_the_merge_base_and_no_further(self):
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("depth 128", result.stdout)
+        self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+        self.assertFalse(self.has(self.other), "an unrelated branch's commits came along")
+        # What the jobs read: the changed paths and the stale-inputs guard's ancestry.
+        self.assertEqual(git(self.clone, "diff", "--name-only", f"{self.base}...{self.head}"), "pr.txt")
+        git(self.clone, "merge-base", "--is-ancestor", self.base, f"{self.merge}^1")
+        # And the base commit's files, restored as the repair job does.
+        out = Path(self.tmp.name) / "restored"
+        out.mkdir()
+        git(self.clone, f"--work-tree={out}", "restore", "--ignore-skip-worktree-bits", f"--source={self.base}",
+            "--worktree", "--", "base.txt")
+        self.assertEqual((out / "base.txt").read_text(), f"moved {self.MOVES - 1}\n")
+
+    def test_deepens_until_the_merge_reaches_an_older_event_base(self):
+        # The event's base is the PR's fork (the head already merged it), while GitHub merged onto a base that
+        # moved MOVES commits on: the merge base turns up at depth 8, the base side's path to it only at 128.
+        result = subprocess.run([str(FETCH_HISTORY), self.merge, self.fork, self.head], cwd=self.clone,
+                                env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0", "CMUX_PR_HISTORY_DEPTHS": "8 128"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("depth 128", result.stdout)
+        # What check-generator-inputs.sh reads: the event base on the merge commit's base side.
+        git(self.clone, "merge-base", "--is-ancestor", self.fork, f"{self.merge}^1")
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+
+    def test_unshallows_when_the_depths_fall_short(self):
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="4 16")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("history: whole", result.stdout)
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "false")
+        self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
+
+    def test_a_history_store_gives_the_history_with_no_remote_fetch(self):
+        # A cloud runner VM's image: the repository's commits and trees, without the PR's merge ref.
+        store = Path(self.tmp.name) / "store.git"
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", f"file://{self.remote}", str(store)],
+                       check=True, capture_output=True)
+        git(self.clone, "remote", "set-url", "origin", f"file://{self.tmp.name}/missing")
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8", CMUX_PR_HISTORY_STORE=str(store))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("history: already whole", result.stdout)
+        self.assertNotIn("::warning::history fetch", result.stdout)
+        self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
+        self.assertEqual(git(self.clone, "remote"), "origin")
+
+    def test_a_broken_history_store_leaves_the_remote_fetch(self):
+        store = Path(self.tmp.name) / "broken.git"
+        (store / "objects").mkdir(parents=True)
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128", CMUX_PR_HISTORY_STORE=str(store))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("history store fetch failed", result.stdout)
+        self.assertIn("depth 128", result.stdout)
+
+    def test_a_fetch_that_keeps_failing_fails_the_job(self):
+        git(self.clone, "remote", "set-url", "origin", f"file://{self.tmp.name}/missing")
+        result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.count("::warning::history fetch"), 3, result.stdout)
+
+    def test_both_jobs_fetch_with_it_and_repair_no_longer_clones_every_branch(self):
+        for job in ("action-areas", "repair"):
+            steps = WORKFLOW["jobs"][job]["steps"]
+            checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@"))
+            self.assertNotIn("fetch-depth", checkout["with"], job)
+            history = step(job, "History of the merge commit")
+            self.assertIn("scripts/cmux-next/fetch-pr-history.sh", history["run"], job)
+            self.assertLess(steps.index(history), steps.index(step(job, "Changed paths")), job)
+        self.assertNotIn("git archive \"$BASE_SHA\"", step("repair", "Autofix scripts from the base")["run"])
+
+    def test_a_stalled_package_dump_leaves_only_the_graph(self):
+        dump = step("repair", "Dump the CmuxNext package manifest")
+        self.assertTrue(dump.get("continue-on-error"))
+        self.assertLessEqual(dump["timeout-minutes"], 10)
+        repair = step("repair", "Repair")
+        self.assertEqual(repair["env"]["DUMP"], "${{ steps.dump.outcome }}")
+        self.assertIn('"${DUMP:-}" == success', repair["run"])
 
 
 if __name__ == "__main__":

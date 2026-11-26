@@ -6,9 +6,23 @@ import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
 export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
   local: "composer.thisMac",
+  autocloud: "composer.envAutoCloud",
   mine: "composer.envMine",
   fleet: "composer.envFleet",
 };
+/// An AutoCloud Mac's capability badges (RFD 0172 `caps`), in this order; `macos` and the CPU go
+/// unsaid (every row in the section is a Mac), and a word this build does not know is dropped.
+const AUTOCLOUD_CAPS: readonly (readonly [string, StringKey])[] = [
+  ["xcode", "composer.autoCloudCap.xcode"],
+  ["ios-simulator", "composer.autoCloudCap.iosSimulator"],
+  ["gpu-metal", "composer.autoCloudCap.gpuMetal"],
+  ["linux", "composer.autoCloudCap.linux"],
+  ["gpu-nvidia", "composer.autoCloudCap.gpuNvidia"],
+];
+export function autoCloudCapLabels(environment: Environment): string[] {
+  const caps = environment.autoCloud?.caps ?? [];
+  return AUTOCLOUD_CAPS.filter(([cap]) => caps.includes(cap)).map(([, key]) => t(key));
+}
 /// A machine a chat cannot start on yet, in words: its link state as acpmux says it.
 const STATE_LABELS: Record<string, StringKey> = {
   connecting: "rail.connectorPending",
@@ -57,4 +71,44 @@ export function useMachineRefresh(open: boolean, refresh: (() => void) | undefin
     const timer = setInterval(() => latest.current?.(), MACHINES_REFRESH_MS);
     return () => clearInterval(timer);
   }, [open]);
+}
+
+/// How a machine list shows the machines acpmux cannot reach (environments.ts
+/// environmentUnavailable). `collapsed` ships: an "Unavailable (N)" row after the reachable
+/// machines, above Add Machine…, that opens them in place. `after-add` puts that row below Add
+/// Machine…; `hidden` drops them from the list (a search still finds them); `inline` lists them greyed
+/// in place, as before (gallery only).
+export type UnavailableGroup = "collapsed" | "after-add" | "hidden" | "inline";
+
+/// A machine list's rows with its unavailable machines moved to their group. `rows` is the list as
+/// it reads with every machine in place; `actions` the setup rows that end it (Add Machine…);
+/// `kept` a row that stays in place however it is (the current pick, never hidden). A typed search
+/// lists every match in place, so a machine is always found by name.
+export function groupUnavailableRows({
+  rows,
+  actions,
+  unavailable,
+  kept,
+  searching,
+  group,
+  toggle,
+  expanded,
+}: {
+  rows: readonly string[];
+  actions: readonly string[];
+  unavailable: (value: string) => boolean;
+  kept?: string;
+  searching: boolean;
+  group: UnavailableGroup;
+  toggle: string;
+  expanded: boolean;
+}): { rows: string[]; count: number } {
+  const down = rows.filter((value) => value !== kept && unavailable(value));
+  if (searching || group === "inline" || down.length === 0) return { rows: [...rows, ...actions], count: 0 };
+  const gone = new Set(down);
+  const up = rows.filter((value) => !gone.has(value));
+  const tail = [toggle, ...(expanded ? down : [])];
+  if (group === "hidden") return { rows: [...up, ...actions], count: down.length };
+  if (group === "after-add") return { rows: [...up, ...actions, ...tail], count: down.length };
+  return { rows: [...up, ...tail, ...actions], count: down.length };
 }

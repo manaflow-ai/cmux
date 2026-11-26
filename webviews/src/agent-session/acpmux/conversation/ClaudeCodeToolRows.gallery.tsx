@@ -4,7 +4,7 @@
 // tool calls and the lowest level thinking"). A finished call is one muted line, verb then tool
 // ("Used repo: repo grep", "Ran 3 commands", "Read App.tsx"), its chevron right after the words; the
 // live line names the current action in its one muted tone (agent-pane.live-lead-tone), then the
-// turn's time and its tokens ("Using repo: repo grep 3m 2s · 47.4K tokens"). Its only working mark is the shimmer
+// turn's elapsed time ("Using repo: repo grep 3m 2s"). Its only working mark is the shimmer
 // ("we don't want the claude symbol ellipsis thing btw we just keep the shimmer ONLY"), so Claude's
 // orange dots have no variant. References: claude/live/transcript-tool-rows-and-task-list,
 // claude/live/transcript-peer-session-message.
@@ -19,18 +19,12 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 
-type Look = "shipped" | "bare" | "caret" | "split" | "condensed";
+type Look = "shipped" | "bare" | "caret" | "split" | "condensed" | "words-now" | "words-plain";
 type Props = { look: Look; mode: "light" | "dark" };
 
 const START = Date.UTC(2026, 10, 3, 6, 0, 0);
 const now = () => START + 182_000;
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 47_400,
   split: { output: 47_400, input: 9_000, cacheRead: 2_650_000, cacheWrite: 41_000 },
 };
@@ -78,6 +72,39 @@ const condensedRows = [
   }),
 ];
 
+/// MCP calls whose tools have no verb of their own, as tool-row-words compares them: a search, a
+/// tool named by a noun, a read that repeats its server.
+const wordRows = [
+  rows.grep,
+  tool("mcp__repo__repo_blame", "other", "completed", {
+    inputSummary: JSON.stringify({ path: "src/App.tsx", line: 42 }),
+    output: "a1b2c3 (Leo 2026-11-20) export {}",
+  }),
+  tool("mcp__linear__linear_issue", "other", "completed", {
+    inputSummary: JSON.stringify({ id: "ENG-1234" }),
+    output: JSON.stringify({ id: "ENG-1234", title: "Retry the fetch helper" }),
+  }),
+];
+
+function WordRows() {
+  return (
+    <>
+      <p className="claude-code-tool-rows__prose">Found the row grammar in the transcript styles.</p>
+      {wordRows.map((row, index) => (
+        <div key={row.tool!.id} className="acpmux-row">
+          <McpCallRows items={[row]} disclosureKey={`gallery:words:${index}`} />
+        </div>
+      ))}
+      <div className="acpmux-row">
+        <ToolGroupRow kind="commands" items={rows.commands} disclosureKey="gallery:commands" folded />
+      </div>
+      <div className="acpmux-row">
+        <ToolRow item={rows.read} />
+      </div>
+    </>
+  );
+}
+
 function ShippedRows() {
   return (
     <>
@@ -98,7 +125,14 @@ function ShippedRows() {
 function ClaudeCodeToolRows({ look, mode }: Props) {
   // The split arm of `live-line-tokens`, for this stage only (its own frame).
   useState(() => {
-    globalThis.cmuxExperiments = look === "split" ? { "live-line-tokens": "split" } : {};
+    globalThis.cmuxExperiments =
+      look === "split"
+        ? { "live-line-tokens": "split" }
+        : look === "words-now"
+          ? { "tool-row-words": "now" }
+          : look === "words-plain"
+            ? { "tool-row-words": "plain" }
+            : {};
     return 0;
   });
   useEffect(() => resetTranscriptDisclosure("gallery-claude-code-tool-rows"), []);
@@ -114,6 +148,8 @@ function ClaudeCodeToolRows({ look, mode }: Props) {
               </div>
             ))}
           </>
+        ) : look === "words-now" || look === "words-plain" ? (
+          <WordRows />
         ) : (
           <ShippedRows />
         )}
@@ -145,6 +181,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/McpCallRows.tsx",
     "agent-session/acpmux/conversation/mcpCalls.ts",
     "agent-session/acpmux/conversation/toolGroups.ts",
+    "agent-session/acpmux/conversation/toolRowWords.experiment.ts",
   ],
   styles: () =>
     Promise.all([import("../styles.css"), import("./conversation.css"), import("./ClaudeCodeToolRows.gallery.css")]),
@@ -166,17 +203,27 @@ export default componentEntry<Props>({
     shipped: variant(
       "shipped",
       "dark",
-      "Chosen: Claude Code's words and one-count tokens; our icon column and down chevron stay (design/chat-transcript.md).",
+      "Chosen: Claude Code's words and elapsed time; token counts stay hidden. Our icon column and down chevron stay (design/chat-transcript.md).",
     ),
     "shipped-light": variant("shipped", "light", "Chosen, light."),
     bare: variant("bare", "dark", "No icons, as Claude Code: words start on the prose edge; breaks the icon column."),
     caret: variant("caret", "dark", "Claude Code's right-pointing caret instead of our down chevron."),
-    split: variant("split", "dark", "The earlier tokens, output and input apart, on the live line."),
+    split: variant("split", "dark", "The legacy split-token experiment still shows elapsed time without token counts."),
     condensed: variant(
       "condensed",
       "dark",
       "acpmux's condensed tools: each call titled with its description, its one-line outcome muted after it, and a failed status in the failure red.",
     ),
     "condensed-light": variant("condensed", "light", "Condensed tools, light."),
+    "words-now": variant(
+      "words-now",
+      "light",
+      "Before, three MCP calls with no verb of their own: Used repo: repo grep, the server then the tool's name.",
+    ),
+    "words-plain": variant(
+      "words-plain",
+      "light",
+      "Shipped, tool-row-words plain: a plain verb and what it acted on, the server named once: Searched repo for “cv-tool__icon”.",
+    ),
   },
 });

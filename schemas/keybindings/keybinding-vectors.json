@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. {\"refused\": true}: every entry of the vector is refused when it loads (the daemon leaves it out of keybindings.json's entries, the app's loader refuses it too) and its keys run nothing. A first stroke without cmd or ctrl (a bare key: no cmd, ctrl or opt) binds only when the entry's when requires a bare-key context (diffViewerFocused, markdownReadOnlyFocused: an && term) and no text-field context (textInputFocus, textBoxFocused, omnibarFocused, terminalFocused, agentPaneFocused, codeEditorFocused, markdownEditorFocused, browserFocused); such a sequence arms only while the context owns bare keys (a bare-key context holds and textInputFocus does not). Rules: plans/cmux-next/keybindings.md section 8.",
+  "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. {\"refused\": true}: every entry of the vector is refused when it loads (the daemon leaves it out of keybindings.json's entries, the app's loader refuses it too) and its keys run nothing. A first stroke without cmd or ctrl (a bare key: no cmd, ctrl or opt) binds only when the entry's when requires a bare-key context (diffViewerFocused, markdownReadOnlyFocused, or a user key mode: keyMode == 'name' or keyMode; an && term) and no text-field context (textInputFocus, textBoxFocused, omnibarFocused, terminalFocused, agentPaneFocused, codeEditorFocused, markdownEditorFocused, browserFocused); such a sequence arms only while the context owns bare keys (a bare-key context holds, or keyMode names a mode, and textInputFocus does not). Rules: plans/cmux-next/keybindings.md section 8.",
   "vectors": [
     {
       "name": "Ctrl-Tab in an agent chat is the focused pane's next tab",
@@ -108,7 +108,7 @@
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
       "bindings": [
         {"key": "ctrl+k a", "command": "toggleSidebar"},
-        {"key": "ctrl+k a b", "command": "toggleRightSidebar"}
+        {"key": "ctrl+k a b", "command": "toggleSplitZoom"}
       ],
       "keys": ["ctrl+k", "a"],
       "expect": {"armed": true}
@@ -234,6 +234,69 @@
       "context": {"pageId": "cmux.markdown", "markdownFocused": true, "markdownEditorFocused": true},
       "bindings": [{"key": "g g", "command": "markdownGoToTop", "when": "markdownEditorFocused"}],
       "keys": ["g"],
+      "expect": {"refused": true}
+    },
+    {
+      "name": "A bare key under a user key mode runs in a terminal while that mode is on (key-modes)",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "pane"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode == 'pane'"}],
+      "keys": ["h"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "A bare key-mode entry runs nothing outside the mode",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode == 'pane'"}],
+      "keys": ["h"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A bare key-mode entry runs nothing in another mode",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "resize"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode == 'pane'"}],
+      "keys": ["h"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A bare key-mode entry runs nothing while a text field has the keyboard",
+      "context": {"surfaceKind": "agent", "agentPaneFocused": true, "textInputFocus": true, "keyMode": "pane"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode == 'pane'"}],
+      "keys": ["h"],
+      "expect": {"none": true}
+    },
+    {
+      "name": "A bare key-mode sequence arms on its first key in the mode",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "pane"},
+      "bindings": [{"key": "g g", "command": "nextSurface", "when": "keyMode == 'pane'"}],
+      "keys": ["g"],
+      "expect": {"armed": true}
+    },
+    {
+      "name": "Any key mode (keyMode alone) owns bare keys",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "resize"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode"}],
+      "keys": ["h"],
+      "expect": {"action": "nextSurface"}
+    },
+    {
+      "name": "A bare first key under keyMode != 'pane' is refused",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "resize"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode != 'pane'"}],
+      "keys": ["h"],
+      "expect": {"refused": true}
+    },
+    {
+      "name": "A bare first key under a key mode that also requires a terminal is refused",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "pane"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode == 'pane' && terminalFocused"}],
+      "keys": ["h"],
+      "expect": {"refused": true}
+    },
+    {
+      "name": "A bare first key under an empty key mode name is refused",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true, "keyMode": "pane"},
+      "bindings": [{"key": "h", "command": "nextSurface", "when": "keyMode == ''"}],
+      "keys": ["h"],
       "expect": {"refused": true}
     }
   ]

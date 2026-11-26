@@ -74,7 +74,8 @@ class Parsers(unittest.TestCase):
 
 class Argv(unittest.TestCase):
     def test_claude_runs_with_no_builtin_tools_and_medium_effort(self):
-        argv = arena.claude_argv("claude-opus-5-5", "do it", Path("/tmp/m.json"), "guide", 60)
+        with tempfile.TemporaryDirectory() as folder:
+            argv = arena.claude_argv("claude-opus-5-5", "do it", Path(folder) / "m.json", "guide", 60)
         self.assertEqual(argv[argv.index("--tools") + 1], "")
         self.assertEqual(argv[argv.index("--effort") + 1], "medium")
         self.assertIn("--strict-mcp-config", argv)
@@ -182,8 +183,10 @@ class Daemon(unittest.TestCase):
     def test_owner_pid_becomes_the_runners(self):
         d = Path(tempfile.mkdtemp())
         seen = d / "argv.txt"
-        spec = {"daemon": {"argv": [sys.executable, "-c", f"import sys; open({str(seen)!r}, 'w').write(' '.join(sys.argv[1:])); open({str(d / 'ready')!r}, 'w')",
-                                    "--owner-pid", "1"], "ready_socket": str(d / "ready"), "env": {}}}
+        # A daemon that listens on its socket (start_daemon waits for a connection, cmux#51590), then takes one and exits.
+        fake = (f"import socket, sys; open({str(seen)!r}, 'w').write(' '.join(sys.argv[1:])); "
+                f"s = socket.socket(socket.AF_UNIX); s.bind({str(d / 'ready.sock')!r}); s.listen(1); s.accept()[0].close()")
+        spec = {"daemon": {"argv": [sys.executable, "-c", fake, "--owner-pid", "1"], "ready_socket": str(d / "ready.sock"), "env": {}}}
         proc = arena.start_daemon("ok", spec, d)
         proc.wait(timeout=10)
         self.assertEqual(seen.read_text(), f"--owner-pid {os.getpid()}")

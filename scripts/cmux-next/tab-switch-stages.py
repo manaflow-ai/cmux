@@ -23,6 +23,8 @@ import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 # `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
 # same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
@@ -155,7 +157,15 @@ def measure(label, step, count):
     for index in range(count):
         step(index)
         time.sleep(opts.interval)  # test harness pacing: one switch per frame window
-    time.sleep(1.0)  # test harness: the last commit and the daemon confirms land
+    # The last commit and the daemon's confirms landed: every switch reported, a confirm for each, the report still.
+    def landed():
+        peek = rpc("debug.tab_switch") or {}
+        got = peek.get("switches") or []
+        return len(got) >= count and len(peek.get("confirms_ms") or []) >= len(got)
+    if not wait_until(landed, f"{label}: {count} switches and their confirms", timeout=5, raise_on_timeout=False):
+        safe_print(f"note: {label}: not every switch or confirm reported in 5 s", flush=True)
+    wait_stable(lambda: rpc("debug.tab_switch") or {}, f"{label}: the switch report", timeout=10, interval=0.1,
+                raise_on_timeout=False)
     own = rpc("debug.tab_switch", {"action": "stop"}) or {}
     rpc("debug.frames", {"action": "stop"})
     hangs = rpc("debug.hangs") or {}
@@ -182,7 +192,7 @@ def measure(label, step, count):
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if os.environ.get("TABSWITCH_KEEP") or not LAUNCHED:
         return
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -198,7 +208,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:
@@ -262,7 +272,9 @@ def main():
     for _ in range(len(tabs)):
         rpc("debug.key", {"key": "tab", "modifiers": ["control"]})
         time.sleep(0.6)  # test harness: slow warm-up visit
-    time.sleep(2)  # test harness: pages settle
+    # The pages settled: the strip the clicks read stays the same.
+    wait_stable(lambda: strip_tabs(5), "the tab strip after the warm-up", timeout=15, interval=0.1, reads=5,
+                raise_on_timeout=False)
     n = len(tabs)
     report = {"tag": TAG, "tabs": [t[0] for t in tabs]}
     report["keys_forward"] = measure("Ctrl-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}), n * opts.rounds)

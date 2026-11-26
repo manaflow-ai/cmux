@@ -1,4 +1,5 @@
 public import WebKit
+import CmuxNextBrowserCore
 import CmuxNextSettings
 
 /// Whether a page's document can take typing yet (spec app-screens.md
@@ -11,9 +12,18 @@ import CmuxNextSettings
 @MainActor
 public final class PageInputReadiness {
     public static let handlerName = "cmuxInputReady"
+    /// The page function that returns the readiness script's state now (``refresh()``).
+    static let stateName = "__cmuxInputReadyState"
+    /// An expression whose value is that state as JSON text, or null before the script ran.
+    public static let stateExpression = "(globalThis.\(stateName) ? JSON.stringify(globalThis.\(stateName)()) : null)"
 
-    /// True once the current document focused an editable element.
+    /// True once the current document focused an editable element, while no ``awaitFocus(on:)`` waits.
     public private(set) var isReady = false
+    /// The current document focused an editable element.
+    private var documentReady = false
+    /// The command target ``awaitFocus(on:)`` waits for, and its bound.
+    private var awaitedTarget: String?
+    private var awaitedBound: Task<Void, Never>?
     /// A list-like control has focus now: a combobox, listbox, menu, tree,
     /// grid or an input that drives one (`aria-activedescendant`,
     /// `aria-autocomplete`). Ctrl-N/P/J/K move its selection (R85).
@@ -28,10 +38,19 @@ public final class PageInputReadiness {
     public private(set) var isPointerOverSidewaysScroller = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
+    /// The command target (`data-cmux-command-focus`) of the element with focus now; nil for any other element.
+    public private(set) var commandFocus: String?
+    /// The longest ``awaitFocus(on:)`` keeps the page's keys when the focus it waits for does not come.
+    public var focusWaitLimit: Duration = .milliseconds(500)
     private weak var webView: WKWebView?
     /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
     /// attached web view.
     var editor: ((Edit, Int?) async -> Bool)?
+    /// Reads ``stateExpression`` in a page another engine shows; nil reads it in the attached web view.
+    var stateReader: (() async -> String?)?
+    /// The documents that reported not ready (counted, so a state read before one is not applied after it).
+    private var notReadyReports = 0
+    private var refreshing = false
 
     /// One edit of the focused editable element: queued text, or Deletes typed while it was on its way.
     public enum Edit: Equatable, Sendable {
@@ -63,6 +82,60 @@ public final class PageInputReadiness {
         self.webView = webView
     }
 
+    /// A command the page got (Cmd-F's find) focuses the element marked `data-cmux-command-focus="<target>"` in the
+    /// page's own turn. Until it has focus, or ``focusWaitLimit``, the page is not ready for typing, so keys typed
+    /// meanwhile wait for that element (the key router's type-ahead).
+    public func awaitFocus(on target: String) {
+        guard commandFocus != target, Self.focusWaitMode != "off" else { return }
+        awaitedTarget = target
+        awaitedBound?.cancel()
+        awaitedBound = nil
+        // Before the document loaded (a fresh launch), the page runs the command once it loads: the wait is for that
+        // document, and its bound counts from the document's first focus (``report(_:)``).
+        if documentReady { startFocusWaitBound() }
+        trace("wait \(target) document=\(documentReady) focus=\(commandFocus ?? "-")")
+        update()
+    }
+
+    private func startFocusWaitBound() {
+        let limit = focusWaitLimit
+        // task-owner: one-shot bound on this wait; the focus it waits for, a new document or the next wait cancels it
+        awaitedBound = Task { [weak self] in
+            // wakeup-allow: one-shot bound on a page's command focus, cancelled when the focus comes first
+            do { try await Task.sleep(for: limit) } catch { return }
+            self?.endFocusWait("limit")
+        }
+    }
+
+    /// The focus ``awaitFocus(on:)`` waited for came (or its bound passed): the keys kept for it go on.
+    private func endFocusWait(_ why: String) {
+        guard awaitedTarget != nil else { return }
+        awaitedTarget = nil
+        awaitedBound?.cancel()
+        awaitedBound = nil
+        trace("wait end \(why)")
+        update()
+    }
+
+    /// ``isReady`` from the document's readiness and the command wait; ``onReady`` runs when it turns true.
+    private func update() {
+        let ready = documentReady && awaitedTarget == nil
+        let turnedReady = ready && !isReady
+        isReady = ready
+        if turnedReady { onReady?() }
+    }
+
+    /// `CMUX_DEBUG_FOCUS_WAIT` in Debug builds: `off` waits for no command focus, `epoch` also ends a wait at any focus
+    /// change (the first fix, kept to measure against); anything else waits for the command's own field.
+    #if DEBUG || CMUX_BENCH_HOOKS
+    static let focusWaitMode = ProcessInfo.processInfo.environment["CMUX_DEBUG_FOCUS_WAIT"] ?? "field"
+    /// Notes a readiness event in the app's input journal (`debug.journal`).
+    func trace(_ event: String) { BrowserLifecycleTrace.shared.record(BrowserTabID(rawValue: "readiness"), event) }
+    #else
+    static let focusWaitMode = "field"
+    func trace(_ event: String) {}
+    #endif
+
     /// A stable token for the editable element that owns a queued edit sequence. The page stores
     /// it on that element; later Deletes refuse a different focused element, so an async insert
     /// cannot move the queued edits into another field.
@@ -71,7 +144,17 @@ public final class PageInputReadiness {
     /// One message of the readiness script (`true`/`false`, `{list}` or `{editing}`), from any engine.
     func receive(_ body: Any) {
         if let body = body as? [String: Any] {
-            if let epoch = body["epoch"] as? Int { focusEpoch = epoch }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            trace("page \(body.keys.sorted().map { "\($0)=\(body[$0].map { "\($0)" } ?? "-")" }.joined(separator: " "))")
+            #endif
+            if let epoch = body["epoch"] as? Int {
+                if Self.focusWaitMode == "epoch", epoch != focusEpoch { endFocusWait("epoch") }
+                focusEpoch = epoch
+            }
+            if let target = body["commandFocus"] as? String {
+                commandFocus = target.isEmpty ? nil : target
+                if let awaited = awaitedTarget, commandFocus == awaited { endFocusWait("focus") }
+            }
             if let ready = body["ready"] as? Bool { report(ready) }
             if let list = body["list"] as? Bool { reportList(list) }
             if let editing = body["editing"] as? Bool { reportEditing(editing) }
@@ -93,15 +176,91 @@ public final class PageInputReadiness {
         isPointerOverSidewaysScroller = over
     }
 
+    /// Reads the page's readiness state now instead of waiting for its message: the key dispatcher asks
+    /// while it keeps keys for a page that is not ready. Under a busy launch the page's `true` could be
+    /// lost on its way (Chromium's Runtime gap after a commit), and every key typed then waited for a
+    /// message that never came: all 600 at L4 (hq#15723). The state is an evaluation's value, so no
+    /// message has to arrive. A state read before a new document reported not ready is dropped. Until the page
+    /// is ready the state is read again every ``refreshInterval``, ``refreshLimit`` times at most.
+    public func refresh() {
+        guard !isReady, !refreshing, stateReader != nil || webView != nil else { return }
+        refreshing = true
+        let interval = refreshInterval
+        // task-owner: one read loop at a time; it ends when the page is ready, at its limit, or with this object
+        Task { [weak self] in
+            for _ in 0..<Self.refreshLimit {
+                guard let before = self?.notReadyReports else { return }
+                let state = await self?.readState()
+                guard let self, !isReady else { self?.refreshing = false; return }
+                if notReadyReports == before, let state = Self.parseState(state), state["ready"] as? Bool == true {
+                    trace("refresh ready")
+                    receive(state)
+                    refreshing = false
+                    return
+                }
+                // wakeup-allow: bounded re-read while keys wait for a page that has not said it is ready
+                do { try await Task.sleep(for: interval) } catch { break }
+            }
+            self?.refreshing = false
+        }
+    }
+
+    /// Inserts `text`, typed before the page took keys, at focus epoch `expected`; when that is refused because the
+    /// page moved its focus to another editable element (``epochAfterRefusedInsert(at:)``), once more there. The epoch
+    /// the text landed at, for the Deletes after it; nil when it did not land.
+    public func insertTypedAhead(_ text: String, expectedEpoch expected: Int) async -> Int? {
+        if await insert(text, expectedEpoch: expected) { return expected }
+        guard let moved = await epochAfterRefusedInsert(at: expected), await insert(text, expectedEpoch: moved) else { return nil }
+        return moved
+    }
+
+    /// The focus epoch to insert queued text at after an insert at `expected` was refused, or nil to drop the text:
+    /// the page's state is read again, and when its focus moved since `expected` to another editable element, text
+    /// typed before the page took keys goes there. A chat composer that mounts again at launch (a new chat
+    /// attaching) moves the focus right after the page reports ready, and the first keys typed were dropped with
+    /// the old element (1 to 9 of 600 per launch, hq#15723).
+    public func epochAfterRefusedInsert(at expected: Int) async -> Int? {
+        let before = notReadyReports
+        guard let state = Self.parseState(await readState()), notReadyReports == before else { return nil }
+        receive(state)
+        guard isReady, isEditableFocused, focusEpoch != expected else { return nil }
+        trace("refused insert at \(expected), page at \(focusEpoch)")
+        return focusEpoch
+    }
+
+    /// How long ``refresh()`` waits between reads of a page that is not ready yet.
+    public var refreshInterval: Duration = .milliseconds(100)
+    static let refreshLimit = 50
+
+    private func readState() async -> String? {
+        if let stateReader { return await stateReader() }
+        return try? await webView?.callAsyncJavaScript("return \(Self.stateExpression);", arguments: [:], in: nil, contentWorld: .page) as? String
+    }
+
+    /// The state ``stateExpression`` read, as the readiness script's message; nil for anything else.
+    static func parseState(_ json: String?) -> [String: Any]? {
+        guard let data = json?.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     func report(_ ready: Bool) {
-        let turnedReady = ready && !isReady
-        isReady = ready
+        if !ready { notReadyReports += 1 }
+        documentReady = ready
+        if ready, awaitedTarget != nil, awaitedBound == nil { startFocusWaitBound() }
         if !ready {
+            // A new document: a wait for the last one's field ends with it. A wait made before any document (no bound
+            // yet) is for this one.
+            if awaitedBound != nil {
+                awaitedTarget = nil
+                awaitedBound?.cancel()
+                awaitedBound = nil
+            }
+            commandFocus = nil
             isListFocused = false
             isEditableFocused = false
             isPointerOverSidewaysScroller = false
         }
-        if turnedReady { onReady?() }
+        update()
     }
 
     /// Types `text` into the focused editable element as one insertion (its
@@ -162,6 +321,10 @@ public final class PageInputReadiness {
           let list = false;
           let editing = false;
           let epoch = 0;
+          // The element the epoch counts focus for: the same element focused again (its window got
+          // focus) is not a focus move, so text queued for it still lands (1 in 150 New Tab tries lost it).
+          let focused = null;
+          const describe = (el) => !el ? '-' : (el.tagName || '?').toLowerCase() + (el.id ? '#' + el.id : '') + (el.isContentEditable ? '[editable]' : '');
           post(false);
           const isList = (el) => !!el && el !== document.body && (!!el.closest('[role=listbox],[role=menu],[role=menubar],[role=tree],[role=grid]')
             || el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-activedescendant') || el.hasAttribute('aria-autocomplete'));
@@ -172,17 +335,54 @@ public final class PageInputReadiness {
             const typing = editable(document.activeElement);
             if (typing !== editing) { editing = typing; post({ editing: typing }); }
           };
-          document.addEventListener('focusin', () => {
-            epoch += 1;
-            window.__cmuxInputFocusEpoch = epoch;
-            try { window.webkit.messageHandlers.\(handlerName).postMessage({ epoch }); } catch (_) {}
+          // The command target a focused element is marked as (`data-cmux-command-focus`, Cmd-F's find field); "" for none.
+          const commandFocus = (el) => (el && el.closest && el.closest('[data-cmux-command-focus]')?.getAttribute('data-cmux-command-focus')) || '';
+          let command = '';
+          // The page's state now, from its focus, not from what was posted: a post the host never got (Chromium's
+          // Runtime gap after a commit, a busy launch) cannot leave the host waiting. The host reads it as an
+          // evaluation's value (``refresh()``), which needs no message, and after a commit as a post (the resend).
+          const state = () => {
+            if (editable(document.activeElement)) sent = true;
+            return { ready: sent, epoch, commandFocus: command, list, editing };
+          };
+          window.\(stateName) = state;
+          window.__cmuxInputReadyResend = () => post(state());
+          document.addEventListener('focusin', (event) => {
+            const now = commandFocus(event.target);
+            if (event.target !== focused) {
+              focused = event.target;
+              epoch += 1;
+              window.__cmuxInputFocusEpoch = epoch;
+              command = now;
+              try { window.webkit.messageHandlers.\(handlerName).postMessage({ epoch, commandFocus: now\(debugFocusFields) }); } catch (_) {}
+            } else if (now !== command) {
+              command = now;
+              post({ commandFocus: now });
+            }
             report();
           }, true);
-          document.addEventListener('focusout', () => setTimeout(report, 0), true);
+          \(debugKeyScript)
+          document.addEventListener('focusout', () => setTimeout(() => {
+            // Focus fell to no element (the find bar closed under its field): the command target is gone too.
+            const now = commandFocus(document.activeElement);
+            if (now !== command) { command = now; post({ commandFocus: now }); }
+            report();
+          }, 0), true);
           document.addEventListener('DOMContentLoaded', report);
           \(sidewaysScript)
         })();
         """
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Debug builds: each focus message names its element, and each printable key names the element it reached.
+    static let debugFocusFields = ", el: describe(event.target)"
+    static let debugKeyScript = """
+          document.addEventListener('keydown', (event) => { if (event.key && event.key.length === 1) post({ keyTarget: describe(event.target) }); }, true);
+        """
+    #else
+    static let debugFocusFields = ""
+    static let debugKeyScript = ""
+    #endif
 
     /// Reports `{ sideways: Bool }` when the pointer moves onto or off an element that scrolls
     /// sideways itself: an `overflow-x: auto | scroll` box whose content is wider than it. Checked
@@ -239,5 +439,13 @@ public final class PageInputReadiness {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             owner?.receive(message.body)
         }
+    }
+}
+
+extension PageInputReadiness {
+    /// Runs `work` each time the page turns ready for typing (it replaces ``onReady``), and now when it already is.
+    public func whenReady(_ work: @escaping () -> Void) {
+        onReady = work
+        if isReady { work() } else { refresh() } // keys wait: the page's `true` may be lost on its way
     }
 }

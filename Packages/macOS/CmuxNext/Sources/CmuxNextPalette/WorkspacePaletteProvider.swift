@@ -22,6 +22,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
 
     public var immediateItems: [PaletteItem]? { makeItems() }
     public func items() async -> [PaletteItem] { makeItems() }
+    public func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? { source.followChanges(changed) }
 
     /// Higher in the sidebar ranks higher among equal matches.
     var sidebarPrior = PaletteSidebarPrior()
@@ -35,6 +36,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
     func makeItems() -> [PaletteItem] {
         let source = source
         let prior = sidebarPrior
+        let clock = now
         // One read: the app's source builds every row on each read.
         let workspaces = source.workspaces
         let recency = recencyPrior.biases(workspaces.compactMap { workspace in
@@ -65,7 +67,8 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 section: Self.section,
                 keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 }
                     + workspace.keywords,
-                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", effect: .perform {
+                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", namesRow: true,
+                                        effect: .perform {
                     source.selectWorkspace(id: id)
                 }),
                 secondary: [
@@ -89,6 +92,8 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 rankBias: (workspace.isSelected ? -5 : 0) + prior.bias(rank: workspace.sidebarRank) + (recency[id] ?? 0)
             )
             if let agentID = workspace.agentID, !agentID.isEmpty { item.handles = [agentID] }
+            // Read only for the row the preview pane shows (`experiments.palettePreview`).
+            item.facts = { PaletteFacts.workspace(workspace, now: clock()) }
             item.actionRefs = [PaletteActionRef("goToWorkspace", arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: id))],
                                                 title: PaletteStrings.switchToWorkspace)]
             return item

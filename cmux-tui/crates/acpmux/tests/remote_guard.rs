@@ -50,6 +50,20 @@ impl Client {
         Client(in_tx, out_rx, 0)
     }
 
+    /// A connection that presented `auth` (`serve_connection_authed`).
+    fn authed(hub: &Arc<Hub>, origin: Origin, auth: acpmux::server::ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_authed(
+            hub.clone(),
+            in_rx,
+            out_tx,
+            origin,
+            auth,
+        ));
+        Client(in_tx, out_rx, 0)
+    }
+
     async fn send(&mut self, m: &str, params: Value) -> i64 {
         self.2 += 1;
         let id = self.2;
@@ -485,28 +499,60 @@ async fn fast_mode_is_never_web_changeable() {
 }
 
 /// A side session (`_acpmux/btw`, `hub/btw.rs`) is a new session on this
-/// machine that approves reads: the app and the unix socket open it, a Web
-/// connection or a peer never does, whatever the chat.
+/// machine that approves reads: the app, the unix socket and the owner's own
+/// peer daemon (asking for itself or for its app) open it. A Web connection, a
+/// paired device, or a peer forwarding for either never does, whatever it
+/// claims and whatever the chat.
 #[tokio::test]
-async fn a_side_session_is_opened_by_the_app_and_the_unix_socket_never_the_web_or_a_peer() {
+async fn a_side_session_is_opened_by_the_app_the_unix_socket_and_the_owners_daemon_only() {
+    use acpmux::server::ConnAuth;
     let hub = hub();
     let mut local = Client::new(&hub, Origin::Local);
     let cwd = std::env::temp_dir().to_string_lossy().into_owned();
     let chat = local.call("session/new", new_session(&cwd, json!({}))).await;
     let id = chat["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{chat}")).to_owned();
+    let ask = |via: Option<&str>| match via {
+        None => json!({"sessionId": id, "question": "why?"}),
+        Some(via) => {
+            json!({"sessionId": id, "question": "why?", "_meta": {"acpmux": {"via": via}}})
+        }
+    };
     let before = hub.sessions().len();
-    for origin in [Origin::Web, Origin::Peer] {
-        let mut c = Client::new(&hub, origin);
-        let r = c.call("_acpmux/btw", json!({"sessionId": id, "question": "why?"})).await;
-        assert_eq!(r["error"]["data"]["reason"], "btw.remote", "{origin:?}: {r}");
+    let refused = [
+        // A guest: the shared dashboard token, also claiming to be the owner's app.
+        ("web", Origin::Web, ConnAuth::ListenerToken, None),
+        ("web claims app", Origin::Web, ConnAuth::ListenerToken, Some("app")),
+        // A paired machine's own credential, served as Peer: never the owner.
+        ("paired device", Origin::Peer, ConnAuth::Device, None),
+        ("paired device claims app", Origin::Peer, ConnAuth::Device, Some("app")),
+        // A read-only machine (served as Web, behind its own read-only gate).
+        ("read-only device", Origin::Web, ConnAuth::ReadOnlyDevice, None),
+        // The owner's daemon forwarding for someone else: its Web client, a paired machine.
+        ("peer for its web", Origin::Peer, ConnAuth::PeerToken, Some("web")),
+        ("peer for a device", Origin::Peer, ConnAuth::PeerToken, Some("device")),
+    ];
+    for (what, origin, auth, via) in refused {
+        let mut c = Client::authed(&hub, origin, auth);
+        let r = c.call("_acpmux/btw", ask(via)).await;
+        assert!(r.get("error").is_some(), "{what}: {r}");
+        if auth != ConnAuth::ReadOnlyDevice {
+            assert_eq!(r["error"]["data"]["reason"], "btw.remote", "{what}: {r}");
+        }
     }
     assert_eq!(hub.sessions().len(), before, "a refused side session opens nothing");
-    for origin in [Origin::LocalApp, Origin::Local] {
-        let mut c = Client::new(&hub, origin);
-        let r = c.call("_acpmux/btw", json!({"sessionId": id, "question": "why?"})).await;
-        assert!(r["result"]["sessionId"].is_string(), "{origin:?}: {r}");
+    let allowed = [
+        ("app", Origin::LocalApp, ConnAuth::LocalApp, None),
+        ("unix socket", Origin::Local, ConnAuth::LocalSocket, None),
+        // The person's own daemon on another machine, for itself and for its app.
+        ("owner's daemon", Origin::Peer, ConnAuth::PeerToken, None),
+        ("owner's daemon for its app", Origin::Peer, ConnAuth::PeerToken, Some("app")),
+    ];
+    for (what, origin, auth, via) in allowed {
+        let mut c = Client::authed(&hub, origin, auth);
+        let r = c.call("_acpmux/btw", ask(via)).await;
+        assert!(r["result"]["sessionId"].is_string(), "{what}: {r}");
     }
-    assert_eq!(hub.sessions().len(), before + 2, "one side session each");
+    assert_eq!(hub.sessions().len(), before + allowed.len(), "one side session each");
 }
 
 async fn session(c: &mut Client, name: &str) -> String {
@@ -638,4 +684,140 @@ async fn wait_for_turn_end_or_seen(c: &mut Client, seen: &[Value]) -> Value {
         return event["params"].clone();
     }
     wait_for_turn_end(c).await
+}
+
+/// Owner control (cmux#50026): the person's own daemon on another machine (the peer token, asking
+/// for itself or its app) forks a chat here that does not ask, in the mode it has, and starts a
+/// chat here as this machine's own: not a remote chain, no forced `ask`, any configured harness.
+/// A Web client, a paired machine's own credential and a peer forwarding for either stay refused.
+fn owner_hub() -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE]},
+            // No reviewed asking mode: never a remote start but the owner's.
+            "plain": {"argv": ["python3", FAKE]},
+        },
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+        "webRoots": [std::env::temp_dir()],
+        "webAskingModes": {"fake": ["normal", "strict"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+fn with_via(mut p: Value, via: Option<&str>) -> Value {
+    if let Some(via) = via {
+        p["_meta"]["acpmux"]["via"] = json!(via);
+    }
+    p
+}
+
+type Caller = (&'static str, Origin, acpmux::server::ConnAuth, Option<&'static str>);
+
+fn not_the_owner() -> [Caller; 6] {
+    use acpmux::server::ConnAuth;
+    [
+        // A control the mesh hub relayed under a grant below approve-all (`maxPolicy`).
+        ("hub-relayed control", Origin::Peer, ConnAuth::MeshControl, None),
+        ("web", Origin::Web, ConnAuth::ListenerToken, None),
+        ("web claims app", Origin::Web, ConnAuth::ListenerToken, Some("app")),
+        ("paired device", Origin::Peer, ConnAuth::Device, None),
+        ("peer for its web", Origin::Peer, ConnAuth::PeerToken, Some("web")),
+        ("peer for a device", Origin::Peer, ConnAuth::PeerToken, Some("device")),
+    ]
+}
+
+fn the_owner() -> [Caller; 2] {
+    use acpmux::server::ConnAuth;
+    [
+        ("owner's daemon", Origin::Peer, ConnAuth::PeerToken, None),
+        ("owner's daemon for its app", Origin::Peer, ConnAuth::PeerToken, Some("app")),
+    ]
+}
+
+#[tokio::test]
+async fn the_owners_daemon_forks_a_chat_that_does_not_ask_and_no_one_else_does() {
+    let hub = owner_hub();
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    // Started on this machine under the approve-all default: a chat that does not ask.
+    let mut local = Client::new(&hub, Origin::Local);
+    let chat = local.call("session/new", new_session(&cwd, json!({}))).await;
+    let id = chat["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{chat}")).to_owned();
+    let fork = || json!({"sessionId": id, "cwd": cwd, "mcpServers": []});
+    let before = hub.sessions().len();
+    for (what, origin, auth, via) in not_the_owner() {
+        let r =
+            Client::authed(&hub, origin, auth).call("session/fork", with_via(fork(), via)).await;
+        assert!(r.get("error").is_some(), "{what}: {r}");
+    }
+    assert_eq!(hub.sessions().len(), before, "a refused fork makes nothing");
+    for (what, origin, auth, via) in the_owner() {
+        let r =
+            Client::authed(&hub, origin, auth).call("session/fork", with_via(fork(), via)).await;
+        let new = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{what}: {r}"));
+        let meta = hub.resolve(new).unwrap().meta();
+        assert!(!meta.remote_origin, "{what}: a fork of this machine's chat stays its own");
+        assert_eq!(meta.parent_id.as_deref(), Some(id.as_str()), "{what}: lineage");
+    }
+}
+
+#[tokio::test]
+async fn the_owners_daemon_starts_this_machines_own_chat_and_no_one_else_does() {
+    let hub = owner_hub();
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    let plain = || new_session(&cwd, json!({"_meta": {"acpmux": {"harness": "plain"}}}));
+    let before = hub.sessions().len();
+    for (what, origin, auth, via) in not_the_owner() {
+        let r =
+            Client::authed(&hub, origin, auth).call("session/new", with_via(plain(), via)).await;
+        assert!(r.get("error").is_some(), "{what}: a harness with no reviewed asking mode: {r}");
+    }
+    assert_eq!(hub.sessions().len(), before, "a refused start makes nothing");
+    // A non-owner's start that is allowed is a remote chain held to `ask`.
+    let r = Client::authed(&hub, Origin::Peer, acpmux::server::ConnAuth::PeerToken)
+        .call("session/new", with_via(new_session(&cwd, json!({})), Some("web")))
+        .await;
+    let guest = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    let meta = hub.resolve(guest).unwrap().meta();
+    assert!(meta.remote_origin, "a peer's Web client starts a remote chain");
+    assert_eq!(meta.permission_policy.as_deref(), Some("ask"));
+    for (what, origin, auth, via) in the_owner() {
+        let r =
+            Client::authed(&hub, origin, auth).call("session/new", with_via(plain(), via)).await;
+        let new = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{what}: {r}"));
+        let meta = hub.resolve(new).unwrap().meta();
+        assert!(!meta.remote_origin, "{what}: this machine's own chat, not a remote chain");
+        assert_eq!(meta.permission_policy, None, "{what}: no forced ask");
+        assert_eq!(meta.harness, "plain", "{what}");
+    }
+}
+
+/// A control the mesh hub relayed under a `meshRelay.controlFrom` entry below approve-all
+/// (`ConnAuth::MeshControl`) is a remote start: a remote chain that settles into `ask`, and an
+/// approve-all start is refused on this proof whatever it names.
+#[tokio::test]
+async fn a_hub_relayed_start_below_the_owners_grant_starts_asking_and_never_approve_all() {
+    use acpmux::server::ConnAuth;
+    let hub = owner_hub();
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    let mut relayed = Client::authed(&hub, Origin::Peer, ConnAuth::MeshControl);
+    let r = relayed.call("session/new", new_session(&cwd, json!({}))).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    let meta = hub.resolve(id).unwrap().meta();
+    assert!(meta.remote_origin, "a relayed start is a remote chain");
+    assert_eq!(meta.permission_policy.as_deref(), Some("ask"), "not the approve-all default");
+    let before = hub.sessions().len();
+    for asked in [
+        json!({"policy": "approve-all"}),
+        json!({"policy": "yolo"}),
+        json!({"_meta": {"acpmux": {"policy": "approve-all"}}}),
+        json!({"_meta": {"acpmux": {"policy": "yolo"}}}),
+    ] {
+        let r = relayed.call("session/new", new_session(&cwd, asked.clone())).await;
+        assert!(r.get("error").is_some(), "{asked}: {r}");
+    }
+    assert_eq!(hub.sessions().len(), before, "a refused start makes nothing");
 }

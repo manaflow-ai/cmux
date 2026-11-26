@@ -5,30 +5,22 @@ import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
 
-/// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
-/// the window from automation never installs anything; installs and removals
-/// pass the App Store's native consent card (`app.install`, `app.remove`).
+/// App Store actions (app-platform.md 3): automation never installs; installs and removals pass the consent card.
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
-            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         let services = context.services
-        let preview: @MainActor () -> String? = { [weak services] in
-            services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
-        }
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
+        CustomizeTryOnPage.bindRevert(into: registry, cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, window: { [weak services] in services?.windows.active?.window })
+        // Hidden until it is ready (`showsAppStore`, Labs): off in the palette, menus, keys, CLI and MCP.
+        registry.addSettingOffReason(["appStore.show", "appStore.showInstalled"]) { [weak services] in services?.settings?.snapshot.showsAppStore == true ? nil : CmuxConfigSnapshot.appStoreHiddenReason }
         // `category` (cmux's features) is still accepted and ignored: those are Settings now.
-        registry.bind("appStore.show", unavailable: preview, invoke: { invocation in
+        registry.bind("appStore.show", invoke: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreTab.init(argument:)), focus: invocation.allowsViewChange)
         })
-        registry.bind("appStore.showInstalled", unavailable: preview, invoke: { invocation in
-            services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
-        })
-        // Hide and unhide (V9): apps-set hidden on the supervisor with the
-        // invocation's origin; the supervisor decides which origins may hide.
-        // The app keeps running and answering granted calls.
+        registry.bind("appStore.showInstalled", invoke: { invocation in services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange) })
+        // Hide and unhide (V9): apps-set hidden with the invocation's origin (the supervisor decides); the app keeps running.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
             registry.bind(id, run: { invocation in
                 let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -48,8 +40,7 @@ enum AppStoreHandlers {
                 })
             })
         }
-        // First-party app pages: `app.open` (sidebar label item, palette, CLI
-        // `app open <id> [--command <id>]`). Without an app, the palette page lists them.
+        // `app.open` (sidebar item, palette, CLI `app open <id> [--command <id>]`); without an app, a palette page lists them.
         registry.bind("app.open", run: { invocation in
             let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !appID.isEmpty else {
@@ -70,6 +61,8 @@ enum AppStoreHandlers {
             return AppCommandPalette.rootItems(services)
         })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        // `contributes.menus`: app rows in the workspace row, tab and terminal menus, each running `app.menu.run`.
+        services.apps.client.installMenuRows(in: registry)
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""
@@ -83,8 +76,11 @@ enum AppStoreHandlers {
             }
             registry.track(AppCommandPalette.run(entry, services: services, origin: invocation.origin))
         })
-        bindHidden("app.hide", true)
-        bindHidden("app.unhide", false)
+        for (id, hidden) in [("app.hide", true), ("app.unhide", false)] as [(ActionID, Bool)] { bindHidden(id, hidden) }
+        registry.bindEffect("app.reloadCustomViews", requires: nil, effect: { _ in // the error card's Reload, for every local app
+            if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
+            services.apps.client.reloadLocalApps(); return .done
+        })
         // Install and remove (CLI `cmux apps install|remove [--deploy <target>]`, palette, MCP): the
         // App Store's consent card (AppsStoreChange); only the person's click makes it the user's.
         for (id, kind) in [("app.install", AppsStoreChange.Kind.install), ("app.remove", .remove)] as [(ActionID, AppsStoreChange.Kind)] {
@@ -115,10 +111,7 @@ enum AppStoreHandlers {
 
     /// Why an app action cannot run while the supervisor is unreachable.
     static func unavailable(_ reason: AppsUnavailableReason) -> ActionFailure {
-        switch reason {
-        case .needsNewerDaemon: ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
-        case .notConnected, .notReady, .turnedOff: ActionFailure(message: reason.text)
-        }
+        ActionFailure(message: reason.text)
     }
 
     /// `app.open`'s refusal: the unavailable reason, else why this app did not open.

@@ -24,10 +24,14 @@ export default defineConfig({
           BILLING_ORIGINS: `${TEST_STACK_PROJECT}=https://billing.test,${TEST_STACK_DEV_PROJECT}=https://billing-dev.test`,
           // A short billing deadline so the "billing hangs" test ends quickly (default 5 s).
           BILLING_TIMEOUT_MS: "300",
+          // cmux-platform per Stack project; the hub asks it whose a joined machine's credential is.
+          MACHINE_ORIGINS: `${TEST_STACK_PROJECT}=https://platform.test`,
           TURN_KEY_ID: "turn-key",
           TURN_KEY_API_TOKEN: "turn-token",
           // Short provisional window for socket-close end reasons (default 3 s).
           CLOSE_GRACE_MS: "300",
+          // Serves dev build spaces (src/buildSpace.ts); wrangler.toml's top level is production, which refuses them.
+          ENVIRONMENT: "test",
         },
       },
     }),

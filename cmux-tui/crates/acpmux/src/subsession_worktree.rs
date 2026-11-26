@@ -137,9 +137,85 @@ fn git<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
     run(hardened(dir.into()), args)
 }
 
+/// [`git`] for a command that changes the repository's shared state: its `.git/config` (a
+/// branch's `cmuxBase`, `branch -D`, which drops the branch's section) and its worktree list
+/// (`worktree add`, `worktree remove`). Git does neither safely twice at once: it takes
+/// `config.lock` without waiting ("could not lock config file"), and a `worktree add` reads the
+/// other worktrees' half-made folders ("failed to read .git/worktrees/<name>/commondir"). The
+/// two candidates of one model race hit both. Writers in this process wait for each other per
+/// repository; a config lock that another process holds (the app's `git.worktree.create`, an
+/// agent's `git push -u`, the person's own git) is tried again a few times with a short backoff.
+fn git_repo_write<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
+    let dir = dir.into();
+    with_repo_lock(dir, || {
+        let mut backoff = std::time::Duration::from_millis(20);
+        for _ in 0..CONFIG_LOCK_RETRIES {
+            match git(dir, args) {
+                Err(e) if e.contains("could not lock config file") => {
+                    // A bounded wait for another process's config.lock, not a poll for a state.
+                    std::thread::sleep(backoff);
+                    backoff = backoff.saturating_mul(2).min(std::time::Duration::from_millis(200));
+                }
+                done => return done,
+            }
+        }
+        git(dir, args)
+    })
+}
+
+/// Runs `f` while this process changes nothing else in `dir`'s repository ([`git_repo_write`]).
+/// `f` must not call [`git_repo_write`] or [`git_repo_write_by`]: the lock is not reentrant.
+fn with_repo_lock<T>(dir: Dir<'_>, f: impl FnOnce() -> T) -> T {
+    let repository = git(dir, &COMMON_DIR).map_or_else(|_| dir.path.to_path_buf(), PathBuf::from);
+    locked(&repository, f)
+}
+
+/// [`with_repo_lock`] for a caller with a deadline: the key is read by `by` too, and a key that
+/// cannot be read is an error (any other key would exclude nothing).
+fn with_repo_lock_by<T>(
+    dir: &Path,
+    by: Instant,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let repository = PathBuf::from(git_by(dir, &COMMON_DIR, by)?);
+    locked(&repository, f)
+}
+
+/// Every worktree of a repository shares its common git folder's config and worktree list: the
+/// lock's key, as an absolute path with links resolved.
+const COMMON_DIR: [&str; 3] = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+
+fn locked<T>(repository: &Path, f: impl FnOnce() -> T) -> T {
+    let lock = repo_lock(repository);
+    // A std mutex, not an actor: the callers are synchronous (blocking threads), and it is held
+    // for one short git run or file removal on one repository.
+    let _held = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
+/// How often [`git_repo_write`] tries again when another process holds `config.lock`
+/// (about half a second in all).
+const CONFIG_LOCK_RETRIES: usize = 5;
+
+/// One [`git_repo_write`] at a time per repository (its common git folder) in this process.
+fn repo_lock(repository: &Path) -> Lock {
+    static LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Lock>>> =
+        std::sync::OnceLock::new();
+    let mut locks = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    locks.entry(repository.to_path_buf()).or_default().clone()
+}
+
 /// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
 pub(crate) fn git_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
     run_by(hardened(dir.into()), args, Some(by))
+}
+
+/// [`git_by`] for a command that changes the repository's worktree list (`worktree add`,
+/// `move`, `remove`, `prune`): under the same per-repository lock as [`git_repo_write`], so a
+/// revive and a model race's adds in this process never run at once (an add reads the other
+/// worktrees' admin folders, and one half made fails it).
+pub(crate) fn git_repo_write_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
+    with_repo_lock_by(dir, by, || git_by(dir, args, by))
 }
 
 /// `cmd`'s output, `input` on its stdin. With `by`, it runs in a process group of its own,
@@ -233,6 +309,7 @@ pub(crate) fn add_without_config(
     by: Instant,
 ) -> Result<(), String> {
     let git = |args: &[&str]| git_by(common, args, by);
+    let write = |args: &[&str]| git_repo_write_by(common, args, by);
     let path = ["rev-parse", "--path-format=absolute", "--git-path", "objects"];
     let objects = PathBuf::from(git(&path)?);
     let format = git(&["rev-parse", "--show-object-format"])?;
@@ -243,7 +320,7 @@ pub(crate) fn add_without_config(
         .into_iter()
         .chain(add.iter().map(|arg| if *arg == destination { stage.as_ref() } else { *arg }))
         .collect();
-    git(&args)?;
+    write(&args)?;
     let filled = git_by(&staged, &["rev-parse", "HEAD"], by)
         .and_then(|actual| {
             (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
@@ -256,7 +333,7 @@ pub(crate) fn add_without_config(
         .and_then(|actual| {
             (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
         })
-        .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop))
+        .and_then(|()| write(&["worktree", "move", &stage, &destination]).map(drop))
         .and_then(|()| {
             if root.join(staged.file_name().unwrap_or_default()).exists()
                 || !root.join(".git").is_file()
@@ -267,14 +344,14 @@ pub(crate) fn add_without_config(
             }
         });
     if filled.is_err() {
-        let cleanup_by = Instant::now() + std::time::Duration::from_secs(5);
+        let cleanup = std::time::Duration::from_secs(5);
         let nested = root.join(staged.file_name().unwrap_or_default());
         for path in [&staged, &nested] {
-            let _ = git_by(
-                common,
-                &["worktree", "remove", "--force", &path.to_string_lossy()],
-                cleanup_by,
-            );
+            let remove = ["worktree", "remove", "--force", &path.to_string_lossy()];
+            // Its own time starts once the lock is held: a wait for the lock never skips it.
+            let _ = with_repo_lock_by(common, Instant::now() + cleanup, || {
+                git_by(common, &remove, Instant::now() + cleanup)
+            });
         }
     }
     filled
@@ -292,6 +369,8 @@ fn check_out_without_config(
 ) -> Result<(), String> {
     let scratch = std::env::temp_dir().join(format!("acpmux-wt-{}", uuid::Uuid::now_v7()));
     let result: Result<(), String> = (|| {
+        // Owner-only, made new: it fetches the repository's objects.
+        private_dir(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
         let info = scratch.join("objects/info");
         std::fs::create_dir_all(&info).map_err(|e| format!("{}: {e}", info.display()))?;
         std::fs::create_dir_all(scratch.join("refs")).map_err(|e| e.to_string())?;
@@ -324,6 +403,76 @@ fn check_out_without_config(
         run_by(isolated(), &["read-tree", commit], by)?;
         run_by(isolated(), &["checkout-index", "--all", "--force"], by)?;
         Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&scratch);
+    result
+}
+
+/// Makes `dir`, which must not exist yet, readable only by this user (0700 on unix): a scratch
+/// git dir there holds copies of a worktree's files, which another user must not read.
+pub(crate) fn private_dir(dir: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)
+}
+
+/// `git diff --numstat` of the work tree at `root` against `from`: its commits, its uncommitted
+/// changes and its untracked files, as `git add -A` would stage them. Read in a throwaway git
+/// directory that borrows the repository's objects and a copy of the worktree's index and nothing
+/// else: no config of the repository's, the user's or the system's is read, so no filter,
+/// textconv, hook or helper the repository names can run (an agent writes both the worktree's
+/// `.gitattributes` and, from it, the repository's config). Each git call ends at `by`.
+pub(crate) fn numstat_without_config(
+    root: &Path,
+    from: &str,
+    by: Instant,
+) -> Result<String, String> {
+    let at = |args: &[&str]| run_by(hardened(root.into()), args, Some(by));
+    let absolute = |p: String| {
+        let p = PathBuf::from(p);
+        if p.is_absolute() { p } else { root.join(p) }
+    };
+    let objects = absolute(at(&["rev-parse", "--git-path", "objects"])?);
+    let index = absolute(at(&["rev-parse", "--git-path", "index"])?);
+    let format = at(&["rev-parse", "--show-object-format"])?;
+    let scratch = std::env::temp_dir().join(format!("acpmux-diff-{}", uuid::Uuid::now_v7()));
+    let result: Result<String, String> = (|| {
+        // Owner-only, made new: `add -A` writes whole file contents into its objects.
+        private_dir(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+        let info = scratch.join("objects/info");
+        std::fs::create_dir_all(&info).map_err(|e| format!("{}: {e}", info.display()))?;
+        std::fs::create_dir_all(scratch.join("refs")).map_err(|e| e.to_string())?;
+        std::fs::write(scratch.join("HEAD"), format!("{from}\n")).map_err(|e| e.to_string())?;
+        let config = if format == "sha1" {
+            "[core]\n\trepositoryformatversion = 0\n".to_owned()
+        } else {
+            format!(
+                "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectFormat = {format}\n"
+            )
+        };
+        std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
+        crate::home_fs::write(info.join("alternates"), format!("{}\n", objects.display()))
+            .map_err(|e| e.to_string())?;
+        let scratch_index = scratch.join("index");
+        let isolated = || {
+            let mut cmd = hardened(root.into());
+            cmd.env("GIT_DIR", &scratch)
+                .env("GIT_WORK_TREE", root)
+                .env("GIT_INDEX_FILE", &scratch_index)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null");
+            cmd
+        };
+        // The worktree's index spares hashing every file again (its stat data); one this git
+        // cannot use alone (a split index) is replaced by `from`'s tree.
+        let copied = crate::home_fs::copy(&index, &scratch_index).is_ok();
+        let staged = copied && run_by(isolated(), &["add", "-A"], Some(by)).is_ok();
+        if !staged {
+            let _ = std::fs::remove_file(&scratch_index);
+            run_by(isolated(), &["read-tree", from], Some(by))?;
+            run_by(isolated(), &["add", "-A"], Some(by))?;
+        }
+        run_by(isolated(), &["diff", "--cached", "--numstat", "--no-renames", from, "--"], Some(by))
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result
@@ -433,12 +582,14 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: not found as its own");
             return;
         };
-        if let Err(e) = registration.remove() {
+        // Under the repository's lock: a `worktree add` or `branch -D` in this process lists the
+        // worktrees and fails on a registration half removed.
+        if let Err(e) = with_repo_lock(folder, || registration.remove()) {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
             return;
         }
-        if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
-            let _ = git(
+        if git_repo_write(folder, &["branch", "-D", &worktree.branch]).is_ok() {
+            let _ = git_repo_write(
                 folder,
                 &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
             );
@@ -446,13 +597,16 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
         #[cfg(test)]
         before_root_rmdir(&worktree.root);
         // Last, and only an empty folder: one that took its place keeps its files.
-        let _ = std::fs::remove_dir(&worktree.root);
+        let _ = crate::home_fs::remove_dir(&worktree.root);
         return;
     }
     let root = worktree.root.to_string_lossy();
-    let _ = git(folder, &["worktree", "remove", "--force", &root]);
-    let _ = git(folder, &["branch", "-D", &worktree.branch]);
-    let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
+    let _ = git_repo_write(folder, &["worktree", "remove", "--force", &root]);
+    let _ = git_repo_write(folder, &["branch", "-D", &worktree.branch]);
+    let _ = git_repo_write(
+        folder,
+        &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
+    );
 }
 
 /// The administrative folder the `.git` file in the open worktree folder `dir` names, read
@@ -696,12 +850,13 @@ fn fill(
     let filled = check_out_without_config(&layout.objects, &layout.format, at, commit, None)
         .and_then(|()| git(at, &["read-tree", commit]).map(drop))
         .and_then(|()| {
-            git(folder, &["config", &format!("branch.{}.cmuxBase", made.branch), &made.base])
-                .map(drop)
+            let key = format!("branch.{}.cmuxBase", made.branch);
+            git_repo_write(folder, &["config", &key, &made.base]).map(drop)
         });
     if let Err(e) = filled {
         if kept_branch {
-            let _ = git(folder, &["worktree", "remove", "--force", &root.to_string_lossy()]);
+            let remove = ["worktree", "remove", "--force", &root.to_string_lossy()];
+            let _ = git_repo_write(folder, &remove);
         } else {
             remove_worktree(folder, &made);
         }
@@ -724,8 +879,10 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
     let commit = git(folder, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
     let base = current_base(folder, &commit);
     let name = Some(slug(title)).filter(|n| !n.is_empty()).unwrap_or_else(|| "task".into());
-    let free = |candidate: &str| !parent.join(candidate).exists() && !has_branch(folder, candidate);
-    std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let free = |candidate: &str| {
+        !parent.join(candidate).exists() && !has_branch_ref(folder, &format!("cmux/{candidate}"))
+    };
+    crate::home_fs::create_dirs(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     // Another start may take a free name before this one adds it: git then
     // says it already exists, and the next name is tried.
     for chosen in std::iter::once(name.clone()).chain((2..=99).map(|n| format!("{name}-{n}"))) {
@@ -739,7 +896,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         // The worktree's folder is made here, empty, and its identity read before git fills it
         // (git adds into an empty folder): the folder at its path afterwards must be this one,
         // whatever took the path while git ran.
-        match std::fs::create_dir(&root) {
+        match crate::home_fs::create_dir(&root, 0o777) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(format!("{}: {e}", root.display())),
@@ -759,9 +916,9 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         let branch = format!("cmux/{chosen}");
         let add =
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
-        if let Err(e) = git(folder, &add) {
+        if let Err(e) = git_repo_write(folder, &add) {
             // Only an empty folder goes: never one something else filled.
-            let _ = std::fs::remove_dir(&root);
+            let _ = crate::home_fs::remove_dir(&root);
             if taken(&e) {
                 continue;
             }
@@ -946,8 +1103,8 @@ fn current_base(folder: Dir<'_>, commit: &str) -> String {
         .unwrap_or_else(|| commit.to_owned())
 }
 
-fn has_branch(folder: Dir<'_>, name: &str) -> bool {
-    git(folder, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/cmux/{name}")]).is_ok()
+fn has_branch_ref(folder: Dir<'_>, branch: &str) -> bool {
+    git(folder, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok()
 }
 
 /// Git refused an add because another start took that path or branch first.
@@ -975,7 +1132,20 @@ pub struct Ensured {
 /// Running it again with the same name gives the same worktree, so a
 /// launcher that runs twice does not make two.
 pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<Ensured, String> {
-    ensure_worktree_under(folder, name, base, &home()?)
+    ensure_worktree_under(folder, name, base, &home()?, None)
+}
+
+/// Ensure a worktree while preserving a caller-provided branch name.
+pub fn ensure_worktree_with_branch(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    branch: &str,
+) -> Result<Ensured, String> {
+    if branch.is_empty() || branch.starts_with('-') || branch.ends_with('/') {
+        return Err("the branch must be a non-empty git branch name".into());
+    }
+    ensure_worktree_under(folder, name, base, &home()?, Some(branch))
 }
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
@@ -995,6 +1165,7 @@ fn ensure_worktree_under(
     name: &str,
     base: Option<&str>,
     home: &Path,
+    explicit_branch: Option<&str>,
 ) -> Result<Ensured, String> {
     let chosen = slug(name);
     if chosen.is_empty() {
@@ -1005,15 +1176,27 @@ fn ensure_worktree_under(
     }
     let layout = layout(folder.into(), home)?;
     let root = layout.parent.join(&chosen);
-    let branch = format!("cmux/{chosen}");
+    let branch = explicit_branch.map(str::to_owned).unwrap_or_else(|| format!("cmux/{chosen}"));
     let lock = name_lock(&root);
     let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
     // A second pass covers another process adding it meanwhile.
     for _ in 0..2 {
         if root.exists() {
-            let listed = listed_worktree(folder, &root).ok_or_else(|| {
+            // Under the repository's lock: another worktree half added fails the listing.
+            let listed = with_repo_lock(folder.into(), || listed_worktree(folder, &root));
+            let listed = listed.ok_or_else(|| {
                 format!("{} exists but is not a worktree of this repository", root.display())
             })?;
+            if let Some(requested) = explicit_branch
+                && listed.as_deref() != Some(requested)
+            {
+                return Err(format!(
+                    "{} already uses branch {:?}, not requested {:?}",
+                    root.display(),
+                    listed.as_deref().unwrap_or("(detached)"),
+                    requested
+                ));
+            }
             let branch = listed.unwrap_or_else(|| branch.clone());
             let base =
                 git(folder, &["config", &format!("branch.{branch}.cmuxBase")]).unwrap_or_default();
@@ -1024,17 +1207,18 @@ fn ensure_worktree_under(
                 Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
-        std::fs::create_dir_all(&layout.parent)
+        crate::home_fs::create_dirs(&layout.parent)
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
         let path = root.to_string_lossy().into_owned();
-        let (added, commit, base, reused) = if has_branch(folder.into(), &chosen) {
+        let (added, commit, base, reused) = if has_branch_ref(folder.into(), &branch) {
             let commit = git(
                 folder,
                 &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}^{{commit}}")],
             )?;
             let base = git(folder, &["config", &format!("branch.{branch}.cmuxBase")])
                 .unwrap_or_else(|_| commit.clone());
-            let added = git(folder, &["worktree", "add", "--no-checkout", &path, &branch]);
+            let added =
+                git_repo_write(folder, &["worktree", "add", "--no-checkout", &path, &branch]);
             (added, commit, base, Some("branch"))
         } else {
             let commit = match base {
@@ -1048,8 +1232,8 @@ fn ensure_worktree_under(
                 .filter(|b| *b != "HEAD")
                 .map(str::to_owned)
                 .unwrap_or_else(|| current_base(folder.into(), &commit));
-            let added =
-                git(folder, &["worktree", "add", "--no-checkout", "-b", &branch, &path, &commit]);
+            let add = ["worktree", "add", "--no-checkout", "-b", &branch, &path, &commit];
+            let added = git_repo_write(folder, &add);
             (added, commit, label, None)
         };
         match added {
@@ -1096,469 +1280,5 @@ fn listed_worktree(folder: &Path, root: &Path) -> Option<Option<String>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn git_output_deadline_covers_a_descendant_holding_the_pipe() {
-        let mut command = Command::new("sh");
-        command.args(["-c", "sleep 10 & exit 0"]);
-        let by = Instant::now() + std::time::Duration::from_millis(200);
-        let result = output_by(command, None, Some(by));
-        assert!(result.is_err(), "a still-open output must time out: {result:?}");
-        assert!(by.elapsed() < std::time::Duration::from_secs(5));
-    }
-
-    #[test]
-    fn slug_matches_the_worktree_names() {
-        assert_eq!(slug("Fix the flaky upload test!"), "fix-the-flaky-upload-test");
-        assert_eq!(slug("  --  "), "");
-        assert_eq!(slug(&"a".repeat(80)).len(), 48);
-    }
-
-    /// A scratch folder removed on drop.
-    struct Scratch(PathBuf);
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn sh(dir: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
-            .args(args)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-        String::from_utf8_lossy(&out.stdout).trim().to_owned()
-    }
-
-    /// A repository `proj` with commits `first` (on `main`) and `second`
-    /// (on `next`), and a home folder beside it.
-    fn repo() -> (Scratch, PathBuf, PathBuf) {
-        let top = std::env::temp_dir().join(format!("acpmux-ensure-{}", uuid::Uuid::now_v7()));
-        let (repo, home) = (top.join("proj"), top.join("home"));
-        std::fs::create_dir_all(repo.join("sub")).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
-        sh(&repo, &["init", "-q", "-b", "main"]);
-        std::fs::write(repo.join("sub/a.txt"), "first\n").unwrap();
-        sh(&repo, &["add", "."]);
-        sh(&repo, &["commit", "-q", "-m", "first"]);
-        sh(&repo, &["checkout", "-q", "-b", "next"]);
-        std::fs::write(repo.join("sub/a.txt"), "second\n").unwrap();
-        sh(&repo, &["commit", "-q", "-am", "second"]);
-        sh(&repo, &["checkout", "-q", "main"]);
-        (Scratch(top), repo, home)
-    }
-
-    /// Whether `dir`'s repository has branch `cmux/<name>`.
-    fn branch_in(dir: &Path, name: &str) -> bool {
-        let refname = format!("refs/heads/cmux/{name}");
-        let status = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["rev-parse", "--verify", "--quiet", &refname])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .output()
-            .unwrap()
-            .status;
-        status.success()
-    }
-
-    /// A sub-session's checked folder, held open, is renamed away and another repository takes
-    /// its path before the worktree is made: the worktree is of the folder held, never of the
-    /// one at its path now, and its removal leaves that one alone too.
-    #[cfg(unix)]
-    #[test]
-    fn a_held_folder_makes_its_worktree_from_itself_wherever_its_path_leads() {
-        let (scratch, repo, home) = repo();
-        let held = std::fs::File::open(repo.join("sub")).unwrap();
-        let moved = scratch.0.join("proj-moved");
-        std::fs::rename(&repo, &moved).unwrap();
-        std::fs::create_dir_all(repo.join("sub")).unwrap();
-        sh(&repo, &["init", "-q", "-b", "main"]);
-        std::fs::write(repo.join("sub/a.txt"), "unchecked\n").unwrap();
-        sh(&repo, &["add", "."]);
-        sh(&repo, &["commit", "-q", "-m", "unchecked"]);
-
-        let path = repo.join("sub");
-        let at = Dir::held(&path, Some(&held));
-        let made = make_worktree_under(at, "Task", &home).unwrap();
-        assert_eq!(std::fs::read_to_string(made.cwd.join("a.txt")).unwrap(), "first\n");
-        assert_eq!(sh(&moved, &["rev-parse", "cmux/task"]), sh(&moved, &["rev-parse", "main"]));
-        assert!(!branch_in(&repo, "task"), "no branch in the repository now at the path");
-
-        remove_worktree(at, &made);
-        assert!(!made.root.exists(), "removed");
-        assert!(!branch_in(&moved, "task"), "its branch removed from the folder held");
-    }
-
-    /// The worktree made is proven to be the one at its path; a folder renamed into its place
-    /// (here with a copy of its `.git` file, so git takes it for the same worktree) is not.
-    #[cfg(unix)]
-    #[test]
-    fn a_folder_that_took_a_made_worktrees_place_is_not_it() {
-        let (scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let held = std::fs::File::open(&made.cwd).unwrap();
-        let at = Dir::held(&made.cwd, Some(&held));
-        assert_eq!(verify_made(repo.as_path().into(), &made, at), Ok(()));
-
-        let impostor = scratch.0.join("impostor");
-        std::fs::create_dir_all(&impostor).unwrap();
-        std::fs::copy(made.root.join(".git"), impostor.join(".git")).unwrap();
-        std::fs::rename(&made.root, scratch.0.join("made-moved")).unwrap();
-        std::fs::rename(&impostor, &made.root).unwrap();
-        let held = std::fs::File::open(&made.root).unwrap();
-        let at = Dir::held(&made.root, Some(&held));
-        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
-        assert!(refused.contains("not the worktree that was made"), "{refused}");
-    }
-
-    /// A folder that takes the new worktree's place while git adds it (here as soon as it is
-    /// added, with a copy of its `.git` file) is not the one made either.
-    #[cfg(unix)]
-    #[test]
-    fn a_folder_that_took_the_worktrees_place_as_git_added_it_is_not_it() {
-        let (scratch, repo, home) = repo();
-        let at_scratch = scratch.0.clone();
-        AFTER_ADD.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
-                let impostor = at_scratch.join("impostor");
-                std::fs::create_dir_all(&impostor).unwrap();
-                std::fs::copy(root.join(".git"), impostor.join(".git")).unwrap();
-                std::fs::rename(root, at_scratch.join("made-moved")).unwrap();
-                std::fs::rename(&impostor, root).unwrap();
-            }))
-        });
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let held = std::fs::File::open(&made.cwd).unwrap();
-        let at = Dir::held(&made.cwd, Some(&held));
-        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
-        assert!(refused.contains("not the worktree that was made"), "{refused}");
-    }
-
-    /// A held impostor is not the worktree made even while the made folder is put back at its
-    /// path for the identity check and swapped out again before git looks: the held start
-    /// folder itself must be in the folder made.
-    #[cfg(unix)]
-    #[test]
-    fn a_held_impostor_is_refused_though_the_made_folder_is_back_at_its_path_for_a_moment() {
-        let (scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let (aside, impostor) = (scratch.0.join("made-aside"), scratch.0.join("impostor"));
-        std::fs::create_dir_all(&impostor).unwrap();
-        std::fs::copy(made.root.join(".git"), impostor.join(".git")).unwrap();
-        std::fs::rename(&made.root, &aside).unwrap();
-        std::fs::rename(&impostor, &made.root).unwrap();
-        let held = std::fs::File::open(&made.root).unwrap();
-        // The made folder back at its path for the identity check...
-        std::fs::rename(&made.root, &impostor).unwrap();
-        std::fs::rename(&aside, &made.root).unwrap();
-        let (moved_aside, moved_impostor) = (aside.clone(), impostor.clone());
-        AFTER_ROOT_CHECK.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
-                // ...and the impostor back before git looks.
-                std::fs::rename(root, &moved_aside).unwrap();
-                std::fs::rename(&moved_impostor, root).unwrap();
-            }))
-        });
-        let at = Dir::held(&made.root, Some(&held));
-        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
-        assert!(refused.contains("not the worktree that was made"), "{refused}");
-    }
-
-    /// The folder made is held: one that takes its place after it is deleted never gets its
-    /// inode (a file system reuses a freed one at once), so it is refused.
-    #[cfg(unix)]
-    #[test]
-    fn a_folder_made_after_the_worktree_was_deleted_never_passes_for_it() {
-        let (scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let git_file = std::fs::read(made.root.join(".git")).unwrap();
-        let gone = scratch.0.join("gone");
-        std::fs::rename(&made.root, &gone).unwrap();
-        std::fs::remove_dir_all(&gone).unwrap();
-        std::fs::create_dir(&made.root).unwrap();
-        std::fs::write(made.root.join(".git"), git_file).unwrap();
-        let held = std::fs::File::open(&made.root).unwrap();
-        let at = Dir::held(&made.root, Some(&held));
-        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
-        assert!(refused.contains("not the worktree that was made"), "{refused}");
-    }
-
-    /// Removing a worktree whose path another folder took leaves that folder alone.
-    #[cfg(unix)]
-    #[test]
-    fn removing_a_worktree_leaves_a_folder_that_took_its_place_alone() {
-        let (scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let (aside, impostor) = (scratch.0.join("made-aside"), scratch.0.join("impostor"));
-        std::fs::create_dir_all(&impostor).unwrap();
-        std::fs::copy(made.root.join(".git"), impostor.join(".git")).unwrap();
-        std::fs::write(impostor.join("sentinel"), "theirs\n").unwrap();
-        std::fs::rename(&made.root, &aside).unwrap();
-        std::fs::rename(&impostor, &made.root).unwrap();
-
-        remove_worktree(repo.as_path().into(), &made);
-        assert!(made.root.join("sentinel").exists(), "the folder at its path is not removed");
-        assert!(branch_in(&repo, "task"), "its branch stays with its registration");
-    }
-
-    /// A folder that takes the worktree's place while it is being removed is left alone too:
-    /// nothing is removed by path but an empty folder.
-    #[cfg(unix)]
-    #[test]
-    fn a_folder_that_takes_the_worktrees_place_during_its_removal_is_left_alone() {
-        let (scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let git_file = std::fs::read(made.root.join(".git")).unwrap();
-        let (aside, impostor) = (scratch.0.join("made-aside"), scratch.0.join("impostor"));
-        BEFORE_PATH_REMOVAL.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
-                std::fs::create_dir_all(&impostor).unwrap();
-                std::fs::write(impostor.join(".git"), git_file).unwrap();
-                std::fs::write(impostor.join("sentinel"), "theirs\n").unwrap();
-                std::fs::rename(root, &aside).unwrap();
-                std::fs::rename(&impostor, root).unwrap();
-            }))
-        });
-        remove_worktree(repo.as_path().into(), &made);
-        assert!(made.root.join("sentinel").exists(), "the folder at its path is not removed");
-        assert!(branch_in(&repo, "task"), "its branch stays with its registration");
-    }
-
-    /// Removing a worktree removes its own registration only: another worktree of the same
-    /// repository whose folder is away for now keeps its own (its index, its HEAD).
-    #[cfg(unix)]
-    #[test]
-    fn removing_a_worktree_keeps_another_worktrees_registration_while_its_folder_is_away() {
-        let (scratch, repo, home) = repo();
-        let other = scratch.0.join("other");
-        sh(&repo, &["worktree", "add", "-q", "-b", "other", &other.to_string_lossy()]);
-        std::fs::write(other.join("staged.txt"), "staged\n").unwrap();
-        sh(&other, &["add", "staged.txt"]);
-        let away = scratch.0.join("other-away");
-        std::fs::rename(&other, &away).unwrap();
-
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        remove_worktree(repo.as_path().into(), &made);
-        assert!(!made.root.exists(), "removed");
-        assert!(!branch_in(&repo, "task"), "its branch removed");
-
-        std::fs::rename(&away, &other).unwrap();
-        let staged = sh(&other, &["diff", "--cached", "--name-only"]);
-        assert_eq!(staged.trim(), "staged.txt", "the other worktree keeps its index");
-    }
-
-    /// A registration that takes the removed worktree's registration's place while it is being
-    /// removed is left alone, with its branch.
-    #[cfg(unix)]
-    #[test]
-    fn a_registration_that_takes_the_removed_ones_place_is_left_alone() {
-        let (scratch, repo, home) = repo();
-        let other = scratch.0.join("other");
-        sh(&repo, &["worktree", "add", "-q", "-b", "other", &other.to_string_lossy()]);
-        let worktrees = std::fs::canonicalize(repo.join(".git/worktrees")).unwrap();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let aside = scratch.0.join("registration-aside");
-        let others = worktrees.join("other");
-        BEFORE_REGISTRATION_REMOVAL.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |admin: &Path| {
-                std::fs::rename(admin, &aside).unwrap();
-                std::fs::rename(&others, admin).unwrap();
-            }))
-        });
-        remove_worktree(repo.as_path().into(), &made);
-        let admin = worktrees.join(made.root.file_name().unwrap());
-        assert!(admin.join("HEAD").exists(), "the registration that took its place stays");
-        assert_ne!(sh(&repo, &["branch", "--list", "other"]), "", "its branch stays");
-    }
-
-    /// The emptied root stays at its path until its registration and branch are gone, so
-    /// nothing is recreated there meanwhile; a folder that takes its place before it is removed
-    /// keeps its files.
-    #[cfg(unix)]
-    #[test]
-    fn the_emptied_root_holds_its_path_until_last_and_a_folder_that_takes_it_stays() {
-        let (scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let git_file = std::fs::read(made.root.join(".git")).unwrap();
-        let held_at_path = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let seen = held_at_path.clone();
-        let (pin, aside) = (made.root_pin, scratch.0.join("emptied-aside"));
-        BEFORE_ROOT_RMDIR.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
-                *seen.lock().unwrap() = Some(crate::cwd_pin::CwdPin::of(root) == pin);
-                std::fs::rename(root, &aside).unwrap();
-                std::fs::create_dir(root).unwrap();
-                std::fs::write(root.join(".git"), git_file).unwrap();
-                std::fs::write(root.join("sentinel"), "theirs\n").unwrap();
-            }))
-        });
-        remove_worktree(repo.as_path().into(), &made);
-        assert_eq!(*held_at_path.lock().unwrap(), Some(true), "the made folder held its path");
-        assert!(!branch_in(&repo, "task"), "its own branch removed");
-        assert!(made.root.join("sentinel").exists(), "the folder that took its place stays");
-    }
-
-    /// A worktree whose `.git` file and registration name each other by relative paths (git's
-    /// `worktree.useRelativePaths`) is removed whole too.
-    #[cfg(unix)]
-    #[test]
-    fn a_worktree_registered_by_relative_paths_is_removed_whole() {
-        let (_scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        let admin = std::fs::canonicalize(repo.join(".git/worktrees/task")).unwrap();
-        let root = std::fs::canonicalize(&made.root).unwrap();
-        let relative = |from: &Path, to: &Path| {
-            let up = from.components().count() - 1;
-            let mut p = PathBuf::from("../".repeat(up));
-            p.push(to.strip_prefix("/").unwrap());
-            p
-        };
-        let to_admin = relative(&root, &admin);
-        std::fs::write(made.root.join(".git"), format!("gitdir: {}\n", to_admin.display()))
-            .unwrap();
-        let to_root = relative(&admin, &root.join(".git"));
-        std::fs::write(admin.join("gitdir"), format!("{}\n", to_root.display())).unwrap();
-
-        remove_worktree(repo.as_path().into(), &made);
-        assert!(!made.root.exists(), "its folder removed");
-        assert!(!admin.exists(), "its registration removed");
-        assert!(!branch_in(&repo, "task"), "its branch removed");
-    }
-
-    /// A link put at the new worktree's path as git adds it never has the checkout written
-    /// through it: the repository it leads to keeps its files and its index.
-    #[cfg(unix)]
-    #[test]
-    fn a_link_at_the_worktrees_path_never_gets_the_checkout_written_through_it() {
-        let (scratch, repo, home) = repo();
-        let victim = scratch.0.join("victim");
-        std::fs::create_dir_all(victim.join("sub")).unwrap();
-        sh(&victim, &["init", "-q", "-b", "main"]);
-        std::fs::write(victim.join("sub/a.txt"), "victim's own\n").unwrap();
-        sh(&victim, &["add", "."]);
-        sh(&victim, &["commit", "-q", "-m", "victim"]);
-        let index = std::fs::read(victim.join(".git/index")).unwrap();
-        let (aside, link_to) = (scratch.0.join("made-aside"), victim.clone());
-        AFTER_ADD.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
-                std::fs::rename(root, &aside).unwrap();
-                std::os::unix::fs::symlink(&link_to, root).unwrap();
-            }))
-        });
-        let _ = make_worktree_under(repo.as_path().into(), "Task", &home);
-        assert_eq!(std::fs::read_to_string(victim.join("sub/a.txt")).unwrap(), "victim's own\n");
-        assert_eq!(std::fs::read(victim.join(".git/index")).unwrap(), index, "its index untouched");
-    }
-
-    /// The descriptor removal reads a folder through never reaches a child another thread
-    /// spawns meanwhile: it is close-on-exec from the moment it exists.
-    #[cfg(unix)]
-    #[test]
-    fn the_descriptor_a_removal_reads_through_is_close_on_exec_at_once() {
-        let (scratch, _repo, _home) = repo();
-        let dir = scratch.0.join("to-empty");
-        std::fs::create_dir_all(dir.join("a")).unwrap();
-        let flags = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let seen = flags.clone();
-        AFTER_DUP.with(|h| {
-            *h.borrow_mut() = Some(Box::new(move |fd| {
-                *seen.lock().unwrap() = Some(unsafe { libc::fcntl(fd, libc::F_GETFD) });
-            }))
-        });
-        empty_held(&std::fs::File::open(&dir).unwrap()).unwrap();
-        let flags = flags.lock().unwrap().expect("a descriptor was duplicated");
-        assert_ne!(flags & libc::FD_CLOEXEC, 0, "close-on-exec");
-    }
-
-    /// Off unix there is no folder identity: an untouched worktree is proven by git alone.
-    #[cfg(not(unix))]
-    #[test]
-    fn a_made_worktree_is_proven_by_git_alone_off_unix() {
-        let (_scratch, repo, home) = repo();
-        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
-        assert_eq!(made.root_pin, None);
-        let at = Dir::from(made.cwd.as_path());
-        assert_eq!(verify_made(repo.as_path().into(), &made, at), Ok(()));
-    }
-
-    #[test]
-    fn recovery_does_not_nest_a_worktree_in_a_reappeared_destination() {
-        let (_scratch, repo, home) = repo();
-        let root = home.join("reappeared");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("keep"), "user data").unwrap();
-        let at = sh(&repo, &["rev-parse", "HEAD"]);
-        let by = Instant::now() + std::time::Duration::from_secs(10);
-        let result = add_without_config(
-            &repo.join(".git"),
-            &["--detach", root.to_str().unwrap(), &at],
-            &root,
-            &at,
-            by,
-        );
-        assert!(result.is_err(), "destination appeared meanwhile: {result:?}");
-        assert_eq!(std::fs::read_to_string(root.join("keep")).unwrap(), "user data");
-        assert_eq!(std::fs::read_dir(root).unwrap().count(), 1, "no nested recovery tree");
-    }
-
-    #[test]
-    fn a_named_worktree_is_made_once_and_then_found() {
-        let (_scratch, repo, home) = repo();
-        let made = ensure_worktree_under(&repo, "Lane One", Some("next"), &home).unwrap();
-        assert_eq!(made.reused, None);
-        let w = &made.worktree;
-        assert_eq!(w.root, home.join(".cmux/worktrees/proj/lane-one"));
-        assert_eq!(w.branch, "cmux/lane-one");
-        assert_eq!(w.base, "next");
-        assert_eq!(std::fs::read_to_string(w.root.join("sub/a.txt")).unwrap(), "second\n");
-        assert_eq!(sh(&repo, &["rev-parse", "cmux/lane-one"]), sh(&repo, &["rev-parse", "next"]));
-
-        // Again, from a subfolder and with another base: the same worktree, untouched.
-        std::fs::write(w.root.join("sub/a.txt"), "edited\n").unwrap();
-        let again =
-            ensure_worktree_under(&repo.join("sub"), "Lane One", Some("main"), &home).unwrap();
-        assert_eq!(again.reused, Some("worktree"));
-        assert_eq!(again.worktree.root, w.root);
-        assert_eq!(again.worktree.cwd, w.root.join("sub"));
-        assert_eq!(again.worktree.base, "next");
-        assert_eq!(std::fs::read_to_string(w.root.join("sub/a.txt")).unwrap(), "edited\n");
-
-        // Its folder gone, its branch kept: a new folder on that branch.
-        sh(&repo, &["worktree", "remove", "--force", &w.root.to_string_lossy()]);
-        let back = ensure_worktree_under(&repo, "Lane One", None, &home).unwrap();
-        assert_eq!(back.reused, Some("branch"));
-        assert_eq!(back.worktree.branch, "cmux/lane-one");
-        assert_eq!(std::fs::read_to_string(w.root.join("sub/a.txt")).unwrap(), "second\n");
-    }
-
-    #[test]
-    fn a_named_worktree_refuses_what_it_cannot_reuse() {
-        let (_scratch, repo, home) = repo();
-        let squatter = home.join(".cmux/worktrees/proj/taken");
-        std::fs::create_dir_all(&squatter).unwrap();
-        let e = ensure_worktree_under(&repo, "taken", None, &home).err().unwrap();
-        assert!(e.contains("is not a worktree of this repository"), "{e}");
-        let e = ensure_worktree_under(&repo, "x", Some("no-such-ref"), &home).err().unwrap();
-        assert!(e.contains("no commit"), "{e}");
-        let e = ensure_worktree_under(&repo, "x", Some("--orphan"), &home).err().unwrap();
-        assert!(e.contains("not an option"), "{e}");
-        // Its branch checked out in another folder: said once, with that folder.
-        let elsewhere = home.join("elsewhere");
-        sh(&repo, &["worktree", "add", "-q", "-b", "cmux/y", &elsewhere.to_string_lossy()]);
-        let e = ensure_worktree_under(&repo, "y", None, &home).err().unwrap();
-        assert!(e.contains("checked out in another worktree") && e.contains("elsewhere"), "{e}");
-        assert!(ensure_worktree_under(&repo, "//", None, &home).is_err());
-    }
-}
+#[path = "subsession_worktree_tests.rs"]
+mod tests;

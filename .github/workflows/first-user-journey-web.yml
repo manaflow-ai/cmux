@@ -1,0 +1,134 @@
+name: first-user journey (web)
+
+# The first-user journey matrix for cmux NEXT's webviews (webviews/scripts/first-user-journey/run.mjs):
+# every harness the model picker lists, in four states (not installed, signed out, signed in with a spent
+# plan, signed in and working), clicked through against the mock daemon, with a "no busted state" verdict
+# per step. It reports and never fails on what it finds: a red is a finding for the nightly quality
+# report, which reads results.json from the `first-user-journey-web` artifact (results.json at its root;
+# the schema is the shared first-user journey one, surface "web"). The run fails only when the runner
+# itself cannot run.
+#
+# What starts it: workflow_dispatch only, no schedule. GitHub fires a schedule only from the default
+# branch's copy of a workflow, and main's copy of this file is registration only (no schedule; it lets
+# a dispatch by this file name resolve). main's first-user-journey-web-dispatch.yml (cron 05:07Z)
+# dispatches this file on feat-cmux-next once a night unless a run is already pending; a person or the
+# quality report starts it the same way (`gh workflow run first-user-journey-web.yml --ref feat-cmux-next`).
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Cells to run, comma-separated (claude/signed-out, claude, pages/settings); empty runs every cell"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-user-journey-web-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  journey:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /web/data/model-catalog/
+            /release-notes/next/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
+          persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Install webviews packages
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      # The patched headless Chrome the tests use. The helper writes CMUX_CHROME_HEADLESS_SHELL to
+      # $GITHUB_ENV when it fetched one; otherwise the runner falls back to system Chrome. Playwright's
+      # FFmpeg records each cell's video, and the helper skips Playwright when Chrome is current.
+      - name: Set up Chrome and FFmpeg
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          ../scripts/ci/ensure-system-chrome.sh
+          ./node_modules/.bin/playwright install ffmpeg
+
+      - name: Run the journey
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          cd webviews
+          out="$RUNNER_TEMP/first-user-journey-web"
+          bun run journey:first-user --out "$out" ${ONLY:+--only "$ONLY"}
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: first-user-journey-web
+          path: ${{ runner.temp }}/first-user-journey-web
+          retention-days: 3
+          if-no-files-found: warn
+          overwrite: true

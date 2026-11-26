@@ -10,8 +10,21 @@ import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } 
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 import type { UiVirtualAnchor } from "../../ui/Popover";
-import { findHeading, headingTargets, parseLink, pastedURL, relativeLinkPaths, type ResolvedLink } from "./links";
+import {
+  findHeading,
+  githubSlug,
+  hasHeading,
+  headingTargets,
+  indexHeadings,
+  parseLink,
+  pastedURL,
+  relativeLinkPaths,
+  stepHeadings,
+  type ResolvedLink,
+} from "./links";
+import { BlockIndex } from "./headingIndex";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
+import { changedBlocks, decorateAll, mergeRanges, redecorate, SLICE_META } from "./redecorate";
 import type { LinkBubbleState, LinkOverlays } from "./overlays";
 
 export type LinkLabel =
@@ -54,13 +67,35 @@ export interface LinkHost {
 
 const linkKey = new PluginKey<DecorationSet>("cmuxMarkdownLinks");
 
+/**
+ * Each top-level block with anchor links, by each anchor they could name (the anchor, and its
+ * `githubSlug`, as `hasHeading` tries them), with the block's size: an edit that adds or removes a
+ * heading's anchor redraws only the blocks linking to it.
+ */
+const anchorLinks = new BlockIndex<number>({
+  find: (block) => {
+    const anchors = new Set<string>();
+    block.descendants((node) => {
+      for (const mark of node.marks) {
+        if (mark.type.name !== "link") continue;
+        const link = parseLink(String(mark.attrs.href ?? ""));
+        if (link.kind !== "anchor") continue;
+        anchors.add(link.anchor.trim());
+        anchors.add(githubSlug(link.anchor.trim()));
+      }
+      return true;
+    });
+    return [...anchors].map((key) => ({ offset: 0, key, value: block.nodeSize }));
+  },
+});
+
 /** Marks links whose target is missing (`md-link-broken`) and asks the host about new ones. */
 export function brokenLinkPlugin(host: LinkHost) {
   return $prose(() => {
-    const decorate = (doc: ProseNode): DecorationSet => {
-      host.requestLinks(relativeLinkPaths(doc));
+    const decorate = (doc: ProseNode, from: number, to: number): Decoration[] => {
+      host.requestLinks(relativeLinkPaths(doc, from, to));
       const decorations: Decoration[] = [];
-      doc.descendants((node, pos) => {
+      doc.nodesBetween(from, to, (node, pos) => {
         if (!node.isText) return true;
         const mark = node.marks.find((candidate) => candidate.type.name === "link");
         if (!mark) return false;
@@ -69,14 +104,36 @@ export function brokenLinkPlugin(host: LinkHost) {
         }
         return false;
       });
-      return DecorationSet.create(doc, decorations);
+      return decorations;
     };
+    const whole = (doc: ProseNode) => decorateAll(doc, (from, to) => decorate(doc, from, to));
     return new Plugin<DecorationSet>({
       key: linkKey,
       state: {
-        init: (_config, state) => decorate(state.doc),
-        apply: (tr, previous, _old, state) =>
-          tr.docChanged || tr.getMeta(linkKey) ? decorate(state.doc) : previous.map(tr.mapping, tr.doc),
+        init: (_config, state) => {
+          indexHeadings(state.doc);
+          anchorLinks.entries(state.doc);
+          return whole(state.doc);
+        },
+        apply: (tr, previous) => {
+          if (!tr.docChanged) return tr.getMeta(linkKey) ? whole(tr.doc) : previous;
+          // Both indexes are carried on each edit, so the next one reads only its own blocks.
+          const anchors = stepHeadings(tr.before, tr.doc);
+          anchorLinks.step(tr.before, tr.doc);
+          if (tr.getMeta(linkKey) || !anchors) return whole(tr.doc);
+          const changed = changedBlocks(tr);
+          const redraw = (ranges: typeof changed) =>
+            redecorate(previous, tr, ranges, (from, to) => decorate(tr.doc, from, to));
+          // A slice of a load draws nothing until its last, which draws all of it.
+          if (tr.getMeta(SLICE_META) || !anchors.size) return redraw(changed);
+          // An anchor link anywhere is broken or not by the headings: the blocks with links to an
+          // anchor the edit added or removed are checked again.
+          const linked = [...changed];
+          for (const anchor of anchors)
+            for (const link of anchorLinks.group(tr.doc, anchor))
+              linked.push({ from: link.pos, to: link.pos + link.value });
+          return redraw(mergeRanges(linked));
+        },
       },
       props: { decorations: (state) => linkKey.getState(state) },
     });
@@ -93,7 +150,7 @@ export type LinkState = "ok" | "broken" | "checking" | "external";
 /** Whether a link's target exists: anchors against this file's headings, paths through the host. */
 export function linkState(doc: ProseNode, href: string, host: LinkHost): LinkState {
   const link = parseLink(href);
-  if (link.kind === "anchor") return findHeading(doc, link.anchor) ? "ok" : "broken";
+  if (link.kind === "anchor") return hasHeading(doc, link.anchor) ? "ok" : "broken";
   if (link.kind === "external" || link.kind === "mail" || link.kind === "app") return "external";
   if (link.kind === "unsafe") return "broken";
   const resolved = host.resolved(link.path);

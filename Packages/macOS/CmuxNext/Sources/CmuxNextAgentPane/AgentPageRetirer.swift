@@ -14,15 +14,29 @@ import CmuxNextWakeups
 @MainActor
 public final class AgentPageRetirer {
     public static let delay: Duration = .milliseconds(500)
-    private var retiring: [AgentPaneView] = []
+    /// A close can retire several panes at once (for example, when a workspace disappears). Keep
+    /// the queue O(1) at both ends so the main actor only ever releases one page per turn.
+    private var retiring = AgentPageRetirementQueue<RetirementEntry>()
+    /// Entries stay in retirement order while their wake-state requests finish concurrently.
+    /// `closeNext` only takes the head after its callback marks it ready, so a later answer cannot
+    /// overtake an earlier page.
+    private var readyToClose = AgentPageRetirementQueue<RetirementEntry>()
+    /// A release asks the page to move held prompts into its draft before closing. Yield between
+    /// pages so one large close cannot spend an unbounded turn in AppKit's view removal path.
+    private static let nextCloseDelay: Duration = .milliseconds(1)
     /// One parking per window a kept page closed in; an empty one goes at the next retire or teardown.
     private var parkings: [PageOffscreenParking] = []
-    private let timer = DemandTimer(owner: "AgentPageRetirer")
+    private let timer = DemandTimer(owner: "AgentPageRetirer.quiet")
+    private let releaseTimer = DemandTimer(owner: "AgentPageRetirer.release")
+    private let closeTimer = DemandTimer(owner: "AgentPageRetirer.close")
     /// The app's bench spans around the detach and the teardown (`agentPane.detach`, `agentPane.close`).
     private let measure: @MainActor (String, () -> Void) -> Void
     private lazy var kept = ClosedPageKeeper<AgentPaneView>(limit: 2, keepFor: .seconds(30), owner: "AgentPageRetirer.keep") { [weak self] in
         self?.teardown($0)
     }
+
+    /// How the app's chat pages were made (spare, kept, cold), every build; read by `agent.chat.perf page_source`.
+    public let sources = AgentPageSources()
 
     public init(measure: @escaping @MainActor (String, () -> Void) -> Void = { _, body in body() }) {
         self.measure = measure
@@ -33,7 +47,21 @@ public final class AgentPageRetirer {
     public var keptPages: [(key: String, view: AgentPaneView)] { kept.pages.map { ("kept:\($0.session)", $0.page) } }
 
     /// The kept page of closed chat `session`, taken back.
-    public func takeKept(_ session: String) -> AgentPaneView? { kept.take(session) }
+    public func takeKept(_ session: String) -> AgentPaneView? {
+        let page = kept.take(session)
+        if page != nil { sources.record(.kept) }
+        return page
+    }
+
+    /// Pages handed to ``retire(_:keeping:)`` that are not kept and not closed yet.
+    private var retiringPages: Set<ObjectIdentifier> = []
+
+    /// Why this retirer holds `view` (``AgentPageLiveness``): kept for Reopen Closed, on its way to its
+    /// teardown, or nil when it does not hold it.
+    public func role(of view: AgentPaneView) -> AgentPageRole? {
+        if retiringPages.contains(ObjectIdentifier(view)) { return .retiring }
+        return kept.pages.contains { $0.page === view } ? .kept : nil
+    }
 
     /// Retires `view`; a chat page of this Mac showing `session` is kept first.
     public func retire(_ view: AgentPaneView, keeping session: String? = nil) {
@@ -75,6 +103,8 @@ public final class AgentPageRetirer {
         parking.addSubview(view)
         view.frame = CGRect(origin: .zero, size: size)
         // The pane hid the page when it let it go (`PaneContentView.retire`): hidden, Chromium drops its frame.
+        // Unhidden in the parking, it draws once at its size there, then reports hidden with that frame kept
+        // (`PageWebView+AwayDrawing`).
         view.isHidden = false
         PageWebView.syncChromiumVisibility(in: view)
     }
@@ -92,14 +122,78 @@ public final class AgentPageRetirer {
         // A kept page leaves its parking (and the window) when its keep ends.
         if view.superview is PageOffscreenParking { view.removeFromSuperview() }
         if view.superview == nil { pruneParkings() }
-        retiring.append(view)
+        retiringPages.insert(ObjectIdentifier(view))
+        retiring.append(RetirementEntry(view))
         timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.flush() }
     }
 
     private func flush() {
-        let views = retiring
-        retiring.removeAll()
-        for view in views { view.releaseHeldPrompts { [measure] retired in measure("agentPane.close") { retired.close() } } }
+        guard let entry = retiring.takeNext() else { return }
+        readyToClose.append(entry)
+        entry.view.releaseHeldPrompts { [weak self] _ in
+            guard let self else { return }
+            entry.ready = true
+            self.closeTimer.scheduleIfIdle(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.closeNext() }
+        }
+        // Wake-state requests may each wait up to a second. Start the next one after a small
+        // yield so those waits overlap while the actual AppKit close remains one page per turn.
+        guard !retiring.isEmpty else { return }
+        releaseTimer.scheduleIfIdle(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.flush() }
+    }
+
+    private func closeNext() {
+        guard let entry = readyToClose.peek, entry.ready else { return }
+        _ = readyToClose.takeNext()
+        retiringPages.remove(ObjectIdentifier(entry.view))
+        measure("agentPane.close") { entry.view.close() }
+        guard !readyToClose.isEmpty else { return }
+        closeTimer.scheduleIfIdle(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.closeNext() }
+    }
+}
+
+@MainActor
+private final class RetirementEntry {
+    let view: AgentPaneView
+    var ready = false
+
+    init(_ view: AgentPaneView) { self.view = view }
+}
+
+/// The pending page closes are deliberately one item per main-actor turn. This tiny queue keeps the
+/// production path's O(1) pop explicit and gives the scale test a seam without constructing AppKit
+/// views.
+struct AgentPageRetirementQueue<Element> {
+    private final class Node {
+        let element: Element
+        var next: Node?
+
+        init(_ element: Element) { self.element = element }
+        nonisolated deinit {}
+    }
+
+    private var head: Node?
+    private var tail: Node?
+
+    var isEmpty: Bool { head == nil }
+
+    var peek: Element? { head?.element }
+
+    mutating func append(_ item: Element) {
+        let node = Node(item)
+        if let tail {
+            tail.next = node
+        } else {
+            head = node
+        }
+        tail = node
+    }
+
+    mutating func takeNext() -> Element? {
+        guard let node = head else { return nil }
+        head = node.next
+        node.next = nil
+        if head == nil { tail = nil }
+        return node.element
     }
 }
 

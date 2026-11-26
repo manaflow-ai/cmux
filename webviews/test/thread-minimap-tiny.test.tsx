@@ -8,6 +8,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -49,6 +50,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 900 });
 
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
@@ -95,12 +97,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
@@ -163,8 +161,8 @@ for (let height = 96; height <= 336; height += 16)
           const from = list.hasAttribute("data-fade-top") ? fade : 0;
           const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
           // The transcript's faded edges, where the pane has room for the rail clear of them.
-          const roomy = railHeight <= viewport - 18 - 18 - 8;
-          const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;
+          const roomy = railHeight <= viewport - 24 - 18 - 8;
+          const maskFrom = scroller.hasAttribute("data-fade-top") ? 24 : 0;
           const maskTo = viewport - (scroller.hasAttribute("data-fade-bottom") ? 18 : 0);
           for (const index of lit) {
             const y = index * railPitch() - list.scrollTop;

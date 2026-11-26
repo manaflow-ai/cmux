@@ -36,6 +36,8 @@ import argparse, glob, json, os, plistlib, re, socket, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -102,7 +104,9 @@ def links(**params):
 
 
 def settle():
-    time.sleep(0.6)  # test harness: a file check's answer lands off the main thread
+    """Until the link state stops changing (a file check's answer lands off the main thread)."""
+    wait_stable(lambda: (lambda s: (s.get("hovered"), s.get("wrapped"), s.get("pointingHand")))(links()),
+                "the link hover state", timeout=10, interval=0.1, reads=5, raise_on_timeout=False)
 
 
 def hover(column, row, keys=("command",)):
@@ -111,11 +115,48 @@ def hover(column, row, keys=("command",)):
     return links()
 
 
-def click(column, row, keys=("command",)):
+def recorded_opens():
+    opened = tuple(links().get("opened") or [])
+    if not opened:
+        raise LookupError("nothing opened yet")
+    return opened
+
+
+def click(column, row, keys=("command",), expect_open=True):
     links(clear=True)
     links(click=[column, row], keys=list(keys))
-    time.sleep(1.5)  # test harness: the open runs after the click returns, off the main thread
+    if expect_open:
+        # The open runs after the click returns, off the main thread: until it is recorded and no more follow.
+        wait_stable(recorded_opens, "the click's recorded open", timeout=10, interval=0.1, reads=4,
+                    raise_on_timeout=False)
     return links().get("opened") or []
+
+
+def terminal_text():
+    """The viewport text of the pane showing TERMINAL (debug.surfaces)."""
+    for window in rpc("debug.surfaces", {"text": True}).get("windows") or []:
+        for pane in window.get("panes") or []:
+            if pane.get("selected_tab") == TERMINAL:
+                return pane.get("text") or (pane.get("surface") or {}).get("text") or ""
+    return ""
+
+
+def focused_surface_tab():
+    for window in rpc("debug.surfaces").get("windows") or []:
+        for pane in window.get("panes") or []:
+            if pane.get("focused"):
+                return pane.get("selected_tab")
+    return None
+
+
+def editor_shown():
+    """A pane shows a page that is not a terminal (the editor the path click opened), and it stopped changing."""
+    def pages():
+        return [(p.get("kind"), p.get("selected_tab"), p.get("title"))
+                for w in rpc("debug.surfaces").get("windows") or [] for p in w.get("panes") or []]
+    wait_until(lambda: any(kind not in (None, "terminal", "pty") for kind, _, _ in pages()),
+               "the editor page", timeout=15, raise_on_timeout=False)
+    wait_stable(pages, "the editor page", timeout=10, interval=0.2, reads=4, raise_on_timeout=False)
 
 
 SHOTS = []
@@ -226,7 +267,8 @@ def run_agent(kind, path):
         # A new folder asks whether to trust it: Down to "Yes, I trust this folder", then Return, as keys.
         if quiet_wait(lambda: viewport_rows("trust this folder"), 60):
             rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
-            time.sleep(0.5)  # test harness: the terminal takes focus
+            wait_until(lambda: (rpc("debug.focus").get("context") or {}).get("terminal_focused"),
+                       "the terminal takes focus", timeout=10, raise_on_timeout=False)
             rpc("debug.key", {"key": "down"})
             rpc("debug.key", {"key": "return"})
     # The reply, not the echoed prompt: the URL's end and a path line without "Line 2:".
@@ -240,7 +282,9 @@ def run_agent(kind, path):
             f.write("\n=====\n".join(texts))
         snapshot(f"{kind}-no-reply")
         return
-    time.sleep(3)  # test harness: the agent finishes drawing its turn
+    # The agent finishes drawing its turn: its rows stop changing.
+    wait_stable(lambda: viewport_rows(marker), f"{name}'s turn", timeout=30, interval=0.25, reads=8,
+                raise_on_timeout=False)
     rows = viewport_rows(marker) or rows or []
     with open(os.path.join(opts.out, f"{kind}-viewport.txt"), "w") as f:
         f.write("\n".join(rows))
@@ -260,7 +304,7 @@ def run_agent(kind, path):
     settle()
     state = hover(col + 1, start)
     print(f"pointer over {name}'s URL: hovered={state.get('hovered')!r} wrapped={(state.get('wrapped') or '')[:40]!r} hand={state.get('pointingHand')}", flush=True)
-    time.sleep(2)  # test harness: a later shape change from Ghostty or the program would show here
+    time.sleep(2)  # sleep-ok: an observation window; a later shape change from Ghostty or the program would show here
     later = links()
     print(f"2 s later: hovered={later.get('hovered')!r} wrapped={(later.get('wrapped') or '')[:40]!r} hand={later.get('pointingHand')}", flush=True)
     shown = state.get("wrapped") or state.get("hovered")
@@ -287,7 +331,7 @@ def run_agent(kind, path):
         opened = click(pcol + 1, prow)
         check(any(entry.startswith("file:") and entry.endswith("src/app.ts:3:5") for entry in opened),
               f"Cmd-click on {name}'s src/app.ts:3:5 opens the file at line 3, column 5 ({opened}; hovered {state.get('hovered')!r})")
-        time.sleep(2)  # test harness: the editor page loads
+        editor_shown()
         snapshot(f"{kind}-editor-at-line")
     links(modifiers=[])
     for _ in range(3):  # the agent quits on a second Ctrl-C
@@ -319,7 +363,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS": "1"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, repo {REPO}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, repo {REPO}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 180)
     check("error" not in rpc("debug.terminal.links"), "the build has debug.terminal.links")
@@ -348,15 +392,18 @@ try:
             if quiet_wait(fixture_terminal, 3):
                 break
     if not wait_for(fixture_terminal, "the new workspace's terminal", 30):
-        print(f"workspace new: {json.dumps(made)[:400]}", flush=True)
-        print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:2500]}", flush=True)
+        safe_print(f"workspace new: {json.dumps(made)[:400]}", flush=True)
+        safe_print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:2500]}", flush=True)
     rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
-    time.sleep(2)  # test harness: the shell starts and reports its cwd
+    # The shell starts: its prompt draws in the terminal.
+    wait_until(lambda: terminal_text().strip(), "the shell's prompt", timeout=20, raise_on_timeout=False)
 
     # Plain shell. Row 0: a URL; rows 2-: a URL longer than any row, soft-wrapped by the shell.
     soft = "https://example.com/soft/" + "a" * 400
     send(f"clear && printf '%s\\n\\n%s\\n' https://example.com/plain-shell {soft}\n")
-    time.sleep(2)  # test harness: the shell runs the command and the output draws
+    wait_until(lambda: (lambda rows: rows[0].startswith("https://example.com/plain-shell")
+                        and any(row.startswith("https://example.com/soft/") for row in rows))(terminal_text().split("\n")),
+               "the shell's output (both URLs)", timeout=20, raise_on_timeout=False)
 
     # 1. The pointer rests on the URL; Command goes down; then the click.
     hover(3, 0, keys=())
@@ -384,9 +431,11 @@ try:
 
     # 2. A terminal without focus: split right (the new pane takes focus), then the same.
     rpc("action.run", {"action": "splitRight", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
-    time.sleep(2)  # test harness: the split's terminal starts and takes focus
+    wait_until(lambda: focused_surface_tab() not in (None, TERMINAL), "the split's terminal takes focus",
+               timeout=20, raise_on_timeout=False)
     send("clear && printf '%s\\n' https://example.com/plain-shell\n")
-    time.sleep(1.5)  # test harness: output draws
+    wait_until(lambda: (lambda text: text.startswith("https://example.com/plain-shell") and "example.com/soft/" not in text)(terminal_text()),
+               "the output draws (the plain URL alone)", timeout=20, raise_on_timeout=False)
     links(modifiers=[])
     hover(3, 0, keys=())
     links(modifiers=["command"])
@@ -405,7 +454,8 @@ try:
     send(f"clear && /usr/bin/python3 {TUI} {LAYOUT} {TUI_LOG} '{LONG_URL}'\n")
     layout = wait_for(lambda: os.path.exists(LAYOUT) and json.load(open(LAYOUT)), "the fixture TUI draws", 30)
     layout = layout or {}
-    time.sleep(1)  # test harness: the TUI's frame draws
+    wait_until(lambda: (lambda text: "fixture TUI" in text and "plain text" in text)(terminal_text()),
+               "the fixture TUI's frame", timeout=20, raise_on_timeout=False)
     snapshot("tui")
 
     # 5. Cmd-hover on a URL in the program.
@@ -443,8 +493,9 @@ try:
     tcol, trow = layout.get("text", [4, 20])
     hover(tcol, trow, keys=())
     before = presses()
-    click(tcol, trow, keys=())
-    time.sleep(0.5)  # test harness: the report reaches the program through the daemon
+    click(tcol, trow, keys=(), expect_open=False)
+    # The press and release reach the program through the daemon.
+    wait_until(lambda: presses() - before >= 2, "the program reads the plain click", timeout=10, raise_on_timeout=False)
     check(presses() - before == 2, f"a plain click still reaches the program, press and release ({presses() - before} new)")
 
     # 7. OSC 8.
@@ -478,10 +529,11 @@ try:
     check(any(os.path.realpath(entry[5:].rsplit(":", 2)[0]) == os.path.join(REPO, "src", "app.ts") for entry in opened if entry.startswith("file:")),
           f"Cmd-click on src/app.ts:3:5 opens the file ({opened}; hovered {state.get('hovered')!r})")
     check(any(entry.endswith(":3:5") for entry in opened), f"the file opens at line 3, column 5 ({opened}, want {expected})")
-    time.sleep(2)  # test harness: the editor page loads
+    editor_shown()
     snapshot("editor-at-line")
     send("q")
-    time.sleep(1)  # test harness: the fixture TUI leaves the alternate screen
+    wait_until(lambda: "fixture TUI" not in terminal_text(), "the fixture TUI leaves the alternate screen",
+               timeout=10, raise_on_timeout=False)
     for spec in opts.agent:
         kind, _, path = spec.partition("=")
         run_agent(kind, path)

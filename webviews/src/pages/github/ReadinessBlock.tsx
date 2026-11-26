@@ -42,6 +42,10 @@ function title(blocker: Blocker, strings: Strings): string {
       return t("github.ready.draft");
     case "conflict":
       return t("github.ready.conflict");
+    case "github":
+      return t(blocker.state === "behind" ? "github.ready.behind" : "github.ready.ruleBlocked");
+    case "history":
+      return format("github.ready.history", String(blocker.shown), String(blocker.total));
   }
 }
 
@@ -104,9 +108,7 @@ function Detail({
           {blocker.checks.map((check) => (
             <li key={check.name}>
               <div className="gh-ready-job">
-                <span className="gh-ready-job-name" title={check.name}>
-                  {check.name}
-                </span>
+                <span className="gh-ready-job-name">{check.name}</span>
                 {check.job?.failure?.step && <span className="gh-muted">{check.job.failure.step}</span>}
                 {check.url && (
                   <button type="button" className="gh-row-link" onClick={() => open(check.url!)}>

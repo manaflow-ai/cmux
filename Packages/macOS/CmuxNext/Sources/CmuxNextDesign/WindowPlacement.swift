@@ -97,7 +97,43 @@ public struct WindowPlacement {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
+    /// Where a window at `frame` slides, sideways only, so it no longer covers `avoid` (a pane showing what
+    /// the person needs beside it), kept inside `visible`; nil when it covers none of `avoid` or stays put.
+    /// Of the two sides that clear `avoid` it takes the smaller move; when neither fits on screen, the side
+    /// that leaves more of `avoid` uncovered (the smaller move on a tie).
+    public nonisolated static func sideStep(_ frame: CGRect, clearing avoid: CGRect, in visible: CGRect) -> CGPoint? {
+        guard frame.intersects(avoid) else { return nil }
+        let low = visible.minX, high = max(visible.maxX - frame.width, low)
+        let left = min(max(avoid.minX - frame.width, low), high), right = min(max(avoid.maxX, low), high)
+        let covered = { (x: CGFloat) in max(0, min(x + frame.width, avoid.maxX) - max(x, avoid.minX)) }
+        let x = [left, right].min { (covered($0), abs($0 - frame.minX)) < (covered($1), abs($1 - frame.minX)) } ?? frame.minX
+        return x.rounded() == frame.minX ? nil : CGPoint(x: x.rounded(), y: frame.minY)
+    }
+
     // MARK: AppKit
+
+    /// Puts tool window `window` and the shell window showing `pane` side by side: the shell window goes
+    /// directly below `window` without the keys (it stays key and in front), and `window` slides off
+    /// `pane` (``sideStep(_:clearing:in:)``, per the app's motion setting). The answer puts `window` back
+    /// where it was, while it is still where this put it (the person did not move it).
+    public static func sideBySide(_ window: NSWindow, besidePane pane: NSView) -> @MainActor () -> Void {
+        guard let shell = pane.window, shell !== window, shell.isVisible, !shell.isMiniaturized, window.isVisible else { return {} }
+        shell.order(.below, relativeTo: window.windowNumber)
+        let avoid = shell.convertToScreen(pane.convert(pane.bounds, to: nil)), before = window.frame
+        guard let visible = window.screen?.visibleFrame, let origin = sideStep(before, clearing: avoid, in: visible) else { return {} }
+        let placed = CGRect(origin: origin, size: before.size)
+        let slide = { @MainActor (window: NSWindow, frame: CGRect) in Motion.overlays.animateTimed(.panel, in: window.contentView) { window.animator().setFrame(frame, display: true) } }
+        slide(window, placed)
+        return { [weak window] in if let window, window.isVisible, window.frame == placed { slide(window, before) } }
+    }
+
+    /// Whether a shell window's frame is constrained to a screen: not while no display is connected.
+    ///
+    /// With no display, AppKit constrains a frame to an empty screen, so a window ordered in or
+    /// resized drops to its minimum size below y 0, and that size is saved to its record. Shell
+    /// windows keep the frame as given then, as ``restoredFrame(_:display:screens:)`` does with
+    /// no screen.
+    public static var constrainsToScreen: Bool { !NSScreen.screens.isEmpty }
 
     /// `frame` kept on the test screen in an agent screenshot launch
     /// (unchanged otherwise). Shell windows apply it to every frame they
@@ -117,13 +153,22 @@ public struct WindowPlacement {
         return window
     }
 
-    /// The screen a window opened from `parent` belongs on.
+    /// The screen a window opened from `parent` belongs on: its parent's, else the launch display
+    /// (`LaunchDisplay`, #51115), else the main screen.
     public static func targetScreen(parent: NSWindow?) -> NSScreen? {
         let screens = NSScreen.screens
         let parentScreen = parent?.screen.flatMap { screen in screens.firstIndex { $0 === screen } }
+        let launchScreen = LaunchDisplay.current?.screenIndex(builtIn: screens.map(LaunchDisplay.isBuiltIn))
         let mainScreen = NSScreen.main.flatMap { main in screens.firstIndex { $0 === main } }
-        let index = screenIndex(test: testScreen, parent: parentScreen ?? mainScreen ?? 0, count: screens.count)
+        let index = screenIndex(test: testScreen, parent: ownerScreen(parent: parentScreen, launch: launchScreen, main: mainScreen), count: screens.count)
         return index.map { screens[$0] }
+    }
+
+    /// The screen index a window with no test screen belongs on: its parent's, else the launch
+    /// display's (an inactive app has no main window, and `NSScreen.main` is then the person's
+    /// display, #51115), else the main screen's, else the first.
+    public nonisolated static func ownerScreen(parent: Int?, launch: Int?, main: Int?) -> Int {
+        parent ?? launch ?? main ?? 0
     }
 
     /// Lets Auto Layout resize the window to its content first (a window
@@ -135,8 +180,9 @@ public struct WindowPlacement {
 
     /// Places `window` for `parent` (unless it is already on screen) and
     /// orders it in: key and front normally; under no-activate front on
-    /// the test screen or behind everything, never key.
-    public static func present(_ window: NSWindow, parent: NSWindow? = nil) {
+    /// the test screen or behind everything, never key. `intent` `.bringForward`
+    /// (a window automation opened) orders it in front of the app's windows without the keys.
+    public static func present(_ window: NSWindow, parent: NSWindow? = nil, intent: WindowActivation.Intent = .present) {
         let parent = parent ?? defaultParent()
         if !window.isVisible, let screen = targetScreen(parent: parent) {
             fitToContent(window)
@@ -152,6 +198,6 @@ public struct WindowPlacement {
             }
             window.setFrame(frame, display: false)
         }
-        WindowActivation.show(window, .present)
+        WindowActivation.show(window, intent)
     }
 }

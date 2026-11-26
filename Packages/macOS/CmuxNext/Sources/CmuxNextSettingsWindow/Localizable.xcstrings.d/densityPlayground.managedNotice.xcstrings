@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "densityPlayground.managedNotice" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تدير مؤسستك الكثافة. تظهر التغييرات الآن لكنها لا تُحفظ."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaša organizacija upravlja gustoćom. Promjene se sada vide, ali se ne spremaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Din organisation styrer tætheden. Ændringer vises nu, men gemmes ikke."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine Organisation verwaltet die Dichte. Änderungen sind jetzt sichtbar, werden aber nicht gesichert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your organization manages density. Changes show now but are not saved."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu organización gestiona la densidad. Los cambios se ven ahora, pero no se guardan."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre organisation gère la densité. Les modifications s’affichent mais ne sont pas enregistrées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La tua organizzazione gestisce la densità. Le modifiche si vedono ora ma non vengono salvate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "密度は組織が管理しています。変更はすぐ表示されますが、保存されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្ថាប័នរបស់អ្នកគ្រប់គ្រងដង់ស៊ីតេ។ ការប្ដូរបង្ហាញឥឡូវនេះ ប៉ុន្តែមិនត្រូវបានរក្សាទុកទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "조직에서 밀도를 관리합니다. 변경 사항은 바로 보이지만 저장되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Organisasjonen din styrer tettheten. Endringer vises nå, men lagres ikke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gęstością zarządza Twoja organizacja. Zmiany widać od razu, ale nie są zapisywane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sua organização gerencia a densidade. As alterações aparecem agora, mas não são salvas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Плотностью управляет ваша организация. Изменения видны сразу, но не сохраняются."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "องค์กรของคุณจัดการความหนาแน่น การเปลี่ยนแปลงแสดงทันทีแต่จะไม่ถูกบันทึก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yoğunluğu kuruluşunuz yönetiyor. Değişiklikler şimdi görünür ama kaydedilmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Щільністю керує ваша організація. Зміни видно одразу, але вони не зберігаються."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tổ chức của bạn quản lý mật độ. Thay đổi hiển thị ngay nhưng không được lưu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "密度由你的组织管理。更改会立即显示，但不会保存。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "密度由你的組織管理。更改會立即顯示，但不會儲存。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

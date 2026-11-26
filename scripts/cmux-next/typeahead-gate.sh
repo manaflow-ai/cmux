@@ -2,8 +2,9 @@
 # typeahead-gate.sh TAG ROUNDS [PROOF...] (cx-wb5.76, cx-wb5.78): the typeahead GUI gate. Run it on
 # the GUI host through nx-remote, once, detached:
 #   nx-remote --detach --needs gui --timeout 5400 -- bash scripts/cmux-next/typeahead-gate.sh TAG 20
-# It needs /tmp/TAG.zip on the host: the fleet build of TAG (`cmux-ci build cmux --tag TAG
-# --backend-mode local`, then `cmux-ci artifact JOB /tmp/TAG.zip` copied there). It unpacks the app
+# It needs ~/ffre-cmp/TAG.zip on the host: the fleet build of TAG (`cmux-ci build cmux --tag TAG
+# --backend-mode local`, then `cmux-ci artifact JOB TAG.zip` copied there; in the user's own folder, never a
+# guessable /tmp name another account could plant an app at). It unpacks the app
 # into ~/ffre-cmp/TAG, runs each PROOF on a fresh launch of it (input journal on, never activated),
 # prints one summary line per proof, and exits 1 when any run lost a key.
 #   split, newterm   typeahead-compare.py: Cmd+D or New Terminal Tab, then `echo tkN` + Return at
@@ -26,21 +27,53 @@ ROOT=$HOME/ffre-cmp
 mkdir -p "$ROOT"
 cp "$HERE/typeahead-compare.py" "$HERE/new-tab-typeahead-proof.py" "$HERE/new-tab-cold-proof.sh" "$ROOT/"
 cd "$ROOT" || exit 2
-rm -rf "$TAG" && mkdir -p "$TAG" && (cd "$TAG" && ditto -x -k "/tmp/$TAG.zip" .) || exit 2
+rm -rf "$TAG" && mkdir -p "$TAG" && (cd "$TAG" && ditto -x -k "$ROOT/$TAG.zip" .) || exit 2
 APP="$ROOT/$TAG/cmux DEV $TAG.app"
+
+# 0 when the app's socket answers debug.windows with at least one window.
+window_up() {
+  python3 -I -c '
+import json, socket, sys
+c = socket.socket(socket.AF_UNIX); c.settimeout(5); c.connect(sys.argv[1])
+c.sendall(b"{\"id\": 1, \"method\": \"debug.windows\", \"params\": {}}\n")
+buf = b""
+while not buf.endswith(b"\n"):
+    chunk = c.recv(1 << 20)
+    if not chunk: break
+    buf += chunk
+sys.exit(0 if (json.loads(buf).get("result") or {}).get("windows") else 1)
+' "/tmp/cmux-debug-$TAG.sock" 2>/dev/null
+}
 
 # One fresh launch of the app around CMD; kills only the app and daemon it started.
 run_one() {
   CMUX_NEXT_NO_ACTIVATE=1 CMUX_NEXT_INPUT_JOURNAL=1 nohup "$APP/Contents/MacOS/cmux DEV" > "app-$TAG.out" 2>&1 &
   local pid=$! i p
   for i in $(seq 1 150); do [ -S "/tmp/cmux-debug-$TAG.sock" ] && break; sleep 0.2; done
-  sleep 6
+  # Launch work is done: the app's socket answers debug.windows with a window and its daemon session runs (up to 30 s).
+  for i in $(seq 1 300); do window_up && pgrep -f "session cmux-app-$TAG " >/dev/null && break; sleep 0.1; done
+  if ! { window_up && pgrep -f "session cmux-app-$TAG " >/dev/null; }; then
+    ( trap '' PIPE; echo "app $TAG: no window or no daemon session 30 s after launch" ) || true
+  fi
   "$@"
-  echo "cmd_exit=$?"
-  kill "$pid" 2>/dev/null; sleep 3
+  local status=$?
+  # In a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise end this script
+  # before the kills (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE; echo "cmd_exit=$status" ) || true
+  kill "$pid" 2>/dev/null
+  # The app exits (up to 10 s); its leftovers are killed next.
+  for i in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  kill -0 "$pid" 2>/dev/null && ( trap '' PIPE; echo "app $pid still running 10 s after TERM" ) || true
   for p in $(pgrep -f "ffre-cmp/$TAG/cmux DEV $TAG.app"); do kill "$p"; done
   p=$(pgrep -f "session cmux-app-$TAG "); [ -n "$p" ] && kill "$p"
-  sleep 1
+  # The bundle's processes and the daemon session are gone (up to 10 s) before the next launch.
+  for i in $(seq 1 100); do
+    pgrep -f "ffre-cmp/$TAG/cmux DEV $TAG.app" >/dev/null || pgrep -f "session cmux-app-$TAG " >/dev/null || break
+    sleep 0.1
+  done
+  if pgrep -f "ffre-cmp/$TAG/cmux DEV $TAG.app" >/dev/null || pgrep -f "session cmux-app-$TAG " >/dev/null; then
+    ( trap '' PIPE; echo "processes of $TAG still running 10 s after TERM" ) || true
+  fi
 }
 
 # 0 when every summary in the output counts as many ok runs as runs.
@@ -72,5 +105,5 @@ for proof in $PROOFS; do
   all_ok <<<"$out" || status=1
 done
 uptime
-rm -rf "${ROOT:?}/$TAG" "/tmp/$TAG.zip"
+rm -rf "${ROOT:?}/$TAG" "${ROOT:?}/$TAG.zip"
 exit $status

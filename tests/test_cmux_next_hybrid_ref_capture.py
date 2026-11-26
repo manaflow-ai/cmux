@@ -36,6 +36,13 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import hybrid_ref_capture as cap  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
@@ -359,7 +366,8 @@ def shortest_minutes(timeout: int | str) -> int:
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
+        cls.workflow = yaml.safe_load(WORKFLOW.read_text())
+        cls.job = cls.workflow["jobs"]["cmux-scheme-compile"]
         cls.steps = {s.get("id"): s for s in cls.job["steps"] if s.get("id")}
         cls.order = [s.get("id") or s.get("name") for s in cls.job["steps"]]
 
@@ -373,7 +381,9 @@ class Workflow(unittest.TestCase):
 
     def test_off_by_default_and_never_in_the_way(self) -> None:
         decide, capture = self.steps["hybrid-ref"], self.steps["hybrid-ref-capture"]
-        self.assertTrue(decide["if"].startswith("vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' &&"))
+        self.assertTrue(decide["if"].startswith("(vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' || inputs.hybrid_ref_capture == true) &&"))
+        dispatch = self.workflow[True]["workflow_dispatch"]["inputs"]["hybrid_ref_capture"]
+        self.assertEqual((dispatch["type"], dispatch["default"]), ("boolean", False), "a dispatch opts in to one capture; off by default")
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
@@ -390,7 +400,9 @@ class Workflow(unittest.TestCase):
                       "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
         self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
         self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
-        self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
+        # Every upload keeps 7 days at most (#43466, test_ci_upload_artifact_retention MAX_ALLOWED_DAYS); `have`
+        # counts only unexpired manifests, so a capture older than that is taken again.
+        self.assertEqual(upload["with"]["retention-days"], 7, "every upload-artifact step is bounded to 7 days")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
         self.assertIn("steps.compile-cmux-next-dev-release.outcome == 'success'", capture["if"])

@@ -9,8 +9,9 @@
 // (`useStreamingRow`) and draws that one row. Any other change goes through the pane as before and
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
-import { useSyncExternalStore } from "react";
+import { startTransition, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow } from "./model";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 
 /// The reply's raw row (the client's), how many chunks it is ahead of the row the pane drew, and
 /// that drawn row's text.
@@ -58,17 +59,76 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
   return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
 }
 
-const none = (): undefined => undefined;
-const noSubscribe = (): (() => void) => () => {};
-
 /// The streaming row the transcript draws ahead of the pane's snapshot, if any. Only the pane's
 /// live transcript (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
+///
+/// Each streamed frame's draw is a transition: React renders it in 5 ms slices and a key goes
+/// between them, so a key waits for at most one slice, not for the whole transcript's render. As
+/// an external store (`useSyncExternalStore`) every frame's draw was a sync render in the frame's
+/// microtask that no input could cut into: the largest share of the wait before a key reached the
+/// page while a reply streamed (every chat page shares one renderer, CEFSwitches
+/// `processPerSitePageSchemes`, so another chat's stream held the key too). A slice the stream's
+/// next frame overtakes renders the newer row; the transcript reads `live` only while its row
+/// still shows `drawnText`, so a draw that lands after the pane's own redraw shows nothing stale.
 export function useStreamingRow(active: boolean): StreamingRow | undefined {
-  return useSyncExternalStore(
-    active ? streamingRow.subscribe : noSubscribe,
-    active ? streamingRow.get : none,
-    active ? streamingRow.get : none,
-  );
+  return useStreamingRowCatchUp(active).live;
+}
+
+/// `useStreamingRow`, with `catchUp`: called inside a synchronous render the transcript runs anyway
+/// (a flushSync placing a row that grew), it takes the newest chunk into that render. The chunk's own
+/// transition then finds the value it would set already drawn and commits nothing. A reply's row
+/// grows a line while a chunk's transition still waits, about 70 times in 74 on a streamed reply
+/// (test/agent-pane-stream-renders.test.ts): each was a second whole transcript pass for one chunk.
+export function useStreamingRowCatchUp(active: boolean): { live: StreamingRow | undefined; catchUp: () => void } {
+  const [live, setLive] = useState<StreamingRow | undefined>(() => (active ? current : undefined));
+  // Written in the effect, not the render (the React Compiler skips a hook that writes a ref while it
+  // renders). A catch-up in the render before this effect reads the last committed `active`, and the
+  // hook's own result is gated on this render's `active` either way.
+  const activeRef = useRef(active);
+  useLayoutEffect(() => {
+    activeRef.current = active;
+    if (!active) return;
+    // A frame that landed between the render and this effect.
+    setLive(current);
+    return streamingRow.subscribe(() => startTransition(() => setLive(current)));
+  }, [active]);
+  const [catchUp] = useState(() => () => {
+    if (activeRef.current) setLive(current);
+  });
+  return { live: active ? live : undefined, catchUp };
+}
+
+/// `row` drawn with `live`: the reply's newer text and version, or the live line's `quietKey` naming
+/// the reply's newer version (turns.ts `quietKey`: the line stays quiet while the reply's text moves).
+export function streamedRow(row: AcpmuxRow, live: StreamingRow): AcpmuxRow {
+  if (row.kind === "assistant") {
+    if (row.id !== live.row.id || row.text !== live.drawnText) return row;
+    return { ...row, text: live.row.text, version: row.version + live.ahead };
+  }
+  const key = row.quietKey;
+  if (typeof key !== "string") return row;
+  const at = key.lastIndexOf(":");
+  if (at < 0 || key.slice(0, at) !== live.row.id) return row;
+  const version = Number(key.slice(at + 1));
+  if (!Number.isFinite(version)) return row;
+  return { ...row, quietKey: `${live.row.id}:${version + live.ahead}`, version: row.version + live.ahead };
+}
+
+/// `rows` with the streaming reply's newer text (`streamedRow`), the same array when there is none.
+/// For what reads the rows at a person's action (copy, Find as it opens), not per chunk.
+export function rowsWithStreamingRow(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  const live = current;
+  if (!live) return rows;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.id !== live.row.id) continue;
+    const next = streamedRow(row, live);
+    if (next === row) return rows;
+    const copy = rows.slice();
+    copy[index] = next;
+    return copy;
+  }
+  return rows;
 }
 
 /// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads
@@ -95,12 +155,14 @@ function sameButText(previous: AcpmuxRow, next: AcpmuxRow): boolean {
 }
 
 /// The index of the one row `next` changes from `previous` when the change is only a streaming
-/// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), so
-/// the scan is one pointer compare per row.
+/// reply's text growing, else -1. Unchanged rows keep their objects (direct.ts `OrderedRows`), and
+/// the client says how many leading rows a snapshot kept (prefixFlatMap.ts `keptPrefix`), so only
+/// the rows past those are compared: a token in a 35,000-row chat compares its own row, not every row.
 export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly AcpmuxRow[]): number {
   if (previous === next || previous.length !== next.length) return -1;
+  const kept = keptPrefix(previous, next);
   let changed = -1;
-  for (let index = next.length - 1; index >= 0; index -= 1) {
+  for (let index = next.length - 1; index >= kept; index -= 1) {
     const before = previous[index]!;
     const after = next[index]!;
     if (before === after) continue;

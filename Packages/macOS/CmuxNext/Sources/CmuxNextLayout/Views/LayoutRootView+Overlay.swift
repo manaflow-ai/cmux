@@ -68,18 +68,23 @@ extension LayoutRootView {
         let inWindow = window == nil ? nil : convert(bounds, to: nil)
         var shown: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
+        // During a person's live resize of the window: where the top row ends, once a sync (`noteWindowFrame(topRowFloor:)`).
+        var resizeFloor: (read: Bool, floor: CGFloat?) = (false, nil)
         for screen in screenViews.values where !screen.isHidden {
-            let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
+            if screen.windowResizeListeners != nil, !resizeFloor.read {
+                resizeFloor = (true, windowResizeTopRowFloor(rootInWindow: inWindow))
+            }
+            let topRowFloor = screen.windowResizeListeners != nil ? resizeFloor.floor : nil
             let above = screen.panesAbove()
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 shown.insert(ObjectIdentifier(chrome))
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
-                let alpha = host.alphaValue * screenAlpha
-                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
-                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
+                let alpha = host.alphaValue
+                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenBounds: screen.bounds,
+                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.hidesRing)
                 if chrome.superview === plane, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key
                 moved.insert(host.pane)
@@ -88,8 +93,8 @@ extension LayoutRootView {
                 if chrome.frame != rect { chrome.frame = rect }
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
-                if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
-                host.noteWindowFrame()
+                if chrome.isHidden != host.hidesRing { chrome.isHidden = host.hidesRing }
+                host.noteWindowFrame(topRowFloor: topRowFloor)
                 overlayHostsPlaced += 1
             }
         }
@@ -97,9 +102,25 @@ extension LayoutRootView {
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) && !context.isRetiredChrome(view) {
             view.removeFromSuperview()
         }
+        // A page or lens in a dragged pane hears the moves its held ancestors do not post (`FrameNoticeHold`).
+        if !moved.isEmpty {
+            for screen in screenViews.values where screen.paneFrameNotices.isHolding { screen.paneFrameNotices.noteFrame() }
+        }
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
+    }
+
+    /// The window-coordinate line a pane's frame stays under to be out of the top row in a live resize of the window: under
+    /// the titlebar band and the traffic lights (`TitlebarDragPolicy.bandRect`), and under this layout's first row of panes
+    /// (the card's top tab row the flush corner reads), less a margin. Nil outside a window (nothing is held).
+    private func windowResizeTopRowFloor(rootInWindow: CGRect?) -> CGFloat? {
+        guard let window, let rootInWindow, let content = window.contentView else { return nil }
+        let row = max(Metrics.tabStripHeight, Metrics.titlebarHeight)
+        let contentTop = content.convert(content.bounds, to: nil).maxY
+        let band = TitlebarDragPolicy.bandRect(in: window)
+        let bandFloor = band.height > 0 ? band.minY : contentTop
+        return min(bandFloor, contentTop - row, rootInWindow.maxY - row) - 8
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
@@ -133,7 +154,7 @@ extension LayoutRootView {
         refreshDividerHover()
     }
 
-    /// Whether a layout motion runs (a split, close, zoom, New Column, column scroll): its springs
+    /// Whether a layout motion runs (a ratio or width change, a key resize, New Column's reveal, a column scroll): its springs
     /// move panes and dividers on every display frame until they land, including the frame they
     /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
     /// stepped yet, or a divider drag moves them under the pointer. The window keeps what follows the dividers

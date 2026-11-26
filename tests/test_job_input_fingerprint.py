@@ -19,6 +19,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/job_input_fingerprint.py"
@@ -52,6 +59,11 @@ REGISTRY = """{"entries": [
 
 FILES = {
     ".github/workflows/cmux-next.yml": WORKFLOW,
+    ".github/workflows/cmux-tui-artifacts.yml": "name: cmux-tui artifacts\n",
+    ".github/workflows/cmux-tui-build-package.yml": "name: cmux-tui build package\n",
+    "scripts/cmux-next/cmux-tui-tree-inputs.txt": "tree cmux-tui\n",
+    "scripts/cmux-next/cmux-tui-build-profiles.json": "{}\n",
+    "cmux-tui/Cargo.lock": "# lock\n",
     "scripts/cmux-next/fast-tier.json": REGISTRY,
     "scripts/cmux-next/fast-tier.py": "print('tier')\n",
     "scripts/cmux-next/quarantine.json": '{"entries": []}\n',
@@ -72,11 +84,14 @@ FILES = {
 # What each job's workflow step passes (the real values come from the runner).
 TOOLCHAIN = {
     "fast-tier": {
+        "suite_scope": "all",
         "xcode": "Xcode 26.0 Build version 17A324",
         "macos": "26.0.1",
         "macos_build": "25A362",
         "arch": "arm64",
         "pool": "owned",
+        # '' unless it checks the generated files on its build (then the base commit), as swift-test.
+        "generated_base": "",
     },
     "fast-tier-cargo": {
         "runner": "Linux-X64",
@@ -88,6 +103,7 @@ TOOLCHAIN = {
     },
 }
 JOBS = tuple(TOOLCHAIN)
+ARTIFACT_TOOLCHAIN = {"daemon_tests": "false", "include_windows": "false", "macos_runner": ""}
 
 
 def git(repo: Path, *args: str) -> str:
@@ -141,12 +157,18 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertTrue(key.startswith(f"job-pass-{job}-"), stderr[-2000:])
         return key
 
+    def artifact_key(self, **flags: str) -> str:
+        key, stderr = run("cmux-tui-artifacts", self.repo.root, {**ARTIFACT_TOOLCHAIN, **flags})
+        self.assertTrue(key.startswith("job-pass-cmux-tui-artifacts-"), stderr[-2000:])
+        return key
+
     def changes(self, job: str, name: str, text: str | None = None) -> bool:
         """Whether one edit to `name` (appending a line, or `text`) changes the job's key."""
-        before = self.key(job)
+        before = self.artifact_key() if job == "cmux-tui-artifacts" else self.key(job)
         self.repo.write(name, text if text is not None else (self.repo.root / name).read_text() + "// changed\n")
         self.repo.commit()
-        return before != self.key(job)
+        after = self.artifact_key() if job == "cmux-tui-artifacts" else self.key(job)
+        return before != after
 
     def test_the_same_inputs_give_the_same_key(self):
         for job in JOBS:
@@ -200,6 +222,21 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier", macos="26.0.2"))
         self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
+        self.assertNotEqual(base, self.key("fast-tier", generated_base="a" * 40))
+
+    def test_a_handler_only_pass_cannot_stand_in_for_every_swift_suite(self):
+        self.assertNotEqual(self.key("fast-tier", suite_scope="handlers"),
+                            self.key("fast-tier", suite_scope="all"))
+
+    def test_cmux_tui_artifact_pass_keys_tree_and_mode_inputs(self):
+        base = self.artifact_key()
+        self.assertEqual(base, self.artifact_key())
+        self.assertNotEqual(base, self.artifact_key(daemon_tests="true"))
+        self.assertNotEqual(base, self.artifact_key(include_windows="true"))
+        self.assertNotEqual(base, self.artifact_key(macos_runner="macos-15"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", "cmux-tui/Cargo.lock"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", "scripts/cmux-next/cmux-tui-build-profiles.json"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", ".github/workflows/cmux-tui-build-package.yml"))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.
@@ -261,7 +298,7 @@ class JobInputFingerprint(unittest.TestCase):
     def test_a_missing_or_empty_toolchain_value_gives_no_key(self):
         for job in JOBS:
             for name in TOOLCHAIN[job]:
-                for value in (None, "", "  "):
+                for value in (None, "", "  ") if name != "generated_base" else ():  # an env flag: '' is a value
                     with self.subTest(job=job, name=name, value=value):
                         key, stderr = self.repo.key(job, **{name: value})
                         self.assertEqual(key, "")

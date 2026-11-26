@@ -34,6 +34,7 @@ const NOTICE_SENDER: &str = "acpmux who-else";
 /// (an agent's message waits for that turn to end, `turns.rs` `persons_held`).
 pub const NOTICE_KIND: &str = "who_else";
 /// How long a peer may take to answer before the answer goes on without it.
+// timeout: a peer that does not answer is left out; the answer goes on without it.
 const PEER_DEADLINE: Duration = Duration::from_secs(5);
 /// The most rows one answer carries.
 const MAX_ROWS: usize = 50;
@@ -330,8 +331,7 @@ impl Hub {
         let mut unreached: Vec<Value> = vec![];
         let ask_peers = !from_peer && params.get("peers").and_then(Value::as_bool) != Some(false);
         if ask_peers {
-            let peers: Vec<Arc<crate::peer::Peer>> =
-                self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+            let peers: Vec<Arc<crate::peer::Peer>> = self.peers.load().values().cloned().collect();
             let forward = json!({"query": q, "peers": false});
             let asks = peers.into_iter().map(|p| {
                 let forward = forward.clone();

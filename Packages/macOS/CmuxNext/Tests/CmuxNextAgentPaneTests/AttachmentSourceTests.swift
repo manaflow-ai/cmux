@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -240,7 +241,7 @@ struct AttachmentSourceTests {
 
     @Test func onlyAnAppThisMacNamedAsASourceHasAnIcon() throws {
         let suite = "attachment-source-icons-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let icons = AttachmentSourceIcons(defaults: defaults, ownBundleId: Self.own)
         // Finder is installed on every Mac, but no source named it: no icon, so a page can't ask.
@@ -257,6 +258,26 @@ struct AttachmentSourceTests {
         let sources = (answer["value"] as? [String: Any])?["sources"] as? [Any]
         #expect(sources?.allSatisfy { $0 is NSNull } == true)
         #expect(sources?.count == 2)
+    }
+
+    /// A page before its handshake may be on a remote route that still reads `remoteChat == false`:
+    /// its ask gets the pasteboard's claim only, never what this Mac's files say (cx-k21v); after
+    /// the handshake a chat on this Mac reads them.
+    @Test func beforeTheHandshakeOnlyThePasteboardsClaimAnswers() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("source-\(UUID().uuidString).png")
+        try Data([0x89, 0x50]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        AttachmentSource.markOwn(file, bundleId: Self.own)
+        let model = AgentPaneModel(host: NoHost())
+        func ask() async -> [Any]? {
+            model.droppedPaths.stashSource([file], items: 1, claimed: "com.apple.finder", kind: .drop)
+            let answer = await model.attachSource(.drop, names: [file.lastPathComponent], apps: Self.apps)
+            return (answer["value"] as? [String: Any])?["sources"] as? [Any]
+        }
+        model.hasHandshake = false
+        #expect((await ask()?.first as? [String: Any])?["bundleId"] as? String == "com.apple.finder")
+        model.hasHandshake = true
+        #expect(await ask()?.first as? [String: String] == AttachmentSource.cmux.json)
     }
 
     // MARK: Files

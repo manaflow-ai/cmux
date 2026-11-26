@@ -40,6 +40,29 @@ import Testing
         #expect(doc.needsWebRenderer)
     }
 
+    @Test func tableInterruptsParagraph() {
+        let doc = MarkdownDocument(parsing: """
+        **What doesn't**
+        | Gap | Now | Target | Owner lane |
+        |---|---|---|---|
+        | Select to first reply (p50) | 45.4 s | ≤ 3 s | cloud-instant-start-v2 |
+        | Machine time spent idle | 26% | ≤ 23% | cloud-machine-lifecycle |
+        """)
+        let kinds = doc.blocks.map(\.kind)
+        #expect(kinds.count == 2)
+        if case .paragraph("**What doesn't**") = kinds.first {} else { Issue.record("bold line") }
+        if case .table(let table) = kinds.last {
+            #expect(table.header == ["Gap", "Now", "Target", "Owner lane"])
+            #expect(table.rows.count == 2)
+        } else { Issue.record("table") }
+    }
+
+    @Test func mismatchedTableHeaderIsText() {
+        let kinds = MarkdownDocument(parsing: "para\n| a | b |\n|---|\n| 1 | 2 |").blocks.map(\.kind)
+        #expect(kinds.count == 1)
+        if case .paragraph = kinds.first {} else { Issue.record("paragraph") }
+    }
+
     @Test func pricesAreNotMath() {
         #expect(!MarkdownDocument(parsing: "It costs $5 and $6 today").needsWebRenderer)
     }
@@ -93,9 +116,9 @@ import Testing
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        while store.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(store.turns.isEmpty) }
         store.send(prompt: "go")
-        while store.pendingPermission == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingPermission == nil) }
         let permission = try #require(store.pendingPermission)
         store.clientError = "Approve this on your Mac. A phone can only decline."
         store.respond(to: permission.request, option: permission.request.options.last)
@@ -115,20 +138,20 @@ import Testing
             return mock
         }
         let codex = AgentChatStore(source: session("codex"))
-        while codex.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(codex.turns.isEmpty) }
         // Everything replayed in one step: history done, the waiting turn up, its ask pending.
         #expect(codex.turns.dropLast().allSatisfy { $0.status == .completed })
         #expect(codex.turns.last?.prompt == "Resolve merge conflicts")
         let permission = try #require(codex.pendingPermission)
         codex.respond(to: permission.request, option: permission.request.options.first)
-        while codex.isRunning { await Task.yield() }
+        await yieldUntil { !(codex.isRunning) }
         #expect(codex.turns.last?.status == .completed)
 
         let claude = AgentChatStore(source: session("claude"))
-        while claude.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(claude.turns.isEmpty) }
         let question = try #require(claude.pendingQuestion)
         claude.answer(question, with: AgentQuestionAnswer(selections: ["default": .init(optionIDs: ["webrtc"])]))
-        while claude.isRunning { await Task.yield() }
+        await yieldUntil { !(claude.isRunning) }
         #expect(claude.turns.last?.status == .completed)
     }
 
@@ -139,17 +162,17 @@ import Testing
         )
         mock.chunkSize = 4000
         let store = AgentChatStore(source: mock)
-        while store.turns.isEmpty { await Task.yield() }
+        await yieldUntil { !(store.turns.isEmpty) }
         store.send(prompt: "go")
-        while store.pendingPermission == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingPermission == nil) }
         let permission = try #require(store.pendingPermission)
         store.respond(to: permission.request, option: permission.request.options.first)
-        while store.pendingQuestion == nil { await Task.yield() }
+        await yieldUntil { !(store.pendingQuestion == nil) }
         let question = try #require(store.pendingQuestion)
         store.answer(question, with: AgentQuestionAnswer(selections: [
             "default": .init(optionIDs: ["wireguard"]), "surfaces": .init(optionIDs: ["connection"]),
         ]))
-        while store.isRunning { await Task.yield() }
+        await yieldUntil { !(store.isRunning) }
         let turn = try #require(store.turns.last)
         #expect(turn.status == .completed)
         #expect(turn.changeSet?.files.count == 3)

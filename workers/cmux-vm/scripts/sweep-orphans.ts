@@ -5,13 +5,13 @@
  *   CMUX_VM_ENVIRONMENT=production UPSTREAM_API_URL=... CMUX_VM_UPSTREAM_API_KEY=... CMUX_VM_DATABASE_URL=... \
  *     bun scripts/sweep-orphans.ts [--delete]
  *
- * It always lists first and prints every orphan (provider id, cmux id, tenant, state, creation time); with --delete it
+ * It always lists first and prints every orphan (provider id, cmux id, reason, tenant, state, creation time); with --delete it
  * then deletes them and prints what it deleted. Prints no secret, no database URL and no provider response body; the
  * Actions log of this public repository shows tenants only as a short hash.
  */
 import { createHash } from "node:crypto";
 import { Effect, Redacted } from "effect";
-import { recordedVmIds } from "../src/db/orphans.ts";
+import { deletedVmIds, recordedVmIds } from "../src/db/orphans.ts";
 import { hyperdriveSqlLayer } from "../src/db/sql.ts";
 import { parseEnvironment } from "../src/policy.ts";
 import { sweepOrphanVms, type OrphanSweepReport, type OrphanVm } from "../src/upstream/orphan-sweep.ts";
@@ -39,7 +39,7 @@ const remove = process.argv.includes("--delete");
 /** A failure prints only its tag, operation and HTTP status: a driver message can name the database host. */
 const run = async (dryRun: boolean) => {
   const outcome = await Effect.runPromise(Effect.either(
-    sweepOrphanVms(config, { nowMs: Date.now(), dryRun, maxDeletes: 2000, recorded: recordedVmIds }).pipe(Effect.provide(sql)),
+    sweepOrphanVms(config, { nowMs: Date.now(), dryRun, maxDeletes: 2000, recorded: recordedVmIds, deletedRows: deletedVmIds }).pipe(Effect.provide(sql)),
   ));
   if (outcome._tag === "Right") return outcome.right;
   const error = outcome.left;
@@ -62,10 +62,13 @@ const print = (label: string, report: OrphanSweepReport) => {
   const byState = new Map<string, number>();
   for (const vm of report.orphans) byState.set(vm.state, (byState.get(vm.state) ?? 0) + 1);
   for (const [state, count] of byState) console.log(`  state ${state}: ${count}`);
+  const byReason = new Map<string, number>();
+  for (const vm of report.orphans) byReason.set(vm.reason, (byReason.get(vm.reason) ?? 0) + 1);
+  for (const [reason, count] of byReason) console.log(`  reason ${reason}: ${count}`);
   const byTenant = new Map<string, number>();
   for (const vm of report.orphans) byTenant.set(tenantTag(vm.tenant), (byTenant.get(tenantTag(vm.tenant)) ?? 0) + 1);
   for (const [tenant, count] of byTenant) console.log(`  tenant ${tenant}: ${count}`);
-  for (const vm of report.orphans) console.log(`  orphan ${vm.upstreamId} ${vm.cmuxId} tenant=${tenantTag(vm.tenant)} state=${vm.state} vcpus=${vm.vcpus ?? "-"} memoryMib=${vm.memoryMib ?? "-"} created=${vm.createdAt}`);
+  for (const vm of report.orphans) console.log(`  orphan ${vm.upstreamId} ${vm.cmuxId} reason=${vm.reason} tenant=${tenantTag(vm.tenant)} state=${vm.state} vcpus=${vm.vcpus ?? "-"} memoryMib=${vm.memoryMib ?? "-"} created=${vm.createdAt}`);
 };
 
 const listing = await run(true);

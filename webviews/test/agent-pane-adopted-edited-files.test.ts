@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A reopened Codex turn that edited two files ends with the edited-files card (hq#2569 item 4):
-// "Edited 2 files +4 -1" with a row and counts per file; View changes opens the turn's diff with
+// "Edited 2 files +4 -1" with a row and counts per file; Open in Changes opens the turn's diff with
 // its hunks; the chat menu lists Changes; the summary's Outputs lists the files.
 //
 // Before: the turn had no edit records, so none of these drew (#22155 replays them); with them,
@@ -126,8 +126,23 @@ await requireBrowserLane("agent-pane-adopted-edited-files.test.ts", async () => 
     const page = await open();
     const card = page.locator(".acpmux-edited");
     await expect(card.locator(".acpmux-edited-title").innerText()).resolves.toMatch(/^Edited 2 files\s*\+4\s*-1/);
-    const files = await card.locator(".acpmux-edited-file").allInnerTexts();
-    expect(files.map((row) => row.replace(/\s+/g, " ").trim())).toEqual(["CHANGELOG.md +3 -0", "Cargo.toml +1 -1"]);
+    // One click stacks each file's diff under its own name (Leo, 2026-11-25).
+    await card.locator(".acpmux-edited-head").click();
+    await card.locator(".acpmux-edited-stack .cv-edit-diff").first().waitFor();
+    const files = await card
+      .locator(".acpmux-edited-section")
+      .evaluateAll((sections) =>
+        sections.map((section) =>
+          [".cv-edit-diff__name", ".cv-edit-diff__add", ".cv-edit-diff__del"]
+            .map((part) => section.querySelector(part)?.textContent?.trim() ?? "")
+            .join(" "),
+        ),
+      );
+    expect(files).toEqual([
+      // Each path from the session's folder (EditedFilesCard.tsx `shownPath`).
+      "CHANGELOG.md +3 -0",
+      "Cargo.toml +1 -1",
+    ]);
     // A reopened Codex edit is replayed as hunks, parts of each file (`_meta.acpmux.fragment`): no
     // whole-file text to put back, so the card offers no Undo the host would refuse.
     await card.hover();

@@ -13,6 +13,8 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import nightly_workflow_text as workflow_text  # noqa: E402
 SPEC = importlib.util.spec_from_file_location(
     "nightly_release_notes", ROOT / "scripts/ci/nightly_release_notes.py"
 )
@@ -366,6 +368,22 @@ class AppcastTests(unittest.TestCase):
                     self.assertEqual(items[0].find("enclosure").attrib, old_items[0].find("enclosure").attrib)
                     self.assertEqual(ET.tostring(items[1]), ET.tostring(old_items[1]))
 
+    def test_the_item_names_its_span_and_its_pull_requests(self):
+        """The feed item says which PRs it carries (Leo 2026-11-26: "do we display which prs go into which
+        nightly"): the commit it starts after and the PR numbers, newest first, beside its sourceCommit."""
+        cmux = "https://cmux.com/xml-namespaces/cmux"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for _ in range(2):  # a rerun replaces the elements, never adds a second copy
+                NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=APPCASTS,
+                                      since=BASE, pull_requests=[705, 701])
+            for name in APPCASTS:
+                items = ET.parse(directory / name).getroot().findall("channel/item")
+                self.assertEqual([e.text for e in items[0].iter(f"{{{cmux}}}sinceCommit")], [BASE])
+                self.assertEqual([e.text for e in items[0].iter(f"{{{cmux}}}pullRequests")], ["705 701"])
+                self.assertEqual(list(items[1].iter(f"{{{cmux}}}pullRequests")), [])
+
     def test_the_arm64_only_track_updates_its_one_feed(self):
         """nightly-next publishes only the arm64 variant: one feed, and a missing one still fails."""
         with tempfile.TemporaryDirectory() as temporary:
@@ -490,7 +508,7 @@ class WorkflowTests(unittest.TestCase):
         # A nightly-next run is a push to the nightly-next branch, but its PRs
         # merge into feat-cmux-next: with github.ref_name every publish listed
         # 0 PRs (run 37611677848).
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        workflow = workflow_text.write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
         step = workflow[workflow.index("- name: Prepare nightly release notes and appcast summaries"):]
         step = step[:step.index("\n      - name:", 1)]
         branch = re.search(r"NOTES_BRANCH: (.+)", step).group(1)
@@ -504,7 +522,7 @@ class WorkflowTests(unittest.TestCase):
         # so the job was cancelled mid-upload and left partial release assets.
         # The notes step has its own bound, well inside the job's, so a slow
         # notes run fails before any asset is uploaded.
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        workflow = workflow_text.write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
         job = workflow[workflow.index("\n  publish-nightly:\n"):]
         job = job[:re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
         # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py);

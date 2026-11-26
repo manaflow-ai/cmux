@@ -61,7 +61,7 @@ import Testing
     /// for a release, and arrives under the canonical name.
     @Test(arguments: ["publicKey", "public-key", "public_key"])
     func anySpellingOfAnArgumentNamesIt(_ given: String) throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudTunnelRotateKey" })
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudPrepareSCP" })
         let request = try Self.validated(Self.info(descriptor), [given: .string("ssh-ed25519 AAAA")])
         #expect(request.arguments["publicKey"] != nil)
         #expect(request.arguments.count == 1)
@@ -82,7 +82,7 @@ import Testing
 
     /// Two spellings of one argument in one request are refused, never one silently winning.
     @Test func twoSpellingsOfOneArgumentAreRefused() throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudTunnelRotateKey" })
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudPrepareSCP" })
         let args: [String: JSONValue] = ["publicKey": .string("ssh-ed25519 AAAA"), "public-key": .string("ssh-ed25519 BBBB")]
         #expect(throws: ControlError.self) { try Self.validated(Self.info(descriptor), args) }
     }
@@ -127,6 +127,19 @@ import Testing
             }
             var checked = params
             checked["origin"] = nil
+            // The fixture gives every flag one placeholder value (`/tmp/contract`); this test checks the
+            // argument names the CLI sends, so an enumeration argument takes the catalog's first case,
+            // the one value its validation accepts whatever the placeholder (`decision` of Change a
+            // Computer Use Approval takes always or never).
+            if case .object(var args)? = params["args"] {
+                for argument in descriptor.arguments {
+                    guard case .enumeration(let cases) = argument.kind, let first = cases.first,
+                          let given = args[argument.name]?.stringValue,
+                          !cases.contains(where: { $0.value == given }) else { continue }
+                    args[argument.name] = .string(first.value)
+                }
+                checked["args"] = .object(args)
+            }
             #expect(throws: Never.self, "\(source)") {
                 try ControlRouter.validatedRequest(for: Self.info(descriptor), params: checked,
                                                    knownKinds: ActionTargetKind.allCases.map(\.rawValue),

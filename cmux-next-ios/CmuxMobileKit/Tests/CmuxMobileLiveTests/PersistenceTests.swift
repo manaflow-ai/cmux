@@ -228,11 +228,13 @@ import Testing
             let suite = "cmux-mobile-signout-\(UUID().uuidString)"
             defaults = UserDefaults(suiteName: suite)!
             snapshots = LiveSnapshotStore(directory: directory.appending(path: "snapshots"))
+            lists = LastKnownListStore(directory: directory.appending(path: "lists"))
         }
 
         func archive(_ user: String) -> FeedArchive { FeedArchive(url: directory.appending(path: "feed-\(user).json")) }
         func marks(_ user: String) -> FeedReadMarks { FeedReadMarks(url: directory.appending(path: "read-\(user).json")) }
         let snapshots: LiveSnapshotStore
+        let lists: LastKnownListStore
     }
 
     static func item(_ id: String) -> FeedItem {
@@ -240,9 +242,21 @@ import Testing
                  workspaceTitle: "w", markdown: "done", quote: nil, createdAt: Date())
     }
 
-    func signOut(_ f: Fixture, chief: @escaping @MainActor () -> Void = {}) -> AccountSignOut {
-        AccountSignOut(snapshots: f.snapshots, feedStore: f.feed, feedArchive: f.archive, readMarks: f.marks,
-                       preferences: AccountPreferences(defaults: f.defaults), discardChiefOutbox: chief)
+    func signOut(_ f: Fixture, chief: @escaping @MainActor () -> Void = {},
+                 keptChats: @escaping @MainActor () -> Void = {}) -> AccountSignOut {
+        AccountSignOut(lastKnownLists: f.lists, snapshots: f.snapshots, feedStore: f.feed,
+                       removeFeedArchives: { f.archive($0).remove() }, readMarks: f.marks,
+                       preferences: AccountPreferences(defaults: f.defaults), discardChiefTranscripts: chief,
+                       discardKeptChats: keptChats)
+    }
+
+    /// The Home rows, Agent Chats lists and agent chat messages kept to show at once leave
+    /// with the account (the user, 2026-11-09). Before, sign-out kept them for the next one.
+    @Test func signOutDropsTheKeptListsAndChats() {
+        let f = Fixture()
+        let discards = Tally()
+        signOut(f, keptChats: { discards.count += 1 }).signedOut(userID: "user-a", session: Session())
+        #expect(discards.count == 1)
     }
 
     @Test func signOutKeepsTheMacsApprovalAndTheDeviceIdentity() async throws {
@@ -266,6 +280,8 @@ import Testing
     @Test func signOutDropsTheAccountsFeedSnapshotsAndUnsentChief() throws {
         let f = Fixture()
         let item = Self.item("e1")
+        let directory = f.lists.list(accountID: "user-a", teamID: "t", screen: "members")
+        directory.save(["member"])
         f.feed.replaceAll([item])
         f.archive("user-a").save([item])
         f.snapshots.save(LiveSnapshot(teamID: "t", teamName: "T", macs: [], linkedMacID: nil, workspaces: [:]), accountID: "user-a")
@@ -273,6 +289,8 @@ import Testing
         let discards = Tally()
         signOut(f) { discards.count += 1 }.signedOut(userID: "user-a", session: Session())
         f.snapshots.flush()
+        directory.save(["late reply"])
+        #expect(f.lists.list(accountID: "user-a", teamID: "t", screen: "members").read([String].self) == nil)
         #expect(f.feed.items.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: f.archive("user-a").url.path))
         #expect(f.snapshots.load(accountID: "user-a") == nil)

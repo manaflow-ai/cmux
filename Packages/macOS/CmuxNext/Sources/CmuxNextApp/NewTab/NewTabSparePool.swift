@@ -20,27 +20,17 @@ import CmuxNextWakeups
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
-    /// One adoption, for `debug.new_tab` (timing test, section 2.3).
-    struct Opening {
-        var spare: Bool
-        /// The spare was parked in another window than the one it opened in.
-        var crossWindow: Bool
-        /// Main-thread time from the open action to the page in its pane.
-        var milliseconds: Double
-        /// The spare waited at another size than its pane's: the adoption resized it, and WebKit
-        /// showed it at the old size until it laid it out again (the hqacp-v2 flash).
-        var refit = false
-    }
+    typealias Opening = AgentPaneSpareOpening
 
-    static let idleInput: Duration = .milliseconds(750)
+    var idleInput: Duration = .milliseconds(750) // quiet input before the pool's own warm (a test sets it: input that never goes quiet)
     /// A focus or selected-tab change settles this long before the parked spare draws the context a Cmd-T there gives.
     static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
 
     private unowned let services: AppServices
-    /// Two spares so a rapid pair of Cmd-T adopts two loaded pages; one on a Mac with less than 16 GB.
-    private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: ProcessInfo.processInfo.physicalMemory >= 16 << 30 ? 2 : 1)
-    private lazy var refills = AgentPaneSpareRefiller(on: services.mainWork) { [weak self] in
+    /// One spare: each is a renderer and an acpmux client at idle (Home idle memory, Leo 2026-11-14); `debug.new_tab capacity` raises it.
+    private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
+    private(set) lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.inputUnderWay == true }, loading: { [weak self] in self.map { $0.shownChats.loadingNow($0.services.agentTabs.views.values) } ?? [] }) { [weak self] in
         self?.prepareParked()
         self?.warmNow()
     }
@@ -114,17 +104,19 @@ final class NewTabSparePool {
         self.memoryPressure = memoryPressure
     }
 
-
     /// At launch: probes WebKit's setup off the main thread, no spare yet (a first load held launch >10 s, cua-2).
     func prewarm() {
         if services.agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
     }
 
-    /// WebKit's setup on this host; a slow one gets no spare this run.
+    /// WebKit's setup on this host; a slow one gets no spare until it is asked again (``WebKitSetupGate/recheck``).
     let webKit = WebKitSetupGate()
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
+        services.agentTabs.poolRole = { [weak self] view in self?.role(of: view) }
+        // A closed page whose release never came left the window: the census closes it when no tab holds it.
+        returns.onExpired = { [weak tabs = services.agentTabs] in tabs?.scheduleOrphanSweep() }
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
         services.agentTabs.takeSpare = { [weak self] refill in
@@ -141,14 +133,14 @@ final class NewTabSparePool {
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
-                AgentPaneSpareOutcome.empty.trace()
+                AgentPaneSpareOutcome.empty.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             guard spare.model.servesExistingChat else {
-                AgentPaneSpareOutcome.unready.trace()
+                AgentPaneSpareOutcome.unready.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
-            return take(for: window, size: nil, refill: .whenQuiet)?.view
+            return take(for: window, size: nil, refill: .afterPaint)?.view
         }
         observeWindows()
         if let window = services.keyWindowSource().flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
@@ -286,7 +278,7 @@ final class NewTabSparePool {
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
             scheduleWarm()
-            if refill != .whenQuiet { refills.afterOpen(shown: refill == .now ? view : nil, still: still) } // .idle: its page draws no frame yet
+            if refill == .afterPaint { refills.afterPaint(of: view) } else { refills.afterOpen(shown: refill == .now ? view : nil, still: still) } // .idle: its page draws no frame yet
         }
         covers.forget(view)
         view.isHidden = false
@@ -316,20 +308,30 @@ final class NewTabSparePool {
     private(set) var lastRecycleRefusal: String?
 
     func recycle(_ view: AgentPaneView) -> Bool {
-        guard !pressured else { return false }
-        lastRecycleRefusal = view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
-            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
-        guard lastRecycleRefusal == nil else { return false }
+        lastRecycleRefusal = refusal(of: view)
+        guard lastRecycleRefusal == nil, returns.arrived(view, in: parking, of: target) else { lastRecycleRefusal = lastRecycleRefusal ?? "not in the window"; return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
-            // Out of the view tree now (as cheap as a close); back into the window at the next
-            // quiet moment: putting a WKWebView back into a window costs a 15-20 ms commit, which
-            // in the close frame dropped a frame on every Cmd-W (R81 bench).
-            view.removeFromSuperview()
             slot.parked(view)
         }
+        schedulePrepare()
+        if !refills.isOpening { snapshotParked(view) } // never a capture while an open settles (as `fitParked`)
         scheduleWarm()
         return true
+    }
+    private let returns = AgentPaneSpareReturns()
+    /// Why the pool holds `view` (``AgentPageLiveness``): its spare, or a closed page waiting for its tab's release.
+    func role(of view: AgentPaneView) -> AgentPageRole? {
+        if slot.all.contains(where: { $0 === view }) { return .spare }
+        return returns.holds(view) ? .returning : nil
+    }
+    private func refusal(of view: AgentPaneView) -> String? {
+        pressured ? "memory pressure" : view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? view.model.hostTouch.by ?? "?")" : target == nil ? "no target window" : nil
+    }
+    /// A closed tab's page the pool can take back waits for `recycle` in the parking view, inside its window (`AgentPaneSpareReturns`).
+    func keepInWindow(_ view: NSView) -> Bool {
+        (view as? AgentPaneView).map { page in refusal(of: page) == nil && BenchSpans.measure("pool.park") { returns.keep(page, in: parking, of: target) } } ?? false
     }
 
     func record(_ opening: Opening) {
@@ -355,17 +357,14 @@ final class NewTabSparePool {
         }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double { AgentPaneSpareOpening.milliseconds(since: start) }
 
     // MARK: Warming
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
         guard !pressured else { return }
-        let web = services.agentTabs.canHostChat && (wantsPage || unparked != nil)
+        let web = services.agentTabs.canHostChat && wantsPage
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
@@ -384,18 +383,18 @@ final class NewTabSparePool {
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
+    let shownChats = AgentPaneShownChatsWait()
 
     private func armWarmTimer() {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
+        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) + shownChats.home(shown: services.windows.shownWorkspaceIDs.allSatisfy { services.workspace(id: $0).map { $0.kind == "home" } ?? true }) }, then: { [weak self] in self?.armWarmTimer() }) { return } // Home's page too (none shown yet: it may come)
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmTimer.schedule(after: launch ? Self.openSettle : idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
     private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
-    /// A recycled spare not yet back in the window.
-    private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     private func warmNow() {
         if refills.settled() { schedulePrepare() } // the backstop ends an open whose page never reported its frame
@@ -403,15 +402,7 @@ final class NewTabSparePool {
         inputMonitor = nil
         warmNative()
         guard services.agentTabs.canHostChat else { return }
-        if let view = unparked, let content = target?.contentView {
-            park(in: content)
-            view.frame = parking.bounds
-            view.autoresizingMask = [.width, .height]
-            BenchSpans.measure("pool.park") { parking.addSubview(view) }
-            schedulePrepare()
-            snapshotParked(view)
-            return wantsPage ? scheduleWarm() : ()
-        }
+        returns.expire(after: AgentPaneSpareReturns.limit, in: parking)
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
         guard wantsPage, !pressured, let content = target?.contentView else { return }
         let start = ContinuousClock.now, page = NewTabPage.sparePage(services)

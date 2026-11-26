@@ -15,13 +15,26 @@ extension SidebarLayoutMetrics {
             sectionSpacing: SidebarDensityTokens.sectionSpacing,
             rowHeight: row,
             rowHeightWithSubtitle: SidebarDensityTokens.rowHeightWithSubtitle,
-            rowSpacing: Metrics.space1,
+            rowSpacing: SidebarDensityTokens.rowSpacing,
             emptySectionHeight: row
         )
-        let font = SidebarStyle.subtitleFont
-        metrics.statusLineHeight = ceil(font.ascender - font.descender + font.leading) + Metrics.space1 / 2
-        metrics.progressBarHeight = Metrics.space2
+        let pitch = statusPitch
+        metrics.statusLineHeight = pitch.line
+        metrics.progressBarHeight = pitch.bar
         metrics.statusBottomPadding = Metrics.space1
+        // A chat's subagent lines take a row's height, as the Code tab's nested tasks do; the stacked line a
+        // detail line's (`SidebarLayoutMetrics.subagentsHeight`).
+        metrics.subagentLineHeight = row
+        // Never under the mark stack's cell, so the chips' rings are not cut at the line's edges.
+        metrics.subagentStackHeight = max(pitch.line + Metrics.space1, RowBadgeView.glyphSide + 2 * RowBadgeView.stackCellPad)
         return metrics
+    }
+
+    /// The status block's line pitch and the height of the progress bar's slot, as `standard` has them, alone: a row's
+    /// status block places its lines with these two at each layout, and `standard` reads the sidebar's density tokens
+    /// for every other field too (a read of the design tokens for each row of each layout pass).
+    static var statusPitch: (line: CGFloat, bar: CGFloat) {
+        let font = SidebarStyle.subtitleFont
+        return (ceil(font.ascender - font.descender + font.leading) + Metrics.space1 / 2, Metrics.space2)
     }
 }

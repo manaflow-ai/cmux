@@ -35,7 +35,7 @@
 //! also goes to the room (`pending_room_ops`, retried until acknowledged). Without one a share is
 //! `active` from its create and `url` is null.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -50,7 +50,7 @@ use sha2::{Digest as _, Sha256};
 use super::super::{MessageWriter, Refusal, Response, ok, send_response, tab_session};
 use super::Teammate;
 use crate::apps::timer::{TimerId, Timers};
-use crate::mux::Mux;
+use crate::mux::{Mux, MuxEvent};
 use crate::server::agent_transfer::state_file::{read_trusted, save};
 
 #[path = "agent_session_share_link.rs"]
@@ -75,6 +75,7 @@ const MAX_LINK_USES: u32 = 1000;
 pub(super) const MAX_AVATAR_BYTES: usize = 1024;
 /// Records kept at once (an ended one goes when room is needed), so the file stays far below
 /// `state_file`'s 64 KiB read bound.
+/// Measured: the share file is read only up to 64 KiB (`state_file.rs` MAX_FILE_BYTES).
 const MAX_SHARES: usize = 16;
 /// A guest's `client_id` or a redeem's `attempt_id`, in bytes.
 const MAX_ID_BYTES: usize = 128;
@@ -278,6 +279,33 @@ enum InviteState {
     Removed,
 }
 
+/// Pending requests per share at once.
+const MAX_REQUESTS: usize = 16;
+/// Requests of one share, declined ones included (a declined one stays so it cannot ask again).
+const MAX_REQUEST_RECORDS: usize = MAX_REQUESTS * 4;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum RequestState {
+    Pending,
+    Declined,
+}
+
+/// A signed-in account that opened the share's link without access and asked the owner to let it
+/// in (Google Docs' "Request access"). One per account per share. The owner approves it (the
+/// account becomes an invitee) or declines it (kept, so the account cannot ask again, and told
+/// nothing: a declined account's ask answers as a pending one's).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct AccessRequest {
+    /// Trimmed and lowercased (`normal_account`), as the room attested it.
+    account: String,
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    avatar_url: Option<String>,
+    requested_at: u64,
+    state: RequestState,
+}
+
 /// An account the owner invited to a share.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Invitee {
@@ -336,6 +364,9 @@ struct LinkShare {
     guests: Vec<Guest>,
     #[serde(default)]
     invitees: Vec<Invitee>,
+    /// Accounts asking the owner for access (old files and old daemons have none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    requests: Vec<AccessRequest>,
     /// The role the link was made for (the Share dialog's "Anyone with the link"), which lifts
     /// its uses cap. A guest who joins by the link alone (nobody signed in) watches only whatever
     /// this says. An invitee keeps its own role.
@@ -404,6 +435,20 @@ impl LinkShare {
                     "state": i.state})
             })
             .collect();
+        // Pending only: a declined account is never shown (nor told).
+        let requests: Vec<Value> = self
+            .requests
+            .iter()
+            .filter(|r| r.state == RequestState::Pending)
+            .map(|r| {
+                let mut shown = json!({"account": r.account, "name": r.name,
+                    "requested_at": r.requested_at, "state": r.state});
+                if let Some(avatar) = &r.avatar_url {
+                    shown.set("avatar_url", json!(avatar));
+                }
+                shown
+            })
+            .collect();
         json!({"share_id": self.share_id, "session": self.session, "surface": self.surface,
             "created_at": self.created_at, "expires_at": self.expires_at,
             "expires_in_secs": self.expires_at.saturating_sub(now) / 1000,
@@ -412,7 +457,7 @@ impl LinkShare {
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
             "invite_url": self.invite_url(), "role": self.role,
             "signed_in_role": self.signed_in_role, "guests": guests,
-            "invitees": invitees})
+            "invitees": invitees, "requests": requests})
     }
 }
 
@@ -449,9 +494,15 @@ pub(in crate::server) struct LinkShares {
     /// Every write fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_writes: std::sync::atomic::AtomicBool,
+    /// Told each write that `refuse_writes` failed (tests: a test waits for a refused save).
+    #[cfg(test)]
+    pub(super) refused_write: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Moving an unreadable file aside fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_set_aside: std::sync::atomic::AtomicBool,
+    /// The millisecond a move aside names its copy with while set (tests; 0: the wall clock).
+    #[cfg(test)]
+    pub(super) set_aside_ms: AtomicU64,
 }
 
 impl Drop for LinkShares {
@@ -642,6 +693,26 @@ struct Uninvite {
     account: String,
 }
 
+/// `agent-session-share-request-approve`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Approve {
+    share_id: String,
+    account: String,
+    #[serde(default)]
+    role: Option<Role>,
+}
+
+/// An access request: the room's `request` frame. `account` is the room's attestation of its
+/// verified sign-in (none for an anonymous visitor, who cannot ask).
+#[derive(Debug)]
+pub(super) struct AccessAsk {
+    pub(super) share_id: String,
+    pub(super) account: Option<String>,
+    pub(super) name: String,
+    pub(super) avatar_url: Option<String>,
+}
+
 /// A redeem: a link guest's (`secret`), an invited account's (`account` alone), or a signed-in
 /// link guest's (`secret` and `account`). `account` and `avatar_url` are the room's attestation
 /// of its own verified sign-in: they come only from the room's host socket frame (`room.rs`) or
@@ -690,6 +761,10 @@ impl LinkShares {
             if open && now >= share.expires_at {
                 share.state = ShareState::Expired;
             }
+            // A share that ended keeps no requests.
+            if !open {
+                share.requests.clear();
+            }
         }
         let before = shares.clone();
         let answer = match change(shares, now) {
@@ -709,7 +784,25 @@ impl LinkShares {
             }
         };
         self.note_ended(&start, shares);
+        let changed = changed_chats(&start, shares, now);
+        drop(slot);
+        self.publish(changed);
         answer
+    }
+
+    /// Tells the owner's watching connections (`agent-session-share-changed`) that the shares of
+    /// each chat in `chats` changed. Sent after the shares lock is released; nothing without a
+    /// daemon (set by the first verb or bind).
+    fn publish(&self, chats: BTreeSet<String>) {
+        if chats.is_empty() {
+            return;
+        }
+        let Some(mux) = self.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else {
+            return;
+        };
+        for session in chats {
+            mux.emit(MuxEvent::AgentSessionShareChanged { session });
+        }
     }
 
     /// The shares in `directory`'s file (none without one). A file that is there but does not
@@ -748,12 +841,21 @@ impl LinkShares {
         if self.refuse_set_aside.load(Ordering::Relaxed) {
             return Err(std::io::Error::other("set aside refused (test)"));
         }
+        #[cfg(test)]
+        if let ms @ 1.. = self.set_aside_ms.load(Ordering::Relaxed) {
+            return set_aside_unreplaced(directory, ms);
+        }
         set_aside_unreplaced(directory, wall_ms())
     }
 
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
         #[cfg(test)]
         if self.refuse_writes.load(Ordering::Relaxed) {
+            if let Some(told) =
+                self.refused_write.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            {
+                let _ = told.send(());
+            }
             return Some(Err(std::io::Error::other("writes refused (test)")));
         }
         let directory = directory?;
@@ -1074,6 +1176,106 @@ impl LinkShares {
         })
     }
 
+    /// An account asks for access to a share (the room's frame `request`; `account` is the room's
+    /// attestation of a verified sign-in). Refused for an account already invited (`share.invited`:
+    /// it joins by redeem) or removed (`share.kicked`), and past the bounds (`share.limit`). A
+    /// declined account's ask answers as a pending one's and changes nothing.
+    pub(super) fn request_access(
+        &self,
+        directory: Option<&Path>,
+        p: AccessAsk,
+    ) -> Result<Value, &'static str> {
+        let Some(account) = p.account.as_deref() else { return Err("share.needs_sign_in") };
+        let account = normal_account(account)?;
+        if !valid_name(&p.name) {
+            return Err("share.name");
+        }
+        let avatar_url = avatar(p.avatar_url.clone());
+        let connected = || self.present();
+        self.with(directory, |shares, now| {
+            let share = find(shares, &p.share_id)?;
+            share.live()?;
+            let answer = json!({"share_id": p.share_id, "account": account, "state": "requested"});
+            match share.invitees.iter().find(|i| i.account == account).map(|i| i.state) {
+                Some(InviteState::Invited) => return Err("share.invited"),
+                Some(InviteState::Removed) => return Err("share.kicked"),
+                None => {}
+            }
+            if share.requests.iter().any(|r| r.account == account) {
+                return Ok((answer, false));
+            }
+            let pending = share.requests.iter().filter(|r| r.state == RequestState::Pending);
+            if pending.count() >= MAX_REQUESTS || share.requests.len() >= MAX_REQUEST_RECORDS {
+                return Err("share.limit");
+            }
+            let pictured = avatar_url.is_some();
+            share.requests.push(AccessRequest {
+                account,
+                name: p.name.clone(),
+                avatar_url,
+                requested_at: now,
+                state: RequestState::Pending,
+            });
+            if !fits_or_prune(shares, now, &connected) {
+                // The picture is the one optional part: without it the request may still fit.
+                let dropped = pictured && {
+                    let share = find(shares, &p.share_id)?;
+                    if let Some(last) = share.requests.last_mut() {
+                        last.avatar_url = None;
+                    }
+                    fits(shares)
+                };
+                if !dropped {
+                    return Err("share.limit");
+                }
+            }
+            Ok((answer, true))
+        })
+    }
+
+    /// The owner approves a pending request: the account is invited as `role` (`view` unless the
+    /// owner names another: approving grants the least) the way `invite` does, and its request
+    /// goes. `share.unknown` when the account has no pending request.
+    fn approve_request(
+        &self,
+        directory: Option<&Path>,
+        p: &Approve,
+    ) -> Result<Value, &'static str> {
+        let account = normal_account(&p.account)?;
+        let role = p.role.unwrap_or(Role::View);
+        let connected = || self.present();
+        self.with(directory, |shares, now| {
+            let share = find(shares, &p.share_id)?;
+            let pending = |r: &AccessRequest| r.account == account;
+            if !share.requests.iter().any(|r| pending(r) && r.state == RequestState::Pending) {
+                return Err("share.unknown");
+            }
+            share.requests.retain(|r| !pending(r));
+            let (answer, _) = open::invite_in(shares, &p.share_id, account, role, now, &connected)?;
+            Ok((answer, true))
+        })
+    }
+
+    /// The owner declines a pending request: it stays, declined, so the account cannot ask again
+    /// (it is not told); the share's end drops it. Declining a declined request changes nothing.
+    fn decline_request(
+        &self,
+        directory: Option<&Path>,
+        p: &Uninvite,
+    ) -> Result<Value, &'static str> {
+        let account = normal_account(&p.account)?;
+        self.with(directory, |shares, _| {
+            let share = find(shares, &p.share_id)?;
+            let request =
+                share.requests.iter_mut().find(|r| r.account == account).ok_or("share.unknown")?;
+            let changed = request.state != RequestState::Declined;
+            request.state = RequestState::Declined;
+            let answer = json!({"share_id": share.share_id, "account": account,
+                "state": RequestState::Declined});
+            Ok((answer, changed))
+        })
+    }
+
     /// Removes an invited account: it joins no more, and every guest it joined as is kicked (its
     /// connections close at the next `settle`, and the room hears each kick).
     fn uninvite(&self, directory: Option<&Path>, p: &Uninvite) -> Result<Value, &'static str> {
@@ -1216,11 +1418,15 @@ impl LinkShares {
             }
         }
         self.note_ended(&start, shares);
-        if changed && let Some(Err(error)) = self.save(directory, shares) {
+        let chats = changed_chats(&start, shares, self.now());
+        let unsaved =
+            if changed { self.save(directory, shares).and_then(Result::err) } else { None };
+        drop(slot);
+        if let Some(error) = unsaved {
             eprintln!("cmux-tui: ended link shares not written, retrying: {error}");
-            drop(slot);
             self.save_later(Duration::from_secs(1));
         }
+        self.publish(chats);
     }
 
     /// Writes the shares again after `wait`, doubling up to a minute until a write succeeds
@@ -1314,6 +1520,21 @@ impl LinkShares {
     }
 }
 
+/// The chats whose shares read differently in `now` than in `start` (`-list`'s view at `at`: a
+/// share made, ended or dropped, an invite, an uninvite, a join, a kick; a room's own bookkeeping
+/// is not shown, so it changes nothing), each once.
+fn changed_chats(start: &[LinkShare], now: &[LinkShare], at: u64) -> BTreeSet<String> {
+    if start == now {
+        return BTreeSet::new();
+    }
+    let same = |a: &LinkShare, others: &[LinkShare]| {
+        others.iter().any(|b| b.share_id == a.share_id && b.shown(at) == a.shown(at))
+    };
+    let made_or_changed = now.iter().filter(|share| !same(share, start));
+    let dropped = start.iter().filter(|was| !now.iter().any(|s| s.share_id == was.share_id));
+    made_or_changed.chain(dropped).map(|share| share.session.clone()).collect()
+}
+
 /// The agent chat `session` was closed or removed: its link shares close (design 4.2, "Closing
 /// the chat ends its shares"), their guests' connections end, and each room hears `end
 /// {reason: closed}` and its `DELETE`.
@@ -1400,7 +1621,12 @@ pub(super) fn handle(
 ) -> bool {
     let id = object.remove("id");
     object.remove("cmd");
-    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    // The owner's own connection: a same-user local one, or the owner's signed Native dial to
+    // their own Cloud machine (a Cloud chat's share, cloud multiplayer lane C). Redeem stays the
+    // room bridge's own (local).
+    let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
+    let native_owner = mux.is_native_agent_owner(client) && cmd != "agent-session-share-redeem";
+    if bound || !(local || native_owner) {
         return fail(writer, id, "share.not_trusted");
     }
     let shares = &mux.control_clients.agent_sessions.link_shares;
@@ -1445,6 +1671,12 @@ pub(super) fn handle(
             .and_then(|p: open::InviteChat| open::invite_chat(mux, shares, directory, p)),
         "agent-session-share-uninvite" => {
             parse(params).and_then(|p: Uninvite| shares.uninvite(directory, &p))
+        }
+        "agent-session-share-request-approve" => {
+            parse(params).and_then(|p: Approve| shares.approve_request(directory, &p))
+        }
+        "agent-session-share-request-decline" => {
+            parse(params).and_then(|p: Uninvite| shares.decline_request(directory, &p))
         }
         // A share link the app was handed: the page to open in its web view, signed in when it may be.
         "agent-session-share-open-link" => {
@@ -1603,3 +1835,10 @@ mod invite_chat_tests;
 #[cfg(test)]
 #[path = "agent_session_shares_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_events_tests.rs"]
+mod event_tests;
+#[cfg(test)]
+#[path = "agent_session_share_request_tests.rs"]
+mod request_tests;

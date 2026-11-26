@@ -31,6 +31,7 @@
 
 use super::{Hub, PromptOptions};
 use crate::rpc::RpcError;
+use cmux_json::JsonGet as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -146,15 +147,12 @@ pub(crate) fn brief_text(row: &Value) -> String {
 /// The card's text: the result as the giver reads it, and who ended the task when its lane
 /// (named `lane`) did not.
 fn card_text(row: &Value, result: &Value, lane: &str) -> String {
-    fn field<'a>(v: &'a Value, key: &str) -> &'a str {
-        v.get(key).and_then(Value::as_str).unwrap_or_default()
-    }
     let mut text = format!(
         "Task {} \"{}\" {}: {}",
-        field(row, "briefId"),
-        field(row, "title"),
-        field(result, "state"),
-        field(result, "summary"),
+        row.get_str("briefId").unwrap_or_default(),
+        row.get_str("title").unwrap_or_default(),
+        result.get_str("state").unwrap_or_default(),
+        result.get_str("summary").unwrap_or_default(),
     );
     for (key, label) in [("prs", "PR"), ("shas", "SHA")] {
         for item in result[key].as_array().into_iter().flatten().filter_map(Value::as_str) {
@@ -164,7 +162,7 @@ fn card_text(row: &Value, result: &Value, lane: &str) -> String {
     if let Some(why) = result.get("why").and_then(Value::as_str) {
         text.push_str(&format!("\nWhy: {why}"));
     }
-    let by = field(result, "by");
+    let by = result.get_str("by").unwrap_or_default();
     if !by.is_empty() && by != lane {
         text.push_str(&format!("\nEnded by: {by}"));
     }
@@ -205,6 +203,10 @@ impl Hub {
             prompt_id: Some(format!("task-result-{id}-{}", result["at"])),
             resend: true,
             provenance: Some(provenance),
+            // The lane's message, as its report is (`lane_reports.rs`): an idle giver's turn
+            // gathers the ones after it, and a cold giver's waits for its batch (`cold_wake.rs`).
+            agent: Some(lane_name.clone()),
+            class: Some(crate::prompt_class::PromptClass::Result),
             // Accepted, or a duplicate of one accepted before: an orphan card is no longer owed.
             on_accepted: Some(Box::new(move |_| hub.card_sent(&card.0, &card.1))),
             ..PromptOptions::default()
@@ -286,7 +288,7 @@ impl Hub {
         // The start's pass runs before the hub is handed out: a card a crash left owed.
         self.send_owed_cards(true);
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("orphan-cards", async move {
             loop {
                 match events.recv().await {
                     Ok(ev) => {
@@ -373,41 +375,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_result_is_one_checked_line_with_its_refs() {
-        let ok = json!({"summary": " Merged ", "prs": ["https://github.com/o/r/pull/1"], "shas": ["abc1234"]});
-        let result = super::result(&ok, "done", "lane").expect("a done result");
-        assert_eq!(result["summary"], "Merged");
-        assert_eq!(result["prs"], json!(["https://github.com/o/r/pull/1"]));
-        assert_eq!(result["by"], "lane");
-        for bad in [
-            json!({}),
-            json!({"summary": "two\nlines"}),
-            json!({"summary": "x", "prs": ["github.com/o/r/pull/1"]}),
-            json!({"summary": "x", "prs": "https://github.com/o/r/pull/1"}),
-            json!({"summary": "x", "shas": ["abc12"]}),
-            json!({"summary": "x", "shas": ["not-a-sha"]}),
-        ] {
-            assert!(super::result(&bad, "done", "lane").is_err(), "{bad}");
-        }
-        // A blocked or failed task says why.
-        assert!(super::result(&json!({"summary": "x"}), "blocked", "lane").is_err());
-        let blocked = super::result(&json!({"summary": "x", "why": "CI is down"}), "blocked", "l");
-        assert_eq!(blocked.expect("blocked")["why"], "CI is down");
-    }
-
-    #[test]
-    fn the_same_call_again_is_the_same_result() {
-        let params = json!({"summary": "Merged", "shas": ["abc1234"]});
-        let first = result(&params, "done", "lane").unwrap();
-        let again = result(&params, "done", "someone").unwrap();
-        assert!(same_result(&first, &again));
-        let failed = json!({"summary": "Merged", "shas": ["abc1234"], "why": "reverted"});
-        assert!(!same_result(&first, &result(&failed, "failed", "lane").unwrap()));
-        let other = result(&json!({"summary": "Merged too"}), "done", "lane").unwrap();
-        assert!(!same_result(&first, &other));
-    }
-}
+#[path = "tasks_tests.rs"]
+mod tests;

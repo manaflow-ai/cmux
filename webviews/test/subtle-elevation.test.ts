@@ -16,12 +16,17 @@ import path from "node:path";
 
 const source = path.resolve(import.meta.dir, "../src");
 
+// Sorted: a token's first definition must not depend on the file system's directory order (ext4
+// hands composerClimbs.css before composerStates.css on some runners and after it on others).
 const sheets = (dir: string): string[] =>
-  fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const file = path.join(dir, entry.name);
-    if (entry.isDirectory()) return sheets(file);
-    return entry.name.endsWith(".css") ? [file] : [];
-  });
+  fs
+    .readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .flatMap((entry) => {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sheets(file);
+      return entry.name.endsWith(".css") ? [file] : [];
+    });
 
 // The OptChat Session Info is a standalone page bundled into optchat-chief (build-optchat-inspector-web.sh)
 // with no desktop layer, so the scale's tokens are not defined there.
@@ -95,9 +100,13 @@ const declarations = css.flatMap(({ file, text }) =>
   }),
 );
 
-// The definitions of each custom property, across every sheet.
+// The definitions of each custom property, across every sheet but the composer look climbs' arms,
+// which apply only off the shipped arm (composerClimbs.css); a token's first definition is its
+// shipped one.
+const CLIMB_ARMS = ["agent-session/acpmux/composerClimbs.css"];
 const definitions = new Map<string, string[]>();
-for (const { property, value } of declarations) {
+for (const { file, property, value } of declarations) {
+  if (CLIMB_ARMS.includes(file)) continue;
   if (property.startsWith("--")) definitions.set(property, [...(definitions.get(property) ?? []), value]);
 }
 
@@ -206,7 +215,11 @@ describe("one subtle elevation scale", () => {
   test("no filter drop-shadow blurs past the scale", () => {
     const filters = css.flatMap(({ file, text }) =>
       [...text.matchAll(/drop-shadow\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)]
-        .filter((match) => (lengths(match[1])[2] ?? 0) > MAX_BLUR || !(alpha(match[1]) <= MAX_ALPHA))
+        .filter((match) => {
+          // `drop-shadow(var(--elevation-2))` casts the token: check what it resolves to.
+          const drops = tokenCall(match[1].trim()) ? blurredDrops(match[1].trim()) : [match[1]];
+          return drops.some((drop) => (lengths(drop)[2] ?? 0) > MAX_BLUR || !(alpha(drop) <= MAX_ALPHA));
+        })
         .map((match) => `${file}: ${match[0]}`),
     );
     expect(filters).toEqual([]);
@@ -241,7 +254,8 @@ describe("one subtle elevation scale", () => {
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",
       "--elevation-2",
     ],
-    ["agent-session/acpmux/newtab/screen.css", ".nt-box", "--elevation-1"],
+    // New Tab's box: the popups' drop (--ui-popup-drop) since 2026-11-21, on its glass surface.
+    ["agent-session/acpmux/newtab/screen.css", ".nt-composer-surface", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-box", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-kind.is-selected", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],
@@ -267,10 +281,14 @@ describe("one subtle elevation scale", () => {
     layers(value).flatMap((layer) => {
       const call = tokenCall(layer);
       if (!call) return [];
-      const [, name] = call;
+      const [, name, fallback] = call;
       if ((ELEVATIONS as readonly string[]).includes(name)) return [name];
       if (seen.includes(name)) return [];
-      return (definitions.get(name) ?? []).slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
+      // A token no sheet defines (a look's --menu-shadow, set only by a look's stylesheet) casts its
+      // fallback, today's step.
+      const defined = definitions.get(name) ?? [];
+      if (!defined.length) return fallback ? steps(fallback, seen) : [];
+      return defined.slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
     });
 
   for (const [file, selector, token] of surfaces) {

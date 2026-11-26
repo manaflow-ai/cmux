@@ -85,9 +85,14 @@ export const unavailable = (cause?: unknown): ServiceUnavailable => {
 };
 
 /** The request conflicts with the resource's current state (for example, starting a VM that is being deleted). */
+/** Machine-readable reasons a 409 can carry; most conflicts carry none. */
+export const ConflictCode = Schema.Literal("mesh.device.intent_revoked").annotations({
+  description: "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.",
+});
+
 export class Conflict extends Schema.TaggedError<Conflict>()(
   "Conflict",
-  { message: Schema.String, ...CreationRecovery },
+  { message: Schema.String, code: Schema.optional(ConflictCode), ...CreationRecovery },
   HttpApiSchema.annotations({ status: 409 }),
 ) {}
 
@@ -97,6 +102,35 @@ export class PaymentRequired extends Schema.TaggedError<PaymentRequired>()(
   { message: Schema.String },
   HttpApiSchema.annotations({ status: 402 }),
 ) {}
+
+/** Which limit a 429 hit. The set grows (RFD 0016 added team caps): clients keep unfamiliar names. */
+const QUOTA_BUDGETS = [
+  "snapshots",
+  "vms",
+  "rate",
+  "capacity",
+  // Mesh experiment (cx-0op, DESIGN.md 7.1).
+  "mesh.perTenant",
+  "device.perMesh",
+  "firewallRule.perMesh",
+  "firewallRule.perResource",
+  "firewallRule.account",
+  "aclApply.perMeshPerMinute",
+  "enrollmentCode.perMeshPerHour",
+  "address.perDevice",
+  // An agent key's own budget: its live VMs, and their estimated USD per hour.
+  "agent_vms",
+  "agent_usd_per_hour",
+  // A team key's optional caps (RFD 0016): VMs running at once, and estimated spend this UTC day and month.
+  "agent_running_vms",
+  "agent_usd_per_day",
+  "agent_usd_per_month",
+] as const;
+
+const QuotaBudget = Schema.Literal(...QUOTA_BUDGETS).annotations({
+  description: "Which limit was reached. Clients must preserve unfamiliar names: new limits are added over time.",
+  jsonSchema: { type: "string", "x-extensible-enum": QUOTA_BUDGETS },
+});
 
 /** A tenant quota or rate limit was reached. */
 export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
@@ -112,26 +146,7 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
      * mesh, firewall rules per mesh or per named resource, ACL applies per
      * mesh per minute, address changes per device) or the platform account's firewall rule limit.
      */
-    budget: Schema.optional(
-      Schema.Literal(
-        "snapshots",
-        "vms",
-        "rate",
-        "capacity",
-        // Mesh experiment (cx-0op, DESIGN.md 7.1).
-        "mesh.perTenant",
-        "device.perMesh",
-        "firewallRule.perMesh",
-        "firewallRule.perResource",
-        "firewallRule.account",
-        "aclApply.perMeshPerMinute",
-        "enrollmentCode.perMeshPerHour",
-        "address.perDevice",
-        // An agent key's own budget: its live VMs, and their estimated USD per hour.
-        "agent_vms",
-        "agent_usd_per_hour",
-      ),
-    ),
+    budget: Schema.optional(QuotaBudget),
   },
   HttpApiSchema.annotations({ status: 429 }),
 ) {}

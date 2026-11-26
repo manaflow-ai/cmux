@@ -8,7 +8,9 @@
 #
 # Rule sets:
 #   everywhere: waits, sleeps, sync hops to main, raw locks, nested run-loop
-#               spinning, synchronous XPC, blocking FileHandle reads, dlopen
+#               spinning, synchronous XPC, blocking FileHandle reads, pipe writes
+#               on the caller's thread (PipeFeed; a write end under another name
+#               in the same file too), dlopen
 #               (dyld's loader lock), whole-file code signature validation,
 #               unbounded AsyncStream buffers, and deadlines raced inside a
 #               task group (the group waits for a loser that ignores
@@ -66,6 +68,18 @@
 #               Swift cannot catch, which aborts the app (cmuxterm-hq#4753);
 #               use CmuxNextCompat's `handle.readReady()`. A reviewed
 #               exception carries `// pipe-read-allow: <reason>`.
+#   caller-isolated blocking (scripts/cmux-next/caller_isolation.py): a blocking
+#               call (the everywhere rules, raw FileHandle reads and writes,
+#               Process run and wait, CmuxNextCompat's `blocking*` seams) in an
+#               async function that is not `@concurrent` and not an actor's or
+#               another global actor's. Under NonisolatedNonsendingByDefault it
+#               runs on its caller's actor: awaited from the main actor, on the
+#               main thread (ProcessRunner's 391 s stdin write, 2026-11-09). Mark
+#               it `@concurrent` or move the call into `work.run(_, mayBlock:)`;
+#               a reviewed exception carries `// caller-isolation-allow: <reason>`.
+#               caller-isolated-blocking-pending.json lists the files that had
+#               hits when the rule landed, with their counts (shrink only: more
+#               hits fail, fewer print a note to lower the count).
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
 #               generic-class deinit, task-local, workspace-open and pipe-read
 #               rules; CI blocks on it.
@@ -75,12 +89,22 @@
 #               and an isolated deinit run inline there makes the Swift 6.2
 #               runtime free() a marker its global task allocator made (cx-bpcj).
 #
+#   closure-holding locks (#40144): no `withLock` on a Mutex or
+#               OSAllocatedUnfairLock whose value is a closure, an optional
+#               one or a tuple holding one (each call wraps the stored closure
+#               in two more thunks; the watchdog's onStall grew 74,661 frames
+#               deep and overflowed the main thread's stack). Use `load()` /
+#               `store(_:)` or keep the closure in a struct
+#               (scripts/cmux-next/check-closure-mutex.py; also in crash-class).
+#
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 - "$root" "$scripts_dir/check-main-actor-work.py" "$scripts_dir/swift_scope.py" <<'PY'
+exec python3 - "$root" "$scripts_dir/check-main-actor-work.py" "$scripts_dir/swift_scope.py" \
+    "$scripts_dir/caller_isolation.py" "$scripts_dir/caller-isolated-blocking-pending.json" <<'PY'
 import importlib.util
+import json
 import os
 import re
 import sys
@@ -97,6 +121,16 @@ _spec = importlib.util.spec_from_file_location("cmux_next_swift_scope", sys.argv
 swift_scope = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = swift_scope
 _spec.loader.exec_module(swift_scope)
+# The caller-isolated blocking rule (see the header) and its shrink-only pending counts.
+_spec = importlib.util.spec_from_file_location("cmux_next_caller_isolation", sys.argv[4])
+caller_isolation = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(caller_isolation)
+# CHECK_CONCURRENCY_CALLER_PENDING names another list (tests/test_check_concurrency_caller_isolated.py).
+CALLER_PENDING_PATH = os.environ.get("CHECK_CONCURRENCY_CALLER_PENDING") or sys.argv[5]
+CALLER_PENDING = {}
+if os.path.exists(CALLER_PENDING_PATH):
+    with open(CALLER_PENDING_PATH, encoding="utf-8") as handle:
+        CALLER_PENDING = json.load(handle)["files"]
 sources = os.path.join(root, "Sources")
 
 # Targets built with `.defaultIsolation(MainActor.self)`: every target whose
@@ -114,7 +148,9 @@ TARGETS = package_targets(root)
 
 EVERYWHERE = [
     ("DispatchQueue.main.sync", r"DispatchQueue\.main\.sync\b"),
-    ("blocking wait (semaphore/group/condition)", r"\.wait\((timeout:|wallTimeout:|until:)?[^)]*\)"),
+    # `.wait(owner:` is CmuxNextWakeups' Backoff: an awaited clock sleep, the very primitive the
+    # sleep rule's hint names, never a blocking wait (FreeTierAttestProvider needed an allow for it).
+    ("blocking wait (semaphore/group/condition)", r"\.wait\((?!owner:)(timeout:|wallTimeout:|until:)?[^)]*\)"),
     ("DispatchSemaphore", r"\bDispatchSemaphore\("),
     ("DispatchGroup (wait-capable)", r"\bDispatchGroup\(\)"),
     ("Thread.sleep", r"\bThread\.sleep\b"),
@@ -127,6 +163,11 @@ EVERYWHERE = [
     ("nested run loop", r"\bCFRunLoopRunInMode\(|\bRunLoop\.(current|main)\.run\(|\.run\(mode:[^)]*before:"),
     ("synchronous XPC", r"synchronousRemoteObjectProxy"),
     ("blocking FileHandle read", r"readDataToEndOfFile\(|readData\(ofLength:|\.availableData\b|\breadToEnd\(\)"),
+    # A pipe write can wait however few the bytes: a child that never reads, or a fresh pipe when
+    # the kernel's pipe memory is used up. ProcessRunner wrote two tokens to a child's stdin on the
+    # main actor and the NIGHTLY main thread waited in write(2) for 391 s (2026-11-09). Feed stdin
+    # with CmuxNextCompat's PipeFeed (its own queue; writes and close in order).
+    ("pipe write on the caller's thread (use PipeFeed)", r"\bfileHandleForWriting\.write\("),
     ("infinite poll", r"\bpoll\([^)]*,\s*-1\s*\)"),
     # Both resolve every local name through DNS/mDNS and have blocked the
     # main thread for ~35 s. Use gethostname or SCDynamicStoreCopyComputerName.
@@ -224,6 +265,52 @@ TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
 WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
 WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
+# The pipe-write rule above, through another name: a write end bound to a name in the same file
+# (`let writer = pipe.fileHandleForWriting`, `$0.input = input.fileHandleForWriting`, then
+# `self.input = writer`) and written there (`writer.write(contentsOf:)`, `Darwin.write(writer.fileDescriptor, ...)`,
+# or a descriptor bound from it: `let fd = stdin.fileHandleForWriting.fileDescriptor; write(fd, ...)`).
+# PhoneProcess, ChildProcess and MobileHostProcess wrote stdin this way on the main actor after #39998
+# caught only the direct spelling (cmuxterm-hq#8608).
+PIPE_WRITE_RULE = "pipe write on the caller's thread (use PipeFeed)"
+PIPE_WRITE_HANDLE = re.compile(r"(?:\$0\.|\b)(\w+)\s*(?::\s*FileHandle\??\s*)?=\s*[\w.$\[\]?]*\bfileHandleForWriting\b(\.fileDescriptor\b)?(?!\s*\.(?!fileDescriptor\b))")
+PIPE_WRITE_REBIND = re.compile(r"(?:\$0\.|\b)(\w+)\s*=\s*(?:self\.|state\.|\$0\.)?(\w+)\s*(?:$|[,;)}])")
+
+
+def pipe_write_names(lines):
+    """The names a file binds to a pipe's write end, and to that end's descriptor, followed through plain rebinds."""
+    handles, descriptors = set(), set()
+    for line in lines:
+        if COMMENT_ONLY.match(line):
+            continue
+        for match in PIPE_WRITE_HANDLE.finditer(line):
+            (descriptors if match.group(2) else handles).add(match.group(1))
+    changed = True
+    while changed:
+        changed = False
+        for line in lines:
+            if COMMENT_ONLY.match(line):
+                continue
+            for match in PIPE_WRITE_REBIND.finditer(line):
+                name, source = match.group(1), match.group(2)
+                for names in (handles, descriptors):
+                    if source in names and name not in names and name != source:
+                        names.add(name)
+                        changed = True
+    handles.discard("fileHandleForWriting")
+    return handles, descriptors
+
+
+def pipe_write_alias_rule(lines):
+    handles, descriptors = pipe_write_names(lines)
+    patterns = []
+    if handles:
+        names = "|".join(sorted(map(re.escape, handles)))
+        patterns.append(rf"(?<![.\w])(?:self\.|state\.|\$0\.)?(?:{names})\??\.write\(")
+        patterns.append(rf"(?:^|[^.\w]|Darwin\.)write\(\s*(?:self\.|state\.|\$0\.)?(?:{names})\??\.fileDescriptor\b")
+    if descriptors:
+        names = "|".join(sorted(map(re.escape, descriptors)))
+        patterns.append(rf"(?:^|[^.\w]|Darwin\.)write\(\s*(?:self\.|state\.|\$0\.)?(?:{names})\s*,")
+    return re.compile("|".join(patterns)) if patterns else None
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 # A readability handler's closure literal, and `availableData` read inside one (cmuxterm-hq#4753).
 READABILITY_HANDLER = re.compile(r"\breadabilityHandler\s*=\s*\{")
@@ -413,6 +500,12 @@ for path, text in sorted(texts.items()):
     for name, numbers in swift_scope.generic_declarations(text).items():
         site = os.path.relpath(path, root).replace(os.sep, "/")
         generic_declared.setdefault(name, []).extend(f"{site}:{number}" for number in numbers)
+masked_texts = {path: main_actor_scope.mask_code(text) for path, text in texts.items()} if not ONLY else {}
+actors = caller_isolation.actor_names(masked_texts.values())
+# The everywhere rules that name a call that blocks the thread it runs on (not a lock, a timer or a buffer).
+CALLER_NOT_BLOCKING = ("DispatchSemaphore", "DispatchGroup", "NSLock", "os_unfair_lock", "asyncAfter", "unbounded")
+caller_blocking = [re.compile(rx) for name, rx in EVERYWHERE if not name.startswith(CALLER_NOT_BLOCKING)]
+caller_counts = {}
 for dirpath, _, files in os.walk(sources):
     for filename in sorted(files):
         if not filename.endswith(".swift"):
@@ -429,6 +522,19 @@ for dirpath, _, files in os.walk(sources):
             os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
         main_lines = main_actor_scope.main_actor_lines(lines, default_main)
         handler_code = readability_handler_code(lines)
+        pipe_alias = pipe_write_alias_rule(lines)
+        if not ONLY:
+            found = caller_isolation.hits(lines, masked_texts[path], default_main, caller_blocking, actors)
+            key = relative.replace(os.sep, "/")
+            if found:
+                caller_counts[key] = len(found)
+            if len(found) > CALLER_PENDING.get(key, 0):
+                for index in found:
+                    print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {caller_isolation.RULE}")
+                    print(f"    {lines[index].strip()}")
+                    failures += 1
+                if key in CALLER_PENDING:
+                    print(f"    ({key} is pending with {CALLER_PENDING[key]}; it now has {len(found)})")
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -452,6 +558,9 @@ for dirpath, _, files in os.walk(sources):
             hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
                      and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")
                      and not (name == SIGNATURE_RULE and relative.replace(os.sep, "/") in SIGNATURE_PENDING_FILES)]
+            if (pipe_alias is not None and PIPE_WRITE_RULE not in hits and pipe_alias.search(code)
+                    and not allowed(lines, index)):
+                hits.append(PIPE_WRITE_RULE)
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
@@ -511,11 +620,33 @@ for dirpath, _, files in ([] if ONLY else os.walk(tests)):
                 print(f"    {line.strip()}")
                 failures += 1
 
+# Closure-holding locks (#40144, a crash class: CHECK_CONCURRENCY_ONLY=crash-class runs it too): `withLock` on a lock
+# whose value is a closure, an optional one or a tuple holding one wraps the stored closure in two more thunks per
+# call, until calling it overflows the stack. check-closure-mutex.py is the one detector; it scans this package's
+# Sources and the shared packages'.
+if ONLY != "synchronization":
+    _spec = importlib.util.spec_from_file_location(
+        "check_closure_mutex", os.path.join(os.path.dirname(sys.argv[2]), "check-closure-mutex.py"))
+    check_closure_mutex = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(check_closure_mutex)
+    closure_roots = [root] + ([shared_root] if os.path.isdir(shared_root) else [])
+    for finding in check_closure_mutex.check(closure_roots):
+        print(f"concurrency: {finding}")
+        failures += 1
+
+# A pending file with fewer hits than its count (fixed, maybe by another PR) is a note, never a failure:
+# lower its count, or drop it at zero, in caller-isolated-blocking-pending.json.
+for key, count in sorted(CALLER_PENDING.items()) if not ONLY else []:
+    if caller_counts.get(key, 0) < count:
+        print(f"check-concurrency: note: {key} has {caller_counts.get(key, 0)} caller-isolated blocking call(s), "
+              f"pending lists {count}; lower it in scripts/cmux-next/caller-isolated-blocking-pending.json")
+
 if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "
           "`// concurrency-allow: <reason>` when it provably never runs on the main thread. "
           "Idle-wakeup hits need an event-driven wait or a reviewed `// wakeup-allow: <reason>` "
-          "(plans/cmux-next/idle-wakeups.md).")
+          "(plans/cmux-next/idle-wakeups.md). Caller-isolated hits need `@concurrent`, `work.run(_, mayBlock:)` "
+          "or a reviewed `// caller-isolation-allow: <reason>` (skills/cmux-architecture/references/main-thread-model.md).")
     sys.exit(1)
 print("check-concurrency: ok")
 PY

@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn screen_device_changed_event_preserves_identity_and_removal() {
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::ScreenDeviceChanged(Some(
+            "550e8400-e29b-41d4-a716-446655440000".into(),
+        ))),
+        json!({
+            "event": "screen-device-changed",
+            "screen_device_id": "550e8400-e29b-41d4-a716-446655440000",
+        })
+    );
+    assert_eq!(
+        subscribed_event_json(&MuxEvent::ScreenDeviceChanged(None)),
+        json!({
+            "event": "screen-device-changed",
+            "screen_device_id": null,
+        })
+    );
+}
+
+#[test]
 fn agent_presence_changed_event_carries_the_target_and_clears_with_nulls() {
     let presence = crate::AgentPresence {
         activity: crate::AgentActivity::Reading,
@@ -156,6 +176,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
     assert_eq!(agents.len(), 1, "{listed}");
     assert_eq!(agents[0]["agent"], "claude", "{listed}");
     assert_eq!(agents[0]["agent_session_id"], "claude-session-1", "{listed}");
+    // cmux#49392: the terminal's public id, by which the app finds every tab that shows it.
+    assert_eq!(agents[0]["terminal_id"], terminal_id.as_str(), "{listed}");
 
     let changed = events
         .try_iter()
@@ -163,6 +185,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
         .find(|event| event["event"] == "agent-changed")
         .expect("the hook publishes agent-changed");
     assert_eq!(changed["agent_session_id"], "claude-session-1", "{changed}");
+    assert_eq!(changed["terminal_id"], terminal_id.as_str(), "{changed}");
+    assert_eq!(changed["surface"], agents[0]["surface"], "{changed}");
 }
 
 /// Done-until-seen: a finished turn lists as `status: done` (the roster
@@ -204,4 +228,39 @@ fn agent_status_done_until_seen_survives_reads_and_clears_on_ack() {
 
     hook("UserPromptSubmit", "done-4");
     assert_eq!(listed(), pair("working", "working"));
+}
+#[test]
+fn a_revisioned_delta_carries_its_registry_event_and_reads_no_registry_to_send() {
+    let mux = test_mux();
+    let events = mux.subscribe();
+    let mutation = WorkspaceMutation::daemon_local("delta-origin-test");
+    let placement = mux
+        .create_empty_workspace_with_mutation(Some("w".into()), None, None, None, &mutation, false)
+        .unwrap();
+    let delta = loop {
+        match events.recv_timeout(Duration::from_secs(5)).unwrap() {
+            MuxEvent::TreeDelta(delta) if delta.workspace_revision.is_some() => break delta,
+            _ => {}
+        }
+    };
+    assert_eq!(delta.workspace_revision, Some(placement.revision));
+    let event = mux.workspace_registry_event(placement.revision).unwrap().unwrap();
+
+    // A subscriber builds the line while a commit holds the registry.
+    let registry = mux.workspace_registry.lock().unwrap();
+    let (built_tx, built_rx) = std::sync::mpsc::channel();
+    let builder_mux = mux.clone();
+    let builder = std::thread::spawn(move || {
+        built_tx.send(tree_delta_json(&delta, &builder_mux)).unwrap();
+    });
+    let built = built_rx.recv_timeout(Duration::from_secs(2));
+    drop(registry);
+    builder.join().unwrap();
+    let line = built.expect("the delta line waited for the registry lock");
+
+    assert_eq!(line["event"], "workspace-added");
+    assert_eq!(line["workspace_revision"], json!(placement.revision));
+    assert_eq!(line["origin"], json!(event.origin));
+    assert_eq!(line["mutation_id"], json!(event.mutation_id));
+    assert_eq!(line["mutation_id"], json!(mutation.id));
 }

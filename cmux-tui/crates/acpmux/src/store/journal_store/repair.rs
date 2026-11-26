@@ -93,7 +93,7 @@ impl Replay {
                 self.chats.entry(chat.to_owned()).or_default().clear();
                 self.metas.remove(chat);
             }
-            super::meta::KIND_META => self.take_meta(&record)?,
+            super::meta::KIND_META | super::meta::KIND_META_PATCH => self.take_meta(&record)?,
             KIND_FROZEN => self.frozen = true,
             other => return Err(format!("unknown event journal record kind {other}")),
         }
@@ -176,6 +176,7 @@ impl Inner {
         // repair journaled again): an upper bound for each.
         let newest = order.applied;
         for chat in replayed {
+            order.log_lsns.entry(chat.clone()).or_default().bound(newest);
             order.log_lsn.insert(chat, newest);
         }
         Ok(())
@@ -209,7 +210,7 @@ impl Inner {
     ) -> std::result::Result<Repaired, RepairError> {
         let keep_journaled = || journaled.iter().map(|(_, line)| line.clone()).collect::<Vec<_>>();
         let chat_error = |error: anyhow::Error| RepairError::Chat { error, keep: keep_journaled() };
-        match std::fs::symlink_metadata(self.local.dir(id)) {
+        match crate::home_fs::symlink_metadata(self.local.dir(id)) {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Repaired::Gone);
@@ -316,6 +317,12 @@ impl Inner {
                 range.get_or_insert_with(|| (piece.offset, Vec::new())).1.extend_from_slice(line);
             }
             let Some((offset, bytes)) = range else { continue };
+            // Never into a cold segment's archive (`store/cold_segments.rs`): its bytes are the
+            // ones just read through it, synced when it went cold, which only a checkpoint that
+            // covered them allows. Nothing is written there.
+            if super::super::cold_segments::is_cold(&path) {
+                continue;
+            }
             #[cfg(test)]
             if FAIL_NEXT_WRITE_BACK.with(|fail| fail.replace(false)) {
                 anyhow::bail!("a failed write-back of {} (a test)", path.display());
@@ -390,6 +397,15 @@ impl Inner {
     /// again: else a crash could bring a removed segment back beside them.
     fn cut_at(&self, id: &str, segment: u32, offset: u64) -> Result<()> {
         let segments = self.local.segments(id)?;
+        // A cut never reaches into a cold segment (`store/cold_segments.rs`): it went cold only
+        // once a checkpoint covered it, so no replay is past it; refused, the chat's lines stay
+        // in its repair file and nothing is cut.
+        if let Some((index, _)) = segments
+            .iter()
+            .find(|(index, path)| *index >= segment && super::super::cold_segments::is_cold(path))
+        {
+            anyhow::bail!("a cut of chat {id}'s log reaches cold segment {index:06}: refused");
+        }
         for (index, _) in segments.iter().filter(|(index, _)| *index >= segment) {
             self.forget_index_copy(id, *index)?;
         }
@@ -397,7 +413,8 @@ impl Inner {
         for (index, path) in segments.iter().rev() {
             if *index > segment {
                 crate::config::refuse_lost_home(path)?;
-                std::fs::remove_file(path).with_context(|| format!("remove {}", path.display()))?;
+                crate::home_fs::remove_file(path)
+                    .with_context(|| format!("remove {}", path.display()))?;
             } else if *index == segment {
                 truncate_private(path, offset)?;
             }
@@ -408,7 +425,7 @@ impl Inner {
     fn forget_index_copy(&self, id: &str, index: u32) -> Result<()> {
         let copy = self.local.dir(id).join(kind_index::DIR).join(format!("{index:06}.ndjson"));
         crate::config::refuse_lost_home(&copy)?;
-        match std::fs::remove_file(&copy) {
+        match crate::home_fs::remove_file(&copy) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => {
@@ -465,13 +482,12 @@ impl Inner {
         let rest = rest.strip_suffix(".ndjson").unwrap_or(rest);
         let tmp = dir.join(format!("{name}.{rest}{KEPT_TEMPORARY}{}-{n}", std::process::id()));
         let written = (|| -> Result<()> {
-            let mut options = OpenOptions::new();
-            options.write(true).create(true).truncate(true);
+            // Through the folder this daemon holds (`home_fs`): a home replaced after the check
+            // never gets the file.
+            let mut options = crate::home_fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true).mode(0o600);
             #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-            }
+            options.custom_flags(libc::O_NOFOLLOW);
             let mut file =
                 options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
             if let Some(header) = header {
@@ -486,12 +502,12 @@ impl Inner {
                 .map_err(SyncFailed)
                 .with_context(|| format!("sync {}", tmp.display()))?;
             drop(file);
-            std::fs::rename(&tmp, &path)
+            crate::home_fs::rename(&tmp, &path)
                 .with_context(|| format!("rename to {}", path.display()))?;
             sync_directory(&dir)
         })();
         if written.is_err() {
-            let _ = std::fs::remove_file(&tmp);
+            let _ = crate::home_fs::remove_file(&tmp);
         }
         written.map(|()| path)
     }
@@ -515,7 +531,7 @@ impl Inner {
             let path = entry.path();
             if name.contains(KEPT_TEMPORARY) {
                 if let Err(error) = crate::config::refuse_lost_home(&path)
-                    .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                    .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
                 {
                     tracing::warn!("remove {}: {error:#}", path.display());
                 }
@@ -550,7 +566,7 @@ impl Inner {
             self.order.lock_or_recover().rewrite.insert(chat.clone());
             replay.chats.entry(chat).or_default().extend(lines);
             match crate::config::refuse_lost_home(&path)
-                .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
             {
                 Ok(()) => removed = true,
                 Err(error) => tracing::warn!("remove {}: {error:#}", path.display()),
@@ -630,7 +646,7 @@ impl Inner {
     /// Removes a repair file (`Store::delete` of its chat) and syncs its folder.
     pub(super) fn remove_repair(&self, path: &Path) -> Result<()> {
         crate::config::refuse_lost_home(path)?;
-        match std::fs::remove_file(path) {
+        match crate::home_fs::remove_file(path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
@@ -646,7 +662,8 @@ impl Inner {
 /// Reads `path` (segment `segment`) from `from` into `out`, piece by piece.
 fn read_pieces(path: &Path, segment: u32, from: u64, out: &mut Vec<Piece>) -> Result<()> {
     use std::io::{Seek, SeekFrom};
-    let mut file = crate::config::private_state_file(path)?;
+    // A cold segment reads back through its archive (`store/cold_segments.rs`).
+    let mut file = super::super::cold_segments::open_segment(path)?;
     file.seek(SeekFrom::Start(from))?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
@@ -693,7 +710,7 @@ fn piece_seq(line: &[u8]) -> Option<u64> {
 
 /// Syncs the folder at `path`; nothing when it is not there.
 fn sync_if_there(path: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(path) {
+    match crate::home_fs::symlink_metadata(path) {
         Ok(_) => log_sync::sync_directory_ordered(path),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::Error::from(error).context(format!("stat {}", path.display()))),
@@ -703,7 +720,7 @@ fn sync_if_there(path: &Path) -> Result<()> {
 /// The offset right after the last whole line of `path` whose `seq` reads and is below
 /// `from_seq`; 0 when there is none.
 fn end_of_last_line_before(path: &Path, from_seq: u64) -> Result<u64> {
-    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    let mut reader = BufReader::new(super::super::cold_segments::open_segment(path)?);
     let mut line = Vec::new();
     let (mut offset, mut keep) = (0u64, 0u64);
     loop {
@@ -725,13 +742,11 @@ fn end_of_last_line_before(path: &Path, from_seq: u64) -> Result<u64> {
 /// Shortens the log segment at `path` (owner-only, never through a symlink) and syncs it.
 fn truncate_private(path: &Path, len: u64) -> Result<()> {
     crate::config::refuse_lost_home(path)?;
-    let mut options = OpenOptions::new();
+    // Through the folder this daemon holds (`home_fs`), never the new home's segment.
+    let mut options = crate::home_fs::OpenOptions::new();
     options.write(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     let file = options.open(path).with_context(|| format!("open {}", path.display()))?;
     file.set_len(len).with_context(|| format!("shorten {}", path.display()))?;
     #[cfg(all(test, unix))]
@@ -745,10 +760,10 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
 /// link, never under a lost home, and only an owner-only file of this user (the checks of
 /// `config::private_state_file`, which every read of a segment makes).
 #[cfg(unix)]
-pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
+pub(in crate::store) fn open_segment_to_write(path: &Path) -> Result<File> {
     crate::config::refuse_lost_home(path)?;
-    let file = OpenOptions::new()
+    // Through the folder this daemon holds (`home_fs`), never the new home's segment.
+    let file = crate::home_fs::OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
@@ -758,7 +773,7 @@ pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
 }
 
 #[cfg(windows)]
-pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
+pub(in crate::store) fn open_segment_to_write(path: &Path) -> Result<File> {
     crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_rw_existing(path)?)
 }

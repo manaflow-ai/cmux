@@ -21,19 +21,40 @@ public struct AppKeyState {
 }
 
 /// A view whose press acts without moving the key or the focus: a split divider, a column or row edge, the
-/// sidebar's resize edge. Chrome's splitters (views' `ResizeArea`, the DevTools and side panel splits) are not
-/// focusable: a press there starts the drag, and the focused web content keeps the focus.
+/// sidebar's resize edge, and a sidebar row or rail mark whose press shows another workspace. Chrome's splitters
+/// (views' `ResizeArea`, the DevTools and side panel splits) are not focusable: a press there starts the drag, and the
+/// focused web content keeps the focus. Chrome's tab strip and its page are in one `NSWindow`, which stays key through
+/// a tab click: the click only shows the other tab's view (`RenderWidgetHostViewMac::ShowWithVisibility`,
+/// content/browser/renderer_host/render_widget_host_view_mac.mm).
 @MainActor
-public protocol KeyNeutralPressTarget: NSView {}
+public protocol KeyNeutralPressTarget: NSView {
+    /// Whether `press` acts without moving the key. A view all of whose presses do (a divider) keeps the default.
+    ///
+    /// - Parameter press: The left mouse-down, not delivered yet.
+    /// - Parameter hit: The view under the press: this view or a view inside it.
+    /// - Returns: `true` when the press goes straight to this view and no window changes key; `false` when the press
+    ///   takes the window's usual path (``FirstClickPolicy``, then AppKit).
+    func keepsKey(for press: NSEvent, on hit: NSView) -> Bool
+}
+
+public extension KeyNeutralPressTarget {
+    /// Every press on this view acts without moving the key.
+    func keepsKey(for press: NSEvent, on hit: NSView) -> Bool { true }
+}
 
 /// What a window does with a press before AppKit gets it, for a window's `sendEvent(_:)`.
 ///
-/// A left press on a ``KeyNeutralPressTarget`` while a page of this window (a Chromium page, its DevTools or popup) holds
-/// the key goes straight to that view, and so do its drags and its release: nothing changes key, and the page keeps
-/// the focus. ``FirstClickPolicy`` made the window key before such a press; for a divider that key change was the
-/// press's whole cost: `-[NSThemeFrame _windowChangedKeyState]` redrew every control of the window, 101 view layouts
-/// and an 18.9 ms frame on the drag's first refresh (RESIZE P0 7, px-col-drag-2-s1r, cmux21 120 Hz). In Chrome the page
-/// and the splitter share one window, which stays key.
+/// A left press that a ``KeyNeutralPressTarget`` keeps the key for (``KeyNeutralPressTarget/keepsKey(for:on:)``), while a
+/// page of this window (a Chromium page, its DevTools or popup) holds the key, goes straight to that view, and so do
+/// its drags and its release: nothing changes key, and the page keeps the focus. ``FirstClickPolicy`` made the window
+/// key before such a press; for a divider that key change was the press's whole cost:
+/// `-[NSThemeFrame _windowChangedKeyState]` redrew every control of the window, 101 view layouts and an 18.9 ms frame on
+/// the drag's first refresh (RESIZE P0 7, px-col-drag-2-s1r, cmux21 120 Hz). For a sidebar row that shows another
+/// workspace it put the switch's frame 14.8 to 18.2 ms behind the same switch by its key at p50 (SPACE SWITCH 4, hold
+/// l1, aws-m4pro-8 120 Hz, 2 rounds: the press was 10.23 ms old when the switch started, against 2.7 to 3.0 ms with no
+/// key change, and the key change's layout and draw landed in the
+/// switch's frame); the switch gives the keyboard to the new workspace's content in the same turn, so the window was
+/// key for nothing. In Chrome the page, the splitter and the tab strip share one window, which stays key.
 ///
 /// Any other press while this window's Chromium page, a panel or no window holds the key acts at once
 /// (``FirstClickPolicy``): made key first, AppKit gives the press to the view under it instead of spending it on making
@@ -78,7 +99,8 @@ public final class WindowPressRouter {
         return false
     }
 
-    /// Gives a key-neutral press, its drags, force-click stages and release to the pressed view; `false` for any other event.
+    /// Gives a key-neutral press, its drags, force-click stages and release to the pressed view; `false` for any other event,
+    /// and for a press its view does not keep the key for.
     /// Once the router took a press it keeps every left drag, force-click stage and the release until that release,
     /// and gives them to the view only while it is still in `window`.
     private func routesKeyNeutral(_ event: NSEvent, in window: NSWindow, _ app: AppKeyState) -> Bool {
@@ -89,7 +111,8 @@ public final class WindowPressRouter {
             guard app.isActive, !app.isModal, !window.isKeyWindow, window.attachedSheet == nil, let keyWindow = app.keyWindow,
                   keyWindow !== window, keyWindow.sheetParent == nil, isPage(keyWindow, of: window),
                   let hit = window.contentView?.hitTest(event.locationInWindow),
-                  let view = sequence(first: hit, next: \.superview).first(where: { $0 is any KeyNeutralPressTarget }) else { return false }
+                  let view = sequence(first: hit, next: \.superview).first(where: { $0 is any KeyNeutralPressTarget }) as? any KeyNeutralPressTarget,
+                  view.keepsKey(for: event, on: hit) else { return false }
             pressed = view
             claimed = true
             view.mouseDown(with: event)

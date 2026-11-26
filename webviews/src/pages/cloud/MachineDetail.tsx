@@ -30,9 +30,13 @@ import {
   type MachineRow,
 } from "./model";
 import { CloudOps, type CloudPlan, type MigrationStatus } from "./ops";
+import { machineCapNote } from "./spendCap";
 import type { CloudStore } from "./store";
+import { canArchive, canKeep } from "./retention";
 import { L } from "./strings";
 import type { FileTransfer } from "./transfers";
+import { DiskHealthSummary } from "./DiskHealth";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 export interface DetailProps {
   store: CloudStore;
@@ -66,6 +70,7 @@ export function MachineDetailView({
   const classic = !!row.classic;
   const [renaming, setRenaming] = useState<string | null>(null);
   const busy = !changeable(row);
+  const kept = row.keep ?? !!machine.keep;
   const saveRename = () => {
     if (renaming !== null) void store.rename(machine.id, renaming);
     setRenaming(null);
@@ -80,6 +85,7 @@ export function MachineDetailView({
   };
   const now = useCostClock(costTicks(machine));
   const cost = costLine(machine, now, t, language);
+  const capNote = machineCapNote(machine, t, language);
   const memory = machine.size?.memory_mb ?? undefined;
   const choices = memoryChoices(plan);
   const idle = (row.idle !== undefined ? row.idle : machine.idle_policy?.idle_seconds) ?? 0;
@@ -109,6 +115,7 @@ export function MachineDetailView({
         {classic && <span className="cloud-badge cloud-classic-badge">{t(L.classic)}</span>}
         <span className="cloud-detail-status">
           {t(row.pending ? IntentLabel[row.pending] : StatusLabel[row.status])}
+          {!row.pending && capNote ? ` · ${capNote}` : ""}
         </span>
         <div className="cloud-detail-actions">
           {classic ? (
@@ -155,6 +162,33 @@ export function MachineDetailView({
                   {t(L.resume)}
                 </button>
               )}
+              {canKeep(machine) && (
+                // Kept shows at once on a toggle (a quick intent); the platform's record follows.
+                <WithFacts facts={[{ value: t(L.keepHint) }]}>
+                  {(facts) => (
+                    <button
+                      {...facts}
+                      type="button"
+                      className={`cloud-button cloud-machine-keep${kept ? " on" : ""}`}
+                      aria-pressed={kept}
+                      disabled={busy}
+                      onClick={() => void store.keep(machine.id, !kept)}
+                    >
+                      {t(kept ? L.kept : L.keep)}
+                    </button>
+                  )}
+                </WithFacts>
+              )}
+              {canArchive(machine) && (
+                <button
+                  type="button"
+                  className="cloud-button cloud-machine-archive-delete"
+                  disabled={busy}
+                  onClick={() => void store.archiveDelete(machine.id)}
+                >
+                  {t(L.archiveDelete)}
+                </button>
+              )}
               <button
                 type="button"
                 className="cloud-button destructive cloud-machine-delete"
@@ -195,6 +229,14 @@ export function MachineDetailView({
             </select>
           )}
         </dd>
+        {machine.disk_health && (
+          <>
+            <dt>{t(L.fieldDisk)}</dt>
+            <dd>
+              <DiskHealthSummary health={machine.disk_health} strings={strings} />
+            </dd>
+          </>
+        )}
         {cost && (
           <>
             <dt>{t(L.fieldCost)}</dt>

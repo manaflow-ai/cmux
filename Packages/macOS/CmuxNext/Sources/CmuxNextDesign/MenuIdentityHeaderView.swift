@@ -1,22 +1,33 @@
 public import AppKit
 
 /// The name-and-colors header of a right-click menu (Chrome's tab-group menu): a name field over a
-/// row of color swatches, on the menu's row grid (MenuMetrics): the field's box on the rows'
-/// highlight edges, the first swatch on their icon column. The app's `MenuIdentityHeader` builds it
-/// from a menu's rename and color rows.
+/// row of color swatches, on the menu's row grid (MenuMetrics). The swatch row spans the column of
+/// the separators and the rows' icons, its rings included; the field's box reaches 1 pt past that
+/// column on each side, its text 5 pt in (Lucas 2026-11-24, picked in a lab). Each part is one row
+/// high, so the header keeps the rows' padding. The app's
+/// `MenuIdentityHeader` builds it from a menu's rename and color rows.
 public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
     public let field: MenuNameField?
     public let strip: MenuSwatchStrip?
-    static let top: CGFloat = 6, fieldHeight: CGFloat = 24, gap: CGFloat = 4, minimumWidth: CGFloat = 240
-    /// The field's box spans the rows' highlight; the strip starts where its first swatch sits on the icon column.
-    static var fieldX: CGFloat { MenuMetrics.highlightInset }
-    static var stripX: CGFloat { MenuMetrics.iconX - MenuSwatchStrip.ringRoom }
+    /// `top`: the field's box as far from the menu's top edge as from its sides, 15 pt (the menu's own
+    /// 5 pt, then 10). `gap`: the swatches 14 pt under the box.
+    static let top: CGFloat = 10, fieldHeight: CGFloat = 24, gap: CGFloat = 9, minimumWidth: CGFloat = 240
+    /// The content column's distance from both edges: where the native separators and icons are.
+    /// AppKit draws a native row 1 pt in from a row view's frame (the menu's border; measured on
+    /// macOS 26: separators 16 pt from the window's edge), so the grid's inset gets that point too.
+    static let nativeRowOffset: CGFloat = 1
+    static var inset: CGFloat { MenuMetrics.separatorInset + nativeRowOffset }
+    /// The field's box: 1 pt past the column on each side, with its own corner radius.
+    static var boxInset: CGFloat { inset - 1 }
+    static let boxRadius: CGFloat = 6
+    /// The field's text as far into the box as a row's highlight sits from the menu's edge.
+    static var boxTextInset: CGFloat { MenuMetrics.highlightInset }
 
     public init(field: MenuNameField?, strip: MenuSwatchStrip?) {
         self.field = field
         self.strip = strip
         let height = Self.top + (field == nil ? 0 : Self.fieldHeight + Self.gap) + (strip == nil ? 0 : MenuSwatchStrip.height)
-        let width = max(Self.minimumWidth, Self.stripX + (strip?.naturalWidth ?? 0) + MenuMetrics.highlightInset)
+        let width = max(Self.minimumWidth, 2 * Self.inset + (strip?.naturalWidth ?? 0))
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         // The menu widens the header to its widest row.
         autoresizingMask = .width
@@ -30,20 +41,43 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
 
     public func adoptMenuScope(_ scope: ThemeScope) { strip?.adoptMenuScope(scope) }
 
+    /// A click on the box's padding, outside the text, goes to the field as a click on its text would
+    /// (after an arrow moved focus to the rows, the whole box takes it back).
+    public override func mouseDown(with event: NSEvent) {
+        guard let field, let window, fieldBox.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        FocusRoute(.person, "a click on the menu's name field box").moveKeyboard(in: window, to: field)
+    }
+
+    /// The field's box: a faint fill in the label's ink, so it reads in a light or dark menu.
+    public override func draw(_ dirtyRect: NSRect) {
+        guard field != nil else { return }
+        NSColor.labelColor.withAlphaComponent(0.07).setFill()
+        NSBezierPath(roundedRect: fieldBox, xRadius: Self.boxRadius, yRadius: Self.boxRadius).fill()
+    }
+
     public override func layout() {
         super.layout()
         layoutParts()
+    }
+
+    /// The field's box in the header's bounds: a row high, `boxInset` from the sides, under `top`.
+    public var fieldBox: NSRect {
+        NSRect(x: Self.boxInset, y: bounds.height - Self.top - Self.fieldHeight,
+               width: bounds.width - 2 * Self.boxInset, height: Self.fieldHeight)
     }
 
     private func layoutParts() {
         // Top down in a flipped sense: the field first, the swatches under it.
         var y = bounds.height - Self.top
         if let field {
-            y -= Self.fieldHeight
-            field.frame = NSRect(x: Self.fieldX, y: y, width: bounds.width - 2 * Self.fieldX, height: Self.fieldHeight)
-            y -= Self.gap
+            let box = fieldBox
+            // The text `boxTextInset` into the box; the field one line high, centered in the box.
+            let height = ceil(field.intrinsicContentSize.height)
+            let x = box.minX + Self.boxTextInset - field.textPadding
+            field.frame = NSRect(x: x, y: box.minY + floor((box.height - height) / 2), width: box.maxX - Self.boxTextInset - x, height: height)
+            y = box.minY - Self.gap
         }
-        strip?.frame = NSRect(x: Self.stripX, y: y - MenuSwatchStrip.height, width: bounds.width - Self.stripX - Self.fieldX, height: MenuSwatchStrip.height)
+        strip?.frame = NSRect(x: Self.inset, y: y - MenuSwatchStrip.height, width: bounds.width - 2 * Self.inset, height: MenuSwatchStrip.height)
     }
 
     public override func viewDidMoveToWindow() {
@@ -73,8 +107,13 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
         stringValue = name
         placeholderString = placeholder
         font = .menuFont(ofSize: NSFont.systemFontSize)
-        bezelStyle = .roundedBezel
-        isBezeled = true
+        // The header draws the box (concentric with the menu's corners); the field is the text alone.
+        isBezeled = false
+        isBordered = false
+        drawsBackground = false
+        // The field has focus for as long as the menu is open, so a ring says nothing, and it would
+        // stick out past the box. The caret and selection show focus.
+        focusRingType = .none
         lineBreakMode = .byTruncatingTail
         cell?.isScrollable = true
         delegate = self
@@ -83,6 +122,19 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError() }
+
+    /// The field editor that takes over while the name is edited paints its own background, which
+    /// covered the header's box with a darker band; it draws none here, so the box shows through.
+    public override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became, let editor = currentEditor() as? NSTextView { editor.drawsBackground = false }
+        return became
+    }
+
+    /// How far in from its frame the cell draws the text (AppKit's padding for a borderless field).
+    public var textPadding: CGFloat {
+        cell?.drawingRect(forBounds: NSRect(x: 0, y: 0, width: 100, height: 24)).minX ?? 0
+    }
 
     /// A new opening of the menu: the original name, not yet committed.
     public func reset() {
@@ -141,28 +193,30 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
     }
 }
 
-/// One row of color swatches; the current one is ringed in the label's ink, the hovered one in the
-/// menu scope's accent. VoiceOver offers each color as an action of the row. With a `clear` choice
-/// the row starts with a No Color swatch (an empty ring crossed by a slash, Lawrence 2026-10-22:
-/// "need to be able to remove all workspace colors").
+/// One row of color swatches, spread over the row's width (at least `gap` apart); the current one is
+/// ringed in the label's ink, the hovered one in the menu scope's accent. The swatches sit `ringRoom`
+/// in from the row's edges, so a ring, even the first swatch's, ends on the column. VoiceOver offers
+/// each color as an action of the row. With a `clear` choice the row starts with a No Color swatch
+/// (an empty ring crossed by a slash, Lawrence 2026-10-22: "need to be able to remove all workspace colors").
 public final class MenuSwatchStrip: NSView {
     private let choices: [NSMenuItem]
     /// Each choice's color; nil draws the scope's tertiary ink.
-    private let colors: [GroupColor?]
-    private let current: GroupColor?
+    let colors: [GroupColor?]
+    let current: GroupColor?
     /// The row that removes the color, drawn first as the No Color swatch; nil draws none.
     public let clearChoice: NSMenuItem?
     /// Whether the target has no color now: the No Color swatch is ringed.
-    private let clearIsCurrent: Bool
+    let clearIsCurrent: Bool
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?
-    static let diameter = MenuMetrics.iconSize, gap: CGFloat = 10, height: CGFloat = 30
-    /// Room before the first swatch for the hover and current rings (2.5 pt past the swatch).
+    /// One menu row high: a swatch has an icon's box, so it keeps an icon's room over and under it.
+    static let diameter = MenuMetrics.iconSize, gap: CGFloat = 10, height: CGFloat = 24
+    /// Room at each end of the row for the hover and current rings (2.5 pt past the swatch, 1.5 pt wide).
     public static let ringRoom: CGFloat = 3
 
     /// The No Color swatch's name (its VoiceOver action and tooltip).
-    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .module) }
+    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .localizedModule) }
 
     /// Every swatch in drawing order: the No Color one first when there is one.
     private var swatchCount: Int { choices.count + (clearChoice == nil ? 0 : 1) }
@@ -227,12 +281,23 @@ public final class MenuSwatchStrip: NSView {
         return performWithTheme { Palette.textTertiary }
     }
 
-    /// The swatches' rects, from the leading edge past the ring's reach. Read from the bounds each
+    /// The room between two swatches: the width spread evenly, so the last ring ends where the
+    /// separators do; never less than `gap`.
+    private var spacing: CGFloat {
+        guard swatchCount > 1 else { return Self.gap }
+        let free = bounds.width - 2 * Self.ringRoom - CGFloat(swatchCount) * Self.diameter
+        return max(Self.gap, free / CGFloat(swatchCount - 1))
+    }
+
+    /// The swatches' rects, `ringRoom` in from each edge. Read from the bounds each
     /// time: the header sets this view's frame by hand, so no layout pass is promised.
     private var swatches: [NSRect] {
-        (0..<swatchCount).map { index in
-            NSRect(x: Self.ringRoom + CGFloat(index) * (Self.diameter + Self.gap), y: (bounds.height - Self.diameter) / 2,
-                   width: Self.diameter, height: Self.diameter)
+        let pitch = Self.diameter + spacing
+        // On whole pixels: a spread pitch is often a fraction, and a swatch between pixels draws soft.
+        let scale = window?.backingScaleFactor ?? 2
+        return (0..<swatchCount).map { index in
+            let x = ((Self.ringRoom + CGFloat(index) * pitch) * scale).rounded() / scale
+            return NSRect(x: x, y: (bounds.height - Self.diameter) / 2, width: Self.diameter, height: Self.diameter)
         }
     }
 
@@ -273,8 +338,11 @@ public final class MenuSwatchStrip: NSView {
     }
 
     private func swatch(at event: NSEvent) -> Int? {
-        let point = convert(event.locationInWindow, from: nil)
-        return swatches.firstIndex { $0.insetBy(dx: -Self.gap / 2, dy: -6).contains(point) }
+        // The nearest swatch, from the drawn (pixel-snapped) rects, so no point between two is dead.
+        let point = convert(event.locationInWindow, from: nil), rects = swatches
+        guard let nearest = rects.indices.min(by: { abs(rects[$0].midX - point.x) < abs(rects[$1].midX - point.x) }) else { return nil }
+        let rect = rects[nearest], reach = (Self.diameter + spacing) / 2 + 1
+        return abs(rect.midX - point.x) <= reach && abs(rect.midY - point.y) <= Self.diameter / 2 + 5 ? nearest : nil
     }
 
     public override func mouseMoved(with event: NSEvent) { setHovered(swatch(at: event)) }
@@ -286,6 +354,12 @@ public final class MenuSwatchStrip: NSView {
         hovered = index
         needsDisplay = true
     }
+
+    /// The strip takes the press itself. NSView's default hands it up the responder chain to the menu's own
+    /// tracking, which then keeps the release, so `mouseUp` never ran and a click on a swatch did nothing (#39953).
+    public override func mouseDown(with event: NSEvent) { setHovered(swatch(at: event)) }
+
+    public override func mouseDragged(with event: NSEvent) { setHovered(swatch(at: event)) }
 
     public override func mouseUp(with event: NSEvent) {
         guard let index = swatch(at: event) else { return }

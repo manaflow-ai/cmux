@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-/// Options that take no value (`--listen-systemd`); each is stored as `"1"`.
-const FLAGS: &[&str] = &["listen-systemd"];
+/// Options that take no value (`--listen-systemd`, `--no-udp-link`); each is stored as `"1"`.
+const FLAGS: &[&str] = &["listen-systemd", "no-udp-link"];
 
 pub struct Opts {
     map: HashMap<String, String>,
@@ -34,8 +34,28 @@ impl Opts {
         self.map.get(key).is_some_and(|v| v == "1")
     }
 
+    /// A switch that is on by `default`: `--key 0` (or `false`, `off`) turns it off, any other
+    /// value turns it on.
+    #[cfg_attr(not(feature = "link"), allow(dead_code))] // `cmux-rd serve` (feature `link`)
+    pub fn flag_or(&self, key: &str, default: bool) -> bool {
+        match self.map.get(key).map(String::as_str) {
+            None => default,
+            Some("0" | "false" | "off") => false,
+            Some(_) => true,
+        }
+    }
+
     pub fn get(&self, key: &str) -> Option<&str> {
         self.map.get(key).map(String::as_str)
+    }
+
+    /// `--encode-profile standard|ultra` (default standard): the one switch for ultra.
+    pub fn encode_profile(&self) -> Result<cmux_rd_core::profile::EncodeProfile, String> {
+        match self.map.get("encode-profile") {
+            None => Ok(cmux_rd_core::profile::EncodeProfile::Standard),
+            Some(v) => cmux_rd_core::profile::EncodeProfile::parse(v)
+                .ok_or_else(|| format!("invalid value for --encode-profile: {v} (standard|ultra)")),
+        }
     }
 
     pub fn num_or<T: std::str::FromStr>(&self, key: &str, default: T) -> Result<T, String> {
@@ -62,5 +82,18 @@ mod tests {
         assert_eq!(o.get("display"), Some(":99"));
         assert!(!parse(&["--display", ":99"]).expect("parse").flag("listen-systemd"));
         assert!(parse(&["--display"]).is_err());
+    }
+
+    #[test]
+    fn flag_or_keeps_its_default_and_turns_off_with_zero() {
+        assert!(parse(&[]).expect("parse").flag_or("input-frame-now", true));
+        assert!(!parse(&[]).expect("parse").flag_or("input-frame-now", false));
+        for off in ["0", "false", "off"] {
+            let o = parse(&["--input-frame-now", off]).expect("parse");
+            assert!(!o.flag_or("input-frame-now", true), "{off} turns it off");
+        }
+        assert!(parse(&["--input-frame-now", "1"])
+            .expect("parse")
+            .flag_or("input-frame-now", false));
     }
 }

@@ -1,0 +1,199 @@
+import { expect, test } from "bun:test";
+import {
+  cloudAgentLogin,
+  harnessLoginAgent,
+  localAgentLogin,
+  localApiKeyLogin,
+  signsInRemotely,
+  terminalSignIn,
+} from "./cloudAgentLogin";
+
+type Call = [string, ...unknown[]];
+
+/// A connected chat's login options, with a client that records what the card asks acpmux.
+function options(place: { machineID?: string; elsewhere?: boolean }, harness = "claude") {
+  const calls: Call[] = [];
+  const client = {
+    selectedSession: "chat-1",
+    agentLoginStart: (agent: string, sessionId: string) => {
+      calls.push(["start", agent, sessionId]);
+      return Promise.resolve({ loginId: "login-1", url: "https://claude.ai/oauth/authorize", needsCode: true });
+    },
+    agentLoginFinish: () => Promise.resolve({ signedIn: true }),
+    agentLoginApiKey: () => Promise.resolve({ saved: true }),
+    agentLoginCancel: () => Promise.resolve(undefined),
+    resendPrompt: () => Promise.resolve({ input: [], attachments: [] }),
+    send: () => Promise.resolve(undefined),
+  };
+  return {
+    calls,
+    login: {
+      connected: true,
+      machineID: place.machineID,
+      ...(place.elsewhere !== undefined ? { elsewhere: place.elsewhere } : {}),
+      sessionId: "chat-1",
+      harness,
+      supported: true,
+      gesture: () => Promise.resolve(undefined),
+      openURL: () => undefined,
+      isCurrent: (id: string) => id === "chat-1",
+      currentClient: () => client as never,
+    },
+  };
+}
+
+test("a chat on the person's own machine (not Cloud) gets the one-click sign-in card, run on that machine", async () => {
+  // Remote ergonomics scorecard, flow 2: an own machine's chat whose agent is not signed in opened a
+  // terminal with the login command; the card runs the agent's own login there instead.
+  const { calls, login } = options({ elsewhere: true });
+  const signIn = cloudAgentLogin(login);
+  expect(signIn?.agent).toBe("claude");
+  // Use an API key is the card's own second way in, so no separate "this Mac" key card.
+  expect(localApiKeyLogin(login)).toBeUndefined();
+  await signIn!.start();
+  // The start names the chat, so this Mac's acpmux forwards it to the machine the chat lives on.
+  expect(calls).toEqual([["start", "claude", "chat-1"]]);
+});
+
+test("a Codex chat on another machine gets the card too", () => {
+  expect(cloudAgentLogin(options({ elsewhere: true }, "codex").login)?.agent).toBe("codex");
+});
+
+test("an Antigravity chat on Cloud signs in with Gemini's key, the key Cloud's Gemini gateway serves it with", () => {
+  expect(harnessLoginAgent("antigravity")).toBe("gemini");
+  expect(harnessLoginAgent("gemini")).toBe("gemini");
+  expect(harnessLoginAgent("pi")).toBeUndefined();
+  expect(cloudAgentLogin(options({ machineID: "vm-1", elsewhere: true }, "antigravity").login)?.agent).toBe("gemini");
+});
+
+test("a Cloud chat keeps its card", () => {
+  const { login } = options({ machineID: "vm-1", elsewhere: true });
+  expect(cloudAgentLogin(login)?.agent).toBe("claude");
+  expect(localApiKeyLogin(login)).toBeUndefined();
+});
+
+test("a chat on this Mac keeps Use an API key beside Sign in again, and no machine card", () => {
+  const { login } = options({ elsewhere: false });
+  expect(cloudAgentLogin(login)).toBeUndefined();
+  expect(localApiKeyLogin(login)?.agent).toBe("claude");
+});
+
+/// hq#11225: a new Cloud chat whose start was refused because its agent is not signed in has no
+/// session. Where its machine signs the agent in anyway (`agent_login_machine`), the failed start's
+/// card runs each step there with no chat named, and resends nothing (Retry starts the chat).
+test("a new chat with no session signs its agent in on its machine where the machine can", async () => {
+  const calls: Call[] = [];
+  const client = {
+    selectedSession: undefined,
+    agentLoginStart: (agent: string, sessionId: string | undefined) => {
+      calls.push(["start", agent, sessionId]);
+      return Promise.resolve({ loginId: "login-1", url: "https://cursor.com/loginDeepControl", needsCode: false });
+    },
+    agentLoginFinish: (loginId: string, sessionId: string | undefined) => {
+      calls.push(["finish", loginId, sessionId]);
+      return Promise.resolve({ signedIn: true });
+    },
+    agentLoginApiKey: () => Promise.resolve({ saved: true }),
+    agentLoginCancel: (loginId: string, sessionId: string | undefined) => {
+      calls.push(["cancel", loginId, sessionId]);
+      return Promise.resolve(undefined);
+    },
+    resendPrompt: () => {
+      calls.push(["resend"]);
+      return Promise.resolve({ input: [], attachments: [] });
+    },
+    send: () => Promise.resolve(undefined),
+  };
+  const login = {
+    connected: true,
+    machineID: "vm-1",
+    elsewhere: true,
+    sessionId: undefined,
+    harness: "cursor",
+    supported: true,
+    gesture: () => Promise.resolve(undefined),
+    openURL: () => undefined,
+    isCurrent: () => false,
+    currentClient: () => client as never,
+  };
+  // An older machine (no `agent_login_machine`): no card, so SwitchNotice says to sign in there.
+  expect(cloudAgentLogin(login)).toBeUndefined();
+  expect(cloudAgentLogin({ ...login, machineLogin: false })).toBeUndefined();
+  const signIn = cloudAgentLogin({ ...login, machineLogin: true });
+  expect(signIn?.agent).toBe("cursor");
+  const started = await signIn!.start();
+  expect(started.loginId).toBe("login-1");
+  expect(await signIn!.finish("login-1")).toBe(true);
+  signIn!.cancel("login-1");
+  await signIn!.resend("row-1", "hi", { promptId: "p", ticket: "t" });
+  expect(calls).toEqual([
+    ["start", "cursor", undefined],
+    ["finish", "login-1", undefined],
+    ["cancel", "login-1", undefined],
+  ]);
+});
+
+test("a chat with a session keeps naming it, whether or not its machine signs in without one", async () => {
+  const { calls, login } = options({ machineID: "vm-1", elsewhere: true }, "claude");
+  await cloudAgentLogin({ ...login, machineLogin: true })!.start();
+  expect(calls).toEqual([["start", "claude", "chat-1"]]);
+});
+
+test("a chat on this Mac gets the in-place card for its built-in agent; a route keeps its own Log In", () => {
+  // Logins done right: the built-in Claude Code and Codex sign in in the card; a route (`claude-sr`,
+  // `claude-cr`) signs in its own way, so it gets no card that would sign the built-in Claude in.
+  expect(localAgentLogin(options({}, "claude").login)?.agent).toBe("claude");
+  expect(localAgentLogin(options({}, "codex").login)?.agent).toBe("codex");
+  for (const route of ["claude-sr", "claude-cr"]) expect(localAgentLogin(options({}, route).login)).toBeUndefined();
+  expect(localAgentLogin(options({ elsewhere: true }, "claude").login)).toBeUndefined();
+  expect(localAgentLogin(options({ machineID: "m-1" }, "claude").login)).toBeUndefined();
+});
+
+// Sign in again (the agent's own login in a terminal on the chat's machine) stays where it was (a
+// chat off Cloud) and now also reaches an older Cloud machine, whose acpmux signs nothing in from the
+// card. A current machine keeps its card, and a team machine takes no personal login.
+test("Sign in again runs the agent's login in a terminal on an older Cloud machine, not a current or team one", () => {
+  const base = {
+    connected: true,
+    loginCommand: "claude /login",
+    card: undefined,
+    onCloud: true,
+    machineSignsIn: false,
+    teamMachine: false,
+  };
+  expect(terminalSignIn(base)).toEqual({ runs: true, onCloud: true });
+  expect(terminalSignIn({ ...base, machineSignsIn: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, teamMachine: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, loginCommand: undefined })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, connected: false })).toEqual({ runs: false, onCloud: false });
+  // Off Cloud: as before, whatever the machine signs in.
+  expect(terminalSignIn({ ...base, onCloud: false })).toEqual({ runs: true, onCloud: false });
+  expect(terminalSignIn({ ...base, onCloud: false, machineSignsIn: true })).toEqual({ runs: true, onCloud: false });
+});
+
+// Codex's `codex login` waits for its browser's redirect to localhost:1455 on the machine, which the
+// Mac's browser cannot reach: an older Cloud machine's Codex chat keeps the card as before (Switch
+// model), while Claude Code's pasted-code login and any device-code login are offered. Off Cloud,
+// every login is offered as before.
+test("an older Cloud machine offers Sign in again only for a login that finishes from the Mac's browser", () => {
+  const older = { connected: true, card: undefined, onCloud: true, machineSignsIn: false, teamMachine: false };
+  for (const command of ["claude /login", "claude auth login", "CLAUDE_CONFIG_DIR=~/.claude-work claude /login"]) {
+    expect(signsInRemotely(command), command).toBe(true);
+    expect(terminalSignIn({ ...older, loginCommand: command }), command).toEqual({ runs: true, onCloud: true });
+  }
+  expect(signsInRemotely("codex login --device-auth")).toBe(true);
+  for (const command of [
+    "codex login",
+    "CODEX_HOME=/home/me/.codex-work codex login",
+    "opencode auth login",
+    "gemini",
+    "",
+  ]) {
+    expect(signsInRemotely(command), command).toBe(false);
+    expect(terminalSignIn({ ...older, loginCommand: command }), command).toEqual({ runs: false, onCloud: false });
+    expect(terminalSignIn({ ...older, onCloud: false, loginCommand: command }), command).toEqual({
+      runs: true,
+      onCloud: false,
+    });
+  }
+});

@@ -178,6 +178,20 @@ pub(super) fn apply(
                     super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
                 }
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
+                focused_scopes(params, caller_route, socket);
+            }
+            Resolve::CallerPlace => {
+                if caller_route
+                    && let Ok(Some(path)) = caller_path(reader, &route, socket)
+                    && let Some(place) = ["workspace", "screen", "pane"]
+                        .map(|scope| path.get(scope).and_then(Value::as_str).map(str::to_owned))
+                        .into_iter()
+                        .collect::<Option<Vec<_>>>()
+                {
+                    for (scope, id) in ["workspace", "screen", "pane"].into_iter().zip(place) {
+                        params.insert(scope.into(), Value::String(id));
+                    }
+                }
             }
         }
     }
@@ -404,8 +418,9 @@ fn caller_scopes(
     if explicit && !caller_route {
         return Err(lookup_error(
             "selector.invalid",
-            "`caller` names the caller's own objects, which are not in a session or machine \
-             named with --socket, --session or --machine; name an id instead"
+            "`caller` names the caller's own objects, and --socket or --session names \
+             another session than the caller's terminal is in (or --machine another \
+             machine); name an id instead, or drop --session to act in your own session"
                 .into(),
         ));
     }
@@ -419,15 +434,19 @@ fn caller_scopes(
                     .into(),
             ));
         }
-        Err(failure) if explicit => return Err(failure),
-        // A caller that cannot be found leaves `current` the focused object.
+        Err(failure) if explicit || unplaced_agent(&failure) => return Err(failure),
+        // A caller that cannot be found leaves `current` the focused object,
+        // except an agent the app cannot place: its tabs never go to the
+        // focused workspace, Home (user, 2026-11-18).
         Ok(None) | Err(_) => return Ok(()),
     };
     // An explicit id or name below a `current` keeps that `current` the
     // daemon's, so the id is still checked against the focused parents.
     let selectors: Vec<Option<String>> =
         CALLER_SCOPES.iter().map(|scope| value(params, scope)).collect();
-    let keyword = |selector: &str| selector == "caller" || selector == "current";
+    // `focused` is resolved after this (`focused_scopes`), so it does not
+    // stop a `current` above it from following the caller.
+    let keyword = |selector: &str| matches!(selector, "caller" | "current" | FOCUSED);
     let deepest_named = selectors
         .iter()
         .rposition(|selector| selector.as_deref().is_some_and(|selector| !keyword(selector)))
@@ -459,6 +478,49 @@ fn caller_scopes(
     Ok(())
 }
 
+/// Puts what the person looks at in place of `focused` selectors: the
+/// focus of the app that owns this daemon (`snapshot.get`), each level while
+/// the levels above it are the focused ones. Without that app, on another
+/// session or machine, or below another object, `focused` is the daemon's
+/// `current`, its active object.
+fn focused_scopes(params: &mut Map<String, Value>, caller_route: bool, socket: &SocketRoute<'_>) {
+    let focused =
+        |params: &Map<String, Value>, scope: &str| params.get(scope) == Some(&json!(FOCUSED));
+    if !CALLER_SCOPES.iter().any(|scope| focused(params, scope)) {
+        return;
+    }
+    #[cfg(unix)]
+    let focus = if caller_route { app_focus(socket) } else { None };
+    #[cfg(not(unix))]
+    let focus = {
+        let _ = (caller_route, socket);
+        None
+    };
+    super::caller_scope::apply(params, None, focus.as_ref());
+    // `caller_scope` places workspaces to tabs; a focused terminal is the
+    // focused tab's, which the daemon's `current` names.
+    for scope in CALLER_SCOPES {
+        if focused(params, scope) {
+            params.insert(scope.into(), json!("current"));
+        }
+    }
+}
+
+const FOCUSED: &str = "focused";
+
+/// The app's focus (`topology.focus` of `snapshot.get`: window, workspace,
+/// screen, pane and tab ids), or `None` when no app owns this daemon or it
+/// does not answer.
+#[cfg(unix)]
+fn app_focus(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    let mut stream = super::app::connect(app).ok()?;
+    let snapshot = super::app::request(&mut stream, "snapshot.get", json!({}), APP_IDENTIFY_WAIT)
+        .ok()?
+        .ok()?;
+    snapshot.get("topology").and_then(|topology| topology.get("focus")).cloned()
+}
+
 /// Whether the request stays on this machine: another machine is never the
 /// caller's (`--machine`).
 fn this_machine(params: &Map<String, Value>) -> bool {
@@ -476,11 +538,19 @@ fn caller_path(
     socket: &SocketRoute<'_>,
 ) -> Result<Option<Map<String, Value>>, Failure> {
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    // An agent session, or a Chief turn the app places at the Home chat.
     #[cfg(unix)]
-    if env("CMUX_AGENT_SESSION").is_some()
-        && let Some(path) = agent_caller_path(socket)?
-    {
-        return Ok(Some(path));
+    if env("CMUX_AGENT_SESSION").is_some() || env("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1") {
+        match agent_caller_path(socket) {
+            Ok(Some(path)) => return Ok(Some(path)),
+            // An unplaced agent in a cmux terminal is still placed by its terminal.
+            Err(failure)
+                if !(unplaced_agent(&failure) && env("CMUX_TUI_TERMINAL_ID").is_some()) =>
+            {
+                return Err(failure);
+            }
+            _ => {}
+        }
     }
     let Some(terminal) = env("CMUX_TUI_TERMINAL_ID") else { return Ok(None) };
     registered_caller_path(reader, route, &terminal, socket).map(Some)
@@ -497,7 +567,10 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
     let identity = reply.map_err(Failure::Transport)?.map_err(Failure::Resource)?;
     let Some(caller) = identity.get("caller").and_then(Value::as_object) else { return Ok(None) };
     if caller.get("workspace").and_then(Value::as_str).is_none() {
-        return Ok(None);
+        // An agent (not a Chief turn) the app shows nowhere: neither a chat
+        // tab nor its session's workspace (`CMUX_WORKSPACE_ID`) is open.
+        let chief_turn = std::env::var("CMUX_CALLER_HOME_CHAT").is_ok_and(|flag| flag == "1");
+        return if chief_turn { Ok(None) } else { Err(unplaced_agent_failure()) };
     }
     let mut path = Map::new();
     for (scope, field) in [
@@ -586,6 +659,22 @@ fn caller_path_of(
         path.insert(parent_scope.into(), Value::String(id.clone()));
     }
     Ok(path)
+}
+
+/// The app shows neither the agent's chat nor its session's workspace.
+fn unplaced_agent_failure() -> Failure {
+    Failure::Resource(json!({
+        "code": "caller_unavailable",
+        "message": "cmux shows neither this agent's chat nor the workspace its session runs in \
+                    (CMUX_WORKSPACE_ID); name a workspace by id: cmux workspace <workspace> …",
+        "retryable": false,
+    }))
+}
+
+/// Whether `failure` is [`unplaced_agent_failure`], which `current` never
+/// turns into the focused object.
+fn unplaced_agent(failure: &Failure) -> bool {
+    matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 fn not_in_a_workspace(terminal: &str) -> Failure {
@@ -806,163 +895,5 @@ pub(super) fn call_as_on(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_unique_exact_name_becomes_its_id_and_an_id_stays() {
-        let records = json!([
-            {"id": "room-a", "name": "Work"},
-            {"id": "room-b", "name": "Home"},
-            {"id": "room-c", "name": "room-a"},
-        ]);
-        assert_eq!(state_id("room", "Work", &records).ok().flatten().as_deref(), Some("room-a"));
-        // An id wins over a record named like it.
-        assert_eq!(state_id("room", "room-a", &records).ok().flatten(), None);
-        assert_eq!(state_id("room", "Nowhere", &records).ok().flatten(), None);
-    }
-
-    #[test]
-    fn a_shared_name_is_ambiguous_with_candidates() {
-        let records = json!([
-            {"id": "g1", "name": "agents"},
-            {"id": "g2", "name": "agents"},
-        ]);
-        let Err(Failure::Resource(error)) = state_id("tab_group", "agents", &records) else {
-            panic!("a shared name resolved");
-        };
-        assert_eq!(error["code"], "selector.ambiguous");
-        assert_eq!(error["details"]["candidates"], json!(["g1", "g2"]));
-        assert!(error["message"].as_str().unwrap().contains("tab group"));
-    }
-
-    #[test]
-    fn browser_zoom_goes_to_the_app_and_terminal_zoom_to_the_daemon() {
-        let browser = json!({"id": "tab_1", "content_kind": "browser", "pane_id": "pane_1"});
-        let terminal = json!({"id": "tab_2", "content_kind": "terminal", "pane_id": "pane_1"});
-        let route = |tab: &Value, step| match tab_zoom_route(tab, step) {
-            Ok(action) => Ok(action),
-            Err(Failure::Resource(error)) => Err(error["code"].as_str().unwrap().to_owned()),
-            Err(_) => Err("other".into()),
-        };
-        assert_eq!(route(&browser, ZoomStep::In), Ok(Some("browserZoomIn")));
-        assert_eq!(route(&browser, ZoomStep::Out), Ok(Some("browserZoomOut")));
-        assert_eq!(route(&browser, ZoomStep::Reset), Ok(Some("browserZoomReset")));
-        assert_eq!(route(&browser, ZoomStep::Value), Err("validation.invalid".into()));
-        assert_eq!(route(&terminal, ZoomStep::Value), Ok(None));
-        assert_eq!(route(&terminal, ZoomStep::Reset), Ok(None));
-        assert_eq!(route(&terminal, ZoomStep::In), Err("validation.invalid".into()));
-    }
-
-    #[test]
-    fn the_shown_tab_is_read_from_the_pane_leaf_of_the_screen_layout() {
-        let screen = json!({"layout": {"root": {"columns": [{"root": {
-            "kind": "split",
-            "first": {"kind": "leaf", "pane_id": "pane_a", "active_tab_id": "tab_a"},
-            "second": {"kind": "leaf", "pane_id": "pane_b", "active_tab_id": "tab_b"},
-        }}]}}});
-        assert_eq!(active_tab_of(&screen, "pane_b").as_deref(), Some("tab_b"));
-        assert_eq!(active_tab_of(&screen, "pane_c"), None);
-    }
-
-    fn caller_path_fixture() -> Map<String, Value> {
-        json!({
-            "workspace": "ws_mine", "screen": "screen_mine", "pane": "pane_mine",
-            "tab": "tab_mine", "terminal": "term_mine",
-        })
-        .as_object()
-        .unwrap()
-        .clone()
-    }
-
-    fn scoped(
-        params: Value,
-        caller_route: bool,
-        path: Option<Map<String, Value>>,
-    ) -> Result<Value, String> {
-        let mut params = params.as_object().unwrap().clone();
-        match caller_scopes(&mut params, caller_route, || Ok(path)) {
-            Ok(()) => Ok(Value::Object(params)),
-            Err(Failure::Resource(error)) => Err(error["code"].as_str().unwrap().to_owned()),
-            Err(_) => Err("other".into()),
-        }
-    }
-
-    #[test]
-    fn caller_and_current_become_the_callers_own_ids() {
-        let mine = Some(caller_path_fixture());
-        let chain = json!({"workspace": "current", "screen": "current", "pane": "caller"});
-        assert_eq!(
-            scoped(chain.clone(), true, mine.clone()),
-            Ok(json!({"workspace": "ws_mine", "screen": "screen_mine", "pane": "pane_mine"}))
-        );
-        let current = json!({"workspace": "current", "screen": "current", "pane": "current"});
-        assert_eq!(
-            scoped(current.clone(), true, mine.clone()),
-            Ok(json!({"workspace": "ws_mine", "screen": "screen_mine", "pane": "pane_mine"}))
-        );
-        // No caller, or a route to another session: `current` stays focused.
-        assert_eq!(scoped(current.clone(), true, None), Ok(current.clone()));
-        assert_eq!(scoped(current.clone(), false, mine.clone()), Ok(current));
-        // `caller` refuses instead of guessing.
-        assert_eq!(scoped(chain.clone(), true, None), Err("selector.not_found".into()));
-        assert_eq!(scoped(chain, false, mine), Err("selector.invalid".into()));
-    }
-
-    #[test]
-    fn current_below_a_parent_that_is_not_the_callers_stays_that_parents() {
-        let mine = Some(caller_path_fixture());
-        let theirs = json!({"workspace": "ws_theirs", "screen": "current", "pane": "current"});
-        assert_eq!(scoped(theirs.clone(), true, mine.clone()), Ok(theirs));
-        let own = json!({"workspace": "ws_mine", "screen": "current", "pane": "current"});
-        assert_eq!(
-            scoped(own, true, mine.clone()),
-            Ok(json!({"workspace": "ws_mine", "screen": "screen_mine", "pane": "pane_mine"}))
-        );
-        // A browser is never the caller: its `current` chain stays focused.
-        let browser = json!({"workspace": "current", "tab": "current", "browser": "current"});
-        assert_eq!(scoped(browser.clone(), true, mine.clone()), Ok(browser));
-        // An agent chat has no terminal of its own: `caller` refuses,
-        // `current` stays the focused terminal.
-        let mut chat = caller_path_fixture();
-        chat.remove("terminal");
-        let terminal = json!({"workspace": "current", "terminal": "caller"});
-        assert_eq!(scoped(terminal, true, Some(chat.clone())), Err("selector.not_found".into()));
-        let focused = json!({"workspace": "current", "terminal": "current"});
-        assert_eq!(scoped(focused.clone(), true, Some(chat)), Ok(focused));
-        // An explicit id below `current` keeps its focused parents.
-        let below = json!({"workspace": "current", "screen": "current", "pane": "pane_x"});
-        assert_eq!(scoped(below.clone(), true, mine.clone()), Ok(below));
-        // Another machine is never the caller's: `apply` routes it as
-        // another session.
-        let remote = json!({"machine": "m2", "workspace": "current", "pane": "current"});
-        assert!(!this_machine(remote.as_object().unwrap()));
-        assert!(this_machine(json!({"machine": "current"}).as_object().unwrap()));
-        assert!(this_machine(&Map::new()));
-        assert_eq!(scoped(remote.clone(), false, mine.clone()), Ok(remote));
-        let remote_caller = json!({"machine": "m2", "workspace": "current", "pane": "caller"});
-        assert_eq!(scoped(remote_caller, false, mine), Err("selector.invalid".into()));
-    }
-
-    #[test]
-    fn a_caller_that_cannot_be_found_leaves_current_focused() {
-        let current = json!({"workspace": "current", "pane": "current"});
-        let mut params = current.as_object().unwrap().clone();
-        let lost = || Err(Failure::Transport("app did not answer".into()));
-        assert!(caller_scopes(&mut params, true, lost).is_ok());
-        assert_eq!(Value::Object(params), current);
-        let caller = json!({"workspace": "current", "pane": "caller"});
-        let mut params = caller.as_object().unwrap().clone();
-        let lost = || Err(Failure::Transport("app did not answer".into()));
-        assert!(caller_scopes(&mut params, true, lost).is_err());
-    }
-
-    #[test]
-    fn route_keeps_only_machine_and_session() {
-        let params = json!({"machine": "current", "session": "s", "room": "x"});
-        assert_eq!(
-            Value::Object(route(params.as_object().unwrap())),
-            json!({"machine": "current", "session": "s"})
-        );
-    }
-}
+#[path = "resolve_tests.rs"]
+mod tests;

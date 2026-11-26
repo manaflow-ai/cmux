@@ -117,16 +117,31 @@ struct ChiefConversationHooksTests {
             if let controller { ChiefPageMenu.replyWithSelection(reply, in: controller) }
         }
         controller.composer.text = "and tell me"
-        controller.beginTextSelection(rowID: source.rowID)
+        let index = try #require(controller.indexPath(for: source.rowID))
+        let cell = try #require(controller.collectionView.cellForItem(at: index) as? MessageCell)
+        let point = cell.textLabel.convert(CGPoint(x: 2, y: 8), to: controller.collectionView)
+        #expect(controller.textCell(at: point) === cell)
+        controller.beginTextSelection(rowID: source.rowID, at: point)
         let selection = try #require(controller.textSelection)
-        // The menu leads with Reply with Selection, then the system's own actions.
+        #expect(selection.selectedRange == NSRange(location: 0, length: 6))
+        #expect(controller.pressedActions == nil)
+        // Drag across the word "build" while the finger is still down.
+        let insideBuild = try #require(selection.position(from: selection.beginningOfDocument, offset: 12))
+        let caret = selection.caretRect(for: insideBuild)
+        selection.extendHold(to: CGPoint(x: caret.midX, y: caret.midY))
+        #expect(selection.selectedRange == NSRange(location: 0, length: 16))
+        selection.finishHold()
+        // System actions remain first, followed by the host and message actions.
         // UITextView keeps its own edit menu interactions; the selection adds one it delegates.
         let editMenus = selection.interactions.compactMap { $0 as? UIEditMenuInteraction }
         let interaction = try #require(editMenus.first { $0.delegate === selection })
         let copy = UIAction(title: "Copy") { _ in }
         let menu = selection.editMenuInteraction(interaction, menuFor: UIEditMenuConfiguration(identifier: nil, sourcePoint: .zero),
                                                  suggestedActions: [copy])
-        #expect(menu?.children.map { ($0 as? UIAction)?.title } == ["Reply with Selection", "Copy"])
+        let titles = try #require(menu?.children.map(\.title))
+        #expect(titles.first == "Copy")
+        #expect(["Reply with Selection", "Reply", "Copy Message", "More…", "Tapback"].allSatisfy(titles.contains))
+        #expect(!titles.contains("Select"))
         selection.selectedRange = ("Deploy the build, then run the tests." as NSString).range(of: " then run the tests")
         #expect(selection.replyWithSelection())
         #expect(replies == [ConversationSelectionReply(messageID: "m1", text: "then run the tests")])
@@ -136,7 +151,7 @@ struct ChiefConversationHooksTests {
         controller.exitReplyMode()
     }
 
-    @Test(.timeLimit(.minutes(1))) func withoutTheHookTheSelectionMenuIsTheSystemsAlone() async throws {
+    @Test(.timeLimit(.minutes(1))) func withoutTheHookTheSelectionMenuStillOffersMessageActions() async throws {
         let source = Self.message("m1", "Only the system menu here.", seq: 1)
         let (controller, window) = try await loaded([source])
         defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
@@ -144,8 +159,11 @@ struct ChiefConversationHooksTests {
         let selection = try #require(controller.textSelection)
         let editMenus = selection.interactions.compactMap { $0 as? UIEditMenuInteraction }
         #expect(!editMenus.isEmpty)
-        #expect(!editMenus.contains { $0.delegate === selection })
-        #expect(selection.textView(selection, editMenuForTextIn: selection.selectedRange, suggestedActions: []) == nil)
+        #expect(editMenus.contains { $0.delegate === selection })
+        let menu = selection.textView(selection, editMenuForTextIn: selection.selectedRange, suggestedActions: [])
+        let titles = try #require(menu?.children.map(\.title))
+        #expect(titles.contains("Reply"))
+        #expect(!titles.contains("Reply with Selection"))
         #expect(!selection.replyWithSelection())
         controller.endTextSelection()
         #expect(!controller.beginReply(toMessageID: "missing"))
@@ -228,7 +246,7 @@ struct ChiefConversationHooksTests {
 
     /// The zoom counts from the person's own size once the screen is in a window.
     @Test(.timeLimit(.minutes(1))) func zoomStepsFromThePersonsSizeInTheWindow() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefOfflineBackend())
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         let host = UIViewController()
@@ -283,14 +301,19 @@ struct ChiefConversationHooksTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func chiefScreenPutsInviteAndTheZoomInItsPageMenu() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefOfflineBackend())
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         container.loadViewIfNeeded()
         defer { session.store.stop(); ChiefTextZoom.shared.actualSize() }
         let menu = try #require(conversation.headerActionMenu)
         #expect((menu.children.first as? UIAction)?.title == "Invite to cmux")
-        #expect(menu.children.count == 2 && menu.children.last is UIDeferredMenuElement)
+        // #51834 (App Review 1.2 / 4.7.1) added Report as an inline section after the deferred
+        // Chat Colors / zoom element, on purpose: three children, in that order.
+        #expect(menu.children.count == 3 && menu.children[1] is UIDeferredMenuElement)
+        let reportSection = try #require(menu.children.last as? UIMenu)
+        #expect(reportSection.options.contains(.displayInline))
+        #expect(reportSection.children.compactMap { ($0 as? UIAction)?.title } == [ChiefReport.title])
         // Chat Colors… waits until the chat is known (this one never connects).
         #expect(container.chatColorsAction().title == "Chat Colors…")
         #expect(container.chatColorsAction().attributes.contains(.disabled))

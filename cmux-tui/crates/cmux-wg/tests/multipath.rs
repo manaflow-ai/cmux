@@ -15,7 +15,8 @@ use cmux_transport::{PathId, PathKind, ProbeOutcome, SelectorConfig};
 use cmux_wg::testing::sim::{LinkProfile, SimNet};
 use cmux_wg::testing::{ConfigPair, config_pair};
 use cmux_wg::{
-    Multipath, MultipathControl, ProbeConfig, SocketPath, Underlay, WgConfig, WgNet, WgStream,
+    Multipath, MultipathControl, Priority, ProbeConfig, SocketPath, Underlay, WgConfig, WgNet,
+    WgStream,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
@@ -384,4 +385,108 @@ async fn datagrams_go_on_every_path_until_one_answers() {
     underlay.send(b"every path again");
     assert_eq!(control.path(relay).unwrap().sent, 3);
     assert_eq!(control.path(direct).unwrap().sent, 3);
+}
+
+/// RFD 0164 class 0: a keystroke goes on the current path and the best other
+/// live one; one live path carries it once; with no path chosen it goes on
+/// every path as any datagram does. A screen datagram stays on one path.
+#[tokio::test]
+async fn input_datagrams_go_on_the_best_two_paths() {
+    let sim = SimNet::new();
+    let (mut underlay, control, relay, direct) =
+        two_paths(&sim, (addr(A_RELAY), addr(B_RELAY)), (addr(A_DIRECT), addr(B_DIRECT)), None);
+    let sent = |path| control.path(path).unwrap().sent;
+
+    underlay.send_duplicated(b"dial", Priority::Interactive);
+    assert_eq!((sent(relay), sent(direct)), (1, 1), "no path chosen: every path");
+
+    answer(&control, relay, RELAY_LATENCY);
+    underlay.send_duplicated(b"k", Priority::Interactive);
+    assert_eq!((sent(relay), sent(direct)), (2, 1), "one live path: once");
+
+    answer(&control, direct, DIRECT_LATENCY);
+    underlay.send_duplicated(b"e", Priority::Interactive);
+    assert_eq!((sent(relay), sent(direct)), (3, 2), "two live paths: once on each");
+
+    underlay.send_classified(b"frame", Priority::Screen);
+    assert_eq!(sent(relay) + sent(direct), 6, "screen is not duplicated");
+}
+
+/// A cut under a paced stream (a frame every 16 ms, as a desktop stream
+/// sends): the tunnel moves to the relay within its silence windows, and the
+/// frames resume there at once, instead of after a retransmission timer that
+/// backed off while the dead path lost its retransmissions
+/// (`Socket::path_changed`).
+#[tokio::test(start_paused = true)]
+async fn a_cut_path_stalls_a_paced_stream_for_less_than_two_rto_floors() {
+    const FRAME: usize = 3500;
+    const FRAMES: usize = 250;
+    let sim = SimNet::new();
+    sim.set_link(
+        addr(A_RELAY),
+        addr(B_RELAY),
+        LinkProfile { latency: RELAY_LATENCY, ..LinkProfile::default() },
+    );
+    sim.set_link(
+        addr(A_DIRECT),
+        addr(B_DIRECT),
+        LinkProfile { latency: DIRECT_LATENCY, ..LinkProfile::default() },
+    );
+    let ConfigPair { client, server, server_v6, .. } = config_pair(addr(B_RELAY));
+    let probes = Some(ProbeConfig::default());
+    let a = side(
+        &sim,
+        client,
+        (addr(A_RELAY), addr(B_RELAY)),
+        (addr(A_DIRECT), addr(B_DIRECT)),
+        probes,
+    );
+    let b = side(
+        &sim,
+        server,
+        (addr(B_RELAY), addr(A_RELAY)),
+        (addr(B_DIRECT), addr(A_DIRECT)),
+        probes,
+    );
+    let mut listener = b.net.listen(LINK_PORT).await.expect("listen");
+    let mut sender =
+        within(a.net.connect(SocketAddr::new(server_v6, LINK_PORT))).await.expect("connect");
+    let mut receiver = within(listener.accept()).await.expect("accepted");
+    for side in [&a, &b] {
+        wait_current(&side.control, side.direct).await;
+    }
+    let writer = tokio::spawn(async move {
+        let frame = vec![7u8; FRAME];
+        for _ in 0..FRAMES {
+            sender.write_all(&frame).await.expect("write");
+            tokio::time::sleep(Duration::from_millis(16)).await;
+        }
+        sender
+    });
+    let cut_at = tokio::time::Instant::now() + Duration::from_secs(2);
+    let mut cut = false;
+    let mut buffer = vec![0u8; 64 * 1024];
+    let (mut got, mut last, mut longest) = (0, tokio::time::Instant::now(), Duration::ZERO);
+    while got < FRAME * FRAMES {
+        let count = within(receiver.read(&mut buffer)).await.expect("read");
+        assert!(count > 0, "stream ended");
+        got += count;
+        let now = tokio::time::Instant::now();
+        if cut {
+            longest = longest.max(now - last);
+        }
+        last = now;
+        if !cut && now >= cut_at {
+            let down = LinkProfile { latency: DIRECT_LATENCY, cut: true, ..LinkProfile::default() };
+            sim.set_link(addr(A_DIRECT), addr(B_DIRECT), down);
+            cut = true;
+        }
+    }
+    let _sender = within(writer).await.expect("writer");
+    eprintln!("longest gap after the cut: {longest:?}");
+    // The tunnel TCP's RTO floor is 200 ms; without the resend on a path
+    // change, the stream waits for a backed-off second RTO (about 600 ms).
+    assert!(longest < Duration::from_millis(400), "the stream stalled {longest:?} after the cut");
+    a.net.shutdown().await;
+    b.net.shutdown().await;
 }

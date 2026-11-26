@@ -20,6 +20,7 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { sessionAdoption } from "../src/agent-session/acpmux/newtab/adoption";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 9, 29, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -31,7 +32,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;
@@ -85,6 +87,9 @@ class Daemon {
   names: Record<string, string> = {};
   /// Queries asked of the resolver.
   resolves: string[] = [];
+  /// The machines `_acpmux/status` lists, and the machines asked to reconnect (`_acpmux/peer_reconnect`).
+  peers: { name: string; connected: boolean }[] = [];
+  reconnects: string[] = [];
   private held?: Message;
   private holding?: () => void;
   asked = new Promise<void>((resolve) => (this.holding = resolve));
@@ -103,6 +108,7 @@ class Daemon {
     if (message.method === "_acpmux/attach") this.attaches.push(sessionId);
     if (message.method === "_acpmux/watch") this.lists += 1;
     if (message.method === "_acpmux/resolve") this.resolves.push(String(message.params?.query ?? ""));
+    if (message.method === "_acpmux/peer_reconnect") this.reconnects.push(String(message.params?.name ?? ""));
     if (message.method === "_acpmux/watch" && this.holdLists) return;
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
@@ -129,7 +135,12 @@ class Daemon {
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     else if (message.method === "_acpmux/watch") result = { sessions: this.listed.map(summary) };
-    else if (message.method === "_acpmux/resolve") {
+    else if (message.method === "_acpmux/status") result = { peers: this.peers };
+    else if (message.method === "_acpmux/peer_reconnect") {
+      const name = String(message.params?.name ?? "");
+      this.peers = this.peers.map((peer) => (peer.name === name ? { ...peer, connected: true } : peer));
+      result = { peers: this.peers.map((peer) => ({ ...peer, state: peer.connected ? "connected" : "down" })) };
+    } else if (message.method === "_acpmux/resolve") {
       const named = this.names[String(message.params?.query ?? "")];
       result = { session: named ? { sessionId: named } : null };
     } else if (message.method === "_acpmux/attach" && this.names[sessionId]) {
@@ -276,6 +287,55 @@ test("a chat the daemon does not list is the adopted tab's missing chat, never a
   expect(daemon.attaches).toEqual([chat]);
 });
 
+// Leo, 2026-11-05: "It should take a lot faster of a time to be loading, like within a few seconds,
+// really. So I don't know what's going on, how we're losing track of these things." A tab that
+// adopts the spare for a chat whose machine is still connecting draws the chat's saved transcript
+// under why it is not here, as a tab whose handshake named it does (direct.ts `drawMissingTail`),
+// and the saved transcript stays the host's for the next open.
+test("an adopted chat the daemon does not list yet keeps its saved transcript on screen and on the host", async () => {
+  const chat = "adopt-connecting";
+  const kept = {
+    events: chatEvents(chat, "Retry added in the saved transcript."),
+    lastSeq: 2,
+    historyExhausted: true,
+    summary: summary(chat),
+  };
+  const forgotten: string[] = [];
+  (
+    dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }
+  ).cmuxAcpmuxActions = {
+    "chat.tail.get": async (params: any) => (String(params.sessionId) === chat ? kept : null),
+    "chat.tail": async (params: any) => {
+      if (params.tail === undefined) forgotten.push(String(params.sessionId));
+      return null;
+    },
+    "chat.snapshot.put": async () => null,
+  };
+  const daemon = new Daemon(["newest"]);
+  // What a render paints: the last snapshot of each synchronous turn (React batches the rest).
+  const painted: AcpmuxSnapshot[] = [];
+  let turn: AcpmuxSnapshot | undefined;
+  const page = await spare(daemon, (snapshot) => {
+    if (turn === undefined)
+      queueMicrotask(() => {
+        painted.push(turn!);
+        turn = undefined;
+      });
+    turn = snapshot;
+  });
+  expect(await page.client.adoptSession(chat)).toBeUndefined();
+  await flush();
+  expect(page.last()?.missingSession).toBe(chat);
+  expect(page.last()?.missingReason).toBe("notListedAtOpen");
+  expect(page.last()?.drewKeptTail).toBe(true);
+  expect(text(page.last())).toContain("Retry added in the saved transcript.");
+  expect(forgotten).toEqual([]);
+  // From the first frame that drew it, the transcript never leaves the screen.
+  const first = painted.findIndex((frame) => text(frame).includes("Retry added in the saved transcript."));
+  expect(first).toBeGreaterThanOrEqual(0);
+  for (const frame of painted.slice(first)) expect(text(frame)).toContain("Retry added in the saved transcript.");
+});
+
 test("a failed adoption cannot clear a chat selected after its list read", async () => {
   const missing = "adopt-gone";
   const next = "selected-after-adoption";
@@ -376,4 +436,35 @@ test("Reconnect asks the resolver again for a name it named nothing for", async 
   await flush();
   expect(daemon.resolves).toEqual(["far/late", "far/late"]);
   expect(page.last()?.sessionId).toBe(chat);
+});
+
+// Leo, 2026-10-28: "after you've connected something remotely ... how good is it in terms of that
+// whole, like, recovery flow". The offline chat's Reconnect only read the lists again, so its machine
+// sat out acpmux's backoff of up to a minute; it reconnects the machine first now (was #27054).
+test("Reconnect on a chat whose machine is down reconnects that machine, then reads the lists", async () => {
+  const daemon = new Daemon(["newest"]);
+  daemon.peers = [{ name: "far", connected: false }];
+  const page = await spare(daemon);
+  await page.client.adoptSession("far/late").catch(() => undefined);
+  await flush();
+  await page.client.refreshPeers();
+  const listsBefore = daemon.lists;
+  await page.client.recheckMissing();
+  await flush();
+  expect(daemon.reconnects).toEqual(["far"]);
+  expect(daemon.lists).toBeGreaterThan(listsBefore);
+});
+
+test("Reconnect on a chat whose machine is connected only reads the lists again", async () => {
+  const daemon = new Daemon(["newest"]);
+  daemon.peers = [{ name: "far", connected: true }];
+  const page = await spare(daemon);
+  await page.client.adoptSession("far/late").catch(() => undefined);
+  await flush();
+  await page.client.refreshPeers();
+  const listsBefore = daemon.lists;
+  await page.client.recheckMissing();
+  await flush();
+  expect(daemon.reconnects).toEqual([]);
+  expect(daemon.lists).toBeGreaterThan(listsBefore);
 });

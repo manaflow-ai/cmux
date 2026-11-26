@@ -6,6 +6,10 @@ import { pageError, type PageClient, type PageHandler } from "../shared/pageClie
 import { mockChecks, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { CHECKS_MS, GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
 import { GitHubOps, routedPullRequest, type PullRequestReply } from "./types";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says. */
+const GENERIC = userMessage(undefined);
 
 const route = (url: string) => `#/pull?url=${encodeURIComponent(url)}`;
 
@@ -228,7 +232,8 @@ test("a merge GitHub refuses says why; a click the host did not count asks for a
   expect(store.getSnapshot().merge).toEqual({ phase: "confirm" });
   error = pageError("cmux.github.merge_refused", "Pull request is not mergeable");
   await store.merge();
-  expect(store.getSnapshot().merge).toEqual({ phase: "failed", message: "Pull request is not mergeable" });
+  // GitHub's own words stay in the error: the page says it plainly (github.merge.notReady).
+  expect(store.getSnapshot().merge).toEqual({ phase: "failed", message: GENERIC, refused: true });
 });
 
 test("no merge without the details' head commit", async () => {
@@ -405,4 +410,50 @@ test("another pull request's checks are asked while the last one's ask is still 
   pending[1]!.resolve({ checks: { ...mockChecks, head: mockChecks.head }, reading: false });
   await settle();
   expect(store.getSnapshot().checks?.jobs.length).toBe(mockChecks.jobs.length);
+});
+
+test("a review is pinned to the head shown, then the conversation is read again", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  const reads = host.calls.filter((call) => call.op === GitHubOps.details).length;
+  expect(await store.submitReview("APPROVE", "")).toBe(true);
+  expect(host.calls.find((call) => call.op === GitHubOps.reviewSubmit)?.params).toEqual({
+    url: MOCK_URL,
+    event: "APPROVE",
+    body: "",
+    head: mockDetails.headCommit,
+  });
+  expect(store.getSnapshot().write).toEqual({ phase: "sent", what: "review" });
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.details).length).toBeGreaterThan(reads);
+});
+
+test("a thread write names its thread; an approval with no login says so; an uncounted click is no failure", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  const call = host.call.bind(host);
+  let error: Error | undefined;
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op === GitHubOps.threadReply || op === GitHubOps.threadResolve || op === GitHubOps.reviewSubmit) {
+      host.calls.push({ op, params });
+      return error ? Promise.reject(error) : Promise.resolve({ done: true } as R);
+    }
+    return call<R>(op, params);
+  };
+  expect(await store.resolveThread("PRRT_r2", true)).toBe(true);
+  expect(host.calls.find((call) => call.op === GitHubOps.threadResolve)?.params).toEqual({
+    url: MOCK_URL,
+    thread: "PRRT_r2",
+    resolved: true,
+  });
+  error = pageError("cmux.github.gesture_required", "Click to reply");
+  expect(await store.replyThread("PRRT_r2", "Fixed in the next push.")).toBe(false);
+  expect(store.getSnapshot().write).toEqual({ phase: "idle" });
+  error = pageError("cmux.github.person_only", "an approval is the person's own");
+  expect(await store.submitReview("REQUEST_CHANGES", "Please split this.")).toBe(false);
+  expect(store.getSnapshot().write).toEqual({ phase: "failed", what: "review", message: GENERIC, personOnly: true });
 });

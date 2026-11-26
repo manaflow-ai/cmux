@@ -18,6 +18,7 @@ import { foreignHarness } from "./agentIdentityModel";
 import { rememberHarnessIcons } from "../../shared/harnessIcons";
 import { SubagentsSection } from "../session-info/SubagentsSection";
 import type { Subagent } from "./subagentFold";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -58,6 +59,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -146,6 +148,15 @@ test("a subagent of the chat's own family shows its family's mark while a badge 
   expect(foreignHarness("claude", "claude", "diamond")).toBe("claude");
   expect(foreignHarness("claude", "claude", "none")).toBeUndefined();
   expect(foreignHarness("codex", "claude", "none")).toBe("codex");
+});
+
+test("a harness's own subagent, which names no harness, wears its chat's mark, never the sparkle alone", () => {
+  expect(foreignHarness(undefined, "claude", "diamond")).toBe("claude");
+  expect(foreignHarness(undefined, "codex", "robot")).toBe("codex");
+  // Sender Badge None keeps the toned sparkle for the chat's own family, as before.
+  expect(foreignHarness(undefined, "claude", "none")).toBeUndefined();
+  // No chat harness known: nothing to show but the sparkle.
+  expect(foreignHarness(undefined, undefined, "diamond")).toBeUndefined();
 });
 
 test("a change of the badge setting redraws a mounted subagent list at once (review F1)", async () => {

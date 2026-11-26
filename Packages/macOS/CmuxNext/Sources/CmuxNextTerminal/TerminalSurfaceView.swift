@@ -129,6 +129,20 @@ public final class TerminalSurfaceView: NSView {
     private var volatileFrame: IOSurface?
     /// A frame another view shows now (``giveAway(_:)``): never made volatile here again.
     private var givenAwayFrame: IOSurface?
+    /// The last frame pictured as the surface paused (``pausedPicture``): which surface and its seed.
+    private var pausedPictureSource: (frame: ObjectIdentifier, seed: UInt32)?
+    /// The paused frame being pictured now: it turns volatile only once its picture is taken.
+    private var picturing: IOSurface?
+
+    /// A downscaled picture (at most ``pausedPictureSide`` px) of the frame the surface showed when it last paused.
+    ///
+    /// The user, 2026-11-24 (hover cards and the sidebar miniature blank for background and hibernated tabs): a paused
+    /// surface's frame is volatile, so memory pressure purges it, and then ``beginFrameRead()`` finds nothing and every
+    /// card that pictures the terminal (a tab's, a workspace's tiles, a drag) drew an empty tile. On a Mac under
+    /// pressure that happened within seconds of a tab leaving the screen. The picture is taken off the main thread as
+    /// the surface pauses, before its frame turns volatile, and stands in once the frame is gone.
+    private(set) var pausedPicture: CGImage?
+    nonisolated static let pausedPictureSide: CGFloat = 640
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     /// The display scale last given to Ghostty (``updateContentScale()``); nil before it was set.
@@ -157,11 +171,15 @@ public final class TerminalSurfaceView: NSView {
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
     private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    /// Option-drag selection while a program has the mouse, and its first-use hint (``TerminalSelectionHint``).
+    private(set) lazy var selectionHint = TerminalSelectionHint(view: self)
 
     // MARK: Lifecycle
 
-    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
-        let bridge = SurfaceBridge(input: input)
+    /// `prediction`: the session's predictive echo engine, fed this surface's input and parsed output.
+    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
+         prediction: TerminalEchoPrediction? = nil) {
+        let bridge = SurfaceBridge(input: input, prediction: prediction)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -220,6 +238,8 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        // Before anything can draw: every frame the layer shows is reported (``TerminalPresents``).
+        bridge.takeUnretainedValue().presents.install(on: surface, layer: layer.map(ObjectIdentifier.init), userdata: userdata)
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
@@ -230,9 +250,8 @@ public final class TerminalSurfaceView: NSView {
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
-                                  frameLayer: layer.map(ObjectIdentifier.init))
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
-        registerForDraggedTypes([.fileURL, .URL, .string])
+                                  frameLayer: layer.map(ObjectIdentifier.init), prediction: bridge.takeUnretainedValue().prediction)
+        registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
         updateOcclusion()
@@ -270,6 +289,7 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        selectionHint.ended() // a press and its hint do not cross windows; its release will not come here
         syncPointerTracking() // a pane's screen serves it, or it tracks the pointer itself (TerminalSurfaceView+Mouse)
         syncWindowState()
         // In another window, its last shown-size change's commit is reported by that window's presenter.
@@ -310,6 +330,7 @@ public final class TerminalSurfaceView: NSView {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
             // report (held while it was not shown) would be a size no frame rests at.
+            if pendingForcedReport, isInPaneMotion { geometry.forceNextReport() } // a join's final grid carries it
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined, justShown: true)
             pendingForcedReport = false
@@ -514,10 +535,14 @@ public final class TerminalSurfaceView: NSView {
         // frame was on screen, and every drawn-ahead frame showed the program's picture of the previous grid, clipped or
         // banded at the new edge (diag 2b50b18e, cmux21, macOS 26, 1x 120 Hz, px-keys-held-2-s1r: 35 of 37 judged edge
         // frames). A retarget can leave one such grid unshown; the next refresh sends the grid it asks for. Elsewhere it
-        // is the grid the view's committed bounds fit (a drag's goes once its size shows; a split's, close's or zoom's
-        // spring holds its grid to the landing), and the landing calls this again with the new bounds (``frameDidLand()``).
+        // is the grid the view's committed bounds fit (a split's, close's or zoom's spring holds its grid to the landing),
+        // and the landing calls this again with the new bounds (``frameDidLand()``). A divider drag follows the same rule
+        // as a key resize (RESIZE P0 12, m55): its grid goes with the size asked, and the presenter holds that size's
+        // frame for the program's redraw (``programHoldTicks``). It went only once its size showed (cmux-ad m29), so the
+        // program redrew a refresh after the divider and every drag frame showed its previous picture clipped.
         let keyResize = followsKeyResize
-        let reported = keyResize ? Self.grid(fitting: size) : shownGrid(on: surface, fallback: size)
+        let asksGrid = keyResize || isFollowingResizeGesture
+        let reported = asksGrid ? Self.grid(fitting: size) : shownGrid(on: surface, fallback: size)
         guard let desired = reported else { return publish(size: size, grid: nil) }
         publish(size: size, grid: desired)
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
@@ -525,7 +550,7 @@ public final class TerminalSurfaceView: NSView {
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
         // follows its pane (cmux-ad m18) and a drag (its release's spring too, cmux-ad m29) are live instead: their
         // grids go coalesced (``TerminalGridReporter``), at most once per refresh (the first at once, RESIZE P0 7), ending at the landing's.
-        let live = keyResize || isFollowingResizeGesture
+        let live = asksGrid
         // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane
         // moved on, or its spring landed, while the frame waited) reports nothing: the wanted size
         // reports its grid when its frame lands. The landing's release sized from such a size and sent its stale grid,
@@ -543,11 +568,8 @@ public final class TerminalSurfaceView: NSView {
         }
         if forceReport || !live {
             gridReports.now(report)
-        } else if isFollowingResizeGesture {
-            // A drag's grid goes once its size shows: now with the bounds, or when the presenter shows it (`frameDidLand`).
-            gridReports.drag(report, shownNow: frameOwnership.inFlight == nil)
         } else {
-            // A key spring's grid: the size asked of Ghostty, coalesced; a just-shown view's waits for the refresh.
+            // A key spring's or a drag's grid: the size asked of Ghostty, coalesced; a just-shown view's waits for the refresh.
             gridReports.coalesced(report, waitsForRefresh: justShown, replacesUnshown: replacingAhead)
         }
     }
@@ -555,8 +577,8 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a key resize drives this view's size (``updateSurfaceSize(forceReport:justShown:drawingAhead:)``): its host
     /// follows its pane's key hold, or the key's turn drew the press's first size ahead or the hold's end asked its final
     /// size (``TerminalHostView`` `aheadOfKeyResize`, never a snapped split's, close's or zoom's) and that size is with
-    /// Ghostty. A drag that began meanwhile keeps its own rule (its grid goes when its size shows).
-    private var followsKeyResize: Bool {
+    /// Ghostty. A drag that began meanwhile is not a key resize (it sends the same asked grid, ``isFollowingResizeGesture``).
+    var followsKeyResize: Bool {
         guard !isFollowingResizeGesture, let host = superview as? TerminalHostView else { return false }
         return host.surfaceFollowsArea
             || (host.aheadOfKeyResize && (frameOwnership.ahead != nil || frameOwnership.inFlight != nil))
@@ -679,7 +701,7 @@ public final class TerminalSurfaceView: NSView {
     private func holdPresentedFrame(volatile: Bool) -> TerminalRevealReport.SavedFrame {
         if volatile {
             volatileFrame = presentedFrame === givenAwayFrame ? nil : presentedFrame
-            volatileFrame?.makeVolatile()
+            if let frame = volatileFrame { pictureThenMakeVolatile(frame) }
             return .none
         }
         guard let frame = volatileFrame else { return .none }
@@ -691,6 +713,28 @@ public final class TerminalSurfaceView: NSView {
             return .purged
         }
         return .kept
+    }
+
+    /// Pictures `frame` (paused now) off the main thread, then makes it volatile while it is still the paused frame.
+    /// A frame already pictured (the same surface, unchanged since) turns volatile at once: a plain switch back and
+    /// forth costs no render.
+    private func pictureThenMakeVolatile(_ frame: IOSurface) {
+        let source = (frame: ObjectIdentifier(frame), seed: frame.seed)
+        if let last = pausedPictureSource, last.frame == source.frame, last.seed == source.seed, pausedPicture != nil {
+            return frame.makeVolatile()
+        }
+        picturing = frame
+        let surface = SendableSurface(surface: frame), side = Self.pausedPictureSide
+        Task { [weak self] in  // task-owner: one bounded off-main render per pause; the frame stays non-volatile until it ends
+            let picture = await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(surface, maxPixelSize: side) }.value
+            guard let self else { return }
+            if self.picturing === frame { self.picturing = nil }
+            if let picture {
+                self.pausedPicture = picture
+                self.pausedPictureSource = source
+            }
+            if self.volatileFrame === frame { frame.makeVolatile() }
+        }
     }
 
     /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is
@@ -707,7 +751,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     func endFrameRead(_ frame: IOSurface) {
-        if frame === volatileFrame { frame.makeVolatile() }
+        if frame === volatileFrame, frame !== picturing { frame.makeVolatile() }  // one being pictured turns volatile after
     }
 
     /// `frame` is shown by another view from now on (a replacement session's carried frame): this

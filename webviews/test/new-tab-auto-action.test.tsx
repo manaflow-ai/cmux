@@ -12,6 +12,7 @@ import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import { defaultSelection, screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const ask = { harness: "claude", agent: "Claude Code" };
 const omnibar = { ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }] };
@@ -82,12 +83,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -149,11 +147,11 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   expect(editor.getAttribute("aria-describedby")).toBeNull();
   expect(field.getAttribute("aria-describedby")).toBeNull();
-  expect(editor.getAttribute("aria-label")).toBe("Ask anything or type a URL");
+  expect(editor.getAttribute("aria-label")).toBe("Type a question, command, or URL");
   const placeholder = field.querySelector<HTMLElement>(".acpmux-md-placeholder")!;
-  expect(placeholder.textContent).toBe("Ask anything or type a URL");
+  expect(placeholder.textContent).toBe("Type a question, command, or URL");
   expect(placeholder.hidden).toBe(false);
-  expect(placeholder.querySelector(".acpmux-md-placeholder-key")).toBeNull();
+  expect(placeholder.querySelector(".ui-key-hint")).toBeNull();
 });
 
 test("Return on keywords asks the composer's agent", async () => {
@@ -196,10 +194,11 @@ test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
 // it is the browser's again.
 test("Tab on the last row moves focus on instead of wrapping", async () => {
   const editor = await type(await render([]), "ff");
-  // Up from the top row goes back to the text; from there Up takes the last row.
-  await key(editor, "ArrowUp");
-  await key(editor, "ArrowUp");
+  await key(editor, "Tab");
+  await key(editor, "Tab");
+  expect(selected()).toBe("Search the web for ff");
   const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => void editor.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
+  expect(selected()).toBe("Search the web for ff");
 });

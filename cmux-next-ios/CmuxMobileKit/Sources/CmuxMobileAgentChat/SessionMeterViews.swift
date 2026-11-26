@@ -27,7 +27,7 @@ struct ContextUsageRing: View {
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("Context used")
         .accessibilityValue(Text("\(usage.percent) percent, \(usage.tokensLabel)"))
         .popover(isPresented: $showsDetails) {
@@ -69,7 +69,7 @@ private struct ContextUsagePie: View {
             PieWedge(fraction: fraction)
                 .fill(tint)
                 .padding(3)
-                .animation(.cmuxMobileSmooth, value: fraction)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: fraction)
         }
     }
 }
@@ -90,69 +90,6 @@ private struct PieWedge: Shape {
                     startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * min(fraction, 1)), clockwise: false)
         path.closeSubpath()
         return path
-    }
-}
-
-/// The running turn's plan pinned above the composer: progress, count and the current step.
-/// Tapping expands the whole checklist.
-struct PlanProgressBar: View {
-    let progress: PlanProgress
-    let entries: [ACPPlanEntry]
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                withAnimation(.cmuxMobileSmooth) { expanded.toggle() }
-            } label: {
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle().stroke(Color.cmuxMobileFillSelected, lineWidth: 2.5)
-                        Circle()
-                            .trim(from: 0, to: Double(progress.completed) / Double(max(progress.total, 1)))
-                            .stroke(Color.cmuxMobileSuccess, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .animation(.cmuxMobileSmooth, value: progress.completed)
-                    }
-                    .frame(width: 16, height: 16)
-                    Text(progress.current ?? "Plan complete")
-                        .font(.footnote.weight(.medium))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(progress.countLabel)
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
-                    Image(systemName: "chevron.up")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                }
-                .frame(minHeight: 44)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            if expanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Image(systemName: entry.status == .completed ? "checkmark.circle.fill"
-                                  : (entry.status == .inProgress ? "circle.dotted" : "circle"))
-                                .foregroundStyle(entry.status == .completed ? Color.cmuxMobileSuccess : .secondary)
-                            Text(entry.content).font(.footnote)
-                                .foregroundStyle(entry.status == .completed ? .secondary : .primary)
-                        }
-                    }
-                }
-                .padding(.bottom, 10)
-                .transition(.opacity)
-            }
-        }
-        .padding(.horizontal, 14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
-        .padding(.horizontal, 20)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("Plan, \(progress.completed) of \(progress.total) done. \(progress.current ?? "")"))
     }
 }
 #endif

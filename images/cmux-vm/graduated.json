@@ -1,0 +1,16 @@
+{
+  "apt": [
+    "bc",
+    "fd-find",
+    "ffmpeg",
+    "file",
+    "git-lfs",
+    "imagemagick",
+    "poppler-utils",
+    "sqlite3",
+    "tree",
+    "unzip",
+    "zip"
+  ],
+  "npm": []
+}

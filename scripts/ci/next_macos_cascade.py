@@ -88,8 +88,11 @@ for an hour, read from a snapshot up to six hours old). The stall rule alone
 cannot tell a dead label from a busy one, and a label whose queue was cleared
 reads as free: on 2026-10-30 blacksmith-12vcpu-macos-26 had started nothing for
 about a day. A dead label takes no slot, no overflow and no retry_runner, and a
-feed's compile counts it full (fresh_stalled()), while another label shows
-life; with every label dead the snapshot says nothing to choose by.
+feed's compile counts it full (fresh_stalled()). While another label shows
+life that is enough; with every label showing nothing, an idle label looks the
+same, so only one holding a job left waiting past the stall wait is dead
+(simple_pool_picker.stuck_queue()), and with both so stuck every job stays on
+the owned route.
 
 Only owned Macs participate in this cascade. Before it existed, fast-tier and
 swift-canary overflowed to an external macOS runner while Blacksmith was full or
@@ -103,7 +106,7 @@ FRESH_STALL_MINUTES as full, and so does its last resort when the runner groups
 are unread: the compile takes the owned label then (the DEV slot while idle, else
 the side queue).
 
-The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
+The rescue's re-run (attempt 2 or any later attempt triggered by RESCUE_ACTOR: bot_rerun()) is
 placed afresh, from what is free when it starts, instead of reading nothing:
 until 2026-10-26 the placement skipped every attempt after 1, so the re-run's
 outputs were empty and its cascade jobs went back to the end of the owned side
@@ -191,6 +194,13 @@ OWNED_HEALTH_QUEUE_SECONDS = 3 * 60
 # How old a snapshot may be and still hold a Blacksmith label for the freshness work it shows queued there
 # (reserved_from()): pr_runner_pool.MAX_SNAPSHOT_MINUTES, the oldest artifact the read fetches at all.
 RESERVED_SNAPSHOT_MINUTES = 45
+# The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"). Only the
+# repository variable CI_BLACKSMITH_MACOS set to `on` lets a cmux-next job take a Blacksmith macOS label,
+# as HQ's HQ_BLACKSMITH_MACOS does (cmuxterm-hq docs/handbook/label-no-pool-lists.md). Unset, every label in
+# LABELS is unavailable (place()) and the GUI jobs take no Blacksmith overflow (side_lane_placement.gui_overflow()),
+# so a job stays on its owned label. On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807)
+# sat queued on blacksmith-6vcpu-macos-26 with 0 of its 39 runners online.
+BLACKSMITH_SWITCH = "CI_BLACKSMITH_MACOS"
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
 # A refused read is logged with its detail and raised, never retried here: the reads share
@@ -238,6 +248,62 @@ def vcpus(label: str) -> int:
 def pool_label(label: str) -> bool:
     """A Blacksmith macOS label: it draws on the organization's one macOS pool."""
     return label.startswith("blacksmith-") and "-macos-" in label and vcpus(label) > 0
+
+
+def blacksmith_on(env: Mapping[str, str]) -> bool:
+    """Whether the repository lets a job take a Blacksmith macOS label: BLACKSMITH_SWITCH is `on`.
+
+    A caller that passes no BLACKSMITH_SWITCH at all (another workflow's placement step, which does not read the
+    variable yet) keeps the cascade it had; every cmux-next.yml placement step passes it, so there unset is off.
+    """
+    return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
+
+
+# The scoped rescue value of BLACKSMITH_SWITCH (hq#11523, 2026-11-15: glaeda-side-std-xcode-26.6 had 76 jobs
+# queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
+# Only a cmux-next.yml pull_request run, or a dispatch gating one, honors it (pr_rescue()): its placement takes Blacksmith macOS once the
+# owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
+# MAX_PER_RUN caps as `on`. A re-run attempt takes Blacksmith only through that placement's retry label, which is
+# empty for a dead or stalled label (cmux#44966: a plain vars.MACOS_RUNNER_26 fallback queued re-runs on a label with
+# no runner online); otherwise it keeps the side lane. Every other workflow compares the variable with exactly
+# `on`, so for them it is off.
+PR_RESCUE = "pr-rescue"
+RESCUE_ROUTE_MINUTES = 45.0
+RESCUE_WORKFLOW = "/.github/workflows/cmux-next.yml@"
+# cmux-next.yml's placement step sets this to `true` for a workflow_dispatch that gates a pull request (a pull
+# request's same-tree run or a dispatch on its branch: same_tree_origin empty or `pull_request`, and none of
+# dev_daily, tip_swift_suite, tip_daemon_suite, base_tier or no_reuse). pr_rescue() treats it as its pull request's
+# run. cmux#44673 sent such a dispatch's bot re-run off the side lane through every owned fallback; cmux#45176 cut
+# that clause so re-runs reach Blacksmith only through placement, and placement honored pull_request runs only, so
+# the dispatch kept the side lane again (cmux#44529's scheme compile, run 43879624016, cmuxterm-hq#12109).
+# owned_pool_rescue.stall_moves_dispatch() (main) reads this name in the head's cmux-next.yml before it stall-moves
+# such a dispatch.
+PULL_DISPATCH = "CMUX_NEXT_PULL_DISPATCH"
+
+
+def pr_rescue(env: Mapping[str, str]) -> bool:
+    """Whether this is a cmux-next.yml pull_request run, or a dispatch gating one (PULL_DISPATCH), with
+    BLACKSMITH_SWITCH set to PR_RESCUE."""
+    event = env.get("GITHUB_EVENT_NAME")
+    return ((env.get(BLACKSMITH_SWITCH) or "").strip() == PR_RESCUE
+            and (event == "pull_request"
+                 or event == "workflow_dispatch" and (env.get(PULL_DISPATCH) or "").strip() == "true")
+            and RESCUE_WORKFLOW in (env.get("GITHUB_WORKFLOW_REF") or ""))
+
+
+def rescue_open(env: Mapping[str, str], route_wait: float | None) -> bool:
+    """pr_rescue() and the owned route has started nothing for RESCUE_ROUTE_MINUTES (route_wait, minutes)."""
+    return pr_rescue(env) and route_wait is not None and route_wait >= RESCUE_ROUTE_MINUTES
+
+
+def blacksmith_off_why(env: Mapping[str, str]) -> str:
+    """Why no job takes a Blacksmith macOS label (the switch is off), or ""."""
+    if blacksmith_on(env):
+        return ""
+    if pr_rescue(env):
+        return (f"Blacksmith macOS is in `{PR_RESCUE}` (vars.{BLACKSMITH_SWITCH}) and the owned route's oldest "
+                f"queued job has waited under {RESCUE_ROUTE_MINUTES:.0f} min")
+    return f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`)"
 
 
 def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
@@ -499,10 +565,35 @@ def late_waits(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str
             if _field(pools, label, "queued")}
 
 
+def queued_full(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
+    """The LABELS a snapshot at most RESERVED_SNAPSHOT_MINUTES old, fresh or not, shows with CAPACITY or more
+    jobs queued: a job sent there waits behind a full set of slots' worth of jobs, so it queues on its owned
+    label instead.
+
+    The cloud label is judged by its queue against its slots, not by whether it is online or moving. On
+    2026-11-17 at 04:42Z cmux#44204's DEV Release compile (run 44018999063) found no owned runner idle and no
+    pool snapshot under QUEUE_SNAPSHOT_MINUTES old, took blacksmith-6vcpu-macos-26 unverified, and sat there
+    over an hour while that label ran 10 jobs with 56 queued; at 02:23Z the same label held 17 in flight and 91
+    queued when cmux#43307's daemon tests were placed on it."""
+    if not isinstance(snapshot, Mapping):
+        return frozenset()
+    try:
+        generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return frozenset()
+    pools = snapshot.get("pools")
+    if generated.tzinfo is None or not isinstance(pools, Mapping):
+        return frozenset()
+    if not -5 <= (now - generated).total_seconds() / 60 <= RESERVED_SNAPSHOT_MINUTES:
+        return frozenset()
+    return frozenset(label for label in LABELS if _field(pools, label, "queued") >= CAPACITY[label])
+
+
 def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
     """The LABELS the snapshot (fresh or not) shows dead (simple_pool_picker.dead_macos_26(), blacksmith_dead():
-    nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
-    shows every one dead: with no label showing life it says nothing to choose by."""
+    nothing running and no job started on it for an hour, from a snapshot up to six hours old). With every label
+    showing nothing, only those holding a job left waiting (simple_pool_picker.stuck_queue()): an idle label looks
+    dead too."""
     return frozenset(_picker_rule.dead_macos_26(snapshot, now)) & frozenset(LABELS)
 
 
@@ -599,7 +690,7 @@ def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen 
     if not reserved:
         return None
     return Seen(waits=late_waits(snapshot, now), age=max(0.0, age), reserved=reserved, observed_at=now, stale=True,
-                dead=dead(snapshot, now))
+                snapshot=snapshot, dead=dead(snapshot, now))
 
 
 def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -608,7 +699,8 @@ def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | N
     if found is not None:
         return found
     gone, waits = dead(snapshot, now), late_waits(snapshot, now)
-    return Seen(waits=waits, stale=True, dead=gone) if gone or waits else None
+    return (Seen(waits=waits, stale=True, dead=gone, snapshot=snapshot, observed_at=now)
+            if gone or waits else None)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -717,7 +809,8 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
 
     `dead_end` (dead_end(): the owned route the jobs would otherwise wait on has started nothing for longer
     than SMALL's oldest job has waited, or one host alone serves it) waives SMALL's stall and backlog rules:
-    the shorter queue wins. MAX_PER_RUN, freshness work and a fresh-stalled label still hold.
+    the shorter queue wins. MAX_PER_RUN, freshness work and a fresh-stalled label still hold. It compares
+    measured waits; the blind paths (no fresh count) instead refuse a label queued_full() shows full.
     """
     if SMALL in stall and not dead_end:
         return ()
@@ -777,9 +870,20 @@ def gui_overflow_label(live: Mapping[str, int] | None, waiting: Mapping[str, int
     return LARGE if free >= jobs and fits(LARGE, room - vcpus(LARGE) * (jobs - 1), queue) else SMALL
 
 
+# How long a Mac job of the rescue's attempt 2 waits on an owned label before the rescue places it once more
+# (owned_pool_rescue.OWNED_REPLACE_SECONDS reads the same figure).
+OWNED_REPLACE_MINUTES = 20
+
+
 def bot_rerun(env: Mapping[str, str]) -> bool:
-    """The rescue's full re-run: attempt 2 that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1."""
-    return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
+    """The rescue's re-run: any attempt from 2 on that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1.
+
+    Until 2026-11-10 attempt 2 was the last placement, until 2026-11-15 attempt 3: whatever the last one chose held.
+    cmux#40330's run 42858473381 stayed on glaeda-side-std-xcode-26.6 for hours after a placement read a stalled
+    Blacksmith, and run 43716323834's attempt 5 (#43733) queued 'cmux-next generated files' on side-std again while
+    glaeda-gui-std-xcode-26.6 had 0 queued. cmux-next.yml's macos-placement runs on every bot attempt to match."""
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
+    return (attempt.isdigit() and int(attempt) >= 2
             and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() in RESCUE_ACTORS)
 
 
@@ -799,6 +903,12 @@ def cascade_jobs(env: Mapping[str, str]) -> tuple[str, ...]:
     return (*CASCADE_JOBS, *(job for job in (env.get("CASCADE_JOBS") or "").split() if job not in CASCADE_JOBS))
 
 
+def promote_jobs(env: Mapping[str, str]) -> tuple[str, ...]:
+    """PROMOTE_JOBS plus the env's PROMOTE_JOBS: another trusted workflow's own Mac job (app-ffi-release.yml's
+    `app-ffi-build`) takes the promotion mini and its cascade as a feat-cmux-next push's Release compile does."""
+    return (*PROMOTE_JOBS, *(job for job in (env.get("PROMOTE_JOBS") or "").split() if job not in PROMOTE_JOBS))
+
+
 def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool = False) -> list[str]:
     """The cascade jobs that run here and no idle mini takes, in the order they take Blacksmith slots."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
@@ -806,7 +916,7 @@ def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool 
     # every side job takes the side label whatever owned_jobs says: so the idle
     # minis count against the jobs that run here, in order, before Blacksmith.
     running = [job for job in (env.get("JOBS") or "").split() if job in cascade_jobs(env) and job in runs]
-    promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
+    promoted = [job for job in running if job in promote_jobs(env)] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
     # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) take the
     # run's slots first: with MAX_PER_RUN slots a run it was last and found none (2026-10-26 09:21Z, run
@@ -823,12 +933,33 @@ def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool 
     return (promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):] + rest[len(owned):]
 
 
+FLEET_SPILL_SWITCH = "CI_FAST_TIER_FLEET_SPILL"
+
+
+def fleet_spill(env: Mapping[str, str], owned: Sequence[str], saturated: bool,
+                reserved: Sequence[str]) -> tuple[str, ...]:
+    """The FLEET_CLIENT_JOBS that take the fleet gateway while Blacksmith macOS is off (place()).
+
+    With the switch off no Blacksmith label takes a job, so a cascade job no idle mini took waits on its owned
+    label: 2026-11-23 09-11Z the fast tier queued 46 to 65 min on glaeda-side-std-xcode-26.6 (173 jobs queued
+    there, every one of its 31 slots busy) while the gateway had idle runners. `saturated` (the owned runners
+    were read live and none was idle for it) lists such a job for its build-fleet client instead;
+    side_lane_placement.fleet_gateway() still keeps it only with an idle gateway runner of its own, and a fleet
+    verdict `queued` hands it back to the owned route. vars.CI_FAST_TIER_FLEET_SPILL `0` turns this off.
+    """
+    if not saturated or (env.get(FLEET_SPILL_SWITCH) or "").strip() == "0":
+        return ()
+    requested = set((env.get("FLEET_CLIENT_JOBS") or "").split())
+    jobs = (env.get("JOBS") or "").split()
+    return tuple(job for job in jobs if job in requested and job not in owned and job not in reserved)
+
+
 def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
           waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False,
           saturated: bool = False, route_wait: float | None = None) -> Placement:
     """The Blacksmith jobs of attempt 1, after the idle minis took `owned`.
 
-    With PROMOTE_LABEL set (a feat-cmux-next push), PROMOTE_JOBS run on that label: they cascade,
+    With PROMOTE_LABEL set (a feat-cmux-next push), promote_jobs() run on that label: they cascade,
     first, only when `promote_busy` (no idle runner carries it), and never take an idle side mini's turn.
 
     `saturated`: the owned runners were read live, so the jobs past `owned` are known to have no idle
@@ -838,10 +969,32 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     `route_wait`: how long the owned route the jobs would stay on has started nothing (dead_end()).
     """
     empty = {label: () for label in LABELS}
-    unavailable = tuple(label for label in LABELS if seen is not None and label_full_or_dead(
-        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0), now=seen.observed_at))
+    # With Blacksmith macOS off (blacksmith_on(), rescue_open()) every label is unavailable: no slot, no overflow, no retry label,
+    # and a feed's compile counts each full (fresh_stall), so every job stays on its owned label.
+    off = () if blacksmith_on(env) or rescue_open(env, route_wait) else LABELS
+    unavailable = tuple(dict.fromkeys((*off, *(label for label in LABELS if seen is not None and label_full_or_dead(
+        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0),
+        now=seen.observed_at)))))
     if skipped(env):
         return Placement(empty, "", skipped(env))
+    if off:
+        placement = _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
+        spill = fleet_spill(env, owned, saturated, placement.fleet_jobs)
+        why = f"{blacksmith_off_why(env)}, so every job stays on its owned label. {placement.why}"
+        if spill:
+            why += (f"; no idle mini took {', '.join(spill)}, so it is reserved for the fleet gateway "
+                    f"(vars.{FLEET_SPILL_SWITCH} `0` turns this off)")
+        return dataclasses.replace(placement, retry_runner="", retry_jobs=(),
+                                   fresh_stall=tuple(dict.fromkeys((*off, *placement.fresh_stall))),
+                                   fleet_jobs=tuple(dict.fromkeys((*placement.fleet_jobs, *spill))), why=why)
+    return _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
+
+
+def _place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
+           waiting: Mapping[str, int] | None, seen: Seen | None, promote_busy: bool, saturated: bool,
+           route_wait: float | None, unavailable: Sequence[str]) -> Placement:
+    """place() past its switch and skip checks, with `unavailable` the labels no job takes."""
+    empty = {label: () for label in LABELS}
     if live is None or waiting is None:
         why = ("Blacksmith's runner groups could not be read" if live is None else
                f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
@@ -866,8 +1019,14 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
             # A label the snapshot, however old, shows dead is never that last resort.
             if SMALL in seen_dead(seen):
                 why += f"; `{SMALL}` is dead (nothing running, no job started in an hour)"
-            elif SMALL in fresh_stall:
-                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+            elif SMALL in fresh_stall or seen is not None and SMALL in queued_full(
+                    seen.snapshot, seen.observed_at or dt.datetime.now(dt.timezone.utc)):
+                # Both reasons are named when both hold: a stalled wait and a queue at the slot count.
+                if SMALL in fresh_stall:
+                    why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+                if seen is not None and SMALL in queued_full(
+                        seen.snapshot, seen.observed_at or dt.datetime.now(dt.timezone.utc)):
+                    why += f"; the snapshot shows `{SMALL}` queued at its {CAPACITY[SMALL]} slots or more"
             else:
                 reason = ("no idle mini can take them" if saturated else "a feed's freshness waits on them")
                 return Placement({**empty, SMALL: fresh}, "",
@@ -902,7 +1061,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     requested_fleet = set((env.get("FLEET_CLIENT_JOBS") or "").split())
     route_labels = tuple(label for label in (*LABELS, (env.get("SIDE_LABEL") or "").strip()) if label)
     all_routes_blocked = bool(requested_fleet) and seen is not None and bool(route_labels) and all(
-        label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0),
+        label in unavailable or label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0),
                            now=seen.observed_at)
         for label in route_labels)
     # A job with a build-fleet client that a Blacksmith macOS label took is listed too: the fleet builds it
@@ -970,7 +1129,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
     if bot_rerun(env):
-        why = f"the rescue's re-run (attempt 2) is placed afresh. {why}"
+        why = f"the rescue's re-run (attempt {(env.get('GITHUB_RUN_ATTEMPT') or '').strip()}) is placed afresh. {why}"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned

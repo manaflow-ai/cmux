@@ -129,24 +129,42 @@ fn disconnect_client_with_notice(
     notice: Option<&Value>,
     detach: &DetachNotice,
 ) -> bool {
-    let record = {
+    let (record, released_handoff) = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
-        let Some(record) = mux.control_clients.remove(client) else { return false };
+        let Some((record, released_handoff)) = mux.control_clients.remove(client) else {
+            return false;
+        };
         // Its size leases now bound the departed-view holds it sets (size_lease.rs).
         mux.control_clients.size_leases.client_left(client);
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
-        record
+        (record, released_handoff)
     };
+    // A handoff it reserved and did not finish ended with it, and so does
+    // the idle-stop fence that handoff raised (server/stop_if_idle.rs);
+    // otherwise every new terminal stays refused.
+    if released_handoff {
+        mux.settle_idle_stop_fence();
+    }
+    mux.activity.disconnect(client);
+    // The app's window records are in: a relaunch draws them (launch_snapshot.rs).
+    mux.launch_snapshot_client_left(client);
     mux.unbind_conversation_principal(client);
     #[cfg(unix)]
     mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
+    mux.feed_connection_closed(client);
+    #[cfg(unix)]
+    mux.cloud_services().machine_state.stop(client);
+    mux.forget_tab_creations(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
     mux.unregister_browser_provider(client);
     #[cfg(unix)]
     mux.image_pastes.disconnect(client);
+    // Its shell mode commands get a hangup, as a closed terminal sends (`shell_runs.rs`).
+    #[cfg(unix)]
+    mux.shell_runs.client_left(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;

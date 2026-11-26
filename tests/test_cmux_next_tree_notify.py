@@ -32,6 +32,17 @@ UPLOADED = "2026-11-02T03:01:10Z"  # the marker artifact
 LATER = "2026-11-02T03:30:02Z"
 
 
+REPO_ID = 1144115288  # o/r
+FORK_ID = 9  # someone/cmux
+FORK_RUN = {"head_repository_id": FORK_ID}  # the artifact of a fork pull request's run
+
+
+def pull(sha: str = HEAD, *, ref: str = "lane/x", repo: str = "o/r", base: str = "feat-cmux-next",
+         state: str = "open") -> dict:
+    """pulls/7 as GitHub returns it (the fields the notifier reads)."""
+    return {"state": state, "head": {"sha": sha, "ref": ref, "repo": {"full_name": repo}}, "base": {"ref": base}}
+
+
 def marker_zip(marker: dict) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -56,17 +67,23 @@ def pr_marker(**extra) -> dict:
 
 class FakeApi:
     def __init__(self, markers: list[dict], *, branch_head: str = SHA, pr: dict | None = None,
+                 artifact_runs: list[dict | None] | None = None,
                  refuse_refs: tuple[str, ...] = (), runs: list[dict] | None = None,
-                 history_error: bool = False):
+                 history_error: bool = False, jobs: dict[int, list[dict]] | None = None):
         self.artifacts = [
             {"id": 100 + index, "name": f"cmux-next-tree-wait-{KEY}", "expired": False,
              "created_at": UPLOADED,
-             "archive_download_url": f"zip/{100 + index}", "workflow_run": {"id": marker.get("run_id")}}
+             "archive_download_url": f"zip/{100 + index}",
+             # The artifact's run as GitHub records it: a same-repository run unless the test says otherwise.
+             "workflow_run": dict({"id": marker.get("run_id"), "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                                   "head_branch": marker.get("head_ref") or marker.get("branch"),
+                                   "head_sha": marker.get("status_sha")},
+                                  **((artifact_runs or [None] * len(markers))[index] or {}))}
             for index, marker in enumerate(markers)
         ]
         self.zips = {f"zip/{100 + index}": marker_zip(marker) for index, marker in enumerate(markers)}
         self.branch_head = branch_head
-        self.pr = pr if pr is not None else {"state": "open", "head": {"sha": HEAD}}
+        self.pr = pr if pr is not None else pull()
         self.refuse_refs = refuse_refs
         self.dispatched: list[dict] = []
         self.deleted: list[int] = []
@@ -74,6 +91,9 @@ class FakeApi:
         self.runs = list(runs or [])
         self.history_error = history_error
         self.history_reads: list[str] = []
+        # run id -> its jobs (the jobs API); a run without an entry has a same-tree run's jobs, its Mac job queued.
+        self.jobs = dict(jobs or {})
+        self.cancelled: list[int] = []
 
     def get(self, path: str):
         if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}"):
@@ -88,12 +108,28 @@ class FakeApi:
                 raise RuntimeError("HTTP 403")
             since = path.split("created=%3E%3D", 1)[1].split("&", 1)[0]
             return {"workflow_runs": [run for run in self.runs if run["created_at"] >= since]}
+        if path.startswith("repos/o/r/actions/workflows/cmux-next.yml/runs?branch="):
+            branch = path.split("branch=", 1)[1].split("&", 1)[0]
+            assert "event=workflow_dispatch" in path, path
+            # GitHub lists the newest first.
+            return {"workflow_runs": sorted((run for run in self.runs if run.get("head_branch") == branch),
+                                            key=lambda run: run["created_at"], reverse=True)}
+        if path.startswith("repos/o/r/actions/runs/") and "/jobs?" in path:
+            run_id = int(path.split("/")[5])
+            return {"jobs": self.jobs.get(run_id, same_tree_jobs())}
+        if path.startswith("repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha="):
+            # No artifacts run of the waiter's commit: the takeover (cmux_tui_tree_takeover.py) is refused, and
+            # a failed state is reported red (tests/test_cmux_tui_tree_takeover.py covers the takeover).
+            return {"workflow_runs": []}
         raise AssertionError(f"unexpected GET {path}")
 
     def download(self, url: str) -> bytes:
         return self.zips[url]
 
     def post(self, path: str, body: dict) -> int:
+        if path.startswith("repos/o/r/actions/runs/") and path.endswith("/cancel"):
+            self.cancelled.append(int(path.split("/")[5]))
+            return 202
         assert path == "repos/o/r/actions/workflows/cmux-next.yml/dispatches", path
         if body["ref"] in self.refuse_refs:
             return 422
@@ -103,16 +139,52 @@ class FakeApi:
         name = (f"cmux NEXT DEV daily · {inputs['dev_daily_sha']}" if inputs.get("dev_daily") == "true"
                 else f"cmux-next tip daemon suite · {sha}" if inputs.get("tip_daemon_suite") == "true"
                 else f"cmux-next base tier · {sha}" if inputs.get("base_tier") == "true"
-                else f"cmux-next · {sha}")
+                else f"cmux-next · {inputs['same_tree_status_sha']}")
         # GitHub's clock moves on: each dispatch is created after everything before it.
         # As the REST API lists it: the evaluated run-name in display_title (and here a static `name`).
-        self.runs.append({"name": "cmux-next", "display_title": name,
+        # A plain same-tree run's name is `cmux-next · <github.sha>`: the dispatch ref's tip, which is
+        # the commit that gets the statuses (a pull request's head on its head branch).
+        self.runs.append({"name": "cmux-next", "display_title": name, "id": 9000 + len(self.runs),
+                          "event": "workflow_dispatch", "head_branch": body["ref"],
+                          "head_sha": inputs["same_tree_status_sha"], "status": "queued", "run_attempt": 1,
                           "created_at": f"2026-11-02T05:{len(self.runs):02d}:00Z"})
+        # A failed-state run reports its tiers red and skips its Mac jobs (cmux-next.yml reads same_tree_state).
+        self.jobs.setdefault(self.runs[-1]["id"], same_tree_jobs(mac="skipped" if inputs["same_tree_state"] == "failed"
+                                                                 else "queued", tiers=inputs["same_tree_tiers"]))
         return 204
 
     def delete(self, path: str) -> int:
         self.deleted.append(int(path.rsplit("/", 1)[1]))
         return 204
+
+
+def same_tree_jobs(mac: str = "queued", tiers: str = "scheme") -> list[dict]:
+    """A same-tree run's jobs as the jobs API lists them (run 42607592895): its routing and push head
+    preflight skipped, the Mac job of each of TIERS in state MAC (`skipped`: completed, skipped)."""
+    names = {"daemon": "cmux-next daemon tests", "scheme": "cmux app scheme compile (Debug)"}
+    mac_jobs = [{"name": names[tier], "status": "completed", "conclusion": "skipped"} if mac == "skipped"
+                else {"name": names[tier], "status": mac, "conclusion": None} for tier in tiers.split(",")]
+    return [{"name": "cmux-next push head preflight", "status": "completed", "conclusion": "skipped"},
+            {"name": "cmux-next path routing", "status": "completed", "conclusion": "skipped"},
+            {"name": "cmux-next macOS placement", "status": "completed", "conclusion": "success"}] + mac_jobs
+
+
+def plain_dispatch_jobs() -> list[dict]:
+    """A plain dispatch (no same-tree inputs) routes itself: its preflight and routing run."""
+    return [{"name": "cmux-next push head preflight", "status": "completed", "conclusion": "success"},
+            {"name": "cmux-next path routing", "status": "in_progress", "conclusion": None},
+            {"name": "cmux app scheme compile (Debug)", "status": "queued", "conclusion": None}]
+
+
+def open_run(run_id: int, minute: int, *, branch: str = "lane/x", sha: str | None = None,
+             title: str | None = None, **extra) -> dict:
+    """An open cmux-next.yml dispatch run created at 04:MINUTE (before any dispatch the fake makes)."""
+    sha = sha or f"{run_id:040d}"
+    record = {"id": run_id, "name": "cmux-next", "display_title": title or f"cmux-next · {sha}",
+              "event": "workflow_dispatch", "head_branch": branch, "head_sha": sha, "status": "queued",
+              "run_attempt": 1, "created_at": f"2026-11-02T04:{minute:02d}:00Z"}
+    record.update(extra)
+    return record
 
 
 def run(api: FakeApi, state: str = "ready", completion: dict | None = None) -> int:
@@ -249,10 +321,15 @@ class Notify(unittest.TestCase):
                 self.assertEqual(run(api), 0)
                 self.assertEqual(api.dispatched, [])
 
-    def test_a_fork_pull_request_runs_on_the_base_branch(self):
-        api = FakeApi([pr_marker(head_repo="someone/cmux")])
-        self.assertEqual(run(api), 1)
-        self.assertEqual([body["ref"] for body in api.dispatched], ["feat-cmux-next"])
+    def test_a_fork_pull_requests_marker_starts_nothing(self):
+        """Review of #39634 (comment 6744212258): a fork pull request's run executes the fork's workflow file, so
+        it can write any marker.json; its artifact (workflow_run.head_repository_id is the fork) is not trusted.
+        The fork keeps its pull_request run; it gets no same-tree dispatch from its marker."""
+        api = FakeApi([pr_marker(head_repo="someone/cmux")], artifact_runs=[FORK_RUN],
+                      pr=pull(repo="someone/cmux"))
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
 
     def test_a_failed_publish_reports_red_and_keeps_the_marker(self):
         """A takeover run may still publish the key; its notify then dispatches green."""
@@ -292,18 +369,22 @@ class Notify(unittest.TestCase):
                 self.assertEqual(body["inputs"]["same_tree_state"], "failed")
                 self.assertEqual(api.deleted, [])
 
-    def test_failed_pr_publication_is_a_named_skip_and_keeps_marker_for_recovery(self):
+    def test_failed_pr_publication_is_reported_red_and_keeps_marker_for_recovery(self):
+        # STATUS_FROM_OUTSIDE (cmux#43368): a notice alone left the PR's required status absent forever. The
+        # failed same-tree run's reporter posts it red (its same-tree-cmux-tui, which makes pin refs, skips a PR).
         api = FakeApi([pr_marker()])
         messages = []
         self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="failed", reason="HTTP 422",
-                                       log=messages.append, fetch_completion=lambda _key: None), 0)
-        self.assertEqual(api.dispatched, [])
+                                       log=messages.append, fetch_completion=lambda _key: None), 1)
+        [failed] = api.dispatched
+        self.assertEqual(failed["inputs"]["same_tree_state"], "failed")
+        self.assertEqual(failed["inputs"]["same_tree_origin"], "pull_request")
+        self.assertIn("HTTP 422", failed["inputs"]["same_tree_reason"])
         self.assertEqual(api.deleted, [])
-        self.assertIn("same-tree cmux-tui skipped", " ".join(messages))
         self.assertIn("no pin ref", " ".join(messages))
         # A later trusted publication can still start the PR's actual tests.
         self.assertEqual(run(api, state="ready"), 1)
-        self.assertEqual(api.dispatched[0]["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(api.dispatched[-1]["inputs"]["same_tree_state"], "ready")
         self.assertEqual(api.deleted, [100])
 
     def test_a_ready_publish_does_not_read_the_completion_record(self):
@@ -320,32 +401,27 @@ class Notify(unittest.TestCase):
         """A 404 (or any read error) is no record: the failed state stands."""
         seen = []
 
-        class Response(io.BytesIO):
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-        def urlopen(request, timeout):
-            seen.append(request.full_url)
-            if "missing" in seen[-1]:
-                raise notify.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
-            if "truncated" in seen[-1]:  # the connection drops mid-body
+        def request(url, seconds):
+            seen.append(url)
+            self.assertEqual(seconds, notify.REQUEST_TIMEOUT_S)
+            if "missing" in url:
+                return 404, b"Not Found", {}
+            if "truncated" in url:  # the connection drops mid-body
                 raise http.client.IncompleteRead(b"{")
-            return Response(json.dumps(completion_json()).encode())
+            if "timeout" in url:
+                raise notify.RequestTimeout("no full answer")
+            return 200, json.dumps(completion_json()).encode(), {}
 
-        original = notify.urllib.request.urlopen
-        notify.urllib.request.urlopen = urlopen
+        original = notify.deadline_http.request
+        notify.deadline_http.request = request
         try:
             self.assertEqual(notify.fetch_completion(KEY), completion_json())
             self.assertTrue(seen[-1].startswith(f"https://files.cmux.com/cmux-tui/tree/{KEY}/completion.json?"))
             self.assertIsNone(notify.fetch_completion("missing"))
             self.assertIsNone(notify.fetch_completion("truncated"))
+            self.assertIsNone(notify.fetch_completion("timeout"))
         finally:
-            notify.urllib.request.urlopen = original
+            notify.deadline_http.request = original
 
     def test_a_failed_tree_is_reported_once_per_marker(self):
         """2026-11-02: tree 4e172926 could not build (a stale Cargo.lock on the base its commits came
@@ -390,7 +466,7 @@ class Notify(unittest.TestCase):
         self.assertEqual(run(api, state="failed"), 1)
         self.assertEqual(run(api, state="failed"), 0)
 
-    def test_the_run_history_is_read_once_per_failed_notify_and_never_for_ready(self):
+    def test_the_run_history_is_read_once_per_notify(self):
         markers = [push_marker(origin="dispatch", tip_suite="base", sha=sha, status_sha=sha)
                    for sha in ("1" * 40, "2" * 40, "3" * 40)]
         api = FakeApi(markers, branch_head=NEWER)
@@ -399,8 +475,10 @@ class Notify(unittest.TestCase):
         self.assertIn(f"created=%3E%3D{UPLOADED}&", api.history_reads[0])
         self.assertEqual(run(api, state="failed"), 0)
         self.assertEqual(len(api.history_reads), 2)
+        # The failed-state runs skipped their Mac jobs: they never stand in for the ready tree jobs. A ready
+        # notify reads the history once too (OpenSameTreeRun).
         self.assertEqual(run(api, state="ready"), 3)
-        self.assertEqual(len(api.history_reads), 2)
+        self.assertEqual(len(api.history_reads), 3)
 
     def test_the_run_name_is_read_from_display_title_or_name(self):
         """REST lists the evaluated run-name as display_title (and, with run-name set, as name)."""
@@ -422,6 +500,61 @@ class Notify(unittest.TestCase):
         self.assertEqual(len(api.dispatched), 2)
         self.assertTrue(any("could not read cmux-next.yml's run history" in line for line in messages))
 
+    def test_the_failed_reason_names_the_tree(self):
+        """cmux_next_same_tree_failed.py reads the key from the red run's reason, its only key input."""
+        api = FakeApi([push_marker()])
+        notify.notify(api, repo="o/r", key=KEY, state="failed", reason="the run ended without publishing",
+                      log=lambda _line: None, fetch_completion=lambda _key: None)
+        reason = api.dispatched[0]["inputs"]["same_tree_reason"]
+        self.assertIn(f"tree {KEY}", reason)
+        self.assertIn("ended without publishing", reason)
+        named = FakeApi([push_marker()])
+        run(named, state="failed")  # "publish failed: u3" names no tree: it is prefixed once
+        self.assertEqual(named.dispatched[0]["inputs"]["same_tree_reason"].count(f"tree {KEY}"), 1)
+
+    def test_a_publish_redispatches_every_tier_a_same_tree_run_reported_red(self):
+        """2026-11-11, cmux#40449 at ec4a30d2: run 43009515785 reported the tree red for the daemon
+        tests and the scheme compile. The tree's publication dispatched only the daemon tests (the pull
+        request's marker); the scheme compile's red stayed. The red run leaves a reported marker
+        (cmux_next_same_tree_failed.py), and the publication starts it with every tier."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import cmux_next_same_tree_failed as failed
+
+        args = failed.parse(["--repo", "o/r", "--ref", "lane/x", "--reason", f"tree {KEY}: publish failed",
+                             "--commit", HEAD, "--status-sha", HEAD, "--tiers", "daemon,scheme",
+                             "--origin", "dispatch", "--origin-run", "11"])
+        reported = failed.reported_marker(args, KEY, "43009515785")
+        api = FakeApi([pr_marker(), reported], branch_head=HEAD)
+        self.assertEqual(run(api), 2)
+        tiers = {body["inputs"]["same_tree_origin"]: body["inputs"]["same_tree_tiers"] for body in api.dispatched}
+        self.assertEqual(tiers, {"pull_request": "daemon", "dispatch": "daemon,scheme"})
+        scheme = next(body for body in api.dispatched if body["inputs"]["same_tree_origin"] == "dispatch")
+        self.assertEqual((scheme["ref"], scheme["inputs"]["same_tree_status_sha"]), ("lane/x", HEAD))
+        self.assertEqual(scheme["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(sorted(api.deleted), [100, 101])
+
+    def test_a_reported_marker_is_never_reported_red_again(self):
+        """Its red is posted; only a publication starts it (no red loop on a key that cannot build)."""
+        api = FakeApi([push_marker(reported=True, reported_run=5)])
+        for _ in range(3):
+            self.assertEqual(run(api, state="failed"), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.deleted, [])
+        self.assertEqual(run(api, state="ready"), 1)
+        self.assertEqual(api.dispatched[0]["inputs"]["same_tree_tiers"], "daemon,scheme")
+        self.assertIsNone(notify.read_marker(FakeApi([push_marker(reported="yes")]),
+                                             {"archive_download_url": "zip/100"}, KEY))
+
+    def test_markers_of_one_run_start_it_once_with_every_tier(self):
+        """The marker that started a red run and the red run's reported marker are one same-tree run."""
+        api = FakeApi([push_marker(tiers=["daemon"]), push_marker(tiers=["scheme"], reported=True)])
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["inputs"]["same_tree_tiers"], "daemon,scheme")
+        self.assertEqual(sorted(api.deleted), [100, 101])
+        failed = FakeApi([push_marker(tiers=["daemon"]), push_marker(tiers=["daemon"])])
+        self.assertEqual(run(failed, state="failed"), 1)
+
     def test_a_malformed_marker_is_ignored(self):
         for bad in (push_marker(sha="not-a-sha"), push_marker(key="e" * 40), push_marker(tiers=["rm -rf"]),
                     push_marker(origin="schedule"), pr_marker(pr="7; true")):
@@ -429,6 +562,627 @@ class Notify(unittest.TestCase):
                 api = FakeApi([bad])
                 self.assertEqual(run(api), 0)
                 self.assertEqual(api.dispatched, [])
+
+
+
+class SupersededSameTreeRuns(unittest.TestCase):
+    """2026-11-09 13:30Z: 14 same-tree runs of pull requests whose heads had moved on waited in the Mac
+    queue (glaeda-side-std-xcode-26.6: 11 runners, 100 queued jobs), each only for its `cmux app scheme
+    compile (Debug)`; lane/review-from-link alone had 3 (42607592895, 42613668792, 42620815281). Each
+    same-tree run has a concurrency group of its own, and is_current() is read only at the dispatch.
+    After a dispatch for a pull request, the older open first-attempt same-tree runs of that pull request
+    with no Mac job running are the candidates: the newest run and the OLDEST candidate (its queued job is
+    nearest a runner, so verdicts keep coming when the Mac wait is longer than the push interval) are
+    kept, the other candidates are cancelled."""
+
+    def test_the_oldest_candidate_and_the_newest_run_are_kept_and_the_middle_ones_cancelled(self):
+        older = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4)]
+        api = FakeApi([pr_marker()], runs=older)
+        self.assertEqual(run(api), 1)
+        newest = api.runs[-1]["id"]
+        self.assertEqual(sorted(api.cancelled), [502, 503, 504])
+        self.assertNotIn(501, api.cancelled)
+        self.assertNotIn(newest, api.cancelled)
+
+    def test_a_run_whose_mac_job_is_running_is_never_cancelled(self):
+        older = [open_run(501, 1, status="in_progress"), open_run(502, 2), open_run(503, 3), open_run(504, 4)]
+        api = FakeApi([pr_marker()], runs=older, jobs={501: same_tree_jobs(mac="in_progress"),
+                                                       503: same_tree_jobs(mac="in_progress")})
+        self.assertEqual(run(api), 1)
+        # 501 and 503 run a Mac job; 502 is the oldest candidate; only 504 goes.
+        self.assertEqual(api.cancelled, [504])
+
+    def test_one_older_run_is_the_oldest_candidate_and_stays(self):
+        api = FakeApi([pr_marker()], runs=[open_run(501, 1)])
+        self.assertEqual(run(api), 1)
+        self.assertEqual(api.cancelled, [])
+
+    def test_another_pull_requests_runs_are_left_alone(self):
+        others = [open_run(601, 1, branch="lane/y"), open_run(602, 2, branch="lane/y"),
+                  open_run(603, 3, branch="lane/y")]
+        mine = [open_run(501, 4), open_run(502, 5), open_run(503, 6)]
+        api = FakeApi([pr_marker()], runs=others + mine)
+        self.assertEqual(run(api), 1)
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_base_tier_tip_suite_dev_daily_and_plain_dispatch_runs_are_left_alone(self):
+        runs = [open_run(501, 1),
+                open_run(701, 3, title=f"cmux-next base tier · {'7' * 40}", sha="7" * 40),
+                open_run(702, 4, title=f"cmux-next tip daemon suite · {'7' * 40}", sha="7" * 40),
+                open_run(703, 5, title=f"cmux-next tip Swift suite · {'7' * 40}", sha="7" * 40),
+                open_run(704, 6, title=f"cmux NEXT DEV daily · {'7' * 40}", sha="7" * 40),
+                open_run(705, 7, title=f"cmux-next uncached · {'7' * 40}", sha="7" * 40),
+                # A plain dispatch on the branch (its own routing), a push run and a re-run attempt.
+                open_run(706, 8),
+                open_run(707, 9, event="push"),
+                open_run(708, 10, run_attempt=2),
+                open_run(503, 11)]
+        api = FakeApi([pr_marker()], runs=runs, jobs={706: plain_dispatch_jobs()})
+        self.assertEqual(run(api), 1)
+        self.assertEqual(api.cancelled, [503])
+
+    def test_finished_runs_are_not_candidates(self):
+        runs = [open_run(501, 1, status="completed", conclusion="success"), open_run(502, 2), open_run(503, 3)]
+        api = FakeApi([pr_marker()], runs=runs)
+        self.assertEqual(run(api), 1)
+        # 502 is the oldest open candidate.
+        self.assertEqual(api.cancelled, [503])
+
+    def test_unreadable_jobs_keep_the_run(self):
+        class JobsDown(FakeApi):
+            def get(self, path):
+                if "/jobs?" in path and "/runs/503/" in path:
+                    raise RuntimeError("HTTP 502")
+                return super().get(path)
+        api = JobsDown([pr_marker()], runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)])
+        self.assertEqual(run(api), 1)
+        self.assertEqual(api.cancelled, [502])
+
+    def test_push_and_fork_dispatches_cancel_nothing(self):
+        """A push's same-tree run is the base's verdict, and a fork's runs on feat-cmux-next under the base
+        tip's name, so neither names its pull request; only a pull request's head-branch run is swept."""
+        tip_runs = [open_run(501, 1, branch="feat-cmux-next"), open_run(502, 2, branch="feat-cmux-next"),
+                    open_run(503, 3, branch="feat-cmux-next")]
+        api = FakeApi([push_marker()], runs=[dict(item) for item in tip_runs])
+        self.assertEqual(run(api), 1)
+        self.assertEqual(api.cancelled, [])
+        # A same-repository run whose pull request GitHub says comes from a fork (the marker names it).
+        api = FakeApi([pr_marker(head_repo="someone/cmux")], runs=[dict(item) for item in tip_runs],
+                      pr=pull(repo="someone/cmux"))
+        run(api)
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_fork_branch_named_like_the_base_sweeps_nothing(self):
+        """Review of #39634 (comment 6742425555): a fork pull request is dispatched on its base branch. When
+        the fork's branch is also named feat-cmux-next, the base branch's same-tree runs (every fork pull
+        request's and the push verdicts) must not be swept."""
+        tip_runs = [open_run(501, 1, branch="feat-cmux-next"), open_run(502, 2, branch="feat-cmux-next"),
+                    open_run(503, 3, branch="feat-cmux-next")]
+        marker = pr_marker(head_repo="someone/cmux", head_ref="feat-cmux-next")
+        for fork_run in (FORK_RUN, None):
+            with self.subTest(artifact_run=fork_run):
+                api = FakeApi([marker], runs=[dict(item) for item in tip_runs], artifact_runs=[fork_run],
+                              pr=pull(ref="feat-cmux-next", repo="someone/cmux"))
+                run(api)
+                self.assertEqual(api.cancelled, [])
+                stale = FakeApi([marker], runs=[dict(item) for item in tip_runs], artifact_runs=[fork_run],
+                                pr=pull(NEWER, ref="feat-cmux-next", repo="someone/cmux"))
+                self.assertEqual(run(stale), 0)
+                self.assertEqual(stale.cancelled, [])
+
+    def test_a_run_of_the_pull_requests_head_is_never_cancelled(self):
+        """Review of #39634: two markers of one head (a re-run, other routing) give two runs of that head,
+        perhaps with other tiers; the older may carry the only scheme compile of the head."""
+        older = [open_run(501, 1), open_run(502, 2, sha=HEAD), open_run(503, 3), open_run(504, 4)]
+        api = FakeApi([pr_marker()], runs=older)
+        self.assertEqual(run(api), 1)
+        self.assertEqual(sorted(api.cancelled), [503, 504])
+
+    def test_a_superseded_marker_sweeps_its_branch_too(self):
+        """A marker whose pull request head moved on dispatches nothing and is deleted; its branch's older
+        same-tree runs get the same rule (keep the newest run, the head's runs and the oldest candidate)."""
+        runs = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4, sha=NEWER)]
+        api = FakeApi([pr_marker()], runs=runs, pr=pull(NEWER))
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.deleted, [100])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_several_superseded_markers_of_one_branch_sweep_it_once(self):
+        runs = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4, sha=NEWER)]
+        markers = [pr_marker(), pr_marker(status_sha="e" * 40, run_id=13)]
+        api = FakeApi(markers, runs=runs, pr=pull(NEWER))
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.deleted, [100, 101])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    # Review of #39634 (comment 6744212258): a fork pull request's run can write any marker.json, so the sweep
+    # and the dispatch read what GitHub records (the artifact's run, pulls/<n>), never the marker's claims.
+    FORGED = dict(head_repo="o/r", head_ref="feat-cmux-next", base_ref="x")
+
+    def tip_runs(self) -> list[dict]:
+        return [open_run(run_id, minute, branch="feat-cmux-next") for minute, run_id in enumerate((501, 502, 503, 504), 1)]
+
+    def test_a_forged_marker_sweeps_nothing_on_the_dispatch_path(self):
+        api = FakeApi([pr_marker(**self.FORGED)], runs=self.tip_runs(), artifact_runs=[FORK_RUN],
+                      pr=pull(repo="someone/cmux"))
+        run(api)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_forged_marker_sweeps_nothing_on_the_superseded_path(self):
+        api = FakeApi([pr_marker(**self.FORGED)], runs=self.tip_runs(), artifact_runs=[FORK_RUN],
+                      pr=pull(state="closed", repo="someone/cmux"))
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_forged_marker_starts_no_same_tree_run_on_another_branch(self):
+        """dispatch_refs reads the marker's head_ref: a fork run's marker must never get that far."""
+        for marker in (pr_marker(head_repo="o/r", head_ref="lane/victim"), pr_marker(**self.FORGED),
+                       push_marker(), push_marker(origin="dispatch", tip_suite="base"),
+                       push_marker(origin="dispatch", branch="lane/victim")):
+            with self.subTest(marker=marker):
+                api = FakeApi([marker], artifact_runs=[FORK_RUN], branch_head=SHA, pr=pull(repo="someone/cmux"))
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+
+    def test_a_missing_field_sweeps_nothing(self):
+        cases = {
+            "no head_repository_id": dict(artifact_runs=[{"head_repository_id": None}]),
+            "no repository_id": dict(artifact_runs=[{"repository_id": None}]),
+            "no head repo": dict(pr={"state": "open", "head": {"sha": HEAD, "ref": "lane/x"},
+                                     "base": {"ref": "feat-cmux-next"}}),
+            "no head ref": dict(pr={"state": "open", "head": {"sha": HEAD, "repo": {"full_name": "o/r"}},
+                                    "base": {"ref": "feat-cmux-next"}}),
+            "no base": dict(pr={"state": "open", "head": {"sha": HEAD, "ref": "lane/x", "repo": {"full_name": "o/r"}}}),
+            "head ref is not the marker's": dict(pr=pull(ref="lane/other")),
+            "head ref is the base ref": dict(pr=pull(ref="lane/x", base="lane/x")),
+        }
+        for name, extra in cases.items():
+            with self.subTest(case=name):
+                api = FakeApi([pr_marker()], runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)], **extra)
+                run(api)
+                self.assertEqual(api.cancelled, [])
+
+    def test_a_head_branch_main_or_feat_cmux_next_sweeps_nothing(self):
+        """Push-origin same-tree runs (the base verdicts) run on main and feat-cmux-next."""
+        for head_ref, base_ref in (("main", "feat-cmux-next"), ("feat-cmux-next", "main")):
+            with self.subTest(head_ref=head_ref):
+                runs = [open_run(run_id, minute, branch=head_ref) for minute, run_id in enumerate((501, 502, 503), 1)]
+                marker = pr_marker(head_ref=head_ref, base_ref=base_ref)
+                for pr in (pull(ref=head_ref, base=base_ref), pull(NEWER, ref=head_ref, base=base_ref)):
+                    api = FakeApi([marker], runs=[dict(item) for item in runs], pr=pr)
+                    run(api)
+                    self.assertEqual(api.cancelled, [])
+
+    def test_fork_markers_do_not_fill_the_marker_slots(self):
+        """Review of #39634 (comment 6745208604): fork markers are skipped, so they must be dropped before the
+        MAX_MARKERS cut. Otherwise 50 newer fork markers (GitHub lists the newest first) hide a same-repository
+        marker: its run is neither dispatched nor swept."""
+        markers = [pr_marker(**self.FORGED, run_id=1000 + index) for index in range(notify.MAX_MARKERS + 5)]
+        markers.append(pr_marker())
+        api = FakeApi(markers, runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)],
+                      artifact_runs=[FORK_RUN] * (len(markers) - 1) + [None])
+        self.assertEqual(run(api), 1)
+        self.assertEqual([body["ref"] for body in api.dispatched], ["lane/x"])
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_an_artifact_without_a_run_is_skipped_and_the_rest_is_swept(self):
+        """Older artifacts list `workflow_run: null`; reading its id must not end the notify."""
+        api = FakeApi([pr_marker(run_id=13), pr_marker()],
+                      runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)])
+        api.artifacts[0]["workflow_run"] = None
+        self.assertEqual(run(api), 1)
+        self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    def test_a_marker_naming_another_head_branch_than_its_run_starts_nothing(self):
+        """dispatch_refs reads the marker's head_ref; GitHub records the run's branch (workflow_run.head_branch).
+        A pull request marker whose head_ref is not that branch starts no run on another branch."""
+        for head_branch in ("lane/x", None):
+            with self.subTest(head_branch=head_branch):
+                api = FakeApi([pr_marker(head_ref="lane/victim")], artifact_runs=[{"head_branch": head_branch}],
+                              runs=[open_run(501, 1, branch="lane/victim"), open_run(502, 2, branch="lane/victim"),
+                                    open_run(503, 3, branch="lane/victim")])
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+                self.assertEqual(api.cancelled, [])
+
+    def test_an_unreadable_run_list_cancels_nothing_and_still_dispatches(self):
+        class ListDown(FakeApi):
+            def get(self, path):
+                if "runs?branch=" in path:
+                    raise RuntimeError("HTTP 403")
+                return super().get(path)
+        api = ListDown([pr_marker()], runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)])
+        messages: list[str] = []
+        self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="ready", reason="", log=messages.append,
+                                       fetch_completion=lambda _key: None), 1)
+        self.assertEqual(api.cancelled, [])
+        self.assertTrue(any("superseded same-tree" in line for line in messages), messages)
+
+
+class OpenSameTreeRun(unittest.TestCase):
+    """2026-11-17: overlapping `--sweep-pending` steps (one per push) each read the same pending record and
+    marker before either deleted them, and each dispatched the same same-tree run: lane/launch-stage0-window
+    b0549a37 had three runs (44077022520, 44077027695, 44077028039), each queueing a Debug scheme compile on
+    the owned Mac minis. A ready dispatch is skipped when an open same-tree run already carries its tiers."""
+
+    def both(self, **extra) -> dict:
+        return pr_marker(tiers=["daemon", "scheme"], **extra)
+
+    def test_two_sweeps_reading_the_same_pending_record_dispatch_once(self):
+        api = PendingApi([self.both()], [(500, pending_zip(), None)])
+        made: list[str] = []
+
+        def make(*args, **kwargs):
+            made.append(kwargs["key"])
+            return notify.notify(*args, **kwargs)
+        for _sweep in range(2):
+            # Both sweeps listed the record before either deleted it (PendingApi lists it every time).
+            self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None, make=make,
+                                                  fetch_completion=lambda key: completion_json(key)), [])
+        self.assertEqual(made, [KEY])  # the second sweep's claim found the record gone
+        [body] = api.dispatched
+        self.assertEqual((body["ref"], body["inputs"]["same_tree_tiers"]), ("lane/x", "daemon,scheme"))
+
+    def test_an_open_same_tree_run_of_the_head_starts_nothing_and_drops_the_marker(self):
+        existing = open_run(501, 30, sha=HEAD)
+        api = FakeApi([self.both()], runs=[existing], jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        messages: list[str] = []
+        self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="ready", reason="", log=messages.append,
+                                       fetch_completion=lambda _key: None), 0)
+        self.assertEqual((api.dispatched, api.deleted), ([], [100]))
+        self.assertTrue(any("501" in line and "already" in line for line in messages), messages)
+        # an in-progress run, and a tip suite's run by its own name, likewise
+        running = FakeApi([self.both()], runs=[open_run(501, 30, sha=HEAD, status="in_progress")],
+                          jobs={501: same_tree_jobs(mac="in_progress", tiers="daemon,scheme")})
+        self.assertEqual(run(running), 0)
+        base = push_marker(origin="dispatch", tip_suite="base")
+        tip = FakeApi([base], branch_head=NEWER,
+                      runs=[open_run(501, 30, branch="feat-cmux-next", sha=NEWER, title=f"cmux-next base tier · {SHA}")],
+                      jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        self.assertEqual(run(tip), 0)
+
+    def test_a_run_that_does_not_carry_the_tiers_still_dispatches(self):
+        cases = {
+            "created before the marker was uploaded": (open_run(501, 30, sha=HEAD, created_at=EARLIER),
+                                                       same_tree_jobs(tiers="daemon,scheme")),
+            "a failed-state report (Mac jobs skipped)": (open_run(501, 30, sha=HEAD),
+                                                         same_tree_jobs(mac="skipped", tiers="daemon,scheme")),
+            "one tier only": (open_run(501, 30, sha=HEAD), same_tree_jobs(tiers="scheme")),
+            "a cancelled Mac job": (open_run(501, 30, sha=HEAD),
+                                    same_tree_jobs(tiers="daemon") + [{"name": "cmux app scheme compile (Debug)",
+                                                                       "status": "completed",
+                                                                       "conclusion": "cancelled"}]),
+            "a plain dispatch (routes itself)": (open_run(501, 30, sha=HEAD), plain_dispatch_jobs()),
+            "jobs not created yet": (open_run(501, 30, sha=HEAD), []),
+            "finished": (open_run(501, 30, sha=HEAD, status="completed", conclusion="success"),
+                         same_tree_jobs(tiers="daemon,scheme")),
+            "another branch": (open_run(501, 30, sha=HEAD, branch="lane/y"), same_tree_jobs(tiers="daemon,scheme")),
+            "another commit": (open_run(501, 30, sha=NEWER), same_tree_jobs(tiers="daemon,scheme")),
+        }
+        for why, (existing, jobs) in cases.items():
+            with self.subTest(why):
+                api = FakeApi([self.both()], runs=[existing], jobs={501: jobs})
+                self.assertEqual(run(api), 1)
+
+    def test_an_unreadable_run_history_still_dispatches(self):
+        api = FakeApi([self.both()], runs=[open_run(501, 30, sha=HEAD)], history_error=True,
+                      jobs={501: same_tree_jobs(tiers="daemon,scheme")})
+        self.assertEqual(run(api), 1)
+
+
+def pending_zip(key: str = KEY, state: str = "ready") -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("pending.json", json.dumps({"key": key, "state": state, "why": "HTTP 403"}))
+    return buffer.getvalue()
+
+
+class PendingApi(FakeApi):
+    """FakeApi plus the cmux-next-tree-notify-pending records (NOTIFY_NEVER_LOST) and a listing that may refuse."""
+
+    def __init__(self, markers, pending: list[tuple[int, bytes, dict | None]], refuse_listing: int = 0,
+                 swept: list[tuple[int, bytes, dict | None]] = (), **kw):
+        super().__init__(markers, **kw)
+        self.swept = [{"id": artifact_id, "name": notify.PENDING_SWEEP_ARTIFACT, "expired": False,
+                       "archive_download_url": f"pending/{artifact_id}",
+                       "workflow_run": dict({"id": 78, "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                                             "head_branch": "feat-cmux-next"}, **(run or {}))}
+                      for artifact_id, _, run in swept]
+        self.zips.update({f"pending/{artifact_id}": body for artifact_id, body, _ in swept})
+        self.pending = [{"id": artifact_id, "name": notify.PENDING_ARTIFACT, "expired": False,
+                         "archive_download_url": f"pending/{artifact_id}",
+                         "workflow_run": dict({"id": 77, "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                                               "head_branch": "lane/x"}, **(run or {}))}
+                        for artifact_id, _, run in pending]
+        self.zips.update({f"pending/{artifact_id}": body for artifact_id, body, _ in pending})
+        self.refuse_listing = refuse_listing
+        self.pending_ids = {artifact_id for artifact_id, _, _ in list(pending) + list(swept)}
+
+    def delete(self, path: str) -> int:
+        artifact_id = int(path.rsplit("/", 1)[1])
+        if artifact_id in self.pending_ids and artifact_id in self.deleted:
+            return 404  # another sweep claimed it
+        return super().delete(path)
+
+    def get(self, path: str):
+        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_SWEEP_ARTIFACT}&"):
+            return {"artifacts": self.swept}
+        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_ARTIFACT}&"):
+            return {"artifacts": self.pending}
+        if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}") and self.refuse_listing:
+            self.refuse_listing -= 1
+            raise RuntimeError(f"GET {path}: HTTP 403")
+        return super().get(path)
+
+
+class PendingRecords(unittest.TestCase):
+    def test_a_record_names_one_key_or_several(self):
+        import os
+        import tempfile
+        other = "e" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "pending.json")
+            notify.write_pending(path, [KEY, other], "ready", "HTTP 403")
+            with open(path, "rb") as handle:
+                body = handle.read()
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("pending.json", body)
+        api = PendingApi([], [(500, buffer.getvalue(), None), (501, pending_zip(), None)])
+        records = [notify.read_pending(api, artifact) for artifact in api.pending]
+        self.assertEqual([record["keys"] for record in records], [[KEY, other], [KEY]])
+        made: list[str] = []
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: completion_json(key),
+                             make=lambda *a, **kw: made.append(kw["key"]) or 0)
+        self.assertEqual(sorted(made), sorted([KEY, other]))
+
+    def test_a_key_whose_records_two_sweeps_split_is_made_by_neither_and_recorded(self):
+        """Review: sweep A won record 500 and sweep B record 501 of one key; neither may notify it alone."""
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(), None)])
+        api.deleted.append(501)  # the other sweep's delete
+        again: list[list[str]] = []
+        made: list[str] = []
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                                    make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                                    fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((made, left, again[-1]), ([], [KEY], [KEY]))
+
+    def test_claimed_keys_are_recorded_before_the_notify_and_cleared_after_it(self):
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+        again: list[list[str]] = []
+        seen: list[list[list[str]]] = []
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                             make=lambda *a, **kw: seen.append(list(again)) or 1,
+                             fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(seen, [[[KEY]]])  # a job that dies inside the notify leaves the record uploaded
+        self.assertEqual(again[-1], [])  # everything went through: nothing to record
+
+    def test_an_error_after_a_claim_still_records_the_claimed_keys(self):
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+
+        def boom(*_a, **_kw):
+            raise KeyError("not a notify error")
+        again: list[list[str]] = []
+        with self.assertRaises(KeyError):
+            notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append, make=boom,
+                                 fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(again[-1], [KEY])
+        # a delete that timed out may have gone through: the key counts as claimed by no one, and is recorded
+        timed_out = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+
+        def slow(_path):
+            raise OSError("timed out")
+        timed_out.delete = slow
+        again = []
+        made: list[str] = []
+        self.assertEqual(notify.sweep_pending(timed_out, "o/r", log=lambda _l: None, record=again.append,
+                                              make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                                              fetch_completion=lambda key: completion_json(key)), [KEY])
+        self.assertEqual((made, again[-1]), ([], [KEY]))
+
+    def test_an_error_partway_through_the_claim_records_what_was_already_deleted(self):
+        """Review of #45587: an exception that is not a GitHub error (http.client.IncompleteRead, a KeyError)
+        raised by a later DELETE escaped before the first record write, and the records deleted before it were lost."""
+        import http.client
+        other = "e" * 40
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(key=other), None)])
+        plain = api.delete
+
+        def delete(path):
+            if path.endswith("/501"):
+                raise http.client.IncompleteRead(b"")
+            return plain(path)
+        api.delete = delete
+        again: list[list[str]] = []
+        made: list[str] = []
+        with self.assertRaises(http.client.IncompleteRead):
+            notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                                 make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                                 fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(api.deleted, [500])
+        self.assertEqual(made, [])
+        self.assertTrue(again and KEY in again[-1], again)
+
+    def test_an_error_partway_through_the_claim_leaves_the_key_in_the_pending_file(self):
+        import http.client
+        import os
+        import tempfile
+        import unittest.mock
+        other = "e" * 40
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(key=other), None)])
+        plain = api.delete
+
+        def delete(path):
+            if path.endswith("/501"):
+                raise http.client.IncompleteRead(b"")
+            return plain(path)
+        api.delete = delete
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
+            real = notify.sweep_pending
+
+            def sweep(_api, repo, record):
+                return real(api, repo, record=record, log=lambda _l: None,
+                            fetch_completion=lambda key: completion_json(key))
+            with unittest.mock.patch.object(notify, "sweep_pending", sweep), \
+                    unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}):
+                with self.assertRaises(http.client.IncompleteRead):
+                    notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path])
+            with open(path) as handle:
+                self.assertIn(KEY, json.load(handle)["keys"])
+
+    def test_the_sweep_reads_its_own_records_too(self):
+        api = PendingApi([pr_marker()], [], swept=[(600, pending_zip(), None)])
+        made: list[str] = []
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, make=lambda *a, **kw: made.append(kw["key"]) or 0,
+                             fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((made, api.deleted), ([KEY], [600]))
+
+    def test_the_sweep_records_again_what_it_claimed_and_could_not_finish(self):
+        import os
+        import tempfile
+        import unittest.mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
+            with unittest.mock.patch.object(notify, "sweep_pending",
+                                            lambda api, repo, record: record([KEY]) or [KEY]), \
+                    unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}):
+                self.assertEqual(notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path]), 0)
+            with open(path) as handle:
+                self.assertEqual(json.load(handle)["keys"], [KEY])
+            # an empty hand-off removes the record written before the notify
+            with unittest.mock.patch.object(notify, "sweep_pending",
+                                            lambda api, repo, record: record([KEY]) or record([]) or []), \
+                    unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t"}):
+                self.assertEqual(notify.main(["--repo", "o/r", "--sweep-pending", "--pending-file", path]), 0)
+            self.assertFalse(os.path.exists(path))
+
+
+class NotifyNeverLost(unittest.TestCase):
+    """lw#5184 (cmux#43194 at 688722a2): run 43652238618 published tree cfb3790d at 23:41Z on 2026-11-14, its
+    notify's marker read answered HTTP 403 (the installation's spent rate limit), the step only warned, and the
+    pull request's same-tree run was never dispatched; land-judge held it for hours."""
+
+    def test_a_rate_limited_call_moves_to_the_spare_token_once_without_sleeping(self):
+        sent = []
+
+        class Client(notify.GitHub):
+            def _send(self, method, url, body=None):
+                sent.append(self.token)
+                if self.token == "spent":
+                    return 403, b'{"message": "API rate limit exceeded for installation"}', {
+                        "x-ratelimit-remaining": "0"}
+                return 200, b'{"ok": true}', {}
+
+        client = Client("spent", "https://api.github.com", "bot")
+        self.assertEqual(client.get("repos/o/r"), {"ok": True})
+        self.assertEqual(client.get("repos/o/r"), {"ok": True})
+        self.assertEqual(sent, ["spent", "bot", "bot"])
+        # with no spare, or a refusal that is not a rate limit, nothing is retried
+        sent.clear()
+        with self.assertRaises(RuntimeError):
+            Client("spent", "https://api.github.com").get("repos/o/r")
+        self.assertEqual(sent, ["spent"])
+        self.assertFalse(notify.rate_limited(403, {}, b'{"message": "Resource not accessible by integration"}'))
+        self.assertTrue(notify.rate_limited(429, {}, b""))
+        self.assertTrue(notify.rate_limited(403, {"Retry-After": "60"}, b""))
+        self.assertNotIn("time.sleep(", Path(notify.__file__).read_text().split("class GitHub", 1)[1].split("def fetch_completion")[0])
+
+    def test_a_refused_ready_notify_writes_its_pending_record(self):
+        import os
+        import tempfile
+        import unittest.mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
+
+            class Refused(notify.GitHub):
+                def _send(self, method, url, body=None):
+                    return 403, b'{"message": "API rate limit exceeded for installation"}', {}
+
+            env = {"GH_TOKEN": "spent", "GITHUB_RUN_ID": ""}
+            with unittest.mock.patch.object(notify, "GitHub", Refused), unittest.mock.patch.dict(os.environ, env):
+                code = notify.main(["--repo", "o/r", "--key", KEY, "--state", "ready", "--pending-file", path])
+            self.assertEqual(code, 0)  # a notify problem never turns a good publication red
+            with open(path) as handle:
+                record = json.load(handle)
+            self.assertEqual((record["key"], record["state"]), (KEY, "ready"))
+            self.assertIn("HTTP 403", record["why"])
+            # a failed state writes no record: its markers wait for a publication of the key
+            failed = os.path.join(tmp, "f", "pending.json")
+            offline = unittest.mock.patch.object(notify.deadline_http, "request", side_effect=OSError("offline"))
+            with unittest.mock.patch.object(notify, "GitHub", Refused), unittest.mock.patch.dict(os.environ, env), \
+                    offline:
+                notify.main(["--repo", "o/r", "--key", KEY, "--state", "failed", "--pending-file", failed])
+            self.assertFalse(os.path.exists(failed))
+
+    def test_one_marker_left_by_a_refused_dispatch_is_unstarted(self):
+        api = FakeApi([pr_marker()], refuse_refs=("lane/x", "feat-cmux-next"))
+        unstarted = []
+        notify.notify(api, repo="o/r", key=KEY, state="ready", reason="", log=lambda _l: None, unstarted=unstarted)
+        self.assertEqual(unstarted, [12])
+        self.assertEqual(api.deleted, [])  # the marker stays for the retry
+
+    def test_the_sweep_makes_a_pending_notify_again_and_drops_its_record(self):
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None), (501, pending_zip(), None)])
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: completion_json(key))
+        self.assertEqual(left, [])
+        [body] = api.dispatched
+        self.assertEqual((body["ref"], body["inputs"]["same_tree_status_sha"]), ("lane/x", HEAD))
+        self.assertIn("refused", body["inputs"]["same_tree_reason"])
+        # the marker (100) and both records of the key are deleted
+        self.assertEqual(sorted(api.deleted), [100, 500, 501])
+
+    def test_the_sweep_keeps_a_record_it_could_not_finish_and_ignores_what_a_publish_did_not_write(self):
+        # the marker read refused again: the sweep claimed the record (deleted it) and records the key again
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)], refuse_listing=1)
+        again: list[list[str]] = []
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, record=again.append,
+                                    fetch_completion=lambda key: completion_json(key))
+        self.assertEqual((left, api.deleted, api.dispatched, again[-1]), ([KEY], [500], [], [KEY]))
+        # a record whose delete GitHub refused is not claimed: no notify, the record stays
+        refused = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+        refused.delete = lambda path: 403
+        again = []
+        self.assertEqual(notify.sweep_pending(refused, "o/r", log=lambda _l: None, record=again.append,
+                                              fetch_completion=lambda key: completion_json(key)), [KEY])
+        self.assertEqual((refused.dispatched, again), ([], []))
+        # a tree with no completion.json: nothing starts, the record stays
+        api = PendingApi([pr_marker()], [(500, pending_zip(), None)])
+        self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: None),
+                         [KEY])
+        self.assertEqual(api.dispatched, [])
+        # a fork's record, and a record that is not a ready one: never read as a notify
+        api = PendingApi([pr_marker()], [(500, pending_zip(), FORK_RUN), (501, pending_zip(state="failed"), None)])
+        self.assertEqual(notify.sweep_pending(api, "o/r", log=lambda _l: None,
+                                              fetch_completion=lambda key: completion_json(key)), [])
+        self.assertEqual((api.dispatched, api.deleted), ([], []))
+
+    def test_the_workflow_records_a_refused_notify_and_every_feat_push_sweeps_it(self):
+        text = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
+        publish = text.split("      - name: Start the cmux-next tree jobs that waited for this tree", 1)[1][:900]
+        self.assertIn('--pending-file "$pending"', publish)
+        # publish-tree runs in the artifacts environment (R2 secrets only): the
+        # App token that retries a refused notify is the sweep's, never its own.
+        publish_tree = text.split("\n  publish-tree:\n", 1)[1].split("\n  publish-tree-tested:", 1)[0]
+        self.assertNotIn("CMUX_BOT_APP_KEY", publish_tree)
+        self.assertIn("name: cmux-next-tree-notify-pending", text)
+        manifests = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  sweep-pending-tree-notify:", 1)[0]
+        self.assertNotIn("--sweep-pending", manifests)
+        sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  # Cloud machines keep their cmux-tui", 1)[0]
+        self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)
+        self.assertIn("pull-requests: read", sweep)
+        # Overlapping sweeps claim a record by deleting it (sweep_pending), not by a concurrency group: GitHub
+        # ends a pending job its group replaced as cancelled, and with it the artifacts run's conclusion.
+        self.assertNotIn("concurrency:", sweep)
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", sweep.split("\n    if: ", 1)[1].split("\n", 1)[0])
+        self.assertIn('--sweep-pending --pending-file "$pending"', sweep)
+        self.assertIn("name: cmux-next-tree-notify-pending-sweep\n", sweep)
+        self.assertNotIn("name: cmux-next-tree-notify-pending\n", sweep)
+        rerun = text.split("\n  rerun-deferred-commits:\n", 1)[1].split("\n  verify-cdn-publication:", 1)[0]
+        self.assertNotIn("github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') &&", rerun)
 
 
 if __name__ == "__main__":

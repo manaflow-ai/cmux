@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ComponentType } from "react";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -72,15 +73,11 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu")) popup.remove();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Option = { value: string; name?: string };
@@ -159,12 +156,12 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
   client ??= new QueryClient();
   renderOptions = options;
   Chips ??= ({ snapshot: chipSnapshot }: { snapshot: Snapshot }) => {
-    const picker = usePickerCatalog(chipSnapshot.catalog, { harness: chipSnapshot.summary?.harness }, []);
+    const picker = usePickerCatalog(chipSnapshot.catalog, chipSnapshot.summary, []);
     return (
       <ComposerPickers
         snapshot={chipSnapshot}
         {...(renderOptions.catalog ? { pickerCatalog: picker.catalog } : {})}
-        onModel={() => undefined}
+        onModel={(model) => sent.push(`model=${model}`)}
         onMode={() => undefined}
         onEffort={(configId, value) => sent.push(`${configId}=${value}`)}
         onHarness={() => undefined}
@@ -191,12 +188,16 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const chipBolt = () => chip().querySelector(".acpmux-model-name ~ .acpmux-model-bolt");
-const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;
+// Every chat's model button opens the one shared columns picker (cmux#55750); Fast is the switch at
+// the foot of its Reasoning column.
+const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
+const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-cols-tune-foot [role="switch"]') ?? null;
+/// The Reasoning column's rows in order: its levels, then Fast.
 const rows = () =>
-  [...(menu()?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].map((item) =>
-    item.textContent?.replace("✓", "").trim(),
-  );
+  [
+    ...(menu()?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"], .acpmux-cols-tune [role="switch"]') ??
+      []),
+  ].map((item) => item.querySelector(".acpmux-cols-name")?.textContent?.trim());
 async function open() {
   if (!menu()) await act(async () => chip().click());
   await settle();
@@ -214,6 +215,25 @@ const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: 
 
 const claude = { harness: "claude", model: "claude-opus-5-5" };
 const codex = { harness: "codex", model: "gpt-6-astra" };
+for (const family of ["astra", "sol"])
+  for (const current of ["off", "on"])
+    test(`Codex 6.2 ${family}: old CLI list keeps the model when Fast starts ${current}`, async () => {
+      sent.length = 0;
+      const run = {
+        harness: "codex",
+        model: `gpt-6.2-${family}`,
+        catalog: [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-sol", name: "GPT-6 Sol" }] }],
+      };
+      await render(snapshot({ options: twoState, current }, run), { catalog: true });
+      expect(chip().textContent).toContain("6.2");
+      expect(Boolean(chipBolt())).toBe(current === "on");
+      await open();
+      expect(fastRow()!.getAttribute("aria-checked")).toBe(String(current === "on"));
+      await toggleFast();
+      expect(sent).toEqual([`fast-mode=${current === "on" ? "off" : "on"}`]);
+      expect(chip().textContent).toContain("6.2");
+    });
+
 test("Claude: no bolt button; a bolt beside the model while Fast is on; the menu toggles it", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, claude));
@@ -221,7 +241,8 @@ test("Claude: no bolt button; a bolt beside the model while Fast is on; the menu
   expect(chipBolt()).toBeNull();
   expect(host.querySelector(".acpmux-composer-inner .acpmux-composer-actions .acpmux-mic")).not.toBeNull();
   await open();
-  expect(rows().at(-1)).toBe("Fast mode");
+  // Fast closes the Reasoning column, under the levels.
+  expect(rows().at(-1)).toBe("Fast");
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=on"]);

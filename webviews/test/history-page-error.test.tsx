@@ -3,6 +3,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LASTING_MS } from "../src/ui/lasting";
+import { settleReact } from "./support/domTeardown";
+import { historySizes, installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -37,11 +39,14 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // The list is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, historySizes);
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];
@@ -100,7 +105,9 @@ test("a refused history removal announces the error and keeps the timeline", asy
   )!;
   await act(async () => remove.click());
 
-  expect(host.querySelector('[role="alert"].history-error')?.textContent).toBe("history cannot be changed");
+  // The alert says it in a plain sentence; the owner's own text stays in the log.
+  expect(host.querySelector('[role="alert"].history-error')?.textContent).toBe("Something went wrong. Try again.");
+  expect(host.textContent).not.toContain("history cannot be changed");
   expect(host.querySelectorAll(".history-row").length).toBeGreaterThan(0);
 });
 

@@ -19,8 +19,8 @@ use anyhow::Context as _;
 
 use crate::agent_hook_install;
 
-const VERB: &str = "codex-wrapper";
-const SHIM_MARKER: &str = "# cmux-tui-codex-shim";
+pub(crate) const VERB: &str = "codex-wrapper";
+pub(crate) const SHIM_MARKER: &str = "# cmux-tui-codex-shim";
 const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CODEX_HOOKS_DISABLED";
 
 /// Returns the wrapper's arguments when argv (without the program name)
@@ -37,22 +37,33 @@ pub(crate) fn invocation(args: &[OsString]) -> Option<&[OsString]> {
 pub(crate) fn run(args: &[OsString]) -> i32 {
     let messages = &crate::localization::catalog().agent_wrapper;
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let shim_dir = shim_directory();
+    let shim_dir =
+        current_executable().ok().and_then(|exe| crate::own_build_helpers::wrapper_shim_dir(&exe));
     let Some(codex) = find_real_codex(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
+        eprintln!("{}", messages.codex_install_hint);
         return 127;
     };
 
     let mut command = Command::new(&codex);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
+    crate::agent_terminal_identity::apply(|key, value| match value {
+        Some(value) => {
+            command.env(key, value);
+        }
+        None => {
+            command.env_remove(key);
+        }
+    });
     // The arguments as given, before the hooks are added (see claude_wrapper).
     command
         .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
-        match prepare_hooks(args) {
+        let child_path = path_without_shims(&path, shim_dir.as_deref());
+        match prepare_hooks(args, &codex, &child_path) {
             Ok(Some(injected)) => {
-                launch_args = injected;
+                launch_args = with_chat_config(injected);
                 command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
             }
             Ok(None) => {}
@@ -64,18 +75,28 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     126
 }
 
-/// PATH for pane processes: the Codex shim directory first, then the server's
-/// PATH. The Claude shim uses the same directory, so both are available from
-/// one environment entry.
-pub(crate) fn pane_path() -> Option<String> {
-    let dir = shim_directory()?;
-    let executable = current_executable().ok()?;
-    install_shim(&dir, &executable).ok()?;
-    path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
-}
-
-pub(crate) fn shim_directory() -> Option<PathBuf> {
-    agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
+/// `args` with the config overrides an agent chat's Codex starts with
+/// (`acpmux::harness_limits::codex_args`: thread and depth limits, the plan tool, the configured
+/// model), each only where the launch or Codex's own config leaves it unset (Leo 2026-11-24: "in
+/// terminals and guis alike perhaps terminal simply needs to also have the fixes and
+/// enhancements"). Only a session launch gets them (the one the hooks go into); a management
+/// command or an opted-out launch goes as given, as does one with an argument that is not UTF-8.
+fn with_chat_config(args: Vec<OsString>) -> Vec<OsString> {
+    let Some(words) =
+        args.iter().map(|a| a.to_str().map(str::to_owned)).collect::<Option<Vec<_>>>()
+    else {
+        return args;
+    };
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let env: std::collections::BTreeMap<String, String> = std::env::var("CODEX_HOME")
+        .ok()
+        .map(|h| ("CODEX_HOME".to_string(), h))
+        .into_iter()
+        .collect();
+    acpmux::harness_limits::launch_args(true, &words, Some((&cwd, &env)))
+        .into_iter()
+        .map(OsString::from)
+        .collect()
 }
 
 fn current_executable() -> anyhow::Result<PathBuf> {
@@ -83,7 +104,13 @@ fn current_executable() -> anyhow::Result<PathBuf> {
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
-fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+/// `codex` is the real Codex this launch runs, and `child_path` its `PATH`: the person's own
+/// `cmux` entry is what that Codex answers (`acpmux::codex_cmux_entry::resolve`).
+fn prepare_hooks(
+    args: &[OsString],
+    codex: &Path,
+    child_path: &OsStr,
+) -> anyhow::Result<Option<Vec<OsString>>> {
     // A tool command of a Codex session in the shared daemon has the
     // daemon's inherited environment, which names some other terminal.
     if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
@@ -102,8 +129,105 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
         launch.push(OsString::from("-c"));
         launch.push(OsString::from(setting));
     }
+    // cmux's server, Computer Use behind it (agent_computer_use.rs), unless the
+    // person turned cmux's tools off for agents started in cmux
+    // (agent_mcp_choice.rs).
+    let cwd = std::env::current_dir().unwrap_or_default();
+    // The Codex child's environment: this one, with the shims off PATH.
+    let child_env: Vec<(OsString, OsString)> = std::env::vars_os()
+        .filter(|(key, _)| key != "PATH")
+        .chain([(OsString::from("PATH"), child_path.to_owned())])
+        .collect();
+    let started = std::time::Instant::now();
+    let entry =
+        launch_entry(args, || acpmux::codex_cmux_entry::resolve(codex, args, &cwd, &child_env).0);
+    if std::env::var_os("CMUX_TUI_MCP_RESOLVE_TRACE").is_some() {
+        eprintln!("cmux-tui: codex mcp get cmux: {} ms ({entry:?})", started.elapsed().as_millis());
+    }
+    let settings = mcp_settings(
+        &McpLaunch { cwd: &cwd, executable: &executable, socket: &socket },
+        cmux_tui_core::user_settings::AgentsCmuxMcp::current_for("codex"),
+        &|name| std::env::var_os(name),
+        &entry,
+    );
+    for setting in settings {
+        launch.push(OsString::from("-c"));
+        launch.push(setting);
+    }
     launch.extend(hoist_session_global_args(args));
     Ok(Some(launch))
+}
+
+/// The person's own `cmux` entry for a launch with the person's `args`: Codex's answer (`ask`),
+/// unless the launch may load another config than the question asks
+/// (`acpmux::codex_cmux_entry::launch_doubt`: `--trust`, `--worktree`, resume, fork, ...); then
+/// doubt, and Codex is not asked.
+fn launch_entry(
+    args: &[OsString],
+    ask: impl FnOnce() -> acpmux::codex_cmux_entry::CmuxEntry,
+) -> acpmux::codex_cmux_entry::CmuxEntry {
+    match acpmux::codex_cmux_entry::launch_doubt(args) {
+        Some(why) => acpmux::codex_cmux_entry::CmuxEntry::Doubt(why),
+        None => ask(),
+    }
+}
+
+/// What [`mcp_settings`] needs of the launch: the launch folder, this
+/// build's CLI and the pane's daemon socket.
+struct McpLaunch<'a> {
+    cwd: &'a Path,
+    executable: &'a Path,
+    socket: &'a Path,
+}
+
+/// The `-c` values that give this launch this build's server as `cmux`
+/// (agent_computer_use.rs) while cmux's tools are on for agents started in
+/// cmux (`choice`, on unless `off`), unless the person's own `cmux` entry, as the
+/// launch's Codex answers it (`entry`, `acpmux::codex_cmux_entry`), is HTTP:
+/// this build's command cannot merge into it, so none, and nothing is said.
+///
+/// Skip on doubt: when what the launch loads is in doubt (no answer from Codex,
+/// a project file Codex's answer does not show it loads, or a launch such as
+/// `--trust` or a resume: `CmuxEntry::skips`), no setting at all, neither the
+/// server nor env keys, and nothing is said: Codex starts with the person's
+/// config untouched.
+///
+/// With the setting off, a stdio `cmux` entry of the person's own, as Codex answers
+/// it, gets the env key `CMUX_AGENT_TOOLS_ANSWER` = `off` with exactly its own
+/// `command` and `args` beside it (the same entry, with the key added): its
+/// `cmux mcp serve` then follows the answer as an agent cmux started
+/// (`cli/mcp.rs` `refusal`), not `mcp.enabled` as a caller outside cmux. No
+/// entry, an HTTP one (no env), or no answer from Codex: nothing.
+fn mcp_settings(
+    launch: &McpLaunch<'_>,
+    choice: cmux_tui_core::user_settings::AgentsCmuxMcp,
+    getenv: &dyn Fn(&str) -> Option<OsString>,
+    entry: &acpmux::codex_cmux_entry::CmuxEntry,
+) -> Vec<OsString> {
+    use acpmux::codex_cmux_entry::CmuxEntry;
+    if entry.skips() {
+        return Vec::new();
+    }
+    if !choice.injects() {
+        let CmuxEntry::Stdio { command, args } = entry else { return Vec::new() };
+        let string = |value: &str| toml::Value::String(value.to_owned());
+        let values = [
+            ("command".to_owned(), string(command)),
+            ("args".to_owned(), toml::Value::Array(args.iter().map(|arg| string(arg)).collect())),
+            (format!("env.{}", acpmux::agent_tools::TOOLS_ANSWER_ENV), string("off")),
+        ];
+        return values
+            .into_iter()
+            .map(|(key, value)| OsString::from(format!("mcp_servers.cmux.{key}={value}")))
+            .collect();
+    }
+    crate::agent_mcp_choice::codex_settings(
+        choice,
+        launch.executable,
+        launch.socket,
+        launch.cwd,
+        getenv,
+    )
 }
 
 fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -> bool {
@@ -146,11 +270,6 @@ fn path_without_shims(path: &OsStr, shim_dir: Option<&Path>) -> OsString {
     std::env::join_paths(kept).unwrap_or_else(|_| path.to_owned())
 }
 
-fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
-    let inherited = std::env::split_paths(path).filter(|dir| dir != shim_dir);
-    std::env::join_paths(std::iter::once(shim_dir.to_path_buf()).chain(inherited)).ok()
-}
-
 fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
     let Some(shim_dir) = shim_dir else { return false };
     dir == shim_dir
@@ -169,7 +288,8 @@ fn is_codex_shim(path: &Path) -> bool {
         })
 }
 
-fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
+/// Writes `<dir>/codex` (0700 in a 0700 directory) when its content changed.
+pub(crate) fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
     fs::create_dir_all(dir).context("create the shim directory")?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let path = dir.join("codex");
@@ -179,7 +299,7 @@ fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
     if current {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     } else {
-        agent_hook_install::atomic_write(&path, script.as_bytes(), Some(0o700))?;
+        agent_hook_install::replace_rewritable_file(&path, script.as_bytes(), Some(0o700))?;
     }
     Ok(path)
 }
@@ -194,8 +314,9 @@ fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
 }
 
 /// Codex's clap globals replace the root list when repeated after a
-/// subcommand. Move session -c/--config and feature flags into the root list
-/// so the wrapper's hooks survive `codex exec -c ...` and resume/fork.
+/// subcommand (Codex 0.160.1 keeps only the deepest list). Move session
+/// -c/--config and feature flags into the root list so the wrapper's hooks
+/// survive `codex exec -c ...`, `review`, `agents`, `resume` and `fork`.
 fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
     let mut index = 0;
     while index < args.len() {
@@ -205,7 +326,7 @@ fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
         }
         if arg.starts_with('-') {
             index += if launch_classification::consumes_value(&arg) { 2 } else { 1 };
-        } else if matches!(arg.as_ref(), "exec" | "e" | "resume" | "fork") {
+        } else if matches!(arg.as_ref(), "exec" | "e" | "review" | "agents" | "resume" | "fork") {
             break;
         } else {
             return args.to_vec();
@@ -256,21 +377,28 @@ mod launch_classification {
         "app-server",
         "archive",
         "cloud",
+        "cloud-tasks",
         "completion",
         "debug",
         "delete",
         "doctor",
         "exec-server",
+        "execpolicy",
         "features",
+        "git-credential",
         "help",
         "login",
         "logout",
         "mcp",
-        "mcp-server",
+        "migrate-nfs-db",
+        "migrate-rollouts",
         "plugin",
+        "queue",
         "remote-control",
-        "review",
+        "responses-api-proxy",
         "sandbox",
+        "stdio-to-uds",
+        "tcp-tunnel",
         "unarchive",
         "update",
     ];
@@ -327,3 +455,7 @@ mod launch_classification {
         false
     }
 }
+
+#[cfg(test)]
+#[path = "codex_wrapper_tests.rs"]
+mod tests;

@@ -44,7 +44,7 @@ export function PlainCode({
   return (
     <div
       className={`cv-codeblock cv-codeblock--plain${codeHeaderClass(look)}${diagram ? " cv-codeblock--diagram" : ""}`}
-      ref={menuPartRef({ code })}
+      ref={menuPartRef({ code, codeLanguage: lang })}
     >
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />

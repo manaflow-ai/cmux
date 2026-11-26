@@ -31,6 +31,8 @@ use super::ClientScope;
 use super::path::UnixWorkspaceDirectory;
 use super::path::WorkspaceRoot;
 
+/// Measured: each running process holds a child, its pipes or PTY, and an output log of up to
+/// PROCESS_EVENT_BYTES (4 MiB): 256 MiB of output at most for 64.
 const MAX_PROCESSES: usize = 64;
 const MAX_PTY_PROCESSES: usize = 16;
 // Keep one interactive RPC below one carrier frame after JSON/base64 framing.
@@ -40,6 +42,8 @@ const MAX_PROCESS_WRITE_BYTES: usize = 32 * 1024;
 const PROCESS_EVENT_CAPACITY: usize = 512;
 const PROCESS_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const PROCESS_BROADCAST_CAPACITY: usize = 64;
+/// Measured: each reservation makes its process's output log (up to PROCESS_EVENT_BYTES, 4 MiB)
+/// before the spawn, and an unspawned one holds it: 1 GiB at most for 256.
 const MAX_PROCESS_RESERVATIONS: usize = 256;
 const MAX_COMPLETED_PROCESSES: usize = 64;
 const MAX_REMEMBERED_WRITE_IDS: usize = 4_096;
@@ -58,6 +62,13 @@ const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2)
 const CHILD_REAP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+/// The retained size of the largest output event one read can publish (one
+/// `PROCESS_READ_CHUNK`, base64).
+const MAX_OUTPUT_EVENT_BYTES: usize = PROCESS_READ_CHUNK.div_ceil(3) * 4;
+/// Events a held reader may lag by before output reading waits for it. The
+/// rest of `PROCESS_EVENT_CAPACITY` leaves room for the truncation and exit
+/// events, which never wait.
+const HELD_EVENT_WINDOW: usize = PROCESS_EVENT_CAPACITY - 8;
 const MAX_OPERATION_ID_BYTES: usize = 256;
 const MAX_PROCESS_CATALOG_ARGUMENTS: usize = 32;
 const MAX_PROCESS_CATALOG_ARGUMENT_BYTES: usize = 512;
@@ -243,380 +254,9 @@ impl InputState {
     }
 }
 
-#[derive(Clone)]
-struct ProcessEventLog {
-    inner: Arc<ProcessEventLogInner>,
-}
-
-struct ProcessEventLogInner {
-    next_sequence: AtomicU64,
-    history: StdMutex<EventHistory>,
-    live: broadcast::Sender<RpcEvent>,
-    retained_bytes_limit: AtomicUsize,
-}
-
-#[derive(Default)]
-struct EventHistory {
-    events: VecDeque<RpcEvent>,
-    retained_bytes: usize,
-    exit: Option<ExitOutcome>,
-    terminal: Option<ProcessTerminalModel>,
-}
-
-struct ProcessTerminalModel {
-    terminal: ghostty_vt::Terminal,
-    render: ghostty_vt::RenderState,
-    through_sequence: u64,
-}
-
-impl ProcessEventLog {
-    fn new(retained_bytes_limit: usize) -> Self {
-        let (live, _) = broadcast::channel(PROCESS_BROADCAST_CAPACITY);
-        Self {
-            inner: Arc::new(ProcessEventLogInner {
-                next_sequence: AtomicU64::new(1),
-                history: StdMutex::new(EventHistory::default()),
-                live,
-                retained_bytes_limit: AtomicUsize::new(retained_bytes_limit),
-            }),
-        }
-    }
-
-    fn publish_output(&self, process: ProcessId, stderr: bool, bytes: &[u8]) {
-        let data = ByteString::from_bytes(bytes);
-        self.publish(|sequence, history| {
-            if let Some(terminal) = history.terminal.as_mut() {
-                terminal.terminal.vt_write(bytes);
-                terminal.through_sequence = sequence;
-            }
-            let event = if stderr {
-                ProcessEvent::Stderr { process, sequence, data }
-            } else {
-                ProcessEvent::Stdout { process, sequence, data }
-            };
-            RpcEvent { sequence, event }
-        });
-    }
-
-    fn publish_exit(&self, process: ProcessId, outcome: ExitOutcome) {
-        self.publish(|sequence, _| RpcEvent {
-            sequence,
-            event: ProcessEvent::Exit { process, code: outcome.code, signal: outcome.signal },
-        });
-    }
-
-    fn publish_output_truncated(&self, process: ProcessId, reason: ProcessOutputTruncationReason) {
-        self.publish(|sequence, _| RpcEvent {
-            sequence,
-            event: ProcessEvent::OutputTruncated { process, sequence, reason },
-        });
-    }
-
-    fn set_retained_bytes_limit(&self, retained_bytes_limit: usize) {
-        self.inner.retained_bytes_limit.store(retained_bytes_limit, Ordering::Release);
-    }
-
-    fn enable_terminal(&self, cols: u16, rows: u16) -> Result<(), RpcError> {
-        let terminal = ghostty_vt::Terminal::new(
-            cols,
-            rows,
-            PROCESS_TERMINAL_SCROLLBACK_BYTES,
-            ghostty_vt::Callbacks::default(),
-        )
-        .map_err(terminal_model_error)?;
-        let render = ghostty_vt::RenderState::new().map_err(terminal_model_error)?;
-        let mut history =
-            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if history.terminal.is_some() {
-            return Err(RpcError::new("internal", "process terminal model is already initialized"));
-        }
-        if !history.events.is_empty() {
-            return Err(RpcError::new(
-                "internal",
-                "process terminal model must be initialized before output",
-            ));
-        }
-        history.terminal = Some(ProcessTerminalModel { terminal, render, through_sequence: 0 });
-        Ok(())
-    }
-
-    fn resize_terminal(
-        &self,
-        cols: u16,
-        rows: u16,
-        resize_pty: impl FnOnce() -> Result<(), RpcError>,
-    ) -> Result<(), RpcError> {
-        let mut history =
-            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let terminal = history
-            .terminal
-            .as_mut()
-            .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
-        // The physical resize, VT model resize, output publication, and
-        // snapshots all serialize on the event-history lock. Output caused by
-        // SIGWINCH is therefore parsed at the new model size.
-        resize_pty()?;
-        terminal.terminal.resize(cols, rows, 0, 0).map_err(terminal_model_error)
-    }
-
-    fn snapshot_terminal(&self, process: ProcessId) -> Result<ProcessTerminalSnapshot, RpcError> {
-        let snapshot = {
-            let mut history =
-                self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let terminal = history
-                .terminal
-                .as_mut()
-                .ok_or_else(|| RpcError::new("not-a-pty", "process does not own a PTY"))?;
-            let cells = usize::from(terminal.terminal.cols())
-                .saturating_mul(usize::from(terminal.terminal.rows()));
-            if cells > MAX_PROCESS_TERMINAL_SNAPSHOT_CELLS {
-                return Err(terminal_snapshot_too_large());
-            }
-            let ProcessTerminalModel { terminal, render, through_sequence } = terminal;
-            render.update(terminal).map_err(terminal_model_error)?;
-            let scrollback_rows = terminal.history_rows();
-            let frame = render.build_frame().map_err(terminal_model_error)?;
-            process_terminal_snapshot(process, &frame, scrollback_rows, *through_sequence)
-        };
-        let encoded_bytes = serde_json::to_vec(&snapshot)
-            .map_err(|error| RpcError::new("terminal-snapshot-failed", error.to_string()))?
-            .len();
-        if encoded_bytes > MAX_PROCESS_TERMINAL_SNAPSHOT_BYTES {
-            return Err(terminal_snapshot_too_large());
-        }
-        Ok(snapshot)
-    }
-
-    fn catalog_state(&self) -> (ProcessState, ProcessReplayRange, Option<ProcessTerminalSize>) {
-        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
-        let state = history.exit.map_or(ProcessState::Running, |outcome| ProcessState::Exited {
-            code: outcome.code,
-            signal: outcome.signal,
-        });
-        let range = replay_range(&history, next_sequence, history.exit.is_some());
-        let pty_size = history.terminal.as_ref().map(|terminal| ProcessTerminalSize {
-            cols: terminal.terminal.cols(),
-            rows: terminal.terminal.rows(),
-        });
-        (state, range, pty_size)
-    }
-
-    fn publish(&self, make_event: impl FnOnce(u64, &mut EventHistory) -> RpcEvent) {
-        let mut history =
-            self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Sequence allocation, retention, and broadcast publication share one
-        // critical section with PTY model updates. Subscribers and terminal
-        // snapshots therefore observe exactly the same total output order.
-        let sequence = self.inner.next_sequence.fetch_add(1, Ordering::Relaxed);
-        let event = make_event(sequence, &mut history);
-        let retained = event_size(&event);
-        if let ProcessEvent::Exit { code, signal, .. } = &event.event {
-            history.exit = Some(ExitOutcome { code: *code, signal: *signal });
-        }
-        history.retained_bytes = history.retained_bytes.saturating_add(retained);
-        history.events.push_back(event.clone());
-        let retained_bytes_limit = self.inner.retained_bytes_limit.load(Ordering::Acquire);
-        while history.events.len() > PROCESS_EVENT_CAPACITY
-            || history.retained_bytes > retained_bytes_limit
-        {
-            let Some(evicted) = history.events.pop_front() else { break };
-            history.retained_bytes = history.retained_bytes.saturating_sub(event_size(&evicted));
-        }
-        let _ = self.inner.live.send(event);
-    }
-
-    fn subscribe(
-        &self,
-        after_sequence: u64,
-        exited: bool,
-    ) -> Result<ProcessSubscription, RpcError> {
-        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
-        if after_sequence >= next_sequence {
-            return Err(RpcError::new(
-                "invalid-replay-cursor",
-                format!("process has not produced sequence {after_sequence}"),
-            ));
-        }
-        let exited = exited || history.exit.is_some();
-        let range = replay_range(&history, next_sequence, exited);
-        let replay_gap =
-            range.first_available.map_or(after_sequence < range.last_produced, |first| {
-                after_sequence.saturating_add(1) < first
-            });
-        if replay_gap {
-            return Err(RpcError::new(
-                "replay-unavailable",
-                format!(
-                    "requested process replay is outside retained range {:?}..={}",
-                    range.first_available, range.last_produced
-                ),
-            )
-            .with_details(RpcErrorDetails::ProcessReplayGap {
-                requested_after: after_sequence,
-                range,
-            }));
-        }
-        let replay = history
-            .events
-            .iter()
-            .filter(|event| event.sequence > after_sequence)
-            .cloned()
-            .collect();
-        let live = self.inner.live.subscribe();
-        Ok(ProcessSubscription {
-            replay,
-            live,
-            events: self.clone(),
-            last_delivered: after_sequence,
-            terminal: exited,
-        })
-    }
-
-    fn read(
-        &self,
-        process: ProcessId,
-        after_sequence: u64,
-        limit: u32,
-        exited: bool,
-    ) -> Result<WorkspaceResponse, RpcError> {
-        if limit == 0 || limit > MAX_PROCESS_REPLAY_EVENTS {
-            return Err(RpcError::new(
-                "invalid-argument",
-                format!("process replay limit must be between 1 and {MAX_PROCESS_REPLAY_EVENTS}"),
-            ));
-        }
-        let history = self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let next_sequence = self.inner.next_sequence.load(Ordering::Acquire);
-        let range = replay_range(&history, next_sequence, exited || history.exit.is_some());
-        let replay_gap =
-            range.first_available.map_or(after_sequence < range.last_produced, |first| {
-                after_sequence.saturating_add(1) < first
-            });
-        if replay_gap {
-            return Ok(WorkspaceResponse::ProcessReplayGap {
-                process,
-                requested_after: after_sequence,
-                range,
-            });
-        }
-        if after_sequence >= next_sequence {
-            return Err(RpcError::new(
-                "invalid-replay-cursor",
-                format!("process has not produced sequence {after_sequence}"),
-            ));
-        }
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        let mut events = history
-            .events
-            .iter()
-            .filter(|event| event.sequence > after_sequence)
-            .take(limit.saturating_add(1))
-            .cloned()
-            .collect::<Vec<_>>();
-        let has_more = events.len() > limit;
-        events.truncate(limit);
-        let next_cursor =
-            has_more.then(|| events.last().map_or(after_sequence, |event| event.sequence));
-        Ok(WorkspaceResponse::ProcessEvents { process, range, events, next_cursor })
-    }
-}
-
-fn replay_range(history: &EventHistory, next_sequence: u64, exited: bool) -> ProcessReplayRange {
-    ProcessReplayRange {
-        first_available: history.events.front().map(|event| event.sequence),
-        last_produced: next_sequence.saturating_sub(1),
-        exited,
-    }
-}
-
-pub struct ProcessSubscription {
-    replay: VecDeque<RpcEvent>,
-    live: broadcast::Receiver<RpcEvent>,
-    events: ProcessEventLog,
-    last_delivered: u64,
-    terminal: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProcessSubscriptionError {
-    Closed,
-    ReplayGap { skipped: u64, requested_after: u64, range: ProcessReplayRange },
-}
-
-impl std::fmt::Display for ProcessSubscriptionError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Closed => write!(formatter, "process event stream closed"),
-            Self::ReplayGap { requested_after, range, .. } => write!(
-                formatter,
-                "process replay after {requested_after} is outside retained range {:?}..={}",
-                range.first_available, range.last_produced
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ProcessSubscriptionError {}
-
-impl ProcessSubscription {
-    pub async fn recv(&mut self) -> Result<RpcEvent, ProcessSubscriptionError> {
-        loop {
-            if let Some(event) = self.replay.pop_front() {
-                self.last_delivered = event.sequence;
-                self.terminal |= event.event.is_terminal();
-                return Ok(event);
-            }
-            if self.terminal {
-                return Err(ProcessSubscriptionError::Closed);
-            }
-            match self.live.recv().await {
-                Ok(event) if event.sequence <= self.last_delivered => continue,
-                Ok(event) => {
-                    self.last_delivered = event.sequence;
-                    self.terminal |= event.event.is_terminal();
-                    return Ok(event);
-                }
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    let history = self
-                        .events
-                        .inner
-                        .history
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    let first = history.events.front().map(|event| event.sequence);
-                    let next_sequence = self.inner_next_sequence();
-                    let range = replay_range(&history, next_sequence, history.exit.is_some());
-                    let replay_gap = first
-                        .map_or(self.last_delivered < range.last_produced, |first| {
-                            self.last_delivered.saturating_add(1) < first
-                        });
-                    if replay_gap {
-                        return Err(ProcessSubscriptionError::ReplayGap {
-                            skipped,
-                            requested_after: self.last_delivered,
-                            range,
-                        });
-                    }
-                    self.replay = history
-                        .events
-                        .iter()
-                        .filter(|event| event.sequence > self.last_delivered)
-                        .cloned()
-                        .collect();
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(ProcessSubscriptionError::Closed);
-                }
-            }
-        }
-    }
-
-    fn inner_next_sequence(&self) -> u64 {
-        self.events.inner.next_sequence.load(Ordering::Acquire)
-    }
-}
+mod event_log;
+use event_log::ProcessEventLog;
+pub use event_log::{ProcessSubscription, ProcessSubscriptionError};
 
 type SharedMasterPty = Arc<StdMutex<Option<Box<dyn MasterPty + Send>>>>;
 
@@ -1289,6 +929,7 @@ impl ProcessManager {
             for reason in drain_output_tasks(
                 output_tasks,
                 output_activity_rx,
+                events.stalled(),
                 output_drain_idle_timeout,
                 output_drain_total_timeout,
             )
@@ -1365,9 +1006,7 @@ impl ProcessManager {
             command.env(key, value);
         }
         command.env("TERM", &term);
-        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
-            command.env_remove(*key);
-        }
+        command.terminal_identity();
         #[cfg(unix)]
         let mut child_events =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())
@@ -1464,6 +1103,7 @@ impl ProcessManager {
                 for reason in drain_output_tasks(
                     output_tasks,
                     output_activity_rx,
+                    events.stalled(),
                     output_drain_idle_timeout,
                     output_drain_total_timeout,
                 )
@@ -1779,7 +1419,9 @@ impl ProcessManager {
             ));
         }
         let events = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        let subscription = events.subscribe(after_sequence, false)?;
+        // The stream reserved before the spawn is its owner's own output: it
+        // holds, so the child waits for this reader rather than lose output.
+        let subscription = events.subscribe_holding(after_sequence)?;
         reservations.insert(process, ProcessReservation { owner: owner.clone(), events });
         Ok(subscription)
     }
@@ -2079,6 +1721,8 @@ async fn read_pipe(
         match reader.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
+                // Room only for output in hand (see `wait_for_room`).
+                let _room = events.wait_for_room().await;
                 events.publish_output(process, stderr, &buffer[..read]);
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
@@ -2104,6 +1748,8 @@ async fn read_pty(
         match pty.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
+                // Room only for output in hand (see `wait_for_room`).
+                let _room = events.wait_for_room().await;
                 events.publish_output(process, false, &buffer[..read]);
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
@@ -2121,11 +1767,17 @@ async fn read_pty(
 async fn drain_output_tasks(
     mut tasks: JoinSet<Result<(), ProcessOutputTruncationReason>>,
     mut activity: watch::Receiver<u64>,
+    mut stalled: watch::Receiver<usize>,
     idle_timeout: std::time::Duration,
     total_timeout: std::time::Duration,
 ) -> Vec<ProcessOutputTruncationReason> {
     let mut reasons = Vec::new();
     let mut activity_open = true;
+    let mut stalled_open = true;
+    // While a reader waits for a held subscriber, output is pending, not
+    // missing: both deadlines pause, and the total one resumes later by the
+    // time the wait took.
+    let mut stalled_since = (*stalled.borrow_and_update() > 0).then(tokio::time::Instant::now);
     let idle_deadline = tokio::time::sleep(idle_timeout);
     let total_deadline = tokio::time::sleep(total_timeout);
     tokio::pin!(idle_deadline);
@@ -2136,7 +1788,25 @@ async fn drain_output_tasks(
         }
         tokio::select! {
             biased;
-            _ = &mut total_deadline => {
+            changed = stalled.changed(), if stalled_open => {
+                match changed {
+                    Ok(()) => {
+                        let now = tokio::time::Instant::now();
+                        match (*stalled.borrow_and_update() > 0, stalled_since) {
+                            (true, None) => stalled_since = Some(now),
+                            (false, Some(since)) => {
+                                let resumed = total_deadline.deadline() + (now - since);
+                                total_deadline.as_mut().reset(resumed);
+                                idle_deadline.as_mut().reset(now + idle_timeout);
+                                stalled_since = None;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(_) => stalled_open = false,
+                }
+            }
+            _ = &mut total_deadline, if stalled_since.is_none() => {
                 reasons.push(ProcessOutputTruncationReason::DrainTotalTimeout {
                     total_timeout_ms: duration_millis(total_timeout),
                 });
@@ -2164,7 +1834,7 @@ async fn drain_output_tasks(
                     None => return reasons,
                 }
             }
-            _ = &mut idle_deadline => {
+            _ = &mut idle_deadline, if stalled_since.is_none() => {
                 reasons.push(ProcessOutputTruncationReason::DrainIdleTimeout {
                     idle_timeout_ms: duration_millis(idle_timeout),
                 });
@@ -2572,3 +2242,7 @@ fn event_size(event: &RpcEvent) -> usize {
         | ProcessEvent::Exit { .. } => 0,
     }
 }
+
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod tests;

@@ -213,15 +213,18 @@ extension PaneBrowserTabOpener {
     /// takes the focus once it is there (Leo 2026-11-03).
     private func openInSplit(_ split: BrowserTabSplitRequest, choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, // perf-hot: 10ms new-tab (the split shows in the click's turn)
                              profile: String?, notice: String?) {
-        let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
-        let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address)
+        let controller = controller, cache = controller.services.cache, browserTabs = cache.browserTabs, model = controller.pane, machine = controller.daemon.machineID
+        let intent = split.keepsFocus ? nil : controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion, engine: controller.daemon.isLocal ? choice.engine.rawValue : nil, profile: browserTabs.resolveProfile(model, profile)) // with an engine its stand-in's page starts now, as openStandIn's
         let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
-        let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID) }
+        let send = BenchSpans.measure("split.intend") { // an agent's split marks its new pane's pages agent-driven until the reply names its tab
+            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, handOver: { standIn, made in if !(made.flatMap { controller.daemon.store.tab(surface: $0) }.map { cache.moveBrowser(standIn, to: $0) || cache.existingBrowser($0.id) != nil } ?? false) { cache.release(standIn) } }, minted: split.agentDriven ? { @MainActor in cache.markAgentDriven(pane: $0, machine: machine) } : nil,
+                              settled: split.agentDriven ? { @MainActor in cache.settleAgentDriven(pane: $0, machine: machine, surface: $1) } : nil)
+        }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
         controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
             do {
                 let made = try await send { try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: $0) }
-                if let made { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
+                if let made, !split.keepsFocus { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
                 split.finished(made)
                 return nil
             } catch {
@@ -249,7 +252,7 @@ extension PaneBrowserTabOpener {
     /// reply. One path for every person's foreground tab `PaneBrowserTabOpener` sends to the daemon
     /// (New Browser Tab, the New Tab page's browser, a link in a new tab, New WebKit Tab). On the
     /// reply the stand-in's page and chrome move to the daemon's tab (`TabContentCache.moveBrowser`),
-    /// which keeps its cell, selection and view. Keys typed meanwhile wait for the daemon's tab.
+    /// which keeps its cell, selection and view. A blank tab's omnibar takes the keyboard in the key's turn too, on the stand-in, and the keys typed after the key go into it (an omnibar that edits ends the creation hold).
     private func openStandIn(_ choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, profile: String?, notice: String?, // perf-hot: 10ms new-tab (the stand-in shows in the key's turn)
                              then: (@MainActor (SurfaceID) -> Void)?) {
         let controller = controller, services = controller.services, cache = services.cache, model = controller.pane
@@ -259,8 +262,9 @@ extension PaneBrowserTabOpener {
         let pending = BenchSpans.measure("browserTab.intend") {
             command.intendNow(on: controller.daemon) { try await cache.browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice) }
         }
-        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab, typesIntoTab: false)
         controller.selectWhenReported(surface: pending.surface)
+        if focusesAddressBar { controller.workspace?.expectFocus(on: pending.surface, target: .addressBar, generation: intent) } // not after the reply, a round trip later
         services.registry.track(Task {
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
@@ -269,8 +273,8 @@ extension PaneBrowserTabOpener {
                     if let tab = controller.daemon.store.tab(surface: surface) { _ = cache.moveBrowser(pending.tab, to: tab) }
                 }
                 let selected = (controller.successor ?? controller).stripModel.selectedID?.rawValue // after Cmd-N's hand-over, the daemon pane's
+                controller.workspace?.expectFocus(on: surface, target: focusesAddressBar ? .addressBar : .content, generation: intent) // before the show: the tab shows with its omnibar focused, never its page for a step
                 if selected == nil || selected == pending.tab || (controller.successor ?? controller).pendingSelect.surface == pending.surface { controller.selectWhenReported(surface: surface) }
-                controller.workspace?.expectFocus(on: surface, target: focusesAddressBar ? .addressBar : .content, generation: intent)
                 landed = true
                 then?(surface)
                 return nil

@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-14",
+  "row": "app_lines",
+  "allow": 14,
+  "why": "Safe keys (design/settings-keys.md): the request list, the cmux keys CLI runner, the Settings > Keys ops and stream, and the request banner live in the new CmuxNextKeys package. The App keeps only wiring that touches App-owned objects: 4 imports, the one KeyRequests at the composition root (AppServices, attached to notifications.desktop), the keys.request registration on the control router (AppDelegate), the banner click to settingsWindow (NotificationCenterService), the provider built with bundledCLI (PageFactory), and SettingsPageProvider forwarding the four cmux.settings.keys.* ops and its stream.",
+  "author": "safe-keys-gui lane (claude opus)",
+  "owner": "safe-keys-gui lane",
+  "receipt": "Review (subagent claude opus 5.5 medium): SHIP at cf50e99ec3f80c37e267ce6597403dcafcaf1995",
+  "expiry": "2026-12-14",
+  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
+}

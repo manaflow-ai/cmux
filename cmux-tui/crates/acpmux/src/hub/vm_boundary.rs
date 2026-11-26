@@ -11,8 +11,13 @@
 //!   asked the Cloud API's attach-endpoint for that machine, signed in as the
 //!   user, and the answer was `vmKind: "owner"` (the caller's own personal VM,
 //!   which it created). Held with the lease only, never saved.
-//! - A saved peer's `vmBoundary: true` in this caller's config.json: a fleet
-//!   tool writes it for a VM its registry says is a dedicated agent VM.
+//! - A saved peer's `vmBoundary: true` in this caller's config.json, or a peer
+//!   this caller's own fleet registry marks `agent_vm: true` (`agent_vm.rs`):
+//!   a dedicated agent VM of the person's own fleet.
+//!
+//! At the boundary a Claude Code chat runs without bwrap (`remote_sandbox.rs`)
+//! and a Codex bridge chat with approve-all settles in `agent-full-access`
+//! instead of `ask` (`policy_mode.rs` `bridge_settle_modes`).
 //!
 //! The caller's daemon adds `_meta.acpmux.vmBoundary: true` ([`FIELD`])
 //! to each `session/new` it forwards to such a peer, and drops the field from
@@ -50,7 +55,7 @@ pub const VIA_DEVICE: &str = "device";
 /// Web client (`via: web`) or a paired machine (`via: device`) of its own. From
 /// anything else it means nothing.
 pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
-    auth == crate::server::ConnAuth::PeerToken
+    auth.peer_daemon()
         && owner(auth, control, params)
         && params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
 }
@@ -77,10 +82,15 @@ pub fn forwards(auth: crate::server::ConnAuth, control: Control) -> bool {
     use crate::server::ConnAuth;
     match auth {
         ConnAuth::LocalSocket | ConnAuth::LocalApp => control != Control::Web,
-        ConnAuth::PeerToken => control == Control::Peer,
-        ConnAuth::ListenerToken | ConnAuth::Device | ConnAuth::ReadOnlyDevice | ConnAuth::None => {
-            false
-        }
+        ConnAuth::PeerToken | ConnAuth::CarrierOwner => control == Control::Peer,
+        ConnAuth::ListenerToken
+        | ConnAuth::Device
+        | ConnAuth::ReadOnlyDevice
+        | ConnAuth::CarrierTeam
+        | ConnAuth::BrowserApp
+        | ConnAuth::WebDevice
+        | ConnAuth::MeshControl
+        | ConnAuth::None => false,
     }
 }
 

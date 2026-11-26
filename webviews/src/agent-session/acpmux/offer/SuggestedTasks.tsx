@@ -15,10 +15,13 @@ import { useT, type Translate } from "../i18n";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import "../conversation/cardFit.css";
 import "./suggestedTasks.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { openSessionAttributes } from "../conversation/menuParts";
+import { AgentTag } from "../conversation/AgentTag";
 import { OfferOptions } from "./OfferOptions";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import {
   initialChoice,
   pickIntent,
@@ -140,23 +143,27 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
 
   // A lone task once started is its row alone, with no card around it.
   const quiet = single && open.length === 0;
+  // Its own width decides the layout (cardFit.css): in a narrow pane Start all moves under the count,
+  // and a task's buttons wrap to the next line instead of running past the card.
   return (
-    <section className="acpmux-tasks" data-quiet={quiet || undefined} aria-label={heading(t, offers, single)}>
+    <section className="acpmux-tasks cv-fit" data-quiet={quiet || undefined} aria-label={heading(t, offers, single)}>
       {!quiet && (
-        <div className="acpmux-tasks-head">
-          <span className="acpmux-tasks-count">{heading(t, offers, single)}</span>
+        <div className="acpmux-tasks-head cv-fit-row">
+          <span className="acpmux-tasks-count cv-fit-text">{heading(t, offers, single)}</span>
           {!single && open.length === 0 && (
             <span className="acpmux-tasks-note">{t("offer.tasks.started", { n: started.length })}</span>
           )}
           {open.length >= 2 && (
-            <button
-              type="button"
-              className="acpmux-task-action acpmux-tasks-all"
-              disabled={open.every((offer) => busy[offer.offerId])}
-              onClick={() => void startAll()}
-            >
-              {t("offer.tasks.startAll")}
-            </button>
+            <span className="acpmux-tasks-head-actions cv-fit-actions">
+              <button
+                type="button"
+                className="acpmux-task-action acpmux-tasks-all"
+                disabled={open.every((offer) => busy[offer.offerId])}
+                onClick={() => void startAll()}
+              >
+                {t("offer.tasks.startAll")}
+              </button>
+            </span>
           )}
         </div>
       )}
@@ -231,7 +238,12 @@ function OpenTask({
     <ContextMenu items={items} targets="own">
       <div className="acpmux-task" data-busy={busy}>
         <div className="acpmux-task-head">
-          <span className="acpmux-task-title" id={titleId}>
+          <span
+            className="acpmux-task-title"
+            id={titleId}
+            // tooltip-allow: a long task title is cut to the line; its whole text is the tooltip
+            title={offer.title}
+          >
             {offer.title}
           </span>
           <button
@@ -304,7 +316,8 @@ function childState(offer: AcpmuxSessionOffer): "running" | "waiting" | "failed"
 
 function subtitle(t: Translate, offer: AcpmuxSessionOffer): string {
   const state = childState(offer);
-  if (state === "running") return offer.activity ?? t("subagents.state.running");
+  // Running is the row's dot, no word (Leo, 2026-11-23: "\"running\" doesn't need text").
+  if (state === "running") return offer.activity ?? "";
   if (state === "waiting") return t("home.needsInput");
   if (state === "failed") return t("subagents.state.failed");
   if (state === "done") return t("subagents.state.completed");
@@ -322,7 +335,34 @@ function StartedTask({
   onOpen(childSessionId: string): void;
 }) {
   const t = useT();
+  // Settings > Advanced > Experiments > Started Tasks: Title Opens Chat (off by default): only the
+  // title, drawn as the result line's chip, opens the chat and lights; the row lights nothing (Leo,
+  // 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line
+  // click sending me to the subagent righ split"). Off keeps today's whole-row button.
+  const titleChip = useExperimentSwitch("startedTaskTitleChip");
   const items = [{ id: "open", label: t("subagents.open", { name: offer.title }), onSelect: () => onOpen(child) }];
+  if (titleChip)
+    return (
+      <ContextMenu items={items} targets="own">
+        <div className="acpmux-task-started" data-state={childState(offer)} data-title-chip="">
+          <div className="acpmux-task-row">
+            <span className="acpmux-task-elbow" aria-hidden="true">
+              ⎿
+            </span>
+            <AgentTag
+              name={offer.title}
+              className="acpmux-task-row-title"
+              ariaLabel={t("subagents.open", { name: offer.title })}
+              attributes={openSessionAttributes(child)}
+              onClick={() => onOpen(child)}
+            />
+            <span className="acpmux-task-row-sub">{subtitle(t, offer)}</span>
+            <span className="acpmux-task-dot" aria-hidden="true" />
+            <Icon name="disclosure.collapsed" size={12} />
+          </div>
+        </div>
+      </ContextMenu>
+    );
   return (
     <ContextMenu items={items} targets="own">
       <div className="acpmux-task-started" data-state={childState(offer)}>
@@ -345,8 +385,10 @@ function StartedTask({
   );
 }
 
-/// The prompt that brought a started task's result back: "Received message from <title> ›",
-/// which opens that task's chat. It draws as another agent's message line does
+/// The prompt that brought a started task's result back: "Received message from <title> ›". Its
+/// title is a link chip, the one part that opens that task's chat and lights under the pointer; the
+/// line itself opens nothing (Leo, 2026-11-05: "subagents need to have their clickable bit be
+/// highlighted instead of the whole line click sending me to the subagent righ split"). It draws as another agent's message line does
 /// (conversation/IncomingMessageCard.tsx): at the left with the agent's text, never the person's
 /// bubble, a small bot first and the task's title as a chip. The title keeps its place in the
 /// sentence in every language.
@@ -361,27 +403,26 @@ export function ReceivedResult({
   // Read only, the line says what came back; the chat it came from is the owner's to open.
   const readOnly = useTranscriptReadOnly();
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
-  const Line = readOnly ? "div" : "button";
   return (
     <div className="acpmux-task-received">
-      <Line
-        {...(readOnly
-          ? {}
-          : {
-              type: "button" as const,
-              onClick: () => onOpen(result.childSessionId),
-              ...openSessionAttributes(result.childSessionId),
-            })}
-        className="acpmux-task-received-line"
-      >
+      <div className="acpmux-task-received-line">
         <span className="acpmux-task-received-icon">
           <Bot size={16} />
         </span>
         {before}
-        <span className="acpmux-task-received-title">{result.title}</span>
+        {readOnly ? (
+          <span className="acpmux-task-received-title">{result.title}</span>
+        ) : (
+          <AgentTag
+            name={result.title}
+            className="acpmux-task-received-title"
+            attributes={openSessionAttributes(result.childSessionId)}
+            onClick={() => onOpen(result.childSessionId)}
+          />
+        )}
         {after}
         <Icon name="disclosure.collapsed" size={12} />
-      </Line>
+      </div>
     </div>
   );
 }

@@ -27,6 +27,8 @@ import argparse, glob, http.server, importlib.util, json, os, plistlib, subproce
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
 bench = importlib.util.module_from_spec(_spec)
@@ -40,6 +42,8 @@ parser.add_argument("--idle-s", type=float, default=60)
 parser.add_argument("--phases", default="static,loading,chatty")
 parser.add_argument("--budget", help="JSON limits; a breach is a FAIL")
 parser.add_argument("--no-sample", action="store_true")
+parser.add_argument("--config", default="{}", help="cmux.json for the app, e.g. '{\"appearance\":{\"statusIndicator\":{\"showPageLoading\":false}}}'"
+                    " (the tab-strip spinner off while a page loads)")
 parser.add_argument("--env", action="append", default=[], help="KEY=VALUE for the app, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=process-per-site")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-idle-cost-"))
 opts = parser.parse_args()
@@ -177,6 +181,25 @@ def processes(app_pid):
     return rows
 
 
+def window_server_cpu_s():
+    """WindowServer's CPU seconds so far (ps reads another user's process time; rusage needs root), or None.
+    The tab-strip spinner is a Core Animation loop: the render server draws it, not the app, so its cost
+    shows here and not in the app's wakeups."""
+    out = subprocess.run(["ps", "-axo", "time=,comm="], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[1].endswith("/WindowServer"):
+            total = 0.0
+            clock = parts[0]
+            if "-" in clock:
+                days, clock = clock.split("-", 1)
+                total += int(days) * 86400
+            for field in clock.split(":"):
+                total = total * 60 + float(field)
+            return total
+    return None
+
+
 def snapshot(pids):
     snap = {}
     for pid in pids:
@@ -196,9 +219,11 @@ def log_size():
 
 def measure(app_pid, phase):
     rows = processes(app_pid)
+    ws_before = window_server_cpu_s()
     before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
-    time.sleep(opts.idle_s)  # the measured idle window itself
+    time.sleep(opts.idle_s)  # sleep-ok: the measured idle window itself
     after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
+    ws_after = window_server_cpu_s()
     classes = {}
     for pid, kind in rows.items():
         if pid not in before or pid not in after:
@@ -223,7 +248,9 @@ def measure(app_pid, phase):
               "console_calls": ticks[0] - ticks_before,
               "pages_visible": sorted(n for n, state in visibility.items() if state == "visible"),
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
-              "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3)}
+              "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3),
+              "window_server_cpu_percent": None if ws_before is None or ws_after is None
+              else round(100 * (ws_after - ws_before) / seconds, 3)}
     for name in ("debug.cef", "debug.wakeups"):
         result[name] = rpc(name)
     if not opts.no_sample:
@@ -233,7 +260,7 @@ def measure(app_pid, phase):
                                capture_output=True, timeout=60)
     summary = ", ".join(f"{k} x{c['count']}: {c['cpu_percent']}% cpu, {c['wakeups_per_s']} wk/s, "
                         f"{c['footprint_total'] // 1048576} MB" for k, c in sorted(classes.items()))
-    print(f"phase {phase} ({opts.tabs} tabs): {summary}; cef.log {result['cef_log_bytes_per_min']} B/min; "
+    print(f"phase {phase} ({opts.tabs} tabs): {summary}; WindowServer {result['window_server_cpu_percent']}% cpu; cef.log {result['cef_log_bytes_per_min']} B/min; "
           f"static pages that report visible: {result['pages_visible']}", flush=True)
     return result
 
@@ -251,12 +278,12 @@ def show(url):
         rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
 
 
-write(CONFIG, "{}\n")
+write(CONFIG, opts.config + "\n")
 write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
 teardown.install()
 app = None
-results = {"tabs": opts.tabs, "app": APP, "env": opts.env, "phases": []}
+results = {"tabs": opts.tabs, "app": APP, "env": opts.env, "config": json.loads(opts.config), "phases": []}
 try:
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -264,7 +291,7 @@ try:
                                           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
                                           **dict(item.split("=", 1) for item in opts.env)},
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT)
-    print(f"app pid {app.pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
+    safe_print(f"app pid {app.pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
@@ -290,7 +317,7 @@ try:
         chatty = next(p for p in results["phases"] if p["phase"] == "chatty")
         check(chatty["console_calls"] >= 3 * opts.idle_s, f"the chatty page logs while measured ({chatty['console_calls']} calls)")
     results["console_marker_lines_on_disk"] = lines
-    print(f"cef.log lines with the page's console marker: {lines}", flush=True)
+    safe_print(f"cef.log lines with the page's console marker: {lines}", flush=True)
     if opts.budget:
         with open(opts.budget) as f:
             budget = json.load(f)

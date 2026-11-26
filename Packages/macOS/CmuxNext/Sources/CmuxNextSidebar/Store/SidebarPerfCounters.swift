@@ -21,6 +21,9 @@ import Foundation
 /// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
 ///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
 /// - `row_maps`: row mappings `SidebarRowFeed` ran (a new row, a dirty row, every row after an inputs change).
+/// - `row_maps_unchanged`: rows a flush mapped that came out unchanged (no patch).
+/// - `row_flushes`: flushes of the row feed that mapped rows; `row_maps` over the ticks of one ticking workspace stays at
+///   or under 1 at any sidebar length (sidebar-stress-bench.py ticks `per_tick`, perf-gate.py status).
 /// - `row_views_made`: row views a list made while it applied rows (none for a new workspace row while the list's spare
 ///   waits: `SidebarListView.makeSpareRow`).
 /// - `spare_row_views`: spare workspace row views made after a frame committed.
@@ -28,6 +31,21 @@ import Foundation
 ///   (realized, in the realization rect, or reopened), never every listed row (m23, sidebar row insert and remove).
 /// - `layout_rows`: rows `SidebarLayout.make` laid out (every listed row per full layout): a change that touches one row
 ///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
+/// - `row_cache_rows`: nodes the list's row caches took again in full (`rebuildRowCaches`, every listed node per full
+///   reload): a change the list splices (an insert, a close, a move, a batch of them, a row's new height) takes none.
+/// - `stuck_header_updates`: finds of the stuck project header (`SidebarListView.followStuckHeader`): one per scroll
+///   frame, at 30 rows as at 3,000 (SIDEBAR-STICKY).
+/// - `rows_walked`: listed rows a structural stage read to show a change: the nodes handed to `SidebarModel.setSections`
+///   (it arranges and compares each), the nodes a list splice compared (`spliceInsertion`, `spliceRemoval`) and the
+///   rows the scroll rule read (`viewport_rows`). One closed or new row must walk the rows that changed, at 60
+///   workspaces as at 826 (WORKSPACE LIST 800).
+/// - `viewport_rows`: rows the list's scroll rule read to keep what the user sees (`ListViewportChange` over the shown
+///   and the new `SidebarLayout`): the rows in view and the rows that left or came beside them, never every listed
+///   row (SIDEBAR ROW CHANGE stage 1). Counted in `rows_walked` too.
+/// - `rows_made`: rows mapped from their stores (`SidebarRowFeed.Make.rows`), by the feed (its due rows) or by a caller
+///   with no feed (every row it lists): one new workspace maps its own row, at 60 workspaces as at 826 (WORKSPACE LIST 800).
+/// - `slot_rows`: rows `SidebarSection.withoutPlaceholders` walked and copied (a new workspace's slot rule).
+/// - `doc_reshows`: `SidebarDocStore.reshow` calls (a create's placement: one, with one read of every live ref).
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -46,10 +64,29 @@ nonisolated enum SidebarPerfCounters {
         case orderBuilds = "order_builds"
         case rowInvalidations = "row_invalidations"
         case rowMaps = "row_maps"
+        /// Rows a flush mapped again that came out as they were: work a change no row shows paid for.
+        case rowMapsUnchanged = "row_maps_unchanged"
+        /// Flushes of the row feed that mapped rows (at most one per display frame).
+        case rowFlushes = "row_flushes"
         case rowViewsMade = "row_views_made"
         case spareRowViews = "spare_row_views"
         case rowFrames = "row_frames"
         case layoutRows = "layout_rows"
+        /// Nodes the list's row caches took again in full (`rebuildRowCaches`): none for a change the list splices.
+        case rowCacheRows = "row_cache_rows"
+        /// A scroll frame or pass that found the stuck project header (`SidebarListView.followStuckHeader`): one per
+        /// frame, whatever the group's size.
+        case stuckHeaderUpdates = "stuck_header_updates"
+        /// Listed rows a structural stage read (model set, list splice compare, list viewport) to show a change.
+        case rowsWalked = "rows_walked"
+        /// Rows the list's scroll rule read (the anchor, the settle): the rows in view, at any list length.
+        case viewportRows = "viewport_rows"
+        /// Rows mapped from their stores, with or without a feed (`SidebarRowFeed.Make.rows`).
+        case rowsMade = "rows_made"
+        /// Rows the slot rule's placeholder filter walked (`SidebarSection.withoutPlaceholders`).
+        case slotRows = "slot_rows"
+        /// `SidebarDocStore.reshow` calls.
+        case docReshows = "doc_reshows"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
@@ -60,6 +97,15 @@ nonisolated enum SidebarPerfCounters {
     static func add(_ counter: Counter, _ amount: Int = 1) {
         guard amount != 0 else { return }
         counts.withLock { $0[counter, default: 0] += amount }
+    }
+
+    /// Rows the list's scroll rule read: `viewport_rows`, and `rows_walked` (a structural stage's rows).
+    static func addViewportRows(_ amount: Int) {
+        guard amount != 0 else { return }
+        counts.withLock {
+            $0[.viewportRows, default: 0] += amount
+            $0[.rowsWalked, default: 0] += amount
+        }
     }
 
     /// The current count of `counter`.

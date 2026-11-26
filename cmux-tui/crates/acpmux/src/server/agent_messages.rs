@@ -53,7 +53,12 @@ pub(super) async fn handle(
             return Err(crate::prompt_provenance::withdraw_origin_refused());
         }
         let s = hub.resolve(session_key(params)?)?;
-        return hub.prompt_withdraw(&s, params).await;
+        // A caller that left waits no more; its notice still settles in the hub's task, and a
+        // withdraw again answers what became of it (`withdraw.rs`).
+        return tokio::select! {
+            result = hub.prompt_withdraw(&s, params) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        };
     }
     // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
@@ -105,8 +110,10 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
     let by = crate::hub::auto_resume::retry_turn::RetryBy {
         control: super::remote_guard::control_of(conn.origin, conn.auth, params),
         trust_gate: super::trust_gate::gated(conn.origin, params),
-        full_access_device: super::remote_guard::full_access_device(hub, conn, params),
+        full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
+        // As for a prompt (`counts_as_person_prompt`): no agent's connection, no trigger's.
+        person: !conn.agent_side() && !conn.is_trigger(),
     };
     hub.retry(&s, str_param(params, "subagentId"), by).await
 }
@@ -124,8 +131,14 @@ pub(super) async fn person_prompt(
     s: &Arc<Session>,
     agent_message: bool,
 ) {
-    let in_session = conn.caller().is_some() || conn.unproven_caller.get().is_some();
-    if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
+    // An old acpmux CLI or a shell that declared no terminal is no person's presence either.
+    let in_session = conn.agent_side();
+    // A Chief's own session (its turn or compactor, `route_switch::is_chief`): the prompt is the Chief
+    // host relaying a message it took from its queue, not a person at this machine. On a Chief's Cloud
+    // machine it must not open the platform's 10-minute post-chat window: the machine pauses on its
+    // short idle window after the Chief acts (cmuxterm-hq RFD 0037, wake on message).
+    let chief = crate::hub::is_chief(&s.meta());
+    if !chief && counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
     }
     if !agent_message && local_person(conn) {

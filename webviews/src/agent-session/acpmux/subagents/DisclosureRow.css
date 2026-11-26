@@ -42,9 +42,15 @@
   margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
-   own toggle right after it. */
+   own toggle right after it. Only its name chip opens the chat and lights under the pointer
+   (AgentTag.css); the line draws no plate of its own. The chip takes the room the name needs, cut
+   only at the line's edge, not at AgentTag.css's 40%. */
 .cv-disclosure__open {
   flex: 0 1 auto;
+}
+.cv-disclosure__open > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
 }
 .cv-disclosure__line > .cv-disclosure__toggle.is-chevron {
   flex: none;
@@ -57,11 +63,15 @@
   border-radius: 5px;
   color: var(--cv-text-muted);
 }
+.cv-disclosure__line > .cv-disclosure__toggle.is-status {
+  flex: 0 1 auto;
+}
+.cv-disclosure__toggle.is-status > .cv-disclosure__status {
+  max-width: none;
+}
 .cv-disclosure__toggle:hover,
-.cv-disclosure__toggle:focus-visible,
-.cv-disclosure__open:hover,
-.cv-disclosure__open:focus-visible {
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+.cv-disclosure__toggle:focus-visible {
+  background: var(--ds-surface-hover);
 }
 .cv-disclosure__icon {
   display: inline-flex;
@@ -113,6 +123,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Its words, cut with an ellipsis where the line ends (DisclosureRow.tsx statusText). */
+.cv-disclosure__status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cv-disclosure__status [data-state="failed"],
 .cv-disclosure[data-state="failed"] .cv-disclosure__status {
   color: var(--agent-status-failure);
@@ -125,7 +142,7 @@
   flex-direction: column;
   gap: var(--grid-gap-inner);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
 }
 .cv-disclosure__panel > .cv-subsession__raw {
@@ -155,4 +172,21 @@
   max-width: none;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* A row with actions (DisclosureRow.tsx `fit`) follows conversation/cardFit.css: the actions wrap
+   under the line once the toggle would be left under 8em, and shrink to icons in a very narrow card.
+   The line keeps its own gap; the toggle gives way first, its label cut by its ellipsis. */
+.cv-disclosure__line.cv-fit-row {
+  column-gap: var(--grid-gap);
+}
+.cv-disclosure__line.cv-fit-row > .cv-disclosure__toggle:not(.is-chevron, .is-status) {
+  flex: 1 1 0;
+  min-width: min(8em, 100%);
+}
+.cv-disclosure__actions {
+  margin-inline-start: auto;
+}
+.cv-disclosure__actions:empty {
+  display: none;
 }

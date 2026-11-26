@@ -1,5 +1,7 @@
 import Foundation
+import Security
 import Testing
+import CmuxNextCompat
 @testable import CmuxNextAgentPane
 
 struct AcpmuxLaunchSecurityTests {
@@ -25,14 +27,27 @@ struct AcpmuxLaunchSecurityTests {
         #expect(!arguments.contains(String(AcpmuxDaemonLauncher.personKeyDescriptor)))
     }
 
-    @Test func spawnEnvironmentWithholdsLegacyComputerUseSecrets() throws {
+    @Test func aDevBuildRunsTheDaemonUnderCmuxFiles() throws {
+        let environment = try Self.environment()
+        let app = URL(fileURLWithPath: "/App/cmux DEV one.app", isDirectory: true)
+        let host = try #require(FilesHost(bundleURL: app, bundleIdentifier: "com.cmuxterm.app.debug.one",
+                                          environment: [:], isExecutable: { _ in true }))
+
+        let plain = AcpmuxDaemonLauncher.arguments(for: environment)
+        let hosted = AcpmuxDaemonLauncher.arguments(for: environment, filesHost: host)
+
+        #expect(Array(plain.prefix(4)) == ["-c", AcpmuxDaemonLauncher.script, "acpmux-launch", environment.executable.path])
+        #expect(Array(hosted.prefix(7)) == ["-c", AcpmuxDaemonLauncher.script, "acpmux-launch",
+                                            host.executable.path, "run", "--", environment.executable.path])
+        #expect(Array(hosted.dropFirst(7)) == Array(plain.dropFirst(4)))
+    }
+
+    /// The retired cmux-cua socket variables never reach acpmux, signed or not: Computer Use's
+    /// endpoint comes from the cmux-tui daemon (`computer-use-endpoint`), never from the app.
+    @Test(arguments: [false, true])
+    func spawnEnvironmentDropsTheRetiredComputerUseVariables(unsigned: Bool) throws {
         var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = false
-        environment.computerUse = [
-            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
-            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
-            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
-        ]
+        environment.passesPersonKeyAtSpawn = unsigned
 
         let variables = AcpmuxDaemonLauncher.spawnEnvironment(
             environment,
@@ -47,41 +62,7 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["CMUX_NEXT_CUA_SOCKET"] == nil)
         #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == nil)
         #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
-        #expect(variables["CMUX_NEXT_CUA_V2_DIR"] == "/private/v2")
         #expect(variables["PATH"] == "/usr/bin")
-    }
-
-    @Test func unsignedDevelopmentLaunchKeepsLegacyComputerUseAgentCredentials() throws {
-        var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = true
-        environment.computerUse = [
-            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
-            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
-            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
-        ]
-
-        let variables = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
-
-        #expect(variables["CMUX_NEXT_CUA_SOCKET"] == "/private/helper.sock")
-        #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == "fixture-secret")
-        #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
-    }
-
-    @Test func signedComputerUseEnrollmentCarriesOnlyTheAgentCredential() throws {
-        var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = false
-        environment.computerUse = [
-            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
-            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
-            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
-            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
-        ]
-
-        let parameters = AcpmuxComputerUse.enrollmentParameters(environment)
-
-        #expect(parameters["socket"] as? String == "/private/helper.sock")
-        #expect(parameters["agentToken"] as? String == "fixture-secret")
-        #expect(parameters.count == 2)
     }
 
     @Test func signedLaunchDoesNotInheritUnrelatedApplicationSecrets() throws {
@@ -156,6 +137,66 @@ struct AcpmuxLaunchSecurityTests {
         let systemBinary = URL(fileURLWithPath: "/bin/ls")
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "NOTCMUXTEAM"))
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "invalid team"))
+    }
+
+    /// Launch: the first strict check of a process hashed every page of the bundled `cmux` (148 MB) on
+    /// the main thread, 2.5 s on a cold disk cache. A binary the kernel kills at a bad page (hardened
+    /// runtime, as every Team-signed nightly binary) is checked without its pages; one without that
+    /// flag still has every page hashed.
+    @Test func strictTeamCheckHashesPagesOnlyWhenTheKernelWouldNot() throws {
+        let plain = URL(fileURLWithPath: "/bin/ls")
+        let hardened = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-rt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: hardened) }
+        try FileManager.default.copyItem(at: plain, to: hardened)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--sign", "-", "--options", "runtime", hardened.path]
+        try sign.run()
+        sign.waitUntilExit()
+        try #require(sign.terminationStatus == 0)
+
+        func flags(_ url: URL) throws -> UInt32 {
+            var code: SecStaticCode?
+            try #require(SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess)
+            return AcpmuxServerPeer.strictFlags(for: try #require(code)).rawValue
+        }
+        let strict = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        #expect(try flags(plain) == strict)
+        #expect(try flags(hardened) == strict | kSecCSDoNotValidateExecutable)
+    }
+
+    /// A script signed with `--options runtime` carries the runtime flag in a signature kept in
+    /// extended attributes, but the kernel never checks a script's contents. It is hashed in full,
+    /// so a script changed after signing fails the strict check.
+    @Test func strictTeamCheckHashesASignedScriptAndRejectsItOnceChanged() throws {
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-sh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: script) }
+        try Data("#!/bin/sh\necho signed\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--sign", "-", "--options", "runtime", script.path]
+        try sign.run()
+        sign.waitUntilExit()
+        try #require(sign.terminationStatus == 0)
+
+        func check() throws -> (flags: UInt32, status: OSStatus) {
+            var code: SecStaticCode?
+            try #require(SecStaticCodeCreateWithPath(script as CFURL, [], &code) == errSecSuccess)
+            let flags = AcpmuxServerPeer.strictFlags(for: try #require(code))
+            return (flags.rawValue, SecStaticCodeCheckValidity(try #require(code), flags, nil))
+        }
+        let strict = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        let signed = try check()
+        #expect(signed.flags == strict)
+        #expect(signed.status == errSecSuccess)
+
+        // Changed after signing; its extended-attribute signature stays.
+        let handle = try FileHandle(forWritingTo: script)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("echo changed\n".utf8))
+        try handle.close()
+        #expect(try check().status != errSecSuccess)
     }
 
     /// The nightly hang reports of 2026-11-05: `resolve`'s strict signature check read the whole

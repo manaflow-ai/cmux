@@ -62,8 +62,8 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
         rowY: row.getBoundingClientRect().y,
         rowWidth: row.getBoundingClientRect().width,
         shimmerOffset: Math.abs(
-          row.querySelector(".cv-shimmer__lit-time")!.getBoundingClientRect().x -
-            row.querySelector(".cv-worked__time")!.getBoundingClientRect().x,
+          row.querySelector(".cv-shimmer__lit-label")!.getBoundingClientRect().x -
+            row.querySelector(".cv-shimmer__base")!.getBoundingClientRect().x,
         ),
       }));
     });

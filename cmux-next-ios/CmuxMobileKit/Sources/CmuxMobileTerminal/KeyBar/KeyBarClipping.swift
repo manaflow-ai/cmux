@@ -28,24 +28,13 @@ public struct KeyBarClipping: Sendable {
     }
 }
 
-/// The key row's leading fade (classic cmux iOS's edge fade): keys dissolve
-/// over `width` points as they reach the pinned keys. At rest nothing fades;
-/// the edge's alpha falls to 0 as the row scrolls its first `width` points.
-public struct KeyRowFade: Sendable {
-    public static let width: CGFloat = 24
-
-    public init() {}
-
-    public func leadingEdgeAlpha(scrolled: CGFloat) -> Double {
-        Double(1 - min(1, max(0, scrolled / Self.width)))
-    }
-}
-
-/// What the bottom dock shows (classic cmux iOS's dock): the key row is
-/// always there, keyboard up or down; the composer is open by default and can
-/// be closed with the compose key; Hide Toolbar takes both away (and the
-/// keyboard) until the next terminal tap. The soft keyboard is tracked for the
-/// keyboard key's glyph: a hardware keyboard leaves none.
+/// What the bottom dock shows. The key row is on demand: it rides the soft
+/// keyboard, as an iOS input accessory row does (Blink, Termius, the system
+/// keyboard's own bars), and is gone while the keyboard is down or a hardware
+/// keyboard replaced it. It used to show keyboard up or down (classic's dock;
+/// Leo, 2026-11-23: "why are those things always showing?"). The composer is
+/// open by default and can be closed with the compose key; Hide Toolbar takes
+/// both away (and the keyboard) until the next terminal tap.
 public struct TerminalDockVisibility: Equatable, Sendable {
     /// The soft keyboard as its notifications last described it.
     public enum SoftKeyboard: Equatable, Sendable {
@@ -67,7 +56,9 @@ public struct TerminalDockVisibility: Equatable, Sendable {
         self.softKeyboard = softKeyboard
     }
 
-    public var showsKeyRow: Bool { !chromeHidden }
+    /// Only over a docked soft keyboard: tapping the terminal or the
+    /// composer raises the keyboard and the row with it.
+    public var showsKeyRow: Bool { !chromeHidden && softKeyboard == .shown }
     public var showsComposer: Bool { !chromeHidden && composerPresented }
 
     /// A will-show or will-change-frame notification's end frame height (pt
@@ -116,11 +107,14 @@ public struct ComposerDockState: Equatable, Sendable {
     }
 }
 
-/// The dock's metrics (classic cmux iOS): a 28 pt key row of keys that hug
-/// their labels (glyph keys exactly 32 pt) 4 pt apart, 8 pt above the
-/// composer; the composer's controls are 40 pt circles beside a field whose
-/// one line is 40 pt tall, with a 28 pt send circle inside it; 12 pt side
-/// insets. The stack rests 8 pt above the keyboard or the safe area.
+/// The dock's metrics: classic's 28 pt key row of keys that hug their labels
+/// (glyph keys 32 pt wide) 4 pt apart. #53325 made it 44 pt (Leo, 2026-11-23:
+/// "the buttons are really small"); it is 28 pt again (Leo, 2026-11-25: "We can
+/// just bring it back to what the older size was"). Each key's hit area is its
+/// own cap, inside the row: none reaches the composer 8 pt below, which is the agent chat's card
+/// (`ComposerCardMetrics`: a 44 pt row 2 pt inside it, 48 pt at one line, 12 pt
+/// side insets). The stack rests 8 pt above the keyboard or the safe area.
+/// Plain numbers here, so the macOS test leg runs them.
 public struct TerminalDockMetrics: Sendable {
     public static let keyRowHeight: CGFloat = 28
     public static let keySpacing: CGFloat = 4
@@ -128,13 +122,10 @@ public struct TerminalDockMetrics: Sendable {
     /// Between the key row and the composer.
     public static let keyRowGap: CGFloat = 8
     public static let horizontalInset: CGFloat = 12
-    public static let control: CGFloat = 40
-    public static let sendDiameter: CGFloat = 28
-    public static let fieldCornerRadius: CGFloat = 20
-    /// The field container's padding around the text (and the send circle).
-    public static let fieldPadding: CGFloat = 6
-    /// The text view's own vertical inset inside that padding.
-    public static let textInset: CGFloat = 3
+    /// The composer card at one line (`ComposerCardMetrics.minHeight`) and its
+    /// row's inset from its top and bottom edges.
+    public static let composerMinHeight: CGFloat = 48
+    public static let composerRowInset: CGFloat = 2
 
     public init() {}
 
@@ -145,18 +136,15 @@ public struct TerminalDockMetrics: Sendable {
     /// 2026-10-14: an inline TUI such as Codex redraws its whole transcript on
     /// every resize).
     public func restingComposerHeight(lineHeight: CGFloat) -> CGFloat {
-        max(Self.control, (lineHeight + 2 * (Self.textInset + Self.fieldPadding)).rounded(.up))
+        max(Self.composerMinHeight, (lineHeight + 2 * Self.composerRowInset).rounded(.up))
     }
 
-    /// The whole stack at rest (key row, gap, one-line composer), as shown.
+    /// The whole stack at rest (the keyboard down): the one-line composer.
+    /// The key row shows only over the keyboard, so it is never part of the
+    /// rest the PTY's rows are measured against; counting it would resize the
+    /// PTY each time the keyboard came or went.
     public func restingStackHeight(lineHeight: CGFloat, visibility: TerminalDockVisibility) -> CGFloat {
-        var height: CGFloat = 0
-        if visibility.showsKeyRow { height += Self.keyRowHeight }
-        if visibility.showsComposer {
-            height += restingComposerHeight(lineHeight: lineHeight)
-            if visibility.showsKeyRow { height += Self.keyRowGap }
-        }
-        return height
+        visibility.showsComposer ? restingComposerHeight(lineHeight: lineHeight) : 0
     }
 }
 
@@ -174,14 +162,18 @@ public struct TerminalFontZoom: Sendable {
     }
 }
 
-/// Where the joystick's thumb is drawn while dragged (user note 2026-10-14):
-/// it follows the finger past the circle, so the finger does not cover it, up
-/// to 48 pt from the center; the direction is still read from the whole vector.
+/// Where the joystick's thumb is drawn while dragged: like classic cmux iOS's
+/// arrow nub (`TerminalArrowNubView`) the dot moves within the circle, but a
+/// little farther: its center may reach the circle's edge (user note
+/// 2026-11-11; classic stops at `nubSize / 2 - 8`). The length is clamped, so
+/// every direction reaches the same distance. The direction and repeat rate
+/// still read the finger's whole vector.
 public struct JoystickGeometry: Sendable {
     /// The circle's diameter in the key row (classic cmux iOS's arrow nub).
     public static let circle: CGFloat = TerminalDockMetrics.keyRowHeight
-    /// How far the thumb may travel from the center.
-    public static let travel: CGFloat = 48
+    /// How far the thumb's center may travel from the circle's center: to its
+    /// edge.
+    public static let travel: CGFloat = circle / 2
 
     public init() {}
 
@@ -204,8 +196,9 @@ public struct JoystickRepeat: Sendable {
     public static let initialDelay: Duration = .milliseconds(400)
     public static let slowestRate = 10.0
     public static let fastestRate = 18.0
-    /// Where the fastest rate is reached (the thumb's travel cap).
-    public static let fastestAt: CGFloat = JoystickGeometry.travel
+    /// The finger's distance from the center where the fastest rate is
+    /// reached (the thumb itself stops at `JoystickGeometry.travel`).
+    public static let fastestAt: CGFloat = 48
 
     public init() {}
 

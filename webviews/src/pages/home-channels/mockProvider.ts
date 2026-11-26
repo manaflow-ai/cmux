@@ -18,6 +18,7 @@ import {
   type HomeParticipant,
   type HomeRun,
   type HomeRunStep,
+  type HomeScheduled,
   type HomeThreadStats,
 } from "./types";
 
@@ -495,6 +496,16 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** The link the mock answers for a video (gallery `video`: a sample MP4 as a data URL); none:
+   * the video cannot be had, as from an owner without attachment reads. */
+  videoUrl: string | undefined = undefined;
+  /** The Cloud inbox read fails with this reason (gallery `cloudError`): the inbox answers its rows
+   * with `cloudError`, as the daemon does with the last good Cloud list. */
+  cloudError: string | undefined = undefined;
+  /** My Send Later messages (`cmux.home.scheduled`), by id. The gallery never sends one at its
+   * time: Send Now does. */
+  private readonly scheduled = new Map<string, HomeScheduled>();
+  private nextScheduled = 1;
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
   private readonly revisions = new Map<
     string,
@@ -732,7 +743,13 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
+        return {
+          me,
+          conversations: this.data.conversations,
+          rev: 1,
+          inboxState: true,
+          ...(this.cloudError ? { cloudError: this.cloudError } : {}),
+        } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
@@ -848,7 +865,7 @@ export class MockHomeProvider implements PageClient {
         return {} as R;
       }
       case HomeOps.capabilities:
-        return { start: true, invite: true, chiefs: true, chiefWork: true } as R;
+        return { start: true, invite: true, chiefs: true, chiefWork: true, sendLater: true } as R;
       case HomeOps.chiefWork:
         if (!this.chiefs.has(String(params.chief))) throw pageError("cmux.page.invalid_params", "unknown Chief");
         return {
@@ -868,6 +885,12 @@ export class MockHomeProvider implements PageClient {
           taskSources: ["harness"],
           truncated: false,
         } as R;
+      case HomeOps.scheduled:
+        return {
+          scheduled: [...this.scheduled.values()].filter((entry) => entry.conversation === id),
+        } as R;
+      case HomeOps.schedule:
+        return this.scheduleChange(params) as R;
       case HomeOps.directory:
         return { people: this.directory() } as R;
       case HomeOps.startConversation: {
@@ -1079,7 +1102,8 @@ export class MockHomeProvider implements PageClient {
         return { mimeType: "image/png", byteCount: data.length, offset: 0, data, eof: true } as R;
       }
       case HomeOps.attachmentUrl:
-        // No video bytes in the mock: the player shows its poster.
+        // Without a sample video the mock serves no bytes: the player shows its poster.
+        if (this.videoUrl && params.hash === "f".repeat(64)) return { url: this.videoUrl, expiresInMs: 600_000 } as R;
         throw pageError("cmux.page.unavailable", "the mock serves no video");
       case HomeOps.runs: {
         const turns = (params.turns as string[] | undefined) ?? [];
@@ -1122,6 +1146,54 @@ export class MockHomeProvider implements PageClient {
     this.emit({
       presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }],
     });
+  }
+
+  /** Queues a message of mine for `sendAt` (gallery `scheduled`). */
+  schedule(conversation: string, text: string, sendAt: number, failure?: string): HomeScheduled {
+    const entry: HomeScheduled = {
+      id: `sch_${this.nextScheduled++}`,
+      conversation,
+      text,
+      sendAt,
+      state: failure ? "failed" : "waiting",
+      attachments: 0,
+      ...(failure ? { failure } : {}),
+    };
+    this.scheduled.set(entry.id, entry);
+    this.emit({ scheduled: [conversation] });
+    return entry;
+  }
+
+  private scheduleChange(params: Record<string, unknown>): { scheduled?: HomeScheduled } {
+    const held = typeof params.id === "string" ? this.scheduled.get(params.id) : undefined;
+    switch (params.kind) {
+      case "create": {
+        const entry = this.schedule(String(params.conversation), String(params.text ?? ""), Number(params.sendAt));
+        if (Array.isArray(params.attachments)) entry.attachments = params.attachments.length;
+        return { scheduled: entry };
+      }
+      case "update": {
+        if (!held) throw pageError("schedule_rejected", "unknown_scheduled");
+        const entry: HomeScheduled = { ...held, state: "waiting" };
+        delete entry.failure;
+        if (typeof params.sendAt === "number") entry.sendAt = params.sendAt;
+        if (typeof params.text === "string") entry.text = params.text;
+        this.scheduled.set(entry.id, entry);
+        this.emit({ scheduled: [entry.conversation] });
+        return { scheduled: entry };
+      }
+      case "cancel":
+      case "sendNow": {
+        if (!held) throw pageError("schedule_rejected", "unknown_scheduled");
+        this.scheduled.delete(held.id);
+        if (params.kind === "sendNow")
+          void this.call(HomeOps.send, { conversation: held.conversation, text: held.text });
+        this.emit({ scheduled: [held.conversation] });
+        return {};
+      }
+      default:
+        throw pageError("cmux.page.invalid_params", "kind");
+    }
   }
 
   /** A participant starts or stops typing (gallery `teammates`). */

@@ -50,4 +50,61 @@ struct CloudPortChangeTests {
         let data = try JSONSerialization.data(withJSONObject: ["t": "ephemeral", "event": "other", "data": [:]])
         #expect(CloudPortChange.parseWireFrame(data) == nil)
     }
+
+    /// The wire opens a socket per team Rust names past the active one, in addition to it, never instead; none when
+    /// the install token's team is the active one.
+    @Test func theWireAddsOnlyTheTeamsPastTheActiveOne() {
+        let active = "team_aaaaaaaaaaaaaaaaaaaa", personal = "team_0123456789abcdef0123"
+        #expect(CloudMachineWire.extraTeams(active: active, named: [active, personal]) == [personal])
+        #expect(CloudMachineWire.extraTeams(active: active, named: [active]).isEmpty)
+        #expect(CloudMachineWire.extraTeams(active: active, named: [personal, active, personal]) == [personal])
+        #expect(CloudMachineWire.extraTeams(active: active, named: nil).isEmpty)
+        #expect(CloudMachineWire.extraTeams(active: nil, named: [personal]).isEmpty)
+    }
+
+    /// A snapshot's spares needing login go to the same handler as the event, for the socket's own team only.
+    @Test func aSnapshotNamesItsSparesNeedingLoginForTheSocketsTeamOnly() throws {
+        let team = "team_0123456789abcdef0123"
+        let frame = try JSONSerialization.data(withJSONObject: [
+            "t": "snapshot", "stream": "cloud:\(team)", "seq": 3, "state": [:] as [String: Any],
+            "spares_needing_login": ["vm_01234567890123456789", "not-a-vm", 7],
+        ] as [String: Any])
+        #expect(CloudMachineWire.sparesNeedingLogin(frame, team: team) == ["vm_01234567890123456789"])
+        #expect(CloudMachineWire.sparesNeedingLogin(frame, team: "team_ffffffffffffffffffff").isEmpty)
+        #expect(CloudMachineWire.sparesNeedingLogin(frame, team: nil).isEmpty)
+        let none = try JSONSerialization.data(withJSONObject: ["t": "snapshot", "stream": "cloud:\(team)", "seq": 3])
+        #expect(CloudMachineWire.sparesNeedingLogin(none, team: team).isEmpty)
+        #expect(CloudMachineWire.spareReady(frame, team: team) == nil)
+    }
+
+    /// A spare-ready frame names its machine only for the socket's own team, and is never a port change.
+    @Test func aSpareReadyFrameNamesItsMachineForTheSocketsTeamOnly() throws {
+        let frame = try JSONSerialization.data(withJSONObject: [
+            "t": "ephemeral", "stream": "cloud:team_0123456789abcdef0123", "event": "cloud.spare.ready",
+            "data": ["machine": "vm_01234567890123456789", "team": "team_0123456789abcdef0123", "at": 1],
+        ])
+        #expect(CloudMachineWire.spareReady(frame, team: "team_0123456789abcdef0123") == "vm_01234567890123456789")
+        #expect(CloudMachineWire.spareReady(frame, team: "team_ffffffffffffffffffff") == nil)
+        #expect(CloudMachineWire.spareReady(frame, team: nil) == nil)
+        #expect(CloudPortChange.parseWireFrame(frame) == nil)
+        let port = try JSONSerialization.data(withJSONObject: ["t": "ephemeral", "event": "cloud.machine.event", "data": ["team": "team_0123456789abcdef0123", "machine": "vm_01234567890123456789"]])
+        #expect(CloudMachineWire.spareReady(port, team: "team_0123456789abcdef0123") == nil)
+    }
+
+    @Test func aPausingFrameNamesItsMachineForTheSocketsTeamOnly() throws {
+        let frame = try JSONSerialization.data(withJSONObject: [
+            "t": "ephemeral", "stream": "cloud:team_0123456789abcdef0123", "event": "cloud.machine.pausing",
+            "data": ["machine": "vm_01234567890123456789", "team": "team_0123456789abcdef0123", "at": 1],
+        ])
+        #expect(CloudMachineWire.machinePausing(frame, team: "team_0123456789abcdef0123") == "vm_01234567890123456789")
+        #expect(CloudMachineWire.machinePausing(frame, team: "team_ffffffffffffffffffff") == nil)
+        #expect(CloudMachineWire.machinePausing(frame, team: nil) == nil)
+        #expect(CloudMachineWire.spareReady(frame, team: "team_0123456789abcdef0123") == nil)
+        #expect(CloudPortChange.parseWireFrame(frame) == nil)
+        let spare = try JSONSerialization.data(withJSONObject: [
+            "t": "ephemeral", "event": "cloud.spare.ready",
+            "data": ["machine": "vm_01234567890123456789", "team": "team_0123456789abcdef0123"],
+        ])
+        #expect(CloudMachineWire.machinePausing(spare, team: "team_0123456789abcdef0123") == nil)
+    }
 }

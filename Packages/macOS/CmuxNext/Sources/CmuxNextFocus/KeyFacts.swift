@@ -62,9 +62,17 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
     /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabs`): context key `sidebar.workspacesAsTabs`.
     public var workspacesAsTabs = false
     /// The focused browser page reports the keys it did not handle (a Chromium tab, through
-    /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
+    /// `CefKeyboardHandler::OnKeyEvent`; a WebKit tab, by sending the key back to `NSApp.sendEvent`):
+    /// Find and content shortcuts go to it first
     /// (``KeyRouter/offersToPage(_:event:focus:facts:)``).
     public var pageReportsUnhandledKeys = false
+    /// The focus model names a terminal, but the key goes elsewhere: the key window is a page
+    /// window over the cmux window (a Chief chat page), or its first responder is a text input the
+    /// person can type in outside that terminal (a click put the caret in Home's or the Chief's
+    /// message box while the model still named the terminal beside it, #52840). The key is that
+    /// input's: the terminal's shortcuts (Paste, Copy, Select All) do not run on the terminal, and
+    /// the key goes on to the input through AppKit.
+    public var typingOutsideFocusedTerminal = false
 
     public init(hasMarkedText: Bool = false, terminalCopyMode: Bool = false,
                 terminalAlternateScreen: Bool = false, primaryInputReady: Bool = false,
@@ -76,7 +84,7 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
                 topPage: String? = nil, pageKeySequencePending: Bool = false,
                 textBoxFocused: Bool = false, sidebarMultiSelection: Bool = false,
                 fileExplorerFocused: Bool = false, workspacesAsTabs: Bool = false,
-                pageReportsUnhandledKeys: Bool = false) {
+                pageReportsUnhandledKeys: Bool = false, typingOutsideFocusedTerminal: Bool = false) {
         self.hasMarkedText = hasMarkedText
         self.terminalCopyMode = terminalCopyMode
         self.terminalAlternateScreen = terminalAlternateScreen
@@ -98,5 +106,6 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
         self.fileExplorerFocused = fileExplorerFocused
         self.workspacesAsTabs = workspacesAsTabs
         self.pageReportsUnhandledKeys = pageReportsUnhandledKeys
+        self.typingOutsideFocusedTerminal = typingOutsideFocusedTerminal
     }
 }

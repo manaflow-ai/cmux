@@ -13,6 +13,7 @@ type Props = {
   longLabel?: boolean;
   /** A toggle row checked, one unchecked and plain rows in one menu: every label on one line. */
   mixed?: boolean;
+  overflowing?: boolean;
 };
 
 function ContextMenuGallery({
@@ -21,10 +22,18 @@ function ContextMenuGallery({
   edge = false,
   longLabel = false,
   mixed = false,
+  overflowing = false,
 }: Props) {
   const [receipt, setReceipt] = useState("Ready");
   const items = useMemo<ContextMenuItem[]>(
     () => [
+      ...(overflowing
+        ? Array.from({ length: 40 }, (_, index) => ({
+            id: `action-${index}`,
+            label: `Action ${index + 1}`,
+            onSelect: () => setReceipt(`Action ${index + 1}`),
+          }))
+        : []),
       ...(mixed
         ? [
             { id: "pin", label: "Pin Tab", checked: true, onSelect: () => setReceipt("Unpinned") },
@@ -50,7 +59,7 @@ function ContextMenuGallery({
         onSelect: () => setReceipt("Deleted"),
       },
     ],
-    [disabled, longLabel, mixed],
+    [disabled, longLabel, mixed, overflowing],
   );
   return (
     <div className={`context-menu-gallery-stage${edge ? " context-menu-gallery-stage--edge" : ""}`}>
@@ -193,6 +202,7 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     open: { props: {}, play: open },
+    overflowing: { props: { overflowing: true }, play: open },
     keyboard: { props: {}, play: keyboard },
     "key-open": { props: {}, play: keyOpen },
     "pointer-focus": { props: {}, play: pointerFocus },

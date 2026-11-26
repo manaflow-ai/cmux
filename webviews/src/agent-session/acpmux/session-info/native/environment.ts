@@ -1,6 +1,7 @@
 // Session Info's Environment, drawn by the App (EnvironmentSection.tsx): where the chat runs,
 // its project, repository, branch, Remote Control, and active access grants.
 // It heads the panel bare: rows only, always open.
+import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import type { Translate } from "../../i18n";
 import type { AcpmuxSnapshot } from "../../model";
 import { homePath } from "../../sessionList";
@@ -12,6 +13,7 @@ import type { AttachedCloudRepo, PendingCloudRepo } from "../cloudRepositoryPick
 import type { NativeInfoRect } from "./model";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl } from "./links";
+import { SCREEN_SHARING_LABELS, type ScreenSharingKind } from "../screenSharing";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -30,6 +32,8 @@ export type EnvironmentInput = {
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// The chat's cloud controls (RFD 0075); where present they stand in Remote Control's row.
+  cloud?: SessionInfoCloudControl;
   grants?: readonly { id: string; label: string; onRemove: () => void }[];
   cloudRepositoryAvailable?: boolean;
   attachedCloudRepos?: readonly AttachedCloudRepo[];
@@ -40,6 +44,10 @@ export type EnvironmentInput = {
   projectLook?: ProjectRowLook;
   /// Opens the repository's and the branch's GitHub links (the web rows' `href`).
   onOpenUrl?: (url: string) => void;
+  onShareScreen?: () => void;
+  /// Share (this Mac) or View screen (a Cloud machine): the row is drawn only with one.
+  screenShareKind?: ScreenSharingKind;
+  screenShareNote?: string;
 };
 
 export function environmentSection(
@@ -47,7 +55,16 @@ export function environmentSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const { summary, repository, remoteControl, onOpenFolder, onOpenUrl, projectLook = "name", grants = [] } = input;
+  const {
+    summary,
+    repository,
+    remoteControl,
+    cloud,
+    onOpenFolder,
+    onOpenUrl,
+    projectLook = "name",
+    grants = [],
+  } = input;
   const openUrl = nativeExternalUrl(onOpenUrl);
   const machine = chatMachine(summary, input.machineName, input.peerKinds, input.place);
   const branch = summary?.branch;
@@ -71,6 +88,15 @@ export function environmentSection(
     ...(machine.kind === "cloud" ? { subtitle: t("cloudRepository.lifetime") } : {}),
   });
   const cloudSession = machine.kind === "cloud" && summary?.sessionId;
+  if (input.onShareScreen && input.screenShareKind) {
+    rows.push({
+      id: "screen-sharing",
+      symbol: "display",
+      title: t(SCREEN_SHARING_LABELS[input.screenShareKind]),
+      action: actions.add("environment.screenSharing", input.onShareScreen),
+      ...(input.screenShareNote ? { subtitle: input.screenShareNote } : {}),
+    });
+  }
   if (cloudSession && input.cloudRepositoryAvailable) {
     rows.push({
       id: "cloud-default",
@@ -153,7 +179,21 @@ export function environmentSection(
           }
         : {}),
     });
-  if (remoteControl) {
+  if (cloud) {
+    // The web's Runs On menu: the row shows the choice, its menu the three.
+    const names = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+    rows.push({
+      id: "runsOn",
+      symbol: "cloud",
+      title: t("hybrid.pin"),
+      trailing: t(names[cloud.view.pin]),
+      menu: (["auto", "cloud", "local"] as const).map((pin) => ({
+        label: t(names[pin]),
+        action: actions.add(`environment.runsOn:${pin}`, () => cloud.setPin(pin)),
+      })),
+      menuLabel: t("hybrid.pin"),
+    });
+  } else if (remoteControl) {
     const label = t("sessionInfo.environment.remoteControl");
     // The web's switch: a checkbox button that flips it.
     const toggle = actions.add("environment.remoteControl", () => remoteControl.set(!remoteControl.on));

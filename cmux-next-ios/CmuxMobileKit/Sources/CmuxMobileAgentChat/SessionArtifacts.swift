@@ -181,8 +181,6 @@ public struct SessionArtifacts: Sendable {
                     scanText(markdown, detail: "In the answer" + suffix, weight: .linked)
                 case .tool(let call):
                     scan(call, suffix: suffix)
-                case .plan(_, let entries):
-                    for entry in entries { scanText(entry.content, detail: "In the plan" + suffix, weight: .mentioned) }
                 case .permission(let record):
                     scan(record.request.toolCall, suffix: suffix)
                 case .subagents(_, let ids):
@@ -190,6 +188,8 @@ public struct SessionArtifacts: Sendable {
                         guard let agent = subagents.first(where: { $0.id == id }) else { continue }
                         scan(agent.items, subagents: subagents, owner: agent.name)
                     }
+                case .steer(let message):
+                    scanText(message.text, detail: "In a message" + suffix, weight: .mentioned)
                 case .thought, .question:
                     break
                 }

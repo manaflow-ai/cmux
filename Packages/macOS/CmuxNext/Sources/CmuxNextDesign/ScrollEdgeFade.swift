@@ -57,6 +57,13 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 /// notifications (no polling); an edge's band fades in or out with the
 /// Motion `hover` token (a short crossfade under Reduce Motion, per the
 /// Motion policy).
+///
+/// Each band is eased, not linear: its alpha follows smoothstep from the edge
+/// to full ink, sampled at ``bandSamples`` stops, so ink meets the band with
+/// no slope break the eye reads as a line. The bottom band is taller than the
+/// top's (`Metrics.scrollEdgeFadeBottom`), so rows roll out gradually over the
+/// footer (Leo 2026-11-22: "there's simultaneously a fade AND a hard break
+/// ideally lessen the hard break").
 public final class ScrollEdgeFadeView: NSView {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
@@ -66,6 +73,12 @@ public final class ScrollEdgeFadeView: NSView {
     public var topClip: CGFloat = 0 {
         didSet { if oldValue != topClip { updateFade(animated: false) } }
     }
+    /// Holds the top band's fade off: below `topClip` the list shows whole, though content is hidden above. For a view
+    /// that stands at the list's top and must not fade (a stuck section header, which draws its own fade under it).
+    /// The band's stops move on the same short crossfade as its colors. Off by default.
+    public var holdsTopEdge = false {
+        didSet { if oldValue != holdsTopEdge { updateFade(animated: true, movesStops: true) } }
+    }
     /// Whether hidden content fades at the edges. Off, the mask stays opaque at every edge, so the
     /// whole list shows (`sidebar.noFade`). Setting it re-reads the edges at once.
     public var fades = true {
@@ -74,10 +87,20 @@ public final class ScrollEdgeFadeView: NSView {
     private let fadeMask = CAGradientLayer()
     private var observers: [MainActorObservation] = []
     private weak var observedDocument: NSView?
-    /// The layer size and fade fraction the mask geometry was last set for; a scroll that finds
+    /// The layer size and band fractions the mask geometry was last set for; a scroll that finds
     /// either changed (a tunable edit, a resize with no layout yet) sets the geometry again.
     private var maskedSize: CGSize = .zero
-    private var maskedFraction: CGFloat = -1
+    private var maskedFractions = Fractions(top: -1, bottom: -1)
+
+    /// Each band's share of the list height.
+    struct Fractions: Equatable {
+        var top: CGFloat
+        var bottom: CGFloat
+    }
+
+    /// Stops per band past its edge stop: smoothstep sampled this finely reads as one curve
+    /// (no visible facets at 44 pt on a 2x display).
+    public static let bandSamples = 8
 
     public init(scrollView: NSScrollView) {
         self.scrollView = scrollView
@@ -147,22 +170,38 @@ public final class ScrollEdgeFadeView: NSView {
         return ScrollEdges.hidden(clipBounds: clip.bounds, insets: clip.contentInsets, document: document.frame, isFlipped: clip.isFlipped)
     }
 
-    /// Mask colors top to bottom: transparent at an edge with hidden
-    /// content (the band fades rows out), opaque elsewhere.
+    /// Smoothstep: 0 at 0, 1 at 1, flat at both ends, so the band meets full ink and the edge
+    /// with no slope break.
+    public static func ease(_ t: CGFloat) -> CGFloat {
+        let t = min(max(t, 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Mask alphas top to bottom, one per stop of ``locations(height:fractions:topClip:holdsTop:)``:
+    /// at an edge with hidden content the band eases from transparent to opaque; elsewhere opaque.
+    static func alphas(for edges: ScrollEdges) -> [CGFloat] {
+        let n = bandSamples
+        let top = (0...n).map { edges.contains(.top) ? ease(CGFloat($0) / CGFloat(n)) : 1 }
+        let bottom = (0...n).map { edges.contains(.bottom) ? ease(CGFloat(n - $0) / CGFloat(n)) : 1 }
+        return top + bottom
+    }
+
+    /// Mask colors top to bottom (``alphas(for:)`` as black at that alpha).
     static func colors(for edges: ScrollEdges) -> [CGColor] {
-        let opaque = NSColor.black.cgColor
-        let clear = NSColor.clear.cgColor
-        return [edges.contains(.top) ? clear : opaque, opaque, opaque, edges.contains(.bottom) ? clear : opaque]
+        alphas(for: edges).map { NSColor.black.withAlphaComponent($0).cgColor }
     }
 
     /// Re-reads the scroll position.
-    public func updateFade(animated: Bool = true) {
+    public func updateFade(animated: Bool = true) { updateFade(animated: animated, movesStops: false) }
+
+    /// `updateFade`; `movesStops` moves the gradient's stops on the band's crossfade too (`holdsTopEdge`).
+    private func updateFade(animated: Bool, movesStops: Bool) {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
         let next = fades ? Self.hiddenEdges(of: scrollView) : []
-        let fade = Self.fadeFraction(height: layer.bounds.height)
+        let fade = Self.fadeFractions(height: layer.bounds.height)
         maskedSize = layer.bounds.size
-        maskedFraction = fade
+        maskedFractions = fade
         Motion.feedback.transaction(nil) {
             if layer.mask !== fadeMask { layer.mask = fadeMask }
             fadeMask.frame = layer.bounds
@@ -170,7 +209,10 @@ public final class ScrollEdgeFadeView: NSView {
             let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
             fadeMask.startPoint = CGPoint(x: 0.5, y: top)
             fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
-            fadeMask.locations = Self.locations(height: layer.bounds.height, fade: fade, topClip: topClip).map { NSNumber(value: Double($0)) }
+        }
+        let stops = Self.locations(height: layer.bounds.height, fractions: fade, topClip: topClip, holdsTop: holdsTopEdge)
+        Motion.feedback.transaction(movesStops && animated ? .hover : nil) {
+            fadeMask.locations = stops.map { NSNumber(value: Double($0)) }
         }
         setEdges(next, animated: animated)
     }
@@ -179,22 +221,27 @@ public final class ScrollEdgeFadeView: NSView {
     /// mask yet) it does the full one.
     func updateEdges() {
         guard let layer, layer.mask === fadeMask, layer.bounds.size == maskedSize,
-              Self.fadeFraction(height: layer.bounds.height) == maskedFraction else { return updateFade() }
+              Self.fadeFractions(height: layer.bounds.height) == maskedFractions else { return updateFade() }
         observeDocument(scrollView.documentView)
         setEdges(fades ? Self.hiddenEdges(of: scrollView) : [], animated: true)
     }
 
-    /// The band's share of the list height (the fade length, capped by the tunable).
-    private static func fadeFraction(height: CGFloat) -> CGFloat {
-        min(Metrics.scrollEdgeFade / max(height, 1), CGFloat(ChromeTunables.scrollFadeMaxFraction.value))
+    /// Each band's share of the list height (its fade length, capped by the tunable).
+    static func fadeFractions(height: CGFloat) -> Fractions {
+        let cap = CGFloat(ChromeTunables.scrollFadeMaxFraction.value), h = max(height, 1)
+        return Fractions(top: min(Metrics.scrollEdgeFade / h, cap), bottom: min(Metrics.scrollEdgeFadeBottom / h, cap))
     }
 
-    /// Gradient stops top to bottom, as fractions of `height`: the top band holds its color down
-    /// to `topClip` (the gradient's first color extends above its first stop), then fades over
-    /// `fade`; the bottom band fades over `fade`. The clip gives way to keep the stops in order.
-    static func locations(height: CGFloat, fade: CGFloat, topClip: CGFloat) -> [CGFloat] {
-        let clip = min(max(0, topClip) / max(height, 1), max(0, 1 - 2 * fade))
-        return [clip, clip + fade, 1 - fade, 1]
+    /// Gradient stops top to bottom, as fractions of `height`, ``bandSamples`` + 1 per band: the
+    /// top band holds its color down to `topClip` (the gradient's first color extends above its
+    /// first stop), then eases over `fractions.top`; the bottom band eases over `fractions.bottom`
+    /// to the list's bottom. The clip gives way to keep the stops in order.
+    static func locations(height: CGFloat, fractions: Fractions, topClip: CGFloat, holdsTop: Bool = false) -> [CGFloat] {
+        let clip = min(max(0, topClip) / max(height, 1), max(0, 1 - fractions.top - fractions.bottom))
+        let n = CGFloat(bandSamples), topSpan = holdsTop ? 0 : fractions.top
+        let top = (0...bandSamples).map { clip + topSpan * CGFloat($0) / n }
+        let bottom = (0...bandSamples).map { 1 - fractions.bottom + fractions.bottom * CGFloat($0) / n }
+        return top + bottom
     }
 
     private func setEdges(_ next: ScrollEdges, animated: Bool) {

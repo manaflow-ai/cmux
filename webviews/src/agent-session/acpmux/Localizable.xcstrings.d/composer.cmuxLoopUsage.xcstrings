@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cmuxLoopUsage" : {
+      "comment" : "Agent pane: the composer's refusal of a /loop it cannot read; the slash words stay untranslated",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اكتب /loop 5m أو /loop idle أو /loop at 9:30، ثم الموجّه"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upišite /loop 5m, /loop idle ili /loop at 9:30, pa upit"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv /loop 5m, /loop idle eller /loop at 9:30 og derefter prompten"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gib /loop 5m, /loop idle oder /loop at 9:30 ein, dann den Prompt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type /loop 5m, /loop idle or /loop at 9:30, then the prompt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escribe /loop 5m, /loop idle o /loop at 9:30 y luego el prompt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tapez /loop 5m, /loop idle ou /loop at 9:30, puis le prompt"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scrivi /loop 5m, /loop idle o /loop at 9:30, poi il prompt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "/loop 5m、/loop idle、/loop at 9:30 のいずれかの後にプロンプトを入力"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វាយ /loop 5m, /loop idle ឬ /loop at 9:30 បន្ទាប់មកប្រអប់បញ្ចូល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "/loop 5m, /loop idle 또는 /loop at 9:30 뒤에 프롬프트를 입력하세요"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv /loop 5m, /loop idle eller /loop at 9:30, så prompten"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wpisz /loop 5m, /loop idle lub /loop at 9:30, a potem prompt"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Digite /loop 5m, /loop idle ou /loop at 9:30 e depois o prompt"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введите /loop 5m, /loop idle или /loop at 9:30, затем запрос"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พิมพ์ /loop 5m, /loop idle หรือ /loop at 9:30 แล้วตามด้วยพรอมต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "/loop 5m, /loop idle veya /loop at 9:30 yazın, ardından istemi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введіть /loop 5m, /loop idle або /loop at 9:30, потім запит"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhập /loop 5m, /loop idle hoặc /loop at 9:30, rồi đến lời nhắc"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "输入 /loop 5m、/loop idle 或 /loop at 9:30，然后输入提示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "輸入 /loop 5m、/loop idle 或 /loop at 9:30，然後輸入提示"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

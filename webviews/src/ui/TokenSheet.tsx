@@ -135,7 +135,7 @@ export function TokenSheet({ only = "all" }: TokenSheetProps) {
       </Section>
       <Section title="Radii">
         {RADII.map((radius) => (
-          <Row key={radius.variable} name={radius.variable} value={radius.px ? `${radius.px}px` : "menu metrics"}>
+          <Row key={radius.variable} name={radius.variable} value={radius.px ? `${radius.px}px` : "from the app"}>
             <span className="ui-token-box ui-token-box--radius" style={{ borderRadius: `var(${radius.variable})` }} />
           </Row>
         ))}
@@ -148,6 +148,7 @@ export function TokenSheet({ only = "all" }: TokenSheetProps) {
               className="ui-token-glass"
               style={{
                 background: `color-mix(in srgb, var(--glass-surface, Canvas) var(${level.tint}), transparent)`,
+                // one-material-allow: the token sheet's swatch of each glass level's own numbers, a specimen, not a surface
                 backdropFilter: `var(${level.blur})`,
               }}
             >

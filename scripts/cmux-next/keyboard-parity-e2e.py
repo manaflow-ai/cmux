@@ -33,6 +33,9 @@ Usage: CMUX_SOCKET_PATH=... APP_PID=... keyboard-parity-e2e.py [--foci terminal,
        [--keys "Cmd-T,Cmd-W"] [--debug-key] [--out DIR]
 """
 import argparse, http.server, json, os, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", default=os.environ.get("CMUX_SOCKET_PATH"))
@@ -127,6 +130,12 @@ def state():
             "overlays": model.get("overlays") or [], "responder": appkit.get("first_responder"),
             "classified": appkit.get("classified"), "tabs": tabs, "tab_ids": {t.split(":")[0] for t in tabs},
             "palette": ((report.get("context") or {}).get("palette_open")) is True}
+
+
+def settle_focus(what):
+    """The keyboard's place held still (resolved focus, tab, responder, palette) for 0.3 s; best effort."""
+    wait_stable(lambda: (lambda s: (s["resolved"], s["tab"], s["classified"], s["responder"], s["palette"]))(state()),
+                what, timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
 
 
 def sidebar():
@@ -400,7 +409,7 @@ def prepare(name, focus, ctx):
         run("browserBack" if focus == "page" else "focusHistoryBack")
         if focus == "page":
             wait(lambda: fetched("/shown/a", since) or None, 5)
-        time.sleep(0.5)  # test harness: the focus move settles
+        settle_focus("the focus move")
     elif name == "Esc":
         run("commandPalette")
         wait(lambda: state()["palette"] or None, 5)
@@ -412,7 +421,7 @@ def refocus(focus, ctx):
         wait(lambda: state().get("resolved") == "sidebar" or None, 5)
     elif focus == "newtab":
         wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 5)
-    time.sleep(0.4)  # test harness
+    settle_focus(f"the keyboard back in {focus}")
 
 
 KEYS = [
@@ -450,7 +459,7 @@ def main():
             ctx = setup(focus) or setup(focus)
             if ctx is None:
                 results[(name, focus)] = (False, label)
-                print(f"FAIL | {focus:8} | {name:11} | {label} | setup failed (focus {state().get('resolved')}; {' / '.join(SETUP_WHY[-2:])})", flush=True)
+                safe_print(f"FAIL | {focus:8} | {name:11} | {label} | setup failed (focus {state().get('resolved')}; {' / '.join(SETUP_WHY[-2:])})", flush=True)
                 continue
             prepare(name, focus, ctx)
             routed = decision(key, modifiers)
@@ -466,7 +475,7 @@ def main():
             except Exception as error:  # report, don't stop the matrix
                 ok, note = False, f"check raised {error!r}"
             results[(name, focus)] = (ok, label)
-            print(f"{'PASS' if ok else 'FAIL'} | {focus:8} | {name:11} | {label} | router={routed} | {note} | {sent}", flush=True)
+            safe_print(f"{'PASS' if ok else 'FAIL'} | {focus:8} | {name:11} | {label} | router={routed} | {note} | {sent}", flush=True)
             if name == "Cmd-Shift-N" and post["windows"] > pre["windows"]:
                 run("closeWindow")
                 wait(lambda: state()["windows"] == pre["windows"] or None, 8)
@@ -477,11 +486,11 @@ def main():
     for name, *_ in keys:
         lines.append(f"| {name} | " + " | ".join(("✅" if results[(name, f)][0] else "❌") for f in foci) + " |")
     matrix = "\n".join(lines)
-    print(matrix, flush=True)
+    safe_print(matrix, flush=True)
     with open(os.path.join(opts.out, "matrix.md"), "w") as out:
         out.write(matrix + "\n")
     passed = sum(ok for ok, _ in results.values())
-    print(f"RESULT {passed}/{len(results)}", flush=True)
+    safe_print(f"RESULT {passed}/{len(results)}", flush=True)
     SERVER.shutdown()
 
 

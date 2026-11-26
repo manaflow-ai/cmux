@@ -49,10 +49,19 @@ FIELDS = {
 # cannot see the run that published, whose own failed build (a recovered build published after it) reports.
 RUN_FIELDS = ("source_run", "source_attempt", "source_sha", "publish_result", "push_clean")
 NAMES = RUN_FIELDS + tuple(prefix + name for prefix, names in FIELDS.values() for name in names)
+# A record written before the sign stage was deleted may still carry sign_stage; nothing reads it.
+LEGACY = {"sign_stage"}
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
+# nightly-next-one (vars.NIGHTLY_NEXT_ONE_JOB) builds and publishes in one job, with the outputs both name.
+ONE_JOB = "nightly-next-one"
+
+
 def record(needs: dict, run_id: str, attempt: str, sha: str) -> dict[str, str]:
+    one = needs.get(ONE_JOB) or {}
+    if one.get("result") not in (None, "", "skipped"):
+        needs = {**needs, "publish-nightly": one, "build-nightly-app": one}
     out = {"source_run": run_id, "source_attempt": attempt, "source_sha": sha,
            "publish_result": str((needs.get("publish-nightly") or {}).get("result") or ""),
            "push_clean": "false" if any((job or {}).get("result") in ("failure", "cancelled")
@@ -61,6 +70,11 @@ def record(needs: dict, run_id: str, attempt: str, sha: str) -> dict[str, str]:
         outputs = (needs.get(job) or {}).get("outputs") or {}
         for name in names:
             out[prefix + name] = str(outputs.get(name) or "")
+    # nightly-next-one's notes start from the live feed's published commit (publish-prepare-release-notes.sh):
+    # the next run's decide can read the release body before the previous run's tail rewrote it.
+    from_feed = str(((needs.get("publish-nightly") or {}).get("outputs") or {}).get("published_sha") or "")
+    if SHA.fullmatch(from_feed):
+        out["published_sha"] = from_feed
     return out
 
 
@@ -73,7 +87,7 @@ def comments(rec: dict[str, str]) -> bool:
 
 
 def valid(rec: dict) -> bool:
-    return (isinstance(rec, dict) and set(rec) == set(NAMES) and all(isinstance(v, str) for v in rec.values())
+    return (isinstance(rec, dict) and set(NAMES) <= set(rec) <= set(NAMES) | LEGACY and all(isinstance(v, str) for v in rec.values())
             and rec["source_run"].isdigit() and rec["source_attempt"].isdigit() and bool(SHA.fullmatch(rec["source_sha"])))
 
 

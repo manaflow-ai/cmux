@@ -67,8 +67,18 @@ public actor MobileHostSupervisor {
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
-    /// The last `needs_you` line (the Feed's open requests): sent to each new hostd and on every change.
-    private var needsYouLine: Data?
+    /// The last `needs_you` line (the Feed's open requests) and the account (Stack user) whose feed
+    /// it came from: sent on every change, and to each new hostd of that same account only. A hostd
+    /// of another account (a sign-in as B after A) gets none of A's requests.
+    private var needsYou: (user: String, line: Data)?
+    /// The last `appearance` line (this Mac's theme and wallpaper): the same for every account, sent
+    /// on every change and to each new hostd.
+    private var appearanceLine: Data?
+    /// The last `tab_picture` line of each browser tab's part (`"<surface>-<part>"`): sent on every
+    /// change and to each new hostd, until the tab closes (``forgetTabPictures(surface:)``).
+    private var tabPictureLines: [String: Data] = [:]
+    /// The account the running hostd serves (its launch's user), nil with none running.
+    private var processUser: String?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
@@ -89,6 +99,9 @@ public actor MobileHostSupervisor {
     /// hostd's exit status after the owner removed this Mac (`host.rs` `EXIT_REMOVED`).
     static let exitRemoved: Int32 = 78
     static let removedReason = "removed"
+    /// hostd's exit status after the service refused this Mac's device id (`host.rs` `EXIT_NOT_OWNED`).
+    static let exitDeviceIDTaken: Int32 = 79
+    static let deviceIDTakenReason = "device-id-taken"
 
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
@@ -274,13 +287,49 @@ public actor MobileHostSupervisor {
         process?.send(line)
     }
 
-    /// The app Feed's open requests (#33818): kept for each new hostd and sent to the running one
-    /// now. hostd serves them to phones and pushes each one once.
-    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) {
+    /// The app Feed's open requests (#33818) of `user`'s feed: kept for each new hostd of that
+    /// account and sent to the running one now when it serves that account. hostd serves them to
+    /// phones and pushes each one once. Another account's set replaces the kept one outright.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) {
         let line = MobileHostLaunch.needsYouLine(requests)
-        guard line != needsYouLine else { return }
-        needsYouLine = line
+        guard needsYou?.user != user || needsYou?.line != line else { return }
+        needsYou = (user, line)
+        if processUser == user { process?.send(line) }
+    }
+
+    /// This Mac's theme and wallpaper (ask-87d30da8e5): kept for each new hostd and sent to the
+    /// running one when it changed. hostd serves it to phones (`appearance.rs`).
+    public func setAppearance(_ appearance: MobileHostAppearance) {
+        let line = MobileHostLaunch.appearanceLine(appearance)
+        guard appearanceLine != line else { return }
+        appearanceLine = line
         process?.send(line)
+    }
+
+    /// A browser tab's favicon or thumbnail (``MobileHostLaunch/tabPictureLine(surface:part:path:width:height:capturedAtMs:)``):
+    /// kept for each new hostd and sent to the running one. hostd serves it on `tabs` (`tab_snapshots.rs`).
+    public func setTabPicture(surface: UInt64, part: String, line: Data) {
+        tabPictureLines["\(surface)-\(part)"] = line
+        process?.send(line)
+    }
+
+    /// The tab of `surface` closed: no new hostd gets its pictures (the running one drops them with the tab).
+    public func forgetTabPictures(surface: UInt64) {
+        tabPictureLines.removeValue(forKey: "\(surface)-thumb")
+        tabPictureLines.removeValue(forKey: "\(surface)-favicon")
+    }
+
+    /// Forgets the kept set (the feed's account changed or signed out): no hostd started from now
+    /// gets it. Nothing goes to the running hostd: an empty set would close each request on that
+    /// account's phones, while the account change itself ends that hostd.
+    public func clearNeedsYou() {
+        needsYou = nil
+    }
+
+    /// The `needs_you` line a hostd started now for `user` gets: only that account's own.
+    func needsYouForHostd(user: String) -> Data? {
+        guard let needsYou, needsYou.user == user else { return nil }
+        return needsYou.line
     }
 
     /// Shows a phase without running hostd (for example, not signed in).
@@ -300,7 +349,22 @@ public actor MobileHostSupervisor {
             // stopped; registering again would undo the removal.
             if state.phase == .removed || reason == Self.removedReason {
                 logger.notice("this Mac was removed from the account's devices; cmux-mobile-host stays stopped")
-                publish { $0.reset(to: .removed) }
+                let stopped = MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID)
+                publish {
+                    $0.reset(to: .removed)
+                    $0.stoppedDevice = stopped
+                }
+                return
+            }
+            // Another account owns the device id hostd registered: restarting with it would be
+            // refused again. The iPhone host renews the id and starts a new hostd.
+            if state.phase == .deviceIDTaken || reason == Self.deviceIDTakenReason {
+                logger.notice("another account owns this Mac's device id; cmux-mobile-host waits for a new one")
+                let refused = MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID)
+                publish {
+                    $0.reset(to: .deviceIDTaken)
+                    $0.stoppedDevice = refused
+                }
                 return
             }
             if Self.resetsBackoff(started: started, online: onlineSince, ended: now()) { backoff.reset() }
@@ -326,7 +390,8 @@ public actor MobileHostSupervisor {
             return "cmux-mobile-host did not start: \(error.localizedDescription)"
         }
         process = child
-        defer { process = nil }
+        processUser = inputs.launch.userID
+        defer { (process, processUser) = (nil, nil) }
         // A new hostd knows none of the old one's browser hosts.
         defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
         defer { if let sources = inputs.surfaceHosts { Task { await sources.stopAll() } } }
@@ -342,6 +407,7 @@ public actor MobileHostSupervisor {
             return "stopped"
         }
         if status == Self.exitRemoved { return Self.removedReason }
+        if status == Self.exitDeviceIDTaken { return Self.deviceIDTakenReason }
         return "cmux-mobile-host exited with status \(status ?? -1)"
     }
 
@@ -399,7 +465,7 @@ public actor MobileHostSupervisor {
                     let links = await inputs.cloudLinks()
                     if let line = MobileHostLaunch.cloudLinksLine(request: request, links: links) { child.send(line) }
                 }
-            case .pairRequest, .unpaired:
+            case .pairRequest, .unpaired, .pairAnswer:
                 await pairingQueue.send(event)
             case let .needBrowser(request, tab, url):
                 startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
@@ -418,7 +484,12 @@ public actor MobileHostSupervisor {
             default:
                 let at = now()
                 if case .online = event, onlineSince == nil { onlineSince = at }
-                publish { $0.apply(event, at: at) }
+                let refused = event == .deviceIDTaken || event == .removed
+                    ? MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID) : nil
+                publish {
+                    $0.apply(event, at: at)
+                    if let refused { $0.stoppedDevice = refused }
+                }
                 resolveExposureRequests(for: event)
             }
         }
@@ -429,7 +500,9 @@ public actor MobileHostSupervisor {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
-        if let needsYouLine { child.send(needsYouLine) }
+        if let line = needsYouForHostd(user: inputs.launch.userID) { child.send(line) }
+        if let appearanceLine { child.send(appearanceLine) }
+        for line in tabPictureLines.values { child.send(line) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

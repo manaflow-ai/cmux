@@ -12,6 +12,9 @@ Run on cmux-lawrence-2, never the laptop.
 Usage: picker-e2e.py --tag <tag> [--out DIR]
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -68,11 +71,18 @@ def key(name, modifiers=None, target="palette"):
     if target:
         params["target"] = target
     reply = rpc("debug.key", params) or {}
-    time.sleep(0.15)  # test harness: let the palette's search and listing land
     if target == "palette":
+        # The palette's search and listing land after the key: wait for its report to settle.
+        settled = settle_palette()
         LAST.clear()
-        LAST.update(reply)
+        LAST.update(settled if settled and not settled.get("error") else reply)
     return reply
+
+
+def settle_palette(timeout=5):
+    """The palette's report once it stops changing, read with a no-op key (forward delete at the end of the query)."""
+    return wait_stable(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {},
+                       "the palette's listing", timeout=timeout, interval=0.05, raise_on_timeout=False)
 
 
 def type_text(text):
@@ -135,7 +145,11 @@ def open_palette_action(title):
     wait("the palette opens", palette_open, 10)
     type_text(title)
     key("return")
-    time.sleep(0.5)  # test harness: the picker's first listing
+    # The picker's first listing: its report settles.
+    settled = settle_palette(timeout=10)
+    if settled and not settled.get("error"):
+        LAST.clear()
+        LAST.update(settled)
 
 
 def make_fixture():
@@ -157,9 +171,10 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=FIXTURE)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
-    time.sleep(2)  # test harness: let the first workspace settle
+    # The first workspace settles: its surfaces stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the first workspace's surfaces", timeout=15, interval=0.2)
 
     # 1. Each viewer action is in the palette.
     for title in ["Open Diff Viewer", "Open Diff Viewer in Folder", "Open Markdown File", "Open File"]:
@@ -224,20 +239,25 @@ try:
     snapshot("picker-file")
     close_palette()
 
-    print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
+    safe_print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
     if app and app.poll() is None:
-        print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
-        time.sleep(1)  # test harness: the quit sheet, if any
-        sheet = rpc("debug.quit") or {}
+        safe_print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
+        # The quit sheet, if any: wait until it asks or the app has exited (best-effort; no sheet is fine).
+        def quit_sheet():
+            if app.poll() is not None:
+                return {"exited": True}
+            reply = rpc("debug.quit") or {}
+            return reply if reply.get("asking") else None
+        sheet = wait_until(quit_sheet, "the quit sheet or the app's exit", timeout=5, raise_on_timeout=False) or {}
         if sheet.get("asking"):
-            print(f"debug.quit press: {rpc('debug.quit', {'press': 'end-everything'})}", flush=True)
+            safe_print(f"debug.quit press: {rpc('debug.quit', {'press': 'end-everything'})}", flush=True)
         try:
             app.wait(timeout=20)
-            print(f"quit {app.pid} exit {app.returncode}", flush=True)
+            safe_print(f"quit {app.pid} exit {app.returncode}", flush=True)
         except subprocess.TimeoutExpired:
             app.send_signal(signal.SIGKILL)  # the PID launched above, never a pattern
-            print(f"killed {app.pid} (did not quit)", flush=True)
+            safe_print(f"killed {app.pid} (did not quit)", flush=True)
     if app and app.returncode not in (None, 0):
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+        safe_print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
 sys.exit(1 if failures else 0)

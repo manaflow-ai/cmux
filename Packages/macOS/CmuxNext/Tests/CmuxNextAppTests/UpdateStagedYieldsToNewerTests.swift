@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -17,10 +18,15 @@ import CmuxNextWakeupsTestSupport
         private var count = 0
         private var waiting: [CheckedContinuation<Void, Never>] = []
         private var released = 0
-        let xml: String
+        private var current: String
+        /// The feed's body; a test swaps it (a build's deltas get listed).
+        var xml: String {
+            get { lock.withLock { current } }
+            set { lock.withLock { current = newValue } }
+        }
         let held: Bool
         init(xml: String, held: Bool = false) {
-            self.xml = xml
+            self.current = xml
             self.held = held
         }
         var fetches: Int { lock.withLock { count } }
@@ -98,7 +104,7 @@ import CmuxNextWakeupsTestSupport
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
-        let defaults = UserDefaults(suiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = CountingFeed(xml: xml, held: held)
         let sparkle = FakeSparkle()

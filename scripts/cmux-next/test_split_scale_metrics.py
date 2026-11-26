@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """split_scale_metrics: frame times, retargets, input-aligned layout times, blank and partial frames, failed rounds, flatness (python3 scripts/cmux-next/test_split_scale_metrics.py)."""
-import os, sys, unittest
+import math, os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import split_scale_metrics as ssm  # noqa: E402
@@ -38,6 +38,64 @@ class TraceTests(unittest.TestCase):
         stats = ssm.trace_stats(trace([1000, 900, 840, 810, 795, 700, 640, 610, 600, 600]))
         self.assertGreaterEqual(stats["retargets"], 1)
 
+    def test_a_pane_whose_two_edges_move_on_one_spring_is_no_retarget(self):
+        # bottom_open in a 2 x 2 grid: Split Down on the bottom-left pane. Its top follows the divider above it
+        # (501 -> 334) and its bottom the new divider below it (999 -> 666), one critically damped spring, each edge on
+        # the whole-point grid as the window places it. Its height (498 -> 332) is the difference of two rounded
+        # edges and steps unevenly, which is no new target (split-scale steps 17f8df9f and 790bbb7f: 3 per round).
+        def row(top, bottom):
+            r = pane("pane_bbbbbb", 208, 695)
+            r[2], r[4], r[8], r[10], r[15], r[17] = top, bottom - top, top, bottom - top, top, bottom - top
+            return r
+
+        def spring(k, w=2 * math.pi / 0.11, phase=0.001):
+            t = k / 120 + phase
+            return 1 - (1 + w * t) * math.exp(-w * t) if k else 0.0
+
+        samples = []
+        for k in range(20):
+            p = 1.0 if k == 19 else spring(k)
+            top, bottom = math.floor(501 - 167 * p + 0.5), math.floor(999 - 333 * p + 0.5)
+            samples.append({"t": k * 8.33, "panes": [row(top, bottom)]})
+        stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
+        self.assertEqual(stats["retargets"], 0, stats["retargeted"])
+        # The same pane whose top turns back mid-flight is still a retarget.
+        samples[8]["panes"] = [row(samples[8]["panes"][0][2] + 30, samples[8]["panes"][0][2] + 30 + samples[8]["panes"][0][4])]
+        self.assertGreaterEqual(ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})["retargets"], 1)
+
+    def test_trace_times_rounded_to_the_hundredth_add_no_retarget(self):
+        # The trace records ticks to 0.01 ms (8.33 and 8.34 ms apart): a whole-point edge stepping 1 then 2 points is
+        # still within the rounding slack (#38984 review F1).
+        w = 2 * math.pi / 0.11
+        samples = []
+        for k in range(20):
+            p = 1.0 if k == 19 else (1 - (1 + w * k / 120) * math.exp(-w * k / 120) if k else 0.0)
+            top, bottom = math.floor(501 - 179 * p + 0.5), math.floor(999 - 358 * p + 0.5)
+            row = pane("pane_bbbbbb", 208, 695)
+            row[2], row[4], row[8], row[10], row[15], row[17] = top, bottom - top, top, bottom - top, top, bottom - top
+            samples.append({"t": round(k * 1000 / 120, 2), "panes": [row]})
+        stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
+        self.assertEqual(stats["retargets"], 0, stats["retargeted"])
+
+    def test_a_terminal_sized_to_its_final_grid_at_the_start_is_no_retarget(self):
+        # Split Down in a 2 x 2 grid (split-scale s4 empty split_down): the pushed pane's terminal takes its final grid
+        # (470 -> 304 pt) in the motion's first frame, as every neighbour's does (no grid is held), and then rides its
+        # pane down. Its bottom edge jumps up once and moves down with the pane: the grid's size, not a new target.
+        # Its top edge rides the pane, so a top that turns back is still a retarget.
+        tops = [529, 571, 600, 626, 662, 673, 681, 686, 689, 692, 693, 694, 694, 695]
+        heights = [470] + [304] * (len(tops) - 1)
+
+        def stats(tops):
+            return ssm.trace_stats({"refresh_ms": 8.33, "samples": [
+                {"t": k * 8.33, "terminal": [[208, top, 695, height]]} for k, (top, height) in enumerate(zip(tops, heights))]})
+        self.assertEqual(stats(tops)["retargets"], 0, stats(tops)["retargeted"])
+        turned = tops[:6] + [650] + tops[7:]
+        self.assertGreaterEqual(stats(turned)["retargets"], 1)
+
+    def test_speeding_up_after_a_dropped_frame_is_a_retarget(self):
+        # The slowest step spanned a dropped frame (33 ms): it is judged by its speed, not its points (#38998 review F1).
+        self.assertEqual(ssm.retargets([(0, (0,)), (8.33, (100,)), (41.66, (110,)), (50, (118,))]), {50})
+
     def test_a_dropped_frame_is_counted_and_is_no_retarget(self):
         times = [0, 8.33, 16.67, 25, 50, 58.3, 66.7, 75]
         stats = ssm.trace_stats(trace([1000, 1000, 800, 700, 600, 580, 575, 575], times=times))
@@ -49,6 +107,52 @@ class TraceTests(unittest.TestCase):
         widths = [1000] * 20 + [900, 850, 840] + [840] * 30
         stats = ssm.trace_stats(trace(widths))
         self.assertEqual(stats["moved_frames"], 3)
+
+
+class SideWayTests(unittest.TestCase):
+    """The side pane toggle's direction from the panes' summed width (side_toggle in the bench)."""
+
+    def two_panes(self, widths):
+        return {"refresh_ms": 8.33, "samples": [{"t": i * 8.33, "panes": [pane("pane_aaaaaa", 0, w), pane("pane_bbbbbb", w, w)]}
+                                                for i, w in enumerate(widths)]}
+
+    def test_narrowed_panes_opened_the_sidebar(self):
+        stats = ssm.trace_stats(self.two_panes([600, 600, 450, 450]))
+        self.assertEqual(stats["pane_width_change"], -300.0)
+        self.assertEqual(ssm.side_way(stats), "opened")
+
+    def test_widened_panes_closed_it(self):
+        self.assertEqual(ssm.side_way(ssm.trace_stats(self.two_panes([450, 450, 600]))), "closed")
+
+    def test_still_panes_or_no_trace_say_nothing(self):
+        self.assertIsNone(ssm.side_way(ssm.trace_stats(self.two_panes([600, 600, 600]))))
+        self.assertIsNone(ssm.side_way({"pane_width_change": None}))
+        self.assertIsNone(ssm.trace_stats({"samples": []})["pane_width_change"])
+
+    def test_a_parked_page_is_not_a_mover(self):
+        def sample(t, x, width):
+            return {"t": t, "panes": [pane("pane_aaaaaa", 0, 600)], "page": [[600, 900, width, 900, 0, x, x, 600]]}
+        parked = [sample(0, -99840, 1391), sample(8.33, -99840, 1391), sample(250, -99840, 695)]
+        self.assertEqual(ssm.trace_movers(parked).keys() & {"page 0"}, set())
+        shown = [sample(0, 368, 1391), sample(8.33, 368, 1391), sample(250, 368, 695)]
+        self.assertIn("page 0", ssm.trace_movers(shown))
+
+    def test_panes_that_came_back_go_by_their_peak(self):
+        stats = ssm.trace_stats(self.two_panes([450, 520, 600, 520, 450]))
+        self.assertEqual((stats["pane_width_change"], stats["pane_width_peak"]), (0.0, 300.0))
+        self.assertEqual(ssm.side_way(stats), "closed")
+        self.assertTrue(ssm.side_returned(stats))
+        self.assertFalse(ssm.side_returned(ssm.trace_stats(self.two_panes([450, 600]))))
+
+    def test_a_pane_that_came_or_went_is_left_out(self):
+        samples = [{"t": 0, "panes": [pane("pane_aaaaaa", 0, 600)]},
+                   {"t": 8.33, "panes": [pane("pane_aaaaaa", 0, 450), pane("pane_cccccc", 450, 450)]}]
+        self.assertEqual(ssm.pane_width_change(samples), -150.0)
+
+    def test_the_way_survives_transition(self):
+        strip = {"frames": [frame(0), frame(10, ob=0.3)], "sent_host_s": 1.0}
+        row = ssm.transition(strip, dict(self.two_panes([600, 600, 450]), t0_s=1.0))
+        self.assertEqual(ssm.side_way(row), "opened")
 
 
 class StripTests(unittest.TestCase):
@@ -112,6 +216,27 @@ class TransitionTests(unittest.TestCase):
         row = ssm.transition(self.strip(sent, [frame(5)]), t, static=False)
         self.assertIn("nothing moved", row["error"])
 
+    def test_a_tick_stamped_just_before_the_input_but_drawn_after_it_is_the_move(self):
+        # A display-link tick carries its vsync's time (link.timestamp), not the time its callback read the layout:
+        # a callback that runs after the key went in (the main thread was in frame_strip's own turn) shows the
+        # post-key layout under a time up to one refresh before `sent_host_s`. A close is a one-tick jump, so that
+        # tick held the whole move and the round read "nothing moved after the input" (nightly 01fc64af3: 32 close
+        # rounds with browser or chat panes, the movers of the layout after the close only).
+        t, sent = self.aligned([1000, 1000, 600, 600, 600, 600], sent_t=18.0)
+        row = ssm.transition(self.strip(sent, [frame(5, ob=0.2, cb=0.3)] + [frame(10 + i * 8) for i in range(8)]), t,
+                             static=False)
+        self.assertNotIn("error", row)
+        self.assertEqual(row["first_frame_ms"], 0)
+        self.assertEqual(row["pane_width_change"], -400.0)
+
+    def test_a_static_round_the_trace_missed_is_timed_by_its_pixels(self):
+        t, sent = self.aligned([1000, 1000, 1000, 1000, 1000, 1000])
+        frames = [frame(10, ob=0.2, of=0.1, cb=0.3, cf=0.4)] + [frame(40 + i * 8, ob=0.2, cb=0.3) for i in range(8)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertNotIn("error", row)
+        self.assertIsNotNone(row["first_frame_ms"])
+        self.assertEqual(row["settled_ms"], row["pixel_settled_ms"])
+
     def test_a_failed_strip_fails_the_round(self):
         t, sent = self.aligned([1000, 1000, 800, 700, 700])
         row = ssm.transition({"error": "no frames"}, t, static=True)
@@ -136,6 +261,32 @@ class SummaryTests(unittest.TestCase):
         self.assertFalse(ssm.verdict(s, 8.33)["pass"])
         head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
         self.assertIsNone(head["settled_ms"])
+
+    def test_an_unsettled_round_is_the_worst_at_least_the_strip(self):
+        # The 01fc64af3 nightly: s9-browser-w1 divider_drag was still painting when its 900 ms strip ended, and the
+        # headline published settled None, so the goal check had no score at all.
+        s = ssm.summarize([{"settled_ms": None}, {"settled_ms": 780}, {"settled_ms": 415}])
+        self.assertEqual(s["unsettled"], 1)
+        self.assertFalse(ssm.verdict(s, 8.33)["pass"])
+        cells = {"s9-browser-w1": {"divider_drag": s}, "s1-empty-w1": {"split_right": self.summary(1427)}}
+        head = ssm.headline(cells, {}, unsettled_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"], head["settled_at_least"]), ("s1-empty-w1", 1427, False))
+        head = ssm.headline({"s9-browser-w1": {"divider_drag": s}}, {}, unsettled_ms=900)
+        self.assertEqual((head["settled_ms"], head["settled_at_least"]), (900, True))
+        failed = ssm.summarize([{"settled_ms": 50}, {"error": "nothing moved after the input"}])
+        head = ssm.headline({"s9-browser-w1": {"divider_drag": s}, "s1-chat-w1": {"bottom_close": failed}}, {},
+                            unsettled_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"]), ("s1-chat-w1", None))
+
+    def test_a_cell_with_no_settled_time_is_a_failed_cell(self):
+        # The b2dab851a nightly: s1-empty-w1 side_open had no settled time and no round error, so the report said
+        # 0 failed cells beside a None headline and the goal check read unknown.
+        cells = {"s1-empty-w1": {"side_open": {"settled_ms": None}, "split_right": self.summary(100)},
+                 "s9-browser-w1": {"divider_drag": ssm.summarize([{"settled_ms": None}, {"settled_ms": 400}])},
+                 "s2-chat-w1": {"split_right": self.summary(140)}}
+        self.assertEqual(ssm.unmeasured(cells, unsettled_ms=900), ["s1-empty-w1"])
+        self.assertEqual(ssm.unmeasured(cells), ["s1-empty-w1", "s9-browser-w1"])
+        self.assertIsNone(ssm.headline(cells, {}, unsettled_ms=900)["settled_ms"])
 
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])

@@ -30,3 +30,20 @@ extension AgentPaneView {
         otherInstall && requestWaiting
     }
 }
+
+/// A connection that did not prove the person (acpmux `hub/person.rs`) is healed, never narrated:
+/// the transport gets this launch's key to the daemon again and reconnects
+/// (``AgentPaneTransport/recoverPersonProof``). The pane shows no row for it: the person can't act
+/// on it (Leo, 2026-11-22: "this \"not verified as you\" is bullshit ... fix the root problem").
+extension AgentPaneView {
+    /// The host's full lookup for this chat: it hands off a daemon an update replaced and gives
+    /// the daemon this launch's person key. True when it finished.
+    func recoverPersonProof() async -> Bool {
+        do {
+            _ = try await model.host.handshake(sessionId: model.sessionId)
+            return true
+        } catch {
+            return false
+        }
+    }
+}

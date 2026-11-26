@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-import importlib.util
+import json
 import pathlib
+import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("base_red_checks", ROOT / "base_red_checks.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+# Imported by name, never loaded by path: one module object per file (the script module load check).
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import base_red_checks as module  # noqa: E402
 
 
 class BaseRedChecksTests(unittest.TestCase):
@@ -103,6 +105,44 @@ class BaseRedChecksTests(unittest.TestCase):
                 module.api = lambda _base, _token, _path, run=run: ('{"check_runs":[%s]}' % run).encode()
                 with self.assertRaises(RuntimeError):
                     module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token")
+        finally:
+            module.api = original
+
+    def test_skipped_push_run_does_not_shadow_the_base_tier_run(self):
+        original = module.api
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        runs = [
+            {"name": name, "status": "completed", "conclusion": "skipped",
+             "started_at": "2026-11-22T04:30:00Z", "details_url": "https://github.com/o/r/actions/runs/1/job/11"},
+            {"name": name, "status": "completed", "conclusion": "failure",
+             "started_at": "2026-11-22T04:20:00Z", "details_url": "https://github.com/o/r/actions/runs/2/job/22"},
+        ]
+        paths = []
+
+        def fake_api(_base, _token, path):
+            paths.append(path)
+            if "/check-runs" in path:
+                return json.dumps({"check_runs": runs}).encode()
+            if path.endswith("/jobs/22/logs"):
+                return b"2026-11-22T04:25:00.0Z - Crash safety (failure)\n"
+            raise AssertionError(f"read the skipped run's log: {path}")
+
+        try:
+            module.api = fake_api
+            reds = module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token")
+        finally:
+            module.api = original
+        self.assertEqual(reds, {"Crash safety"})
+        self.assertTrue(paths[-1].endswith("/jobs/22/logs"))
+
+    def test_only_skipped_runs_means_no_checks_job(self):
+        original = module.api
+        run = {"name": "cmux-next checks (god files, concurrency, crash safety, l10n)",
+               "status": "completed", "conclusion": "skipped"}
+        try:
+            module.api = lambda _base, _token, _path: json.dumps({"check_runs": [run]}).encode()
+            with self.assertRaises(RuntimeError):
+                module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token")
         finally:
             module.api = original
 

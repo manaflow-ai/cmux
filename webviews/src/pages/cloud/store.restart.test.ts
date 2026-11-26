@@ -3,6 +3,10 @@ import { pageError } from "../shared/pageClient";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudOps } from "./ops";
 import { CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS, CloudStore } from "./store";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says (the owner's text stays in the error). */
+const GENERIC = userMessage(undefined);
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". On a launch the daemon (or its Cloud
 // relay) is not up when the page first reads auth: the store reads again on its own, so the page
@@ -31,7 +35,8 @@ class TerminalAfterTransportProvider extends StartingProvider {
   override async call<R>(op: string, params: unknown): Promise<R> {
     if (op === CloudOps.authStatus && this.authReads > 0 && !this.terminal) {
       this.terminal = true;
-      throw pageError("cmux.cloud.upstream_error", "the Cloud service did not answer", true);
+      // Final: a retryable one is read again quietly first (CloudPage.blip.test.tsx).
+      throw pageError("cmux.cloud.upstream_error", "the Cloud service did not answer", false);
     }
     return super.call<R>(op, params);
   }
@@ -73,7 +78,7 @@ test("a signed-out page that recovers keeps no error and stops loading", async (
   const store = new CloudStore(provider);
   const unsubscribe = store.subscribe(() => undefined);
   await settle();
-  expect(store.getSnapshot().error).toBe("the local cmux daemon is restarting");
+  expect(store.getSnapshot().error).toBe(GENERIC);
   jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
   await settle();
   expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
@@ -92,7 +97,7 @@ test("a terminal retry error keeps an explicit failed state", async () => {
   jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
   await settle();
   expect(store.getSnapshot()).toMatchObject({ connection: "failed", loading: false });
-  expect(store.getSnapshot().error).toBe("the Cloud service did not answer");
+  expect(store.getSnapshot().error).toBe(GENERIC);
   unsubscribe();
 });
 

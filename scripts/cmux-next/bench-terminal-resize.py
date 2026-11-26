@@ -76,6 +76,9 @@ import bench_launch  # noqa: E402
 import terminal_resize_arms as arms  # noqa: E402
 import terminal_resize_verdict  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_until, wait_stable, StateWaitTimeout  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", default=os.environ.get("NX_APP"))
@@ -165,6 +168,43 @@ def write(text):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
     subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "write", "--text", text],
                    capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL)
+
+
+def screen_text():
+    """The current terminal's screen, with the line breaks it wraps at."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    r = subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "screen", "read"],
+                       capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL)
+    try:
+        answer = json.loads(r.stdout)
+    except ValueError:
+        return ""
+    return (answer.get("text") or "") if isinstance(answer, dict) else ""
+
+
+def grids_landed(what, timeout=10):
+    """Until every shown terminal's fit, drawn and owner grids agree, the same over 4 reads (the grids landed)."""
+    def read():
+        rows = surfaces()
+        if not rows or unsettled(rows):
+            raise ValueError("a grid still moving")
+        return [(r["id"], r["fit"], r["drawn"], r["grid"]) for r in rows]
+    try:
+        wait_stable(read, what, timeout=timeout, interval=0.1, reads=4)
+    except StateWaitTimeout:
+        print(f"warning: {what} never landed in {timeout:g} s", flush=True)
+
+
+def history_printed(what, timeout=30):
+    """The current terminal shows the end of history()'s output, then every shown terminal stops drawing."""
+    if not wait_until(lambda: "899.900" in screen_text().replace("\n", ""), what, timeout=timeout, interval=0.25,
+                      raise_on_timeout=False):
+        print(f"warning: {what}: the history's last line never showed in {timeout:g} s", flush=True)
+    frames = lambda: [(r["id"], r["counters"].get("frames")) for r in surfaces()]
+    try:
+        wait_stable(frames, what, timeout=timeout, interval=0.2, reads=4)
+    except StateWaitTimeout:
+        print(f"warning: {what}: the terminals kept drawing for {timeout:g} s", flush=True)
 
 
 def counter_delta(before, after):
@@ -266,7 +306,7 @@ def set_arm(arm):
     row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}) or {}
     if row.get("value") is not arm:
         return f"debug.tunables set {opts.ab}={arm} answered {json.dumps(row)[:200]}"
-    time.sleep(0.5)  # bench script: the arm starts at rest; the switch is read at the next layout
+    grids_landed("the terminals at rest before the arm's round")
     return None
 
 
@@ -296,13 +336,13 @@ def probe(name, x0, y0, refresh_s, middle):
     steps = max(1, round(opts.probe_pt / opts.step_pt))
     before = surfaces()
     drag(x0, y0, refresh_s, [-opts.probe_pt / steps] * steps)
-    time.sleep(1.0)  # bench script: the release's grids land
+    grids_landed("the probe release's grids")
     after = surfaces()
     dividers = vertical_dividers()
     moved_to = column_divider(dividers, middle)[0] if dividers else None
     if moved_to is not None:
         drag(moved_to, y0, refresh_s, [(x0 - moved_to) / steps] * steps)
-        time.sleep(1.0)  # bench script: the release's grids land
+        grids_landed("the probe's drag back")
     moved = None if moved_to is None else round(moved_to - x0, 1)
     resized = terminal_resize_verdict.resized(before, after)
     # The fact the counters must match: a terminal beside the divider fits a new grid after the drag.
@@ -324,7 +364,7 @@ def probe(name, x0, y0, refresh_s, middle):
 
 def refresh_period():
     rpc("debug.frames", {"action": "start"})
-    time.sleep(1.0)  # bench script: idle frames give the refresh period
+    time.sleep(1.0)  # sleep-ok: the idle frame recording window that gives the refresh period
     idle = rpc("debug.frames", {"action": "stop"}) or {}
     return idle.get("refresh_ms") or 16.67
 
@@ -354,7 +394,7 @@ def measure(name):
             drag(x0, y0, refresh_ms / 1000)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
-            time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
+            grids_landed("the drag's last grid at the owner")
             after = surfaces()
             numbers, raw = frame_numbers(frames)
             # Resized in the drag: a full rebuild for a new grid, a resize or a reflow preview's swap (the drag ends
@@ -424,7 +464,7 @@ def measure_keys(name):
             if entry.get("error"):
                 rounds.append(entry)
                 continue
-            time.sleep(1.0)  # bench script: the last press's frames and grids land
+            grids_landed("the last press's grids")
             after = surfaces()
             numbers, raw = frame_numbers(frames)
             entry.update(pane_check(display))
@@ -451,6 +491,7 @@ def history():
 def keys():
     """4 terminals in a 2x2 grid, each with history, the bottom-left one focused: its Ctrl-Shift-L and Ctrl-Shift-H
     move the divider between the two columns, so all 4 resize."""
+    # newTab is New Workspace (Cmd-N, WorkspaceActionCatalog): each phase starts in its own one-terminal workspace.
     rpc("action.run", {"action": "newTab", "focus": True})
     wait(lambda: surfaces(), 30)
     history()
@@ -458,13 +499,20 @@ def keys():
         rpc("action.run", {"action": action, "focus": True})
         wait(lambda: len(surfaces()) >= shown, 30)
         history()
+    def focused_pane():
+        snap = rpc("snapshot.get") or {}
+        return ((snap.get("topology") or snap).get("focus") or {}).get("pane") if isinstance(snap, dict) else None
+    right = focused_pane()
     rpc("action.run", {"action": "focusLeft", "focus": True})
-    time.sleep(0.5)  # bench script: the focus moves before the split
+    # The focus moves before the split.
+    if not wait_until(lambda: (lambda p: p and p != right)(focused_pane()), "the focus to move left", timeout=10,
+                      raise_on_timeout=False):
+        print("warning: the focus never moved left in 10 s", flush=True)
     rpc("action.run", {"action": "splitDown", "focus": True})
     if not wait(lambda: len(surfaces()) >= 4, 30):
         return {"layout": "keys", "error": f"the 2x2 grid did not form ({len(surfaces())} terminals shown)"}
     history()
-    time.sleep(2.0)  # bench script: the history prints before the presses
+    history_printed("the keys layout's history")
     return measure_keys("keys")
 
 
@@ -473,8 +521,8 @@ def keys_stress():
     session, summary = stress_session()
     panes = Stress.panes(session.workspace(session.measured)) if getattr(session, "measured", None) else []
     if panes:
-        session.focus_pane(panes[0]["id"])
-        time.sleep(1.0)  # bench script: the focus lands before the presses
+        session.focus_pane(panes[0]["id"])  # returns once the window's focused pane is it
+        grids_landed("the keys-stress grids after the focus")
     result = measure_keys("keys-stress")
     result["session"] = session_fields(summary)
     return result
@@ -488,7 +536,7 @@ def light():
     rpc("action.run", {"action": "splitRight", "focus": True})
     wait(lambda: len(surfaces()) >= 2 and vertical_dividers(), 30)
     history()
-    time.sleep(2.0)  # bench script: the history prints before the drag
+    history_printed("the light layout's history")
     return measure("light")
 
 
@@ -497,13 +545,17 @@ def idle_cursor():
     --idle-s seconds. Each blink tick used to update and draw a frame (about 1.7/s); none changes a pixel."""
     rpc("action.run", {"action": "newTab", "focus": True})
     wait(lambda: surfaces(), 30)
-    write("clear; printf '\\033[?25l'; sleep 600\r")
-    time.sleep(1.5)  # bench script: the command runs and the screen settles
     def focused_frames():
         rows = surfaces()
         # The phase's own new workspace shows one terminal: the one it wrote to.
         row = rows[0] if len(rows) == 1 else None
         return (int(row["counters"].get("frames", 0)) if row else None), len(rows)
+    drawn_before, _ = focused_frames()
+    write("clear; printf '\\033[?25l'; sleep 600\r")
+    # The command runs: its clear draws a frame (the settle below then waits for the screen to rest).
+    if not wait_until(lambda: (lambda f: f is not None and f != drawn_before)(focused_frames()[0]),
+                      "the idle command's first frame", timeout=10, raise_on_timeout=False):
+        print("warning: the idle command drew no frame in 10 s", flush=True)
     # At rest first: the counter unchanged for 3 s in a row (at most 20 s), so the frames of the command's
     # own output (clear, the cursor hide) are not counted as idle frames.
     settle_start, (last, _) = time.monotonic(), focused_frames()
@@ -515,7 +567,7 @@ def idle_cursor():
             last, stable_since = now, time.monotonic()
     settled_s = round(time.monotonic() - settle_start, 1)
     before, shown = focused_frames()
-    time.sleep(opts.idle_s)  # bench script: the measured idle window
+    time.sleep(opts.idle_s)  # sleep-ok: the measured idle window (--idle-s)
     after, shown_after = focused_frames()
     result = {"layout": "idle-cursor", "idle_s": opts.idle_s, "terminals_shown": [shown, shown_after],
               "settled_s": settled_s, "frames_before": before, "frames_after": after,
@@ -542,10 +594,15 @@ def stress_session():
         session = Stress(rpc)
         STRESS["summary"] = session.build()
         STRESS["session"] = session
-        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+        # The busy terminals start drawing (a frame counter moves), then the grids rest.
+        first = {r["id"]: r["counters"].get("frames") for r in surfaces()}
+        if not wait_until(lambda: any(first.get(r["id"]) not in (None, r["counters"].get("frames")) for r in surfaces()),
+                          "the STRESS busy terminals to draw", timeout=20, interval=0.25, raise_on_timeout=False):
+            print("warning: no STRESS terminal drew in 20 s", flush=True)
+        grids_landed("the STRESS session's grids")
     else:
-        STRESS["session"].show(STRESS["session"].measured)
-        time.sleep(1.0)  # bench script: the measured workspace shows again after another layout's
+        STRESS["session"].show(STRESS["session"].measured)  # returns once a window shows it
+        grids_landed("the measured workspace's grids after another layout's")
     return STRESS["session"], STRESS["summary"]
 
 
@@ -573,7 +630,8 @@ def final_grid_round(action):
     rpc("debug.frames", {"action": "start"})
     started = rpc("debug.terminal_final_grid", {"action": "start"}) or {}
     ran = rpc("action.run", {"action": action, "focus": True})
-    time.sleep(1.5)  # bench script: the spring lands and the last echo comes
+    # The spring lands: every terminal's grids agree and stop changing (the last echo drawn at its grid).
+    grids_landed(f"the grids after {action}")
     report = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
     problems = [p for p in (
         None if started.get("started") else f"trace start replied {str(started)[:200]}",
@@ -613,12 +671,16 @@ def split_resize(in_stress=False):
         rpc("action.run", {"action": "newTab", "focus": True})
         wait(lambda: surfaces(), 30)
     write("clear; seq 1 5000 | less\r")
-    time.sleep(1.5)  # bench script: less draws its first page
+    def less_page():
+        lines = [line.strip() for line in screen_text().splitlines() if line.strip()]
+        return lines[:3] == ["1", "2", "3"]
+    if not wait_until(less_page, "less's first page", timeout=15, interval=0.2, raise_on_timeout=False):
+        print("warning: less's first page never showed in 15 s", flush=True)
     rounds = []
     for _ in range(opts.rounds):
         for action in ("splitRight", "closeTab", "splitDown", "closeTab"):
             rounds.append(final_grid_round(action))
-            time.sleep(0.5)  # bench script: the next press starts at rest
+            grids_landed("the terminals at rest before the next press")
     def stats(field):
         values = sorted(t[field] for r in rounds for t in r["terminals"] if t[field] is not None)
         if not values:
@@ -685,7 +747,7 @@ try:
             result["problems"] = found
             unmeasured.extend(found)
         report["layouts"].append(result)
-        print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
+        safe_print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
     if app.poll() is None:
         reset_arm()  # a layout that stopped early (an exception) did not reset it

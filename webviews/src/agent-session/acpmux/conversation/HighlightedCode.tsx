@@ -15,6 +15,7 @@ import { OpenPreview } from "./OpenPreview";
 import type { CodeBlockProps } from "./CodeBlock";
 import { currentChatMetrics } from "../chatDisplay";
 import { DiffsHost, usePierreCode } from "./usePierreCode";
+import { useSidewaysEdge } from "./blockPartsModel";
 
 /**
  * Fenced code card: language label with wrap and copy over a Pierre `File`, highlighted in the
@@ -41,6 +42,8 @@ export function HighlightedCode({
     look === "corner" ? cornerUnsafeCSS : codeUnsafeCSS,
     wrap,
   );
+  // A line past the right edge fades there while more of it lies past (highlightedCodeModel.ts).
+  useSidewaysEdge(host);
   if (!workerAvailable)
     return (
       <PlainCode
@@ -53,7 +56,7 @@ export function HighlightedCode({
       />
     );
   return (
-    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
+    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code, codeLanguage: lang })}>
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button

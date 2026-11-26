@@ -1,11 +1,12 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
 import Testing
 
 /// The update from classic cmux (hq#1870 parity audit, cx-iy8b7): next adopts
-/// the classic `cmux.json` on first launch, and its launch migration moves
+/// the classic `cmux.json` after explicit import consent, and its migration moves
 /// every classic setting next reads under another key, so the person's
 /// settings come over. A next key already set wins; a classic value next
 /// can't express stays where it was.
@@ -76,11 +77,15 @@ import Testing
         try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
         try Data(Self.classic.utf8).write(to: config.appending(path: "cmux.json"))
 
-        // First launch of next: it adopts the classic file, then runs its launch migration.
+        // NEXT starts empty. The confirmed import merges Classic, then migration runs on NEXT.
         let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
+        let suite = "cn-classic-config-\(UUID().uuidString)"
+        let marker = try #require(UserDefaults(testSuiteName: suite))
+        defer { marker.removePersistentDomain(forName: suite) }
+        try await settings.importClassicConfig(marker: marker, classicURL: config.appending(path: "cmux.json"))
         await settings.reload()
         try await settings.migrateClassicSettings()
 
@@ -112,9 +117,13 @@ import Testing
         """.utf8).write(to: config.appending(path: "cmux.json"))
 
         let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
+        let suite = "cn-classic-config-\(UUID().uuidString)"
+        let marker = try #require(UserDefaults(testSuiteName: suite))
+        defer { marker.removePersistentDomain(forName: suite) }
+        try await settings.importClassicConfig(marker: marker, classicURL: config.appending(path: "cmux.json"))
         await settings.reload()
         try await settings.migrateClassicSettings()
 
@@ -147,9 +156,13 @@ import Testing
         try original.write(to: dotfiles.appending(path: "cmux.json"))
         try FileManager.default.createSymbolicLink(at: config.appending(path: "cmux.json"), withDestinationURL: dotfiles.appending(path: "cmux.json"))
         let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
+        let suite = "cn-classic-config-\(UUID().uuidString)"
+        let marker = try #require(UserDefaults(testSuiteName: suite))
+        defer { marker.removePersistentDomain(forName: suite) }
+        try await settings.importClassicConfig(marker: marker, classicURL: config.appending(path: "cmux.json"))
         await settings.reload()
         try await settings.migrateClassicSettings()
         // Next has the settings, in its own regular file.
@@ -160,5 +173,77 @@ import Testing
         #expect(try Data(contentsOf: dotfiles.appending(path: "cmux.json")) == original)
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: config.appending(path: "cmux.json").path)
             == dotfiles.appending(path: "cmux.json").path)
+    }
+
+    @Test func importUsesBuildClassicDirectoryAndPreservesNextValues() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-settings-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let classicRoot = home.appending(path: "classic-import")
+        let classic = classicRoot.appending(path: ".config/cmux/cmux.json")
+        try FileManager.default.createDirectory(at: classic.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"profile":"classic","nested":{"classic":true}}"#.utf8).write(to: classic)
+        let next = home.appending(path: "next/config/cmux-next.json")
+        try FileManager.default.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"profile":"next","nested":{"next":true}}"#.utf8).write(to: next)
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: next,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+                                          managedWatchFiles: [])
+        let suite = "cn-classic-config-\(UUID().uuidString)"
+        let marker = try #require(UserDefaults(testSuiteName: suite))
+        defer { marker.removePersistentDomain(forName: suite) }
+        let environment = [BuildStatePaths.classicImportDirectoryKey: classicRoot.path]
+
+        #expect(CmuxConfigFile.classicURL(home: home, environment: environment) == classic)
+        try await settings.importClassicConfig(marker: marker, environment: environment)
+        #expect(try await settings.file.value(at: ["profile"]) == .string("next"))
+        #expect(try await settings.file.value(at: ["nested", "next"]) == .bool(true))
+        #expect(try await settings.file.value(at: ["nested", "classic"]) == .bool(true))
+    }
+
+    @Test func importsTheHarnessSnapshotWithOrWithoutClassicSettings() async throws {
+        for hasClassicFile in [false, true] {
+            let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: home) }
+            let next = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+            let dir = next.deletingLastPathComponent()
+            let classic = dir.appending(path: "cmux.json")
+            if hasClassicFile {
+                try Data(#"{"agents":{"harnesses":{"fromXDG":{"icon":"classic.svg"}}}}"#.utf8).write(to: classic)
+            }
+            let snapshot = dir.appending(path: "classic-harnesses/profiles.json")
+            try FileManager.default.createDirectory(at: snapshot.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(#"{"fromXDG":{"icon":"owned.svg"},"mine":{"command":"old"}}"#.utf8).write(to: snapshot)
+            try Data(#"{"agents":{"harnesses":{"mine":{"command":"next"}}}}"#.utf8).write(to: next)
+            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []),
+                                              design: DesignSettings(), fileURL: next,
+                                              managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            let suite = "cn-classic-profiles-\(UUID().uuidString)"
+            let marker = try #require(UserDefaults(testSuiteName: suite))
+            defer { marker.removePersistentDomain(forName: suite) }
+            try await settings.importClassicConfig(marker: marker, classicURL: classic)
+            #expect(try await settings.file.value(at: ["agents", "harnesses", "fromXDG", "icon"]) == .string("owned.svg"))
+            #expect(try await settings.file.value(at: ["agents", "harnesses", "mine", "command"]) == .string("next"))
+        }
+    }
+
+    @Test func importMarkerMakesTheConfirmedReadIdempotent() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-settings-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appending(path: ".config/cmux")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        let classic = config.appending(path: "cmux.json")
+        try Data(#"{"first":true}"#.utf8).write(to: classic)
+        let next = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: next,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+                                          managedWatchFiles: [])
+        let suite = "cn-classic-config-\(UUID().uuidString)"
+        let marker = try #require(UserDefaults(testSuiteName: suite))
+        defer { marker.removePersistentDomain(forName: suite) }
+        try await settings.importClassicConfig(marker: marker, classicURL: classic)
+        try Data(#"{"first":false,"second":true}"#.utf8).write(to: classic)
+        try await settings.importClassicConfig(marker: marker, classicURL: classic)
+        #expect(try await settings.file.value(at: ["first"]) == .bool(true))
+        #expect(try await settings.file.value(at: ["second"]) == nil)
     }
 }

@@ -3,12 +3,17 @@
 // no timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import { isPageError, pageError, type PageClient } from "../shared/pageClient";
+import { subscribePageStreams } from "../shared/pageStreams";
+import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
+import { SPEND_LIMIT_SET, spendLimitRefusal } from "./pool";
 import { connectionFailure } from "./connectionFailure";
+import { clearCachedMachines, readCachedMachines, writeCachedMachines, type CacheStorage } from "./machineCache";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
 import { TransferWatch, type FileTransfer } from "./transfers";
+import { archives, capOffer, noticeKey, readDismissed, writeDismissed, type CapOffer } from "./retention";
 import {
   applyEvent,
   defaultMemory,
@@ -42,7 +47,10 @@ import {
   type MachineResult,
   type MigrationStatus,
   type PlanRefusal,
+  type RetentionOverrides,
   type SnapshotListResult,
+  type CloudSurge,
+  type CloudUsage,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
@@ -50,6 +58,19 @@ export type Connection = "connecting" | "connected" | "disconnected" | "failed";
 /** The first and the longest wait before the store reads auth again after the link refused it. */
 export const CLOUD_RESTART_MIN_MS = 1_000;
 export const CLOUD_RESTART_MAX_MS = 10_000;
+/**
+ * Quiet re-reads of a retryable Cloud service failure (a backend blip, `owner.unreachable`, a busy
+ * relay) on the page's own reads, 1 s apart and doubling: the page says nothing unless the read
+ * still fails after them (about 7 s in all).
+ */
+export const CLOUD_BLIP_RETRIES = 3;
+
+/** The machine watch and the first list, as `readList` read them. */
+interface ListRead {
+  unwatch: () => void;
+  /** The listed machines with the events that came meanwhile; later events go live. */
+  take: () => { machines: CloudMachine[]; revision: number; surge?: CloudSurge };
+}
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -76,6 +97,22 @@ export interface CreateDraft {
   blocked?: "no_snapshot_configured";
   /** Opened from a storefront tier: the new machine opens in a workspace once it runs. */
   openWhenRunning?: boolean;
+  /**
+   * The create was refused at a machines cap: the machine the sheet offers to free first ("Delete
+   * NAME and create", or "Archive and delete NAME, then create"), or at the running-machines limit
+   * with none of the person's machines idle ("Pause NAME and create").
+   */
+  offer?: CapOffer;
+  /** The offered machine is being archived: the create runs once the mirror shows it gone. */
+  waitingFor?: string;
+}
+
+/** Cloud settings' cleanup row: a save in flight, or why the last one was refused. */
+export interface RetentionEdit {
+  saving: boolean;
+  /** The team's numbers are a team admin's (`auth.forbidden`). */
+  forbidden?: boolean;
+  error?: string;
 }
 
 export interface CloudState {
@@ -92,7 +129,15 @@ export interface CloudState {
   planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
-  /** "Later" hid the classic migration banner for this page session. */
+  /** The account's latest payment failed (`cmux.cloud.billing.status`): the plan shows a notice. */
+  paymentPastDue?: boolean;
+  /** This month's usage and its price (`cloud.usage.current`); absent until read or when not served. */
+  usage?: CloudUsage;
+  /** The last usage read failed (not "not served"): the panel says so and offers Retry. */
+  usageFailed?: boolean;
+  /** The checkout answered that payments are not open yet (`cloud.billing.off`): no Add payment method button. */
+  paymentOff?: boolean;
+  /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
   refusal?: PlanRefusal;
@@ -113,6 +158,16 @@ export interface CloudState {
   unavailable: string[];
   /** This session's file transfers, running and ended (`cloud.file.transfer.changed`). */
   transfers: FileTransfer[];
+  /** The team's archive snapshots (`archive_of`), newest first: restorable machines the platform deleted. */
+  archives: CloudSnapshot[];
+  /** The latest surge as the last list read it (the surge card); absent when none. */
+  surge?: CloudSurge;
+  /** Retention notices dismissed in this browser (`machine:notice.at`); each shows once. */
+  dismissed: ReadonlySet<string>;
+  /** The cleanup settings' last save. */
+  retention?: RetentionEdit;
+  /** The spend limit's last save (pool.ts; the host confirms it). */
+  spendLimit?: RetentionEdit;
 }
 
 /** `machines` lists the team's machines; `get` is the storefront. */
@@ -125,12 +180,17 @@ export function parseView(hash: string): CloudView {
 
 export interface CloudStoreOptions {
   newKey?: () => string;
+  /**
+   * Where the last machine list is kept (machineCache.ts): the page passes its own storage, so a
+   * page that opens draws that list in its first frame. Absent (tests, the gallery): nothing is kept.
+   */
+  cache?: CacheStorage;
   layout?: MachineLayout;
   view?: CloudView;
 }
 
 /** The host's answer to a native machine action: the op's answer fields, or a declined sheet. */
-type MachineActionResult = ActionRunResult & Partial<MachineResult>;
+type MachineActionResult = ActionRunResult & Partial<MachineResult> & { made_room?: { machine?: CloudMachine } };
 
 export class CloudStore {
   private state: CloudState;
@@ -139,6 +199,10 @@ export class CloudStore {
   private unwatch?: () => void;
   /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
   private unwatchAuth?: () => void;
+  /** The host's `cmux.page.connection` stream: lives from the first listener to the last. */
+  private unwatchLink?: () => void;
+  /** Bumped when the last listener leaves: a link subscribe that answers after that closes itself. */
+  private linkLifetime = 0;
   /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
   private lifetime = 0;
   /** The lifetime whose account subscribe is in flight, if any. */
@@ -156,6 +220,24 @@ export class CloudStore {
   private restart: ReturnType<typeof setTimeout> | undefined;
   /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
   private restartAttempts = 0;
+  /** The quiet re-read after a retryable Cloud service failure (`readAgainQuietly`); cleared by stop. */
+  private blip: ReturnType<typeof setTimeout> | undefined;
+  /** Quiet re-reads in a row; a read that answers resets it. */
+  private blips = 0;
+  /**
+   * The cached list's account, while the page shows that list and the owner has not answered yet:
+   * the first auth read (and the account stream's first event) drop it when they name another.
+   */
+  private seeded?: { team: string | null; user?: string | null };
+  /** The kept list's user, until the account stream's first event is checked against it. */
+  private cachedUser?: string | null;
+  /**
+   * The user the kept list belongs to: the kept list's own, then each account event's. Unlike
+   * `lastAccount` it outlives a stop (a reconnect), so a list kept after one still names its user.
+   */
+  private keptUser?: string | null;
+  /** The machines on screen are the owner's answer, not the kept list of the first frame. */
+  private ownerListed = false;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -178,7 +260,23 @@ export class CloudStore {
       view: options.view ?? "machines",
       unavailable: [],
       transfers: [],
+      archives: [],
+      dismissed: readDismissed(),
     };
+    // The last list this page showed, in its first frame: the owner's answer replaces it in place.
+    const cached = client ? readCachedMachines(options.cache) : undefined;
+    if (cached) {
+      this.seeded = { team: cached.team, user: cached.user };
+      this.cachedUser = cached.user;
+      this.keptUser = cached.user;
+      this.state = {
+        ...this.state,
+        auth: { signedIn: true, team: cached.team },
+        machines: cached.machines,
+        revision: cached.revision,
+        rows: visibleRows(cached.machines, []),
+      };
+    }
     const host = {
       get: () => this.state.detail,
       set: (detail: MachineDetail | undefined) => this.set({ detail }),
@@ -213,10 +311,18 @@ export class CloudStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) void this.start();
+    if (this.listeners.size === 1) {
+      void this.followLink();
+      void this.start();
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stop();
+      if (this.listeners.size === 0) {
+        this.linkLifetime += 1;
+        this.unwatchLink?.();
+        this.unwatchLink = undefined;
+        this.stop();
+      }
     };
   };
 
@@ -225,32 +331,66 @@ export class CloudStore {
     if (!this.client || this.started) return;
     this.started = true;
     const session = ++this.session;
+    // The account was signed in a moment ago (a kept list, or a page that reconnects): the watch and
+    // the list go out with the account read instead of after it, so the owner's list is on screen one
+    // round trip sooner. An answer that is not signed in drops them.
+    const early = this.seeded || this.state.auth?.signedIn ? this.readList(session) : undefined;
+    early?.catch(() => undefined);
     let auth: AuthStatus;
     try {
       auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
     } catch (error) {
+      this.dropEarly(early);
       if (session !== this.session) return;
       this.started = false;
+      if (
+        this.readAgainQuietly(error, () => {
+          if (this.listeners.size > 0) void this.start();
+        })
+      )
+        return;
       const failed = failure(error);
       const connection = connectionFailure(error);
+      // The account could not be read at all: a kept list it never confirmed leaves the screen (a link
+      // that is only down keeps it; the account is read again when the link is back).
+      if (connection === "failed" && this.seeded) this.dropSeeded();
       this.set({ ...failed, loading: false, connection });
       if (connection === "disconnected") this.startLater();
       return;
     }
-    if (session !== this.session) return;
+    if (session !== this.session) return this.dropEarly(early);
     // The link answers: follow the app's account from here on (each start after a stop subscribes again).
     void this.watchAuth();
     // Back after `startLater`: the refused read's error goes, and the page loads as on a first
     // start (Retry does the same before it starts).
     const recovered = this.restartAttempts > 0;
     this.restartAttempts = 0;
+    this.blips = 0;
+    // A kept list of another account or team (or a sign-out elsewhere) goes before anything shows it.
+    if (this.seeded && (!auth.signedIn || (auth.team ?? null) !== this.seeded.team)) this.dropSeeded();
+    this.seeded = undefined;
     this.set({
       auth,
       connection: "connected",
       ...(recovered ? { loading: true, error: undefined, errorCode: undefined } : {}),
     });
-    if (auth.signedIn) await this.loadSignedIn(session);
-    else this.set({ loading: false });
+    if (auth.signedIn) await this.loadSignedIn(session, early);
+    else {
+      this.dropEarly(early);
+      this.set({ loading: false });
+    }
+  }
+
+  /** Closes the watch of a read `start` began early that the account's answer did not use. */
+  private dropEarly(early: Promise<ListRead | undefined> | undefined): void {
+    void early?.then(
+      (read) => {
+        if (!read) return;
+        if (this.unwatch === read.unwatch) this.unwatch = undefined;
+        read.unwatch();
+      },
+      () => undefined,
+    );
   }
 
   stop(): void {
@@ -263,7 +403,32 @@ export class CloudStore {
     clearTimeout(this.restart);
     this.restart = undefined;
     this.restartAttempts = 0;
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     this.endSession();
+  }
+
+  /**
+   * A read of the page's own (the account, the machine watch and list) that the Cloud service
+   * refused as retryable is read again after 1 s, then 2 s and 4 s, keeping what the page shows
+   * and logging each; true when it will. Only reads: they change nothing, so asking again is safe
+   * (an owner operation is never replayed on its retryable). A link failure has its own backoff.
+   */
+  private readAgainQuietly(error: unknown, read: () => void): boolean {
+    // The Cloud service's own refusals (`cmux.cloud.*`): a bridge or page code is never a service blip.
+    if (!isPageError(error) || !error.retryable || !error.code.startsWith("cmux.cloud.")) return false;
+    if (this.blips >= CLOUD_BLIP_RETRIES) return false;
+    const delay = CLOUD_RESTART_MIN_MS * 2 ** this.blips++;
+    console.warn(
+      `cloud page: ${error.code} on a read; reading again in ${delay} ms (${this.blips}/${CLOUD_BLIP_RETRIES})`,
+    );
+    clearTimeout(this.blip);
+    this.blip = setTimeout(() => {
+      this.blip = undefined;
+      read();
+    }, delay);
+    return true;
   }
 
   /**
@@ -334,6 +499,7 @@ export class CloudStore {
     }
     this.restartSession();
     void this.detail.load(undefined);
+    clearCachedMachines(this.options.cache);
     this.set({ ...signedOutState(), auth: { signedIn: false } });
   }
 
@@ -370,6 +536,26 @@ export class CloudStore {
   dismissError(): void {
     if (this.state.error || this.state.refusal || this.state.blocked)
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
+  }
+
+  /** The page is shown again (the app became active, the tab came back): read the billing state again. */
+  refreshBilling(): Promise<void> {
+    return Promise.all([this.account.readBilling(this.session), this.account.readUsage(this.session)]).then(() => {});
+  }
+
+  /** Retry beside a failed usage read. */
+  retryUsage(): Promise<void> {
+    return this.account.readUsage(this.session);
+  }
+
+  /** "Add payment method": the host confirms, then opens the checkout in the browser. */
+  addPaymentMethod(): Promise<void> {
+    return this.account.checkout();
+  }
+
+  /** Manage Billing beside the payment notice. */
+  manageBilling(): Promise<void> {
+    return this.account.manageBilling();
   }
 
   /** Storefront Retry after a failed plan read. */
@@ -429,7 +615,9 @@ export class CloudStore {
   updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot">>): void {
     const draft = this.state.create;
     if (draft && !draft.submitting)
-      this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined } });
+      this.set({
+        create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined, offer: undefined },
+      });
   }
 
   /**
@@ -438,8 +626,18 @@ export class CloudStore {
    */
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
-    if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
-    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined, blocked: undefined } });
+    // Waiting on the make-room archive (Return in a field included): createIfRoom submits once it is gone.
+    if (!draft || draft.submitting || draft.waitingFor || !draft.memoryMb || !this.canChange()) return;
+    this.set({
+      create: {
+        ...draft,
+        submitting: true,
+        error: undefined,
+        refusal: undefined,
+        blocked: undefined,
+        offer: undefined,
+      },
+    });
     const snapshot = draft.from_snapshot ? draft.snapshots?.find((s) => s.id === draft.from_snapshot) : undefined;
     const name = draft.name.trim() || (snapshot?.name ?? "");
     this.pushIntent({ key: draft.key, kind: "create", name });
@@ -465,6 +663,7 @@ export class CloudStore {
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
+      if (session === this.session) this.madeRoom(result?.made_room?.machine);
       // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
       if (
         draft.openWhenRunning &&
@@ -482,13 +681,197 @@ export class CloudStore {
       this.dropIntent(draft.key);
       const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
       const blocked = noImage(error);
+      const offer = capOffer(error, this.state.machines);
       const outcome = refusal
         ? { refusal }
         : blocked
           ? { blocked: "no_snapshot_configured" as const }
           : { error: message(error), errorCode: codeOf(error) };
-      if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false, ...outcome } });
-      if (session === this.session && !refusal && !blocked) this.set(failure(error, false));
+      if (this.state.create?.key === draft.key)
+        this.set({
+          // A refusal is the key's answer: the server replays it for the same key, so the create
+          // after making room (by the offer, or by hand on the page behind the sheet) needs a new one.
+          create: {
+            ...draft,
+            submitting: false,
+            waitingFor: undefined,
+            ...outcome,
+            ...(offer ? { offer } : {}),
+            ...(offer || refusal ? { key: this.key() } : {}),
+          },
+        });
+      if (session === this.session && !refusal && !blocked && !offer) this.set(failure(error, false));
+    }
+  }
+
+  /**
+   * The sheet's cap offer: free the offered machine, then create. A delete (a disposable or already
+   * archived machine) creates as soon as the host answers it. An archive and delete keeps the
+   * machine until its archive is ready, so the create waits for the machine's `removed` event on
+   * the watch stream (no timer); the sheet says so meanwhile.
+   */
+  async makeRoom(): Promise<void> {
+    const draft = this.state.create;
+    const offer = draft?.offer;
+    if (!draft || !offer || draft.submitting || draft.waitingFor || !this.canChange()) return;
+    const action =
+      offer.kind === "pause"
+        ? CloudOps.machinePause
+        : offer.kind === "delete"
+          ? CloudOps.machineDelete
+          : CloudOps.machineArchiveDelete;
+    const key = this.key();
+    this.pushIntent({ key, kind: offer.kind, machine: offer.machine });
+    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined, errorCode: undefined } });
+    const back = (patch: Partial<CreateDraft>) => {
+      const now = this.state.create;
+      if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
+    };
+    try {
+      const args = { machine: offer.machine, idempotency_key: key };
+      // A pause is a plain op (nothing is lost); a delete or an archive is confirmed natively. The
+      // platform frees the slot when it takes the pause, so the create follows its answer.
+      const result =
+        offer.kind === "pause"
+          ? await this.client!.call<MachineActionResult>(action, args)
+          : await this.runNative(action, args);
+      if (result?.confirmed === false) {
+        this.dropIntent(key);
+        return back({});
+      }
+      this.replied(key, result);
+    } catch (error) {
+      this.dropIntent(key);
+      // A machine that is gone, or one a pause finds already stopped, holds no slot: go on to the create.
+      const freed = isGone(error) || (offer.kind === "pause" && codeOf(error) === CloudErrors.notRunning);
+      if (!freed && offer.kind === "pause") {
+        // A pause that failed took nothing: the limit notice and the offer stay for another try, and
+        // the sheet says why.
+        if (connectionFailure(error) === "disconnected") this.set(failure(error));
+        return back({ refusal: draft.refusal, error: message(error), errorCode: codeOf(error) });
+      }
+      if (!freed) {
+        this.fail(action, error);
+        return back({ offer: undefined });
+      }
+    }
+    if (offer.kind === "archive" && this.state.machines.some((machine) => machine.id === offer.machine)) {
+      // Cancel stays open while the archive runs: closing the sheet drops the waiting create, and
+      // the archive and delete goes on by itself.
+      back({ offer: undefined, waitingFor: offer.machine });
+      return;
+    }
+    back({ offer: undefined });
+    await this.submitCreate();
+  }
+
+  /** The machine a waiting create freed is gone from the mirror: the create runs now. */
+  private createIfRoom(): void {
+    const draft = this.state.create;
+    if (!draft?.waitingFor || this.state.machines.some((machine) => machine.id === draft.waitingFor)) return;
+    this.set({ create: { ...draft, waitingFor: undefined, submitting: false } });
+    void this.submitCreate();
+  }
+
+  // Automatic cleanup (retention.ts).
+
+  /** Keep pins a machine so nothing deletes it automatically; `false` lets its plan's cleanup apply. */
+  async keep(machine: string, keep: boolean): Promise<void> {
+    await this.machineIntent("keep", machine, CloudOps.machineKeep, { keep }, { keep });
+  }
+
+  /**
+   * Archive and delete (a destructive native action): the platform archives the paused machine's disk
+   * as a restorable snapshot, then deletes the machine. The archive list reads again once it is gone.
+   */
+  async archiveDelete(machine: string): Promise<void> {
+    await this.machineIntent("archive", machine, CloudOps.machineArchiveDelete, {}, {}, true);
+  }
+
+  /** Hides a machine's notice for good in this browser (a new notice for it shows again). */
+  dismissNotice(machine: string, at: number): void {
+    const dismissed = new Set(this.state.dismissed);
+    dismissed.add(noticeKey(machine, at));
+    writeDismissed(dismissed);
+    this.set({ dismissed });
+  }
+
+  /** Restores an archive as a new machine, named as the machine it was (a money op, native). */
+  restoreArchive(snapshot: CloudSnapshot): Promise<void> {
+    return this.restoreSnapshot(snapshot, snapshot.archive_of?.name ?? undefined);
+  }
+
+  /** The caller's own email heads-up before one of their machines is deleted. */
+  setEmailHeadsUp(on: boolean): Promise<void> {
+    return this.setRetention({ email_heads_up: on });
+  }
+
+  /** The team's cleanup numbers (a team admin); `null` goes back to the plan's. */
+  setTeamRetention(settings: RetentionOverrides | null): Promise<void> {
+    return this.setRetention({ settings });
+  }
+
+  /**
+   * The monthly spend limit past the pool (RFD 0081, pool.ts): a money change, so the host confirms it as a native
+   * action and the page reads the plan again. A team admin's; anyone else is told so.
+   */
+  async setSpendLimit(usd: number): Promise<void> {
+    if (!this.canChange() || this.state.spendLimit?.saving) return;
+    const session = this.session;
+    this.set({ spendLimit: { saving: true } });
+    try {
+      // `cloud.plan.spend_limit.set {spend_limit_usd}` answers `{pool}`; the plan is read again for the rest of it.
+      const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+        action: SPEND_LIMIT_SET,
+        args: { spend_limit_usd: usd },
+      });
+      if (session !== this.session) return;
+      this.set({ spendLimit: undefined });
+      if (result?.confirmed !== false) await this.account.readPlan(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      const refusal = spendLimitRefusal(error);
+      if (isUnsupported(error) || refusal === "off") {
+        this.set({ spendLimit: undefined });
+        return this.markUnavailable(SPEND_LIMIT_SET);
+      }
+      this.set({
+        spendLimit: { saving: false, ...(refusal === "forbidden" ? { forbidden: true } : { error: message(error) }) },
+      });
+    }
+  }
+
+  private async setRetention(params: {
+    email_heads_up?: boolean;
+    settings?: RetentionOverrides | null;
+  }): Promise<void> {
+    if (!this.canChange() || this.state.retention?.saving) return;
+    const session = this.session;
+    this.set({ retention: { saving: true } });
+    try {
+      await this.client!.call(CloudOps.retentionSet, { ...params, idempotency_key: this.key() });
+      if (session !== this.session) return;
+      this.set({ retention: undefined });
+      await this.account.readPlan(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      if (isUnsupported(error)) {
+        this.set({ retention: undefined });
+        return this.markUnavailable(CloudOps.retentionSet);
+      }
+      const forbidden = isPageError(error) && error.code === "cmux.cloud.forbidden";
+      this.set({ retention: { saving: false, ...(forbidden ? { forbidden } : { error: message(error) }) } });
+    }
+  }
+
+  /** `cloud.snapshot.list {}`: the team's archives. A failure or an older owner shows none. */
+  private async readArchives(session: number): Promise<void> {
+    if (!this.client) return;
+    try {
+      const { snapshots } = await this.client.call<SnapshotListResult>(CloudOps.snapshotList, {});
+      if (session === this.session) this.set({ archives: archives(snapshots) });
+    } catch {
+      // The list shows no archives until the next read (page open, a delete).
     }
   }
 
@@ -537,16 +920,17 @@ export class CloudStore {
   }
 
   /** A new machine from a snapshot (`snapshot.restore`, a money op); a pending create until its echo. */
-  async restoreSnapshot(snapshot: CloudSnapshot): Promise<void> {
+  async restoreSnapshot(snapshot: CloudSnapshot, as?: string): Promise<void> {
     if (!this.canChange()) return;
     const key = this.key();
-    const name = snapshot.name ?? "";
+    const name = as ?? snapshot.name ?? "";
     this.pushIntent({ key, kind: "create", name });
     const session = this.session;
     try {
-      const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
-        action: CloudOps.snapshotRestore,
-        args: { snapshot: snapshot.id, idempotency_key: key },
+      const result = await this.runNative(CloudOps.snapshotRestore, {
+        snapshot: snapshot.id,
+        ...(as ? { name: as } : {}),
+        idempotency_key: key,
       });
       if (result?.confirmed === false) return this.dropIntent(key);
       // Recorded even after a session restart, so the pending create row cannot stay.
@@ -605,7 +989,18 @@ export class CloudStore {
         const previous = this.lastAccount;
         this.lastAccount = event;
         // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
-        const switched = !!previous?.signedIn && !!event?.signedIn && (previous.user ?? null) !== (event.user ?? null);
+        // The first event is checked against the kept list's user, so another user's list never stays.
+        const before =
+          previous ?? (this.cachedUser !== undefined ? { signedIn: true, user: this.cachedUser } : undefined);
+        this.cachedUser = undefined;
+        const switched = !!before?.signedIn && !!event?.signedIn && (before.user ?? null) !== (event.user ?? null);
+        const user = event?.signedIn ? (event.user ?? null) : undefined;
+        if (user !== this.keptUser) {
+          this.keptUser = user;
+          // The owner's list kept before the stream named its user is kept again with it; a switch
+          // reloads and keeps the new user's list instead.
+          if (!switched && this.ownerListed) this.keepList();
+        }
         void this.accountChanged(switched);
       });
       if (lifetime !== this.lifetime) return unwatch();
@@ -647,7 +1042,10 @@ export class CloudStore {
     if (!switched && shown.signedIn === auth.signedIn && (shown.team ?? null) === (auth.team ?? null)) return;
     const next = this.restartSession();
     void this.detail.load(undefined);
-    if (!auth.signedIn) return this.set({ ...signedOutState(), auth });
+    if (!auth.signedIn) {
+      clearCachedMachines(this.options.cache);
+      return this.set({ ...signedOutState(), auth });
+    }
     this.set({ ...signedOutState(), auth, loading: true });
     await this.loadSignedIn(next);
   }
@@ -664,13 +1062,21 @@ export class CloudStore {
   private restartSession(): number {
     this.accountEpoch += 1;
     this.endSession();
+    // Another account or team starts with its own quiet re-reads, not the old one's spent count.
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     return this.session;
   }
 
-  /** Watches, then lists every page once; events that arrive during the list are merged by revision. */
-  private async loadSignedIn(session: number): Promise<void> {
+  /**
+   * Watches, then lists every page once. The answer's `take` merges the events that came during the
+   * list (by revision) and sends later ones live; undefined when the session ended first.
+   */
+  private async readList(session: number): Promise<ListRead | undefined> {
     const client = this.client!;
     let buffer: MachineEvent[] | null = [];
+    let watch: (() => void) | undefined;
     try {
       const unwatch = await client.subscribe<MachineEvent>(CloudOps.machineWatch, (event) => {
         if (session !== this.session) return;
@@ -679,30 +1085,69 @@ export class CloudStore {
       });
       if (session !== this.session) {
         unwatch();
-        return;
+        return undefined;
       }
       this.unwatch?.();
       this.unwatch = unwatch;
+      watch = unwatch;
       let page = await client.call<MachineListResult>(CloudOps.machineList, {});
-      let machines = page.machines.map(normalizeMachine);
+      let listed = page.machines.map(normalizeMachine);
       // A listing from the first page to the last also lets the owner drop machines it did not see.
       while (page.next_cursor && session === this.session) {
         page = await client.call<MachineListResult>(CloudOps.machineList, { cursor: page.next_cursor });
-        machines = [...machines, ...page.machines.map(normalizeMachine)];
+        listed = [...listed, ...page.machines.map(normalizeMachine)];
       }
-      if (session !== this.session) return;
-      let revision = page.revision;
-      for (const event of buffer) {
-        // The list holds its own revision; events of that revision are re-applied (idempotent).
-        if (event.revision < revision) continue;
-        machines = applyEvent(machines, event);
-        revision = event.revision;
-      }
-      buffer = null;
-      this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
+      if (session !== this.session) return undefined;
+      const last = page.revision;
+      const surge = page.surge ?? undefined;
+      const take = () => {
+        let machines = listed;
+        let revision = last;
+        for (const event of buffer ?? []) {
+          // The list holds its own revision; events of that revision are re-applied (idempotent).
+          if (event.revision < revision) continue;
+          machines = applyEvent(machines, event);
+          revision = event.revision;
+        }
+        buffer = null;
+        return { machines, revision, surge };
+      };
+      return { unwatch, take };
     } catch (error) {
       buffer = null;
-      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
+      // A list that failed leaves no watch behind: a quiet re-read or Retry subscribes again, and an
+      // early read a signed-out answer drops has nothing left open.
+      if (watch) {
+        if (this.unwatch === watch) this.unwatch = undefined;
+        watch();
+      }
+      throw error;
+    }
+  }
+
+  /** Watches and lists (or takes the read `start` began early), then shows the owner's list. */
+  private async loadSignedIn(session: number, early?: Promise<ListRead | undefined>): Promise<void> {
+    try {
+      const read = await (early ?? this.readList(session));
+      if (!read || session !== this.session) return;
+      const { machines, revision, surge } = read.take();
+      this.blips = 0;
+      this.setMirror(machines, revision, {
+        loading: false,
+        connection: "connected",
+        error: undefined,
+        surge,
+      });
+      void this.readArchives(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      if (
+        this.readAgainQuietly(error, () => {
+          if (session === this.session) void this.loadSignedIn(session);
+        })
+      )
+        return;
+      this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
@@ -711,6 +1156,13 @@ export class CloudStore {
   private onEvent(event: MachineEvent): void {
     // An event proves the owner is reachable again.
     const patch: Partial<CloudState> = this.state.connection === "disconnected" ? { connection: "connected" } : {};
+    if (patch.connection) {
+      if (this.started) this.restartAttempts = 0;
+      // The drop's own words go with it: a link that is back never leaves "not connected" on screen.
+      const code = this.state.errorCode;
+      if (code && connectionFailure(pageError(code, "")) === "disconnected")
+        Object.assign(patch, { error: undefined, errorCode: undefined });
+    }
     // Events of one projection change share its revision, so only an older revision is stale.
     // An event of the mirror's own revision is applied again; it describes the same state.
     if (event.revision < this.state.revision) {
@@ -724,7 +1176,32 @@ export class CloudStore {
       (intent) => !(intent.replied && intent.revision === undefined && intent.machine === target),
     );
     if (pending.length !== this.state.pending.length) this.state = { ...this.state, pending };
+    // A machine that went with an archive (automatic cleanup, or archive and delete): its archive lists now.
+    const archived =
+      event.type === "removed" &&
+      this.state.machines.some((machine) => machine.id === event.id && !!machine.delete_reason);
+    // The team's spending cap marks its machines (a pending pause, a pause) through these events alone
+    // (cmux-platform SpendCap.ts): a mark that changed reads the plan again, so the team's banner follows.
+    const capChanged = event.type === "upsert" && capMarksChanged(this.state.machines, event.machine);
     this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
+    if (archived) void this.readArchives(this.session);
+    if (capChanged) void this.readPlanForCap();
+  }
+
+  /** One plan read at a time for the cap's marks: a pause marks every running machine at once (N events). */
+  private capPlanRead: Promise<void> | undefined;
+  private capPlanDirty = false;
+  private async readPlanForCap(): Promise<void> {
+    if (this.capPlanRead) {
+      this.capPlanDirty = true;
+      return;
+    }
+    do {
+      this.capPlanDirty = false;
+      this.capPlanRead = this.account.readPlan(this.session);
+      await this.capPlanRead;
+      this.capPlanRead = undefined;
+    } while (this.capPlanDirty);
   }
 
   /**
@@ -733,6 +1210,22 @@ export class CloudStore {
    */
   private replied(key: string, result: unknown): void {
     this.updateIntent(key, { replied: true, revision: revisionOf(result) });
+  }
+
+  /**
+   * The machine the platform paused so a create fits the running-machines limit, as the create
+   * answered it. Its row shows paused with the answer; the owner's event for it says the same.
+   */
+  private madeRoom(paused: CloudMachine | undefined): void {
+    if (!paused?.id) return;
+    const known = this.state.machines.find((machine) => machine.id === paused.id);
+    // An event that already passed the answer wins: a newer record, or the machine's removal (a
+    // machine the mirror does not hold is never added back by an answer).
+    if (!known || Number(known.revision) > Number(paused.revision)) return;
+    this.setMirror(
+      applyEvent(this.state.machines, { type: "upsert", revision: this.state.revision, machine: paused }),
+      this.state.revision,
+    );
   }
 
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
@@ -752,6 +1245,30 @@ export class CloudStore {
       ...patch,
     });
     this.openIfRunning();
+    this.createIfRoom();
+    this.keepList();
+  }
+
+  /** Keeps the list the owner just gave for the next open's first frame (machineCache.ts). */
+  private keepList(): void {
+    this.ownerListed = true;
+    const { auth, connection, machines, revision } = this.state;
+    if (!this.options.cache || !auth?.signedIn || connection !== "connected") return;
+    writeCachedMachines(this.options.cache, {
+      team: auth.team ?? null,
+      user: this.keptUser,
+      machines,
+      revision,
+    });
+  }
+
+  /** The kept list belongs to another account or team: it leaves the page and the storage. */
+  private dropSeeded(): void {
+    this.seeded = undefined;
+    this.cachedUser = undefined;
+    this.keptUser = undefined;
+    clearCachedMachines(this.options.cache);
+    this.set({ ...signedOutState(), auth: undefined, loading: true });
   }
 
   /**
@@ -790,9 +1307,7 @@ export class CloudStore {
     const args = { machine, ...params, idempotency_key: key };
     try {
       // Recorded even after a session restart, so the intent cannot stay pending.
-      const result = native
-        ? await this.client!.call<MachineActionResult | null>(ACTION_RUN, { action: op, args })
-        : await this.client!.call<MachineResult>(op, args);
+      const result = native ? await this.runNative(op, args) : await this.client!.call<MachineResult>(op, args);
       if (native && (result as ActionRunResult | null)?.confirmed === false) {
         this.dropIntent(key);
         return undefined;
@@ -806,6 +1321,14 @@ export class CloudStore {
       if (session === this.session) this.fail(op, error);
       return undefined;
     }
+  }
+
+  /**
+   * A native machine action: the host's answer with the op's own fields at the top. A confirmed op
+   * (`CONFIRMED_ACTIONS`) answers them under `value` (PageProviders `runConfirmed`).
+   */
+  private async runNative(action: string, args: Record<string, unknown>): Promise<MachineActionResult | null> {
+    return confirmedValue(await this.client!.call<NativeAnswer | null>(ACTION_RUN, { action, args }));
   }
 
   private async native(action: string, args: Record<string, unknown>): Promise<void> {
@@ -865,8 +1388,61 @@ export class CloudStore {
   }
 
   private set(patch: Partial<CloudState>): void {
+    const wasDown = this.state.connection === "disconnected";
     this.state = { ...this.state, ...patch };
+    // A live page whose link dropped under a read or an action reads everything again on its own,
+    // keeping what it shows (a first read that failed has its own `startLater`).
+    if (!wasDown && this.state.connection === "disconnected" && this.started) this.reconnectLater();
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * Follows the host's word on the owner link (`cmux.page.connection`): the moment it says the link
+   * is up again, a page that is still disconnected reads again at once instead of at its next backoff
+   * step (up to CLOUD_RESTART_MAX_MS later). A host without the stream (an older one, the mock) leaves
+   * the backoff alone.
+   */
+  private async followLink(): Promise<void> {
+    if (!this.client) return;
+    const lifetime = this.linkLifetime;
+    try {
+      const stop = await subscribePageStreams(this.client, {
+        onConnection: (connected) => {
+          if (connected && lifetime === this.linkLifetime) this.relinkNow();
+        },
+      });
+      if (lifetime !== this.linkLifetime) return stop();
+      this.unwatchLink = stop;
+    } catch {
+      // The link is down now: the backoff reads again, and the next first listener subscribes again.
+    }
+  }
+
+  /** The link is back: a disconnected page reads again now, as Retry does, with nothing cleared from the screen. */
+  private relinkNow(): void {
+    if (this.listeners.size === 0 || this.state.connection !== "disconnected") return;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.started) this.stop();
+    void this.start();
+  }
+
+  /**
+   * The link dropped while the page was live: after the same backoff as `startLater` (1 s doubling to
+   * 10 s), the page starts again as Retry does, with no Retry and nothing cleared from the screen. Any
+   * machine event meanwhile proves the link is back and ends the wait (`onEvent`).
+   */
+  private reconnectLater(): void {
+    if (this.restart) return;
+    const delay = Math.min(CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS * 2 ** this.restartAttempts++);
+    this.restart = setTimeout(() => {
+      this.restart = undefined;
+      if (this.listeners.size === 0 || this.state.connection !== "disconnected") return;
+      const attempts = this.restartAttempts;
+      this.stop();
+      this.restartAttempts = attempts;
+      void this.start();
+    }, delay);
   }
 }
 
@@ -879,6 +1455,10 @@ function signedOutState(): Partial<CloudState> {
     teams: [],
     plan: undefined,
     migration: undefined,
+    paymentPastDue: undefined,
+    usage: undefined,
+    usageFailed: undefined,
+    paymentOff: undefined,
     refusal: undefined,
     blocked: undefined,
     selection: undefined,
@@ -888,7 +1468,19 @@ function signedOutState(): Partial<CloudState> {
     planFailed: undefined,
     error: undefined,
     loading: false,
+    archives: [],
+    retention: undefined,
   };
+}
+
+/** The host's answer to a native action: a confirmed op's own answer sits under `value`. */
+type NativeAnswer = MachineActionResult & { value?: unknown };
+
+/** `{confirmed: true, value}` as the op's own fields beside `confirmed`; any other answer as it is. */
+export function confirmedValue(answer: NativeAnswer | null): MachineActionResult | null {
+  if (!answer || answer.confirmed !== true || answer.value === null || typeof answer.value !== "object") return answer;
+  const { value, ...rest } = answer;
+  return { ...rest, ...(value as Partial<MachineResult>) };
 }
 
 /** The projection `revision` of a mutation result, when the owner sent one. */
@@ -902,9 +1494,9 @@ function noImage(error: unknown): boolean {
   return isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the backend's own text stays in the error (`errorText` puts a
+ * known code's page sentence first). */
+const message = (error: unknown): string => userMessage(error);
 
 function codeOf(error: unknown): string | undefined {
   return isPageError(error) ? error.code : undefined;
@@ -919,4 +1511,13 @@ export function failure(error: unknown, withMessage = true): Partial<CloudState>
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
+}
+
+/** Whether `next` carries other spending cap marks (`spend_cap_pause_at`, `paused_by`) than the mirror's copy. */
+function capMarksChanged(machines: readonly CloudMachine[], next: CloudMachine): boolean {
+  const before = machines.find((machine) => machine.id === next.id);
+  return (
+    (before?.spend_cap_pause_at ?? null) !== (next.spend_cap_pause_at ?? null) ||
+    (before?.paused_by ?? null) !== (next.paused_by ?? null)
+  );
 }

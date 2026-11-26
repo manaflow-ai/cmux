@@ -16,9 +16,9 @@ struct CloudHandoffTurnOpenerTests {
     }
 
     /// Runs the opener against a scripted store: `made` answers the create, `begun` each begin in turn.
-    private func open(_ made: CloudHandoffTurn, begun: [CloudHandoffTurn] = []) async throws -> (opened: CloudHandoffTurnOpener.Opened, begins: [Int]) {
+    private func open(_ made: CloudHandoffTurn, begun: [CloudHandoffTurn] = []) async throws -> (opened: CloudHandoffTurn.Opened, begins: [Int]) {
         var begins: [Int] = []
-        let opened = try await CloudHandoffTurnOpener.open(session: "s-1", machine: "vm_a", make: { _, _ in made }, begin: { _, after in
+        let opened = try await CloudHandoffTurn.open(session: "s-1", machine: "vm_a", make: { _, _ in made }, begin: { _, after in
             begins.append(after)
             return try #require(begun.count >= begins.count ? begun[begins.count - 1] : nil)
         })
@@ -84,11 +84,10 @@ struct CloudHandoffTurnOpenerTests {
     /// lands: no hand-off is offered (the handshake's `cloudHandoffs`) or made for one of them. The
     /// runner answers the refusal before any store call, so nothing is posted.
     @Test func aMachineListNotLoadedForTheAccountNowOpensNoTurn() {
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: true, signedIn: true, loadedCurrent: true) == nil)
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: true, signedIn: true, loadedCurrent: false) == "machines_unread")
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: true, signedIn: false, loadedCurrent: false) == "not_signed_in")
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, labs: false, signedIn: true, loadedCurrent: true) == "labs_off")
-        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: false, labs: true, signedIn: true, loadedCurrent: true) == "cloud_disabled")
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, signedIn: true, loadedCurrent: true) == nil)
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, signedIn: true, loadedCurrent: false) == "machines_unread")
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: true, signedIn: false, loadedCurrent: false) == "not_signed_in")
+        #expect(CloudHandoffTurnOpener.refusal(cloudAllowed: false, signedIn: true, loadedCurrent: true) == "cloud_disabled")
     }
 
     @Test func theStoresHandoffIsReadAndItsMachineTokenIsNot() throws {

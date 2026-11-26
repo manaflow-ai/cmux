@@ -11,6 +11,8 @@ use std::collections::BTreeSet;
 
 impl Hub {
     /// The most bookmarks one chat keeps.
+    /// Measured: every change writes the whole list, in its `bookmarks` record and the meta
+    /// save, up to 21 bytes a mark: 21 KB per change at 1,000.
     pub const MAX_BOOKMARKS: usize = 1000;
 
     /// Mark or unmark the prompt (or the turn's answer) logged at `seq`, and
@@ -34,7 +36,7 @@ impl Hub {
         // every pane hears is the marks kept; and a move begins before the change or after it.
         let moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
         if moving.is_some() {
-            return Err(queue::moving_error());
+            return Err(queue::moving_error(session));
         }
         let (marks, before) = {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -66,6 +68,9 @@ impl Hub {
                 meta.updated_at = before;
             }
         }
+        // The rewind has no record of its own: told before the next list read, and the row placed
+        // again in the list's order (`list_order.rs`).
+        self.events.row_changed(session);
         // `append` notes the record before the timestamp rewind above. Note again after the
         // direct metadata write so a closed snapshot that raced the append cannot publish the
         // forward timestamp as this chat's newest continuation.

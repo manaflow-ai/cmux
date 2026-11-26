@@ -14,6 +14,8 @@ Then: "For the swift bit why can't we simply apply after switching the build?" S
   start   build (once per commit, cached) the live code build of the checkout's HEAD, turn
           Labs > Live Code (`labs.liveCode`) on, restart into it keeping every session, and patch
           in every CmuxNextApp file that differs from what that build compiled: the edits apply now.
+          When the tag already has a live code build of an earlier commit and everything since
+          patches in, start reuses it and patches the difference in: no build (`--fresh` builds).
   watch   (started by start, in the background) patch each saved file in; once saves go quiet,
           make the optimized build of the edited checkout. Ends when live mode does.
   stop    turn Live Code off and restart into that optimized build, sessions kept (`--discard`:
@@ -21,7 +23,7 @@ Then: "For the swift bit why can't we simply apply after switching the build?" S
   status  one line: which build runs, since when, the patches, what waits for the stop build.
   patch   compile edited Swift files against the running live code build (scripts/live-code/patch.py).
 
-  scripts/live-code/live-mode.py start [--tag TAG] [--detach] [--json]
+  scripts/live-code/live-mode.py start [--tag TAG] [--fresh] [--detach] [--json]
   scripts/live-code/live-mode.py stop [--discard] [--tag TAG] [--detach] [--json]
   scripts/live-code/live-mode.py status [--tag TAG] [--json]
   scripts/live-code/live-mode.py patch [--tag TAG] FILE.swift...
@@ -43,6 +45,7 @@ import hashlib
 import json
 import os
 import plistlib
+import queue
 import pwd
 import re
 import shutil
@@ -54,6 +57,15 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 TREE = Path(__file__).resolve().parents[2]
 QUIT_TIMEOUT_S = 30
@@ -419,6 +431,8 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 PATCHED_MODULE = "CmuxNextApp"
 QUIET_S = 20  # no save for this long: the optimized build of the edits starts in the background
 WATCH_MAX_S = 24 * 3600
+POLL_S = 1.0  # how often the watcher checks live mode is still on, and the scan interval without file events
+SETTLE_S = 0.01  # events this close to a save's first are the same save
 
 
 def swift_sources(tree, seen=None):
@@ -441,6 +455,120 @@ def swift_sources(tree, seen=None):
         except OSError:
             continue
     return out
+
+
+def rescanned(tree, seen, paths):
+    """`seen` with only `paths` (absolute, as file events name them) looked at again: a save costs the
+    files it touched, not a walk of every Swift source."""
+    out = dict(seen)
+    roots = {os.path.realpath(tree), os.path.abspath(tree)}
+    for path in paths:
+        rel = next((os.path.relpath(path, root) for root in roots if path.startswith(root + os.sep)), None)
+        if not rel or not rel.endswith(".swift") or not rel.startswith(SOURCES + "/"):
+            continue
+        try:
+            mtime = os.stat(path).st_mtime_ns
+        except OSError:
+            out.pop(rel, None)  # deleted, or renamed away
+            continue
+        old = seen.get(rel)
+        if old and old[0] == mtime:
+            continue
+        try:
+            out[rel] = (mtime, hashlib.sha1(Path(path).read_bytes()).hexdigest())
+        except OSError:
+            out.pop(rel, None)
+    return out
+
+
+class FileEvents:
+    """FSEvents on one folder (macOS, through ctypes): file-level events, no latency, no deferral, the
+    same stream the dev-loop probe measured (scripts/measure/dev-loop/swift_inject/probe.swift).
+    `wait(timeout)` answers the paths changed since the last call, an empty set when none changed in
+    `timeout`, or None when the paths are unknown (events were dropped): then the caller scans all."""
+
+    NO_DEFER, FILE_EVENTS = 0x02, 0x10
+    MUST_SCAN = 0x01 | 0x02 | 0x04 | 0x20  # MustScanSubDirs, UserDropped, KernelDropped, RootChanged
+    IS_DIR, DIR_MOVED = 0x20000, 0x100 | 0x200 | 0x800  # a folder made, removed or renamed: its files moved
+    SINCE_NOW = 0xFFFFFFFFFFFFFFFF
+
+    def __init__(self, folder):
+        import ctypes
+        self.events = queue.Queue()
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        cs = ctypes.CDLL("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+        system = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+        cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        cf.CFArrayCreate.restype = ctypes.c_void_p
+        cf.CFArrayCreate.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_long, ctypes.c_void_p]
+        callback_type = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+                                         ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_uint32),
+                                         ctypes.c_void_p)
+        cs.FSEventStreamCreate.restype = ctypes.c_void_p
+        cs.FSEventStreamCreate.argtypes = [ctypes.c_void_p, callback_type, ctypes.c_void_p, ctypes.c_void_p,
+                                           ctypes.c_uint64, ctypes.c_double, ctypes.c_uint32]
+        cs.FSEventStreamSetDispatchQueue.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        cs.FSEventStreamStart.restype = ctypes.c_bool
+        cs.FSEventStreamStart.argtypes = [ctypes.c_void_p]
+        system.dispatch_queue_create.restype = ctypes.c_void_p
+        system.dispatch_queue_create.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
+
+        def heard(_stream, _info, count, paths, flags, _ids):
+            at = time.time()
+            batch = []
+            for i in range(count):
+                if flags[i] & self.MUST_SCAN or (flags[i] & self.IS_DIR and flags[i] & self.DIR_MOVED):
+                    batch = None
+                    break
+                batch.append(os.fsdecode(paths[i]))
+            self.events.put((at, batch))
+
+        self.callback = callback_type(heard)  # kept: the stream calls it for as long as it runs
+        path = cf.CFStringCreateWithCString(None, os.fsencode(os.path.realpath(folder)), 0x08000100)
+        values = (ctypes.c_void_p * 1)(path)
+        callbacks = ctypes.addressof(ctypes.c_char.in_dll(cf, "kCFTypeArrayCallBacks"))
+        paths = cf.CFArrayCreate(None, values, 1, callbacks)
+        self.stream = cs.FSEventStreamCreate(None, self.callback, None, paths, self.SINCE_NOW, 0.0,
+                                             self.NO_DEFER | self.FILE_EVENTS)
+        if not self.stream:
+            raise OSError("FSEventStreamCreate failed")
+        cs.FSEventStreamSetDispatchQueue(self.stream, system.dispatch_queue_create(b"cmux.live-mode.watch", None))
+        if not cs.FSEventStreamStart(self.stream):
+            raise OSError("FSEventStreamStart failed")
+
+    def wait(self, timeout, settle=SETTLE_S):
+        """(first event's time, paths or None), or (None, set()) when nothing changed in `timeout`.
+        Events within `settle` of the first are one save (an editor's write, then its rename)."""
+        try:
+            first, paths = self.events.get(timeout=timeout)
+        except queue.Empty:
+            return None, set()
+        paths = None if paths is None else set(paths)
+        deadline = time.monotonic() + settle
+        while True:
+            try:
+                _, more = self.events.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                return first, paths
+            paths = None if paths is None or more is None else paths | set(more)
+
+
+class PollEvents:
+    """Where FSEvents is not there (not macOS, or it failed to start): every `timeout` the caller
+    scans all, as the watcher always did."""
+
+    def wait(self, timeout, settle=0.0):
+        time.sleep(timeout)
+        return time.time(), None
+
+
+def file_events(folder):
+    try:
+        return FileEvents(folder) if sys.platform == "darwin" else PollEvents()
+    except (OSError, AttributeError, ValueError) as failure:
+        safe_print(f"{now()} file events unavailable ({failure}); scanning every {POLL_S:.0f} s", flush=True)
+        return PollEvents()
 
 
 def changed_sources(built, now_sources):
@@ -584,8 +712,86 @@ def apply_edits(tree, entry, files):
         return {"files": [], "exit": 0}
     command = [sys.executable, str(TREE / "scripts/live-code/patch.py"), "--log", str(entry / "build/xcodebuild.log"),
                "--module", PATCHED_MODULE, "--live", str(live_folder()), *[str(Path(tree) / f) for f in files]]
+    began = time.monotonic()
     done = subprocess.run(command, cwd=tree, capture_output=True, text=True)
-    return {"files": files, "exit": done.returncode, "output": (done.stdout + done.stderr).strip()[-2000:]}
+    return {"files": files, "exit": done.returncode, "output": (done.stdout + done.stderr).strip()[-2000:],
+            "seconds": time.monotonic() - began}
+
+
+PATCH_LINE = re.compile(r"patch\.py: (\S+\.dylib) (.*)")
+APPLIED_LINE = re.compile(r"applied (\S+) .*?load_ms=(\d+) at=([\d.]+)")
+
+
+class Phases:
+    """One line per save in the cache's phases.jsonl, from the saved file's mtime to the app's "applied"
+    line: saved_at -> heard (the file event) -> patch start -> lookup, compile, link, place (patch.py's
+    times) -> applied (the app's live-code.log: when it loaded the patch, and load_ms). A patch waits
+    here, never in the loop, until its applied line shows or APPLIED_WAIT_S passes."""
+
+    APPLIED_WAIT_S = 10.0
+
+    def __init__(self, path, log=None):
+        self.path, self.log = path, log or (live_folder() / "live-code.log")
+        self.waiting = {}  # dylib name -> the save's row
+        try:
+            self.offset = self.log.stat().st_size
+        except OSError:
+            self.offset = 0
+
+    def add(self, files, tree, seen, heard, patching, applied):
+        if not files:
+            return
+        saved = [seen[f][0] / 1e9 for f in files if f in seen]
+        row = {"files": files, "exit": applied["exit"], "saved_at": round(min(saved), 3) if saved else None,
+               "heard_at": round(heard, 3), "patch_at": round(patching, 3), "patch_s": round(applied["seconds"], 3)}
+        if row["saved_at"]:
+            row["saved_to_heard_s"] = round(heard - row["saved_at"], 3)
+        row["heard_to_patch_s"] = round(patching - heard, 3)
+        found = PATCH_LINE.search(applied.get("output") or "")
+        if found:
+            row.update({key: float(value) for key, value in re.findall(r"(\w+_s)=([\d.]+)", found.group(2))})
+            began = re.search(r"started=([\d.]+)", found.group(2))
+            row["placed_at"] = round(float(began.group(1)) + row["total_s"] if began and "total_s" in row
+                                     else patching + applied["seconds"], 3)
+            self.waiting[os.path.basename(found.group(1))[:-len(".dylib")]] = (time.monotonic(), row)
+        else:
+            self.write(row)
+
+    def wait_s(self):
+        """How long the loop may wait for a save: shorter while a patch waits for its applied line."""
+        return 0.05 if self.waiting else POLL_S
+
+    def settle(self):
+        if not self.waiting:
+            return
+        try:
+            with open(self.log, errors="replace") as f:
+                f.seek(self.offset)
+                text = f.read()
+                self.offset = f.tell()
+        except OSError:
+            text = ""
+        for name, load_ms, at in APPLIED_LINE.findall(text):
+            name = name[:-len(".dylib")] if name.endswith(".dylib") else name
+            _, row = self.waiting.pop(name, (None, None))
+            if row:
+                row.update(applied_at=round(float(at), 3), load_ms=int(load_ms),
+                           placed_to_applied_s=round(float(at) - row["placed_at"], 3),
+                           heard_to_applied_s=round(float(at) - row["heard_at"], 3))
+                if row.get("saved_at"):
+                    row["saved_to_applied_s"] = round(float(at) - row["saved_at"], 3)
+                self.write(row)
+        for name, (since, row) in list(self.waiting.items()):
+            if time.monotonic() - since > self.APPLIED_WAIT_S:
+                del self.waiting[name]
+                self.write({**row, "applied_at": None})  # refused, or the app was not watching
+
+    def write(self, row):
+        try:
+            with open(self.path, "a") as f:
+                f.write(json.dumps(row) + "\n")
+        except OSError:
+            pass
 
 
 def start(args):
@@ -597,6 +803,49 @@ def start(args):
         return start_locked(args, path, identify(path), tag, root)
 
 
+def reusable_build(root, tree):
+    """The tag's last live code build, to patch the checkout into instead of building it again.
+
+    Leo (2026-11-05): "do you need it to be a build versus do you need actually just to be able to
+    test out that change on its own ... We can just reuse an existing copy ... propagating from the
+    previous change". The watcher already patches a pull in while live mode is on; this does the
+    same across starts. (entry, commit, patchable files) when the tag's live derived data still holds
+    that build's intermediates and every file that differs from what it compiled patches in (an
+    existing CmuxNextApp file); None when there is no such build or a file would wait for a build.
+    Every other input of the build counts too (shared packages, resources, webviews, manifests): git
+    must show nothing changed since that build's commit but CmuxNextApp Swift, and the build itself
+    must have been of a checkout with nothing else uncommitted (its `reusable` mark)."""
+    holds = root / "derived-data.commit"
+    current = holds.read_text().strip() if holds.is_file() else ""
+    if not re.fullmatch(r"[0-9a-f]{7,40}", current):
+        return None
+    entry = root / current[:12]
+    built_from = entry / "sources.json"
+    if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and built_from.is_file()
+            and (entry / "reusable").is_file()):
+        return None
+    if not only_app_swift_changed(tree, current):
+        return None
+    patchable, waiting = changed_sources(load_sources(built_from), swift_sources(tree))
+    if waiting:
+        return None
+    return entry, current, patchable
+
+
+def only_app_swift_changed(tree, commit):
+    """Whether every tracked file that differs from `commit` (committed since or edited) is a
+    CmuxNextApp Swift file, and no untracked file is there. False when git cannot tell."""
+    diff = subprocess.run(["git", "-C", str(tree), "diff", "--name-only", commit, "--"],
+                          capture_output=True, text=True)
+    untracked = subprocess.run(["git", "-C", str(tree), "ls-files", "--others", "--exclude-standard"],
+                               capture_output=True, text=True)
+    if diff.returncode != 0 or untracked.returncode != 0:
+        return False
+    app = f"{SOURCES}/{PATCHED_MODULE}/"
+    changed = [f for f in diff.stdout.splitlines() if f]
+    return not untracked.stdout.strip() and all(f.startswith(app) and f.endswith(".swift") for f in changed)
+
+
 def start_locked(args, path, ident, tag, root):
     state = read_state(root)
     app = ident["app_bundle_path"]
@@ -604,32 +853,49 @@ def start_locked(args, path, ident, tag, root):
         return {"mode": "live", "already": True, **state}
     info = app_info(app)
     head = git(args.tree, "rev-parse", "HEAD")
-    commit = info.get("CMUXCommit") or ""
-    if re.fullmatch(r"[0-9a-f]{7,40}", commit) and not same_commit(commit, head):
-        raise Refused(f"the running app is {commit[:12]}, {args.tree} is at {head[:12]}: check that commit out "
-                      f"(or pass --tree) so the live code build and your patches match the app")
     if not head:
         raise Refused(f"{args.tree} is not a git checkout")
-    entry = root / head[:12]
     log = root / "live-mode.log"
     built_s = None
+    reused = None if args.fresh else reusable_build(root, args.tree)
+    if reused:
+        # The app restarts into that build and the difference patches in, so the running app's
+        # commit need not be HEAD: what runs after the swap is the reused build, patched.
+        entry, built_commit, _ = reused
+        print(f"live mode: reusing the live code build of {built_commit[:12]} and patching {head[:12]}'s "
+              f"difference in (no build; --fresh builds {head[:12]})", file=sys.stderr, flush=True)
+    else:
+        commit = info.get("CMUXCommit") or ""
+        if re.fullmatch(r"[0-9a-f]{7,40}", commit) and not same_commit(commit, head):
+            raise Refused(f"the running app is {commit[:12]}, {args.tree} is at {head[:12]}: check that commit out "
+                          f"(or pass --tree) so the live code build and your patches match the app")
+        entry, built_commit = root / head[:12], head
     # The tag's live derived data holds one commit's intermediates, which patches compile against:
     # an entry is good only while it is that commit's.
     holds = root / "derived-data.commit"
     current = holds.read_text().strip() if holds.is_file() else ""
     built_from = entry / "sources.json"
-    if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and current == head
-            and built_from.is_file()):
+    # --fresh builds even when HEAD's own build is cached: a layout change the app refused needs it.
+    # HEAD's own cached build is run again only when nothing but CmuxNextApp Swift was uncommitted when
+    # it was made (its `reusable` mark): another uncommitted input of it may be reverted by now.
+    if not reused and (args.fresh or not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file()
+                                          and current == head and built_from.is_file()
+                                          and (entry / "reusable").is_file())):
         print(f"live mode: building the live code build of {head[:12]} (once per commit; log {log})",
               file=sys.stderr, flush=True)
         holds.unlink(missing_ok=True)  # a build that stops half way leaves no commit's intermediates
         entry.mkdir(parents=True, exist_ok=True)
         save_sources(built_from, swift_sources(args.tree))  # before: a save during the build patches in after
+        # A build of a checkout with an uncommitted edit outside CmuxNextApp's Swift compiled an input
+        # git cannot compare later (reverted, it would look unchanged): such a build is never reused.
+        (entry / "reusable").unlink(missing_ok=True)
+        if only_app_swift_changed(args.tree, head):
+            (entry / "reusable").write_text(head + "\n")
         built_s = build_live(args.tree, tag, entry, log, app)
         holds.write_text(head + "\n")
     setting = "skipped" if args.setting_done else live_code_setting(path, True)
-    state = {"mode": "live", "commit": head, "tag": tag, "app": app, "since": now(), "entry": str(entry),
-             "tree": str(args.tree)}
+    state = {"mode": "live", "commit": head, "built_commit": built_commit, "tag": tag, "app": app, "since": now(),
+             "entry": str(entry), "tree": str(args.tree)}
 
     def swapped(binary):
         write_state(root, {**state, "binary": binary} if binary else {**state, "mode": "normal", "binary": None})
@@ -645,6 +911,8 @@ def start_locked(args, path, ident, tag, root):
     applied = apply_edits(args.tree, entry, patchable)
     if applied["exit"]:
         waiting = sorted(set(waiting) | set(patchable))  # did not compile: they wait for the stop build
+        if reused:
+            applied["hint"] = f"`cmux live start --swift --fresh` after a stop builds {head[:12]} instead"
     write_state(root, {**state, "waiting": waiting})
     watcher = detach(["watch", "--tag", tag, "--tree", str(args.tree)], root, quiet=True)
     return {**state, **result, "built_s": built_s, "setting": setting, "edits": applied, "waiting": waiting,
@@ -717,21 +985,36 @@ def watch(args):
     refused = {f for f in state.get("waiting") or [] if f.startswith(f"{SOURCES}/{PATCHED_MODULE}/")}
     built_tree, last_save = None, time.monotonic()
     started = time.monotonic()
+    # The build's command, read from its log once now, so the first save goes straight to the compile.
+    if (entry / "build/xcodebuild.log").exists():
+        subprocess.run([sys.executable, str(TREE / "scripts/live-code/patch.py"), "--log", str(entry / "build/xcodebuild.log"),
+                        "--module", PATCHED_MODULE, "--live", str(live_folder()), "--warm"], capture_output=True)
+    events = file_events(tree / SOURCES)
+    pending = Phases(root / "phases.jsonl")
+    heard, paths = time.time(), None  # the first pass scans everything: saves since the baseline
     while time.monotonic() - started < WATCH_MAX_S:
-        time.sleep(1.0)
+        if heard is None:
+            heard, paths = events.wait(pending.wait_s())
+        pending.settle()
         state = read_state(root)
         app = state.get("app")
         if state.get("mode") != "live" or not app or not Path(app).exists() or binary_id(app) != state.get("binary"):
             break
-        now_sources = swift_sources(tree, seen)
-        patchable, waiting = changed_sources(seen, now_sources)
-        seen = now_sources
+        if heard is not None:
+            now_sources = swift_sources(tree, seen) if paths is None else rescanned(tree, seen, paths)
+            patchable, waiting = changed_sources(seen, now_sources)
+            seen = now_sources
+        else:
+            patchable, waiting = [], []
         if patchable or waiting:
             last_save = time.monotonic()
+            patching = time.time()
             applied = apply_edits(tree, entry, patchable)
+            pending.add(patchable, tree, seen, heard, patching, applied)
             refused = (refused | set(patchable)) if applied["exit"] else (refused - set(patchable))
-            print(f"{now()} saved {len(patchable) + len(waiting)} file(s): patch exit {applied['exit']}"
-                  + (f"; waiting for the stop build: {', '.join(waiting)}" if waiting else ""), flush=True)
+            safe_print(f"{now()} saved {len(patchable) + len(waiting)} file(s): patch exit {applied['exit']}"
+                       + (f" in {applied['seconds']:.2f} s (heard {patching - heard:.3f} s before)" if patchable else "")
+                       + (f"; waiting for the stop build: {', '.join(waiting)}" if waiting else ""), flush=True)
             # What waits is what differs from the live build now: a reverted file no longer waits.
             patchable_now, waiting_now = changed_sources(load_sources(entry / "sources.json"), now_sources)
             refused &= set(patchable_now)  # a reverted file no longer waits
@@ -744,6 +1027,7 @@ def watch(args):
                             write_state(root, {**fresh, "waiting": still})
                 except Refused:
                     pass  # a start or stop runs; the next save writes it
+        heard = None
         if time.monotonic() - last_save >= QUIET_S:
             tree_id = tree_hash(tree)
             if tree_id and tree_id != built_tree and read_json(root / "edited.json").get("tree") != tree_id:
@@ -754,9 +1038,9 @@ def watch(args):
                     built = build_optimized(tree, tag, root, app, root / "live-mode.log", wanted=still_live)
                     if built is None:
                         break  # a stop ran while this waited for the lock: live mode is off
-                    print(f"{now()} optimized build of {built['tree'][:12]} ready in {built['built_s']} s", flush=True)
+                    safe_print(f"{now()} optimized build of {built['tree'][:12]} ready in {built['built_s']} s", flush=True)
                 except Refused as failure:
-                    print(f"{now()} {failure}", flush=True)
+                    safe_print(f"{now()} {failure}", flush=True)
             built_tree = tree_id
     pid_file.unlink(missing_ok=True)
     return 0
@@ -800,7 +1084,8 @@ def status(args):
     app = ident.get("app_bundle_path")
     on = bool(state.get("mode") == "live" and app and state.get("binary") == binary_id(app))
     result = {"mode": "live" if on else "normal", "tag": tag or None, "running": bool(ident),
-              "commit": state.get("commit"), "since": state.get("since") if on else None}
+              "commit": state.get("commit"), "built_commit": state.get("built_commit"),
+              "since": state.get("since") if on else None}
     if on:
         result.update(patches())
         result["waiting"] = state.get("waiting") or []
@@ -814,7 +1099,7 @@ def line(result):
     """`cmux live status`'s Swift line."""
     if result.get("mode") == "live":
         text = (f"Swift live mode: on, cmux DEV {result.get('tag')} runs the live code build of "
-                f"{(result.get('commit') or '')[:12]} since {result.get('since')}")
+                f"{built_text(result)} since {result.get('since')}")
         if "applied" in result:
             text += f"; {result['applied']} patch(es) applied, {result['refused']} refused"
         if result.get("waiting"):
@@ -827,6 +1112,12 @@ def line(result):
     return "Swift live mode: off" + (f", cmux DEV {result['tag']} runs its normal build" if result.get("tag") else "")
 
 
+def built_text(result):
+    """The live code build's commit, and the commit it was patched up to when start reused it."""
+    commit, built = (result.get("commit") or "")[:12], (result.get("built_commit") or "")[:12]
+    return f"{built}, patched up to {commit}" if built and not same_commit(built, commit) else commit
+
+
 def summary(verb, result):
     if result.get("already"):
         return line(dict(result, mode=result["mode"]))
@@ -834,13 +1125,17 @@ def summary(verb, result):
     kept_text = (f"sessions kept: {sessions_kept['workspaces']} workspaces, {sessions_kept['tabs']} tabs, "
                  f"{sessions_kept['terminals']} running terminals"
                  + ("" if sessions_kept["all"] else f" (lost {', '.join(sessions_kept['lost'][:5])})"))
-    what = f"the live code build of {result['commit'][:12]}" if verb == "start" else result.get("into", "the normal build")
+    what = f"the live code build of {built_text(result)}" if verb == "start" else result.get("into", "the normal build")
     built = f"; built in {result['built_s']} s" if result.get("built_s") else ""
+    if verb == "start" and result.get("built_s") is None:
+        built = "; no build"
     text = (f"Swift live mode {'on' if verb == 'start' else 'off'}: restarted into {what} in {result['restart_s']} s "
             f"(quit {result['quit_s']} s, launch {result['launch_s']} s); {kept_text}{built}")
     edits = result.get("edits") or {}
     if edits.get("files"):
         text += f"; your edits to {len(edits['files'])} file(s) patched in (exit {edits['exit']})"
+    if edits.get("hint"):
+        text += f"; {edits['hint']}"
     if result.get("waiting"):
         text += (f"; {len(result['waiting'])} file(s) cannot patch in (another module, a new or deleted file) "
                  f"and wait for the stop build")
@@ -884,6 +1179,8 @@ def main(argv=None):
     parser.add_argument("--detach", action="store_true", help="start or stop in the background (the app's buttons)")
     parser.add_argument("--discard", action="store_true",
                         help="stop: restart into the build from before live mode, not the optimized build of your edits")
+    parser.add_argument("--fresh", action="store_true",
+                        help="start: build the live code build of HEAD even when the last one could be reused and patched")
     parser.add_argument("--setting-done", action="store_true",
                         help="the app already set labs.liveCode (its Live Mode button, the person's click)")
     args = parser.parse_args(argv)

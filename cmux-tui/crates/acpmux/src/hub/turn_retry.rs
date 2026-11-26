@@ -28,13 +28,19 @@ use cmux_json::JsonSet as _;
 pub(super) fn claude_retry(line: &Value) -> Value {
     let mut out = serde_json::Map::new();
     out.insert("source".into(), json!("claude"));
-    if let Some(n) = line.get("attempt").and_then(Value::as_u64) {
+    if let Some(n) =
+        line.get("attempt").or_else(|| line.get("retryAttempt")).and_then(Value::as_u64)
+    {
         out.insert("attempt".into(), json!(n));
     }
-    if let Some(n) = line.get("max_retries").and_then(Value::as_u64) {
+    if let Some(n) =
+        line.get("max_retries").or_else(|| line.get("maxRetries")).and_then(Value::as_u64)
+    {
         out.insert("maxRetries".into(), json!(n));
     }
-    if let Some(n) = line.get("retry_delay_ms").and_then(Value::as_u64) {
+    if let Some(n) =
+        line.get("retry_delay_ms").or_else(|| line.get("retryInMs")).and_then(Value::as_u64)
+    {
         out.insert("retryDelayMs".into(), json!(n));
     }
     if let Some(n) = line.get("error_status").and_then(Value::as_u64) {
@@ -45,7 +51,18 @@ pub(super) fn claude_retry(line: &Value) -> Value {
     {
         out.insert("error".into(), json!(e));
     }
+    add_outage(&mut out, &super::outage::strings_of(line));
     Value::Object(out)
+}
+
+/// What the retry's words say is wrong (`outage.rs`): `cause` and, when named, `host`.
+fn add_outage(out: &mut serde_json::Map<String, Value>, text: &str) {
+    if let Some(o) = super::outage::classify(text) {
+        out.insert("cause".into(), json!(o.cause));
+        if let Some(host) = o.host {
+            out.insert("host".into(), json!(host));
+        }
+    }
 }
 
 /// The fields of a Codex stream error that will be retried: its message
@@ -76,7 +93,10 @@ pub(super) fn codex_retry(err: &Value) -> Value {
         .or_else(|| Some(message).filter(|m| !m.is_empty() && !m.starts_with("Reconnecting")));
     if let Some(d) = detail {
         out.insert("error".into(), json!(d));
+    } else if err.pointer("/codexErrorInfo/serverOverloaded").is_some() {
+        out.insert("error".into(), json!("Selected model is at capacity"));
     }
+    add_outage(&mut out, &super::outage::strings_of(err));
     Value::Object(out)
 }
 
@@ -199,6 +219,13 @@ impl Hub {
         // finds the retry to end.
         let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());
         retry.set("turnId", json!(turn.turn_id));
+        // The deadline of the next try, for the chat's live countdown (`outage.rs`).
+        if let Some(at) = super::outage::retry_at(
+            crate::store::now_ms(),
+            retry.get("retryDelayMs").and_then(Value::as_u64),
+        ) {
+            retry.set("retryAt", json!(at));
+        }
         self.append(session, "mux", "turn_retrying", retry);
         *silent = Some(turn.turn_id);
     }
@@ -279,7 +306,7 @@ mod tests {
     async fn a_refused_sign_in_end_spares_the_turns_next_agent() {
         let (hub, session) = running_turn().await;
         hub.end_sign_in_refused(&session, &refused(3));
-        Hub::hold_stalled_count(&session);
+        hub.hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
         // That agent's own refused retries still end the turn.

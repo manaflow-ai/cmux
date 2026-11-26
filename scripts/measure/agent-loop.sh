@@ -31,7 +31,7 @@ mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-
 rm -f "$out"/live-apply-*.log
 rm -rf "$out/settings-first"  # the second case's folder (agent-loop.py)
 if [[ -z "$url" ]]; then
-  url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
+  url="$(curl -fsSL --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
   [[ -n "$url" ]] || { echo "AGENT-LOOP no DMG in $feed"; exit 3; }
 fi
 echo "AGENT-LOOP host $(hostname -s) macOS $(sw_vers -productVersion) dmg $url"
@@ -54,6 +54,7 @@ bounded() {
   echo "AGENT-LOOP setup: $name"
   set -m
   "$@" & pid=$!
+  # sleep-ok: the watchdog's timeout itself (the phase's bound, then 5 s from TERM to KILL)
   ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
     </dev/null >/dev/null 2>&1 & watchdog=$!
   set +m
@@ -66,20 +67,26 @@ bounded() {
   return "$status"
 }
 
-curl -fsSL --proto '=https' --retry 3 -A cmux-agent-loop/1 -o "$work/in.dmg" "$url" || { echo "AGENT-LOOP download failed"; exit 3; }
+curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-agent-loop/1 -o "$work/in.dmg" "$url" || { echo "AGENT-LOOP download failed"; exit 3; }
 # The app's commit, read from the DMG before the launch: the web tree must be the one it was built from.
 mkdir -p "$mount"
 hdiutil attach -nobrowse -readonly -noverify -mountpoint "$mount" "$work/in.dmg" >/dev/null || { echo "AGENT-LOOP mount failed"; exit 3; }
 plist="$(ls -d "$mount"/*.app/Contents/Info.plist 2>/dev/null | head -n 1)"
-commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
+commit=""
+[[ -f "$plist" ]] && commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
+# The full sha from this checkout, else the bundle's own records (hot-apply.py app-commit):
+# a fleet Mac's step source is shallow and GitHub 403s it (hq#27830), so neither git nor the API below may know it.
+full=""
+[[ -f "$plist" ]] && full="$(python3 -I "$root/scripts/cmux-next/hot-apply.py" app-commit "${plist%/Contents/Info.plist}" --repo "$root" --no-fetch 2>/dev/null \
+  | python3 -I -c 'import json, sys; d = json.load(sys.stdin); print(d["commit"] if d["resolved"] else "")' 2>/dev/null || true)"
 hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 || true
 rmdir "$mount" 2>/dev/null || true
 # Nightlies stamp the commit's first 7 hex: this checkout resolves it, else GitHub's commit API.
 [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "AGENT-LOOP the app carries no CMUXCommit (read '${commit}')"; exit 3; }
 short="$commit"
 if [[ ${#commit} -lt 40 ]]; then
-  commit="$(git -C "$root" rev-parse -q --verify "$short^{commit}" 2>/dev/null \
-    || curl -fsSL --retry 3 -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
+  commit="$([[ -n "$full" ]] && echo "$full" || git -C "$root" rev-parse -q --verify "$short^{commit}" 2>/dev/null \
+    || curl -fsSL --retry 3 --retry-all-errors -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
 fi
 [[ "$commit" =~ ^[0-9a-f]{40}$ && "$commit" == "$short"* ]] || { echo "AGENT-LOOP could not resolve CMUXCommit $short"; exit 3; }
 echo "AGENT-LOOP app commit $short ($commit)"

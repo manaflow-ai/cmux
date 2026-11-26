@@ -61,7 +61,6 @@ import Testing
             case .unread: #expect(has("StatusIndicatorView", "success") || has("UnreadBadgeView"), "\(marks)")
             case .needsYou, .needsInput: #expect(has("StatusIndicatorView", "waiting"), "\(state): \(marks)")
             case .error: #expect(has("StatusIndicatorView", "error"), "\(marks)")
-            case .usageWarning: #expect(has("DecorativeImageView"), "\(marks)")
             case .hovered: #expect(marks.contains { $0.view.hasSuffix("Button") }, "a hovered row shows its controls: \(marks)")
             case .groupExpanded: #expect(has("DisclosureChevronView"), "\(marks)")
             case .groupCollapsed: #expect(marks.contains { $0.view == "StatusIndicatorView" && $0.state != nil }, "no roll-up: \(marks)")
@@ -87,6 +86,17 @@ import Testing
         #expect(card.frame.width > 100 && card.frame.height > 40, "card \(card.frame.size)")
         #expect(!card.tabRowHeights.isEmpty && card.tabRowHeights.allSatisfy { $0 > 0 }, "tab rows \(card.tabRowHeights)")
         #expect(pinned.size.width >= card.frame.maxX, "the cell holds the card")
+        // The card's pixels show the card: its title and rows draw ink across it, not one flat fill (Liquid Glass's
+        // content never reaches a window's bitmap, so the shots once showed an empty box).
+        let image = try #require(pinned.image)
+        let pixels = try #require(SidebarStatesPlaygroundPixels(image))
+        let inset = card.frame.insetBy(dx: 2, dy: 2)
+        let ink = pixels.inkBox(in: CGRect(x: inset.minX * pinned.scale, y: inset.minY * pinned.scale,
+                                           width: inset.width * pinned.scale, height: inset.height * pinned.scale))
+        let inked = try #require(ink, "the hover card drew no ink: an empty box at \(card.frame)")
+        // Its text is left-aligned, so the ink spans most of the card's height but only part of its width.
+        #expect(inked.width > card.frame.width * pinned.scale / 4 && inked.height > card.frame.height * pinned.scale / 2,
+                "the card's ink covers \(inked) of \(card.frame) at \(pinned.scale)x")
         // The favicon slot: each favicon row's leading icon draws its own favicon (or the fallback), so the three
         // rows' pixels left of the title differ.
         let leading = try [SidebarStatesPlaygroundState.faviconMono, .faviconColorful, .faviconMissing].map { state in
@@ -126,10 +136,11 @@ import Testing
         #expect(leading[.current] != leading[.adaptive], "the adaptive column draws the dark mono favicon as fetched")
     }
 
-    /// The RGBA bytes of `cell`'s row left of its title (the leading inset guide).
+    /// The RGBA bytes of `cell`'s row left of where a title after an icon starts: the leading inset guide plus the icon
+    /// column. A leading icon's ink starts on the guide (Lawrence 2026-11-09, one left edge), so its pixels are right of it.
     static func leadingPixels(_ cell: SidebarStatesPlaygroundCell) throws -> [UInt8] {
         let image = try #require(cell.image), guide = try #require(cell.leadingGuideX)
-        let width = Int(guide * cell.scale), height = image.height
+        let width = min(image.width, Int(((guide + SidebarStyle.rowGlyphOpticalSide) * cell.scale).rounded())), height = image.height
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,

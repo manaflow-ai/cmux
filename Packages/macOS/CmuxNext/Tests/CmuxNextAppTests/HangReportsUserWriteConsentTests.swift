@@ -2,6 +2,7 @@
 import CmuxNextDesign
 import CmuxNextHangReports
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,14 +12,14 @@ import Testing
 @MainActor @Suite(.serialized) struct HangReportsUserWriteConsentTests {
     private func defaults() -> (UserDefaults, String) {
         let suite = "cn-hang-reports-consent-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite)!, suite)
+        return (UserDefaults(testSuiteName: suite)!, suite)
     }
 
     private func settings(home: URL, defaults: UserDefaults) async throws -> SettingsController {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         await settings.reload()

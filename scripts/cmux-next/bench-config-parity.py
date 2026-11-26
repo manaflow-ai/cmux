@@ -7,8 +7,8 @@ the fleet benches drive and the main-thread blocking detector (record only, as a
 is not byte-for-byte the shipped Release app. This compares it with a Release build of the same commit on what both builds have:
 
   * the always-on action signposts (`action.perform`, `action.commit`; CmuxNextSignposts), for the
-    same actions run through `action.run` (a normal socket method): --rounds of newTab + closeTab
-    and splitRight + closeTab per launch;
+    same actions run through `action.run` (a normal socket method): --rounds of newTab (New Workspace,
+    Cmd-N) + closeTab and splitRight + closeTab per launch;
   * the app process's CPU time over --idle seconds of idle after a settle (ps cputime).
 
 Runs alternate (Release, bench, Release, bench, ...) --runs times each, each a fresh launch with a
@@ -148,9 +148,10 @@ def one_run(kind, bundle, opts, index, signposts):
     app = App(bundle, out)
     app.launch()
     try:
-        time.sleep(opts.settle)  # the measured settle after launch (launch work done), not a poll
+        # sleep-ok: the protocol's fixed --settle after launch, the same length for both builds so their idle CPU compares.
+        time.sleep(opts.settle)
         cpu0 = app.cpu_seconds()
-        time.sleep(opts.idle)  # the idle window itself
+        time.sleep(opts.idle)  # sleep-ok: the measured idle window itself
         cpu1 = app.cpu_seconds()
         ndjson = os.path.join(out, "run.ndjson")
         command = [sys.executable, os.path.join(HERE, "perf-signposts.py"), "--pid", str(app.process.pid),

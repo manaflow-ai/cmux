@@ -6,7 +6,12 @@
 // `<config dir>/editor/theme.css` (rule 4). Fonts follow the terminal by default (the Ghostty rule):
 // with no `fontFamily` or `fontSize` the editor uses the terminal font the host sends in
 // `appearance`. Every key is optional; an invalid value keeps its default. Pure: no Monaco import.
-import { hostTerminalFontFamily, type DiffViewerAppearance } from "../../appearance";
+import {
+  codeFontFamily,
+  hostTerminalFontFallbackFamilies,
+  hostTerminalFontFamily,
+  type DiffViewerAppearance,
+} from "../../appearance";
 import { monacoScrollerOptions, type ScrollerStyle } from "../../scrollers";
 import { keybindingEntries, type KeybindingEntry } from "./vscodeKeys";
 
@@ -80,6 +85,8 @@ export interface EditorSettings extends Required<Omit<LanguageOverride, "rulers"
   accessibilitySupport: AccessibilitySupport;
   toolbar: boolean;
   statusBar: boolean;
+  /** `editor.vimMode`: vim's Normal, Insert and Visual modes (monaco-vim, loaded only when on). */
+  vimMode: boolean;
   languages: Record<string, LanguageOverride>;
 }
 
@@ -133,6 +140,7 @@ export const EDITOR_DEFAULTS: EditorSettings = {
   accessibilitySupport: "auto",
   toolbar: true,
   statusBar: true,
+  vimMode: false,
   languages: {},
 };
 
@@ -214,7 +222,7 @@ const enabled = (value: unknown): boolean | undefined =>
  * `quickSuggestions`, `wordBasedSuggestions`, `acceptSuggestionOnEnter`, `emptySelectionClipboard`,
  * `find.seedSearchStringFromSelection`, `trimTrailingWhitespace`, `insertFinalNewline`, `formatOnSave`,
  * `autoSave`, `autoSaveDelay`, `largeFileThreshold`, `accessibilitySupport`, `toolbar`, `statusBar`,
- * `keybindings`, `languages.<id>`.
+ * `vimMode`, `keybindings`, `languages.<id>`.
  */
 export function resolveEditorSettings(section: unknown): EditorSettings {
   const root = object(section);
@@ -329,6 +337,7 @@ export function resolveEditorSettings(section: unknown): EditorSettings {
     accessibilitySupport: oneOf(root.accessibilitySupport, ["auto", "on", "off"] as const) ?? d.accessibilitySupport,
     toolbar: bool(root.toolbar) ?? d.toolbar,
     statusBar: bool(root.statusBar) ?? d.statusBar,
+    vimMode: bool(root.vimMode) ?? d.vimMode,
     languages,
   };
 }
@@ -361,8 +370,7 @@ export function editorFont(
       ? appearance.fontFamily
       : hostTerminalFontFamily();
   const family =
-    settings.fontFamily ??
-    `${terminal ? `${JSON.stringify(terminal.trim())}, ` : ""}ui-monospace, SFMono-Regular, Menlo, Monaco, monospace`;
+    settings.fontFamily ?? codeFontFamily(terminal, appearance?.fallbackFamilies ?? hostTerminalFontFallbackFamilies());
   const terminalSize =
     typeof appearance?.fontSize === "number" && Number.isFinite(appearance.fontSize) && appearance.fontSize > 0
       ? appearance.fontSize

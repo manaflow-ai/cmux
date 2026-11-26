@@ -23,6 +23,9 @@ const STORAGE_KEY = "cmux.acpmux.transcriptView";
 const LIMIT = 200;
 
 let own: Map<string, TranscriptView> | undefined;
+/// The choices storage refused (a removal as undefined): this page's only copy, laid over every read
+/// of storage and saved with the next write that succeeds.
+const unsaved = new Map<string, TranscriptView | undefined>();
 const listeners = new Set<() => void>();
 
 /// The choices as stored now; undefined when storage cannot be read.
@@ -40,33 +43,49 @@ function stored(): Map<string, TranscriptView> | undefined {
   }
 }
 
+/// What storage holds now (else this page's last copy), with the choices it refused laid over it.
+function reread(): Map<string, TranscriptView> {
+  const all = stored() ?? own ?? new Map<string, TranscriptView>();
+  for (const [sessionId, view] of unsaved) {
+    all.delete(sessionId);
+    if (view) all.set(sessionId, view);
+  }
+  return all;
+}
+
+/// The choices. While a view is drawn the storage listener keeps this page's copy current; with none
+/// drawn nothing hears another pane, so a read then reads storage again.
 function load(): Map<string, TranscriptView> {
-  own ??= stored() ?? new Map();
+  if (!own || listeners.size === 0) own = reread();
   return own;
 }
 
 /// Writes one chat's choice (or its removal) over what storage holds now, not this page's copy:
-/// another pane's choices made since this page read them stay.
+/// another pane's choices made since this page read them stay, and so do the ones storage refused.
 function write(sessionId: string, view: TranscriptView | undefined): void {
-  const all = stored() ?? load();
+  const all = reread();
   all.delete(sessionId);
   if (view) all.set(sessionId, view);
   while (all.size > LIMIT) all.delete(all.keys().next().value!);
   own = all;
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
+    const storage = globalThis.localStorage;
+    if (!storage) throw new Error("no storage");
+    storage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
+    unsaved.clear();
   } catch {
     // The in-memory choice still lasts for this page.
+    unsaved.set(sessionId, view);
   }
 }
 
-// Another pane (another page on the same origin) changed a chat's view: read it again.
-if (typeof globalThis.addEventListener === "function")
-  globalThis.addEventListener("storage", (event: StorageEvent) => {
-    if (event.key !== STORAGE_KEY && event.key !== null) return;
-    own = stored() ?? own;
-    for (const listener of listeners) listener();
-  });
+// Another pane (another page on the same origin) changed a chat's view: read it again. Heard only
+// while a view is drawn (`subscribe`), so loading this module adds no listener.
+function onStorage(event: StorageEvent): void {
+  if (event.key !== STORAGE_KEY && event.key !== null) return;
+  own = reread();
+  for (const listener of listeners) listener();
+}
 
 /// Set while a switch opens or closes the rows on screen: their folds snap instead of playing
 /// (useAnchoredCollapse.ts). Cleared on the next frame, after the switch has drawn.
@@ -88,9 +107,18 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
+/// The first view drawn adds the storage listener (and reads what changed while none was heard); the
+/// last one gone removes it.
 const subscribe = (listener: () => void) => {
+  if (listeners.size === 0 && typeof globalThis.addEventListener === "function") {
+    globalThis.addEventListener("storage", onStorage);
+    own = reread();
+  }
   listeners.add(listener);
-  return () => void listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) globalThis.removeEventListener?.("storage", onStorage);
+  };
 };
 
 /// The chat's view: its own, else the default setting.
@@ -131,10 +159,12 @@ export function makeTranscriptViewDefault(sessionId: string | undefined, view: T
 /// Test and gallery reset: every chat follows the default again.
 export function resetTranscriptViews(): void {
   own = new Map();
+  unsaved.clear();
   try {
     globalThis.localStorage?.removeItem(STORAGE_KEY);
   } catch {
-    // Nothing to persist.
+    // Storage keeps them: this page drops each one it still holds.
+    for (const sessionId of stored()?.keys() ?? []) unsaved.set(sessionId, undefined);
   }
   for (const listener of listeners) listener();
 }

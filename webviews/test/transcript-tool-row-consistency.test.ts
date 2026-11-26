@@ -5,7 +5,7 @@
 //   flow, and the cut label keeps the whole line (agent-pane.tool-errors#long-label; Codex parity);
 // - a failed Read step and a failed command step both say "Failed" to a screen reader, and draw
 //   nothing (agent-pane.tool-errors#failed-step-mixed);
-// - an opened lead thought reads "Thought for 6s" with its chevron right after the words
+// - an opened lead thought reads its own first line with its chevron right after the line
 //   (agent-pane.claude-desktop-organization#shared; cmux#27896 parked it at the row's far edge);
 // - an inner step under the pointer shows its chevron and lights its words, never its glyph
 //   (agent-pane.claude-desktop-organization#step-hover; Codex parity);
@@ -92,13 +92,14 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
       }
     });
 
-    test(`a failed Read step and a failed command step both say "Failed" to a screen reader only (${theme.file})`, async () => {
+    test(`a failed Read and a failed command step both say "Failed" to a screen reader only (${theme.file})`, async () => {
       const page = await open("agent-pane.tool-errors", "failed-step-mixed", theme.name, 760);
       try {
         const tags = await page.evaluate(() =>
           [
             ...document.querySelectorAll<HTMLElement>(
-              ".cv-steps .cv-tool > .cv-tool__failed, .cv-steps .cv-command > .cv-command__failed",
+              // The failed Read is its own row (reads never group since 2026-11-17); the command a step.
+              ".acpmux-row .cv-tool > .cv-tool__failed, .acpmux-row .cv-command > .cv-command__failed",
             ),
           ].map((tag) => ({
             text: tag.textContent!.trim(),
@@ -117,15 +118,18 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
       }
     });
 
-    test(`an opened lead thought reads its label with the chevron right after it (${theme.file})`, async () => {
+    test(`an opened lead thought reads its first line with the chevron right after it (${theme.file})`, async () => {
       const page = await open("agent-pane.claude-desktop-organization", "shared", theme.name, 760);
       try {
+        const thought = page.locator(".cv-step.is-lead .cv-step-thought");
+        expect(await thought.getAttribute("aria-expanded")).toBe("false");
+        await thought.click();
+        await page.locator(".cv-step.is-lead .cv-step-thought__body").waitFor();
         const lead = await page.evaluate(() => {
           const button = document.querySelector<HTMLElement>(".cv-step.is-lead .cv-step-thought")!;
           const label = button.querySelector<HTMLElement>(".cv-tool__text")!;
-          const range = document.createRange();
-          range.selectNodeContents(label);
-          const words = range.getBoundingClientRect();
+          // The line's box: a first line that wraps runs to the row's end, and the chevron follows it.
+          const words = label.getBoundingClientRect();
           const glyph = button.querySelector(".cv-tool__chevron path")!.getBoundingClientRect();
           const body = document.querySelector<HTMLElement>(".cv-step.is-lead .cv-step-thought__body")!;
           return {
@@ -134,16 +138,16 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
             gap: glyph.left - words.right,
             float: getComputedStyle(button).float,
             above: glyph.bottom <= body.getBoundingClientRect().top + 0.5,
-            edge: button.closest(".acpmux-row")!.getBoundingClientRect().right - glyph.right,
+            first: glyph.bottom <= words.top + 22.5,
           };
         });
         expect(lead.expanded).toBe("true");
-        expect(lead.text).toMatch(/^Thought/);
+        expect(lead.text).toMatch(/^The fetch helper retries every failure the same way/);
         expect(lead.gap).toBeGreaterThanOrEqual(0);
         expect(lead.gap).toBeLessThanOrEqual(8);
         expect(lead.float).toBe("none");
         expect(lead.above).toBe(true);
-        expect(lead.edge).toBeGreaterThan(40);
+        expect(lead.first).toBe(true);
       } finally {
         await page.close();
       }

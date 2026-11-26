@@ -1,4 +1,4 @@
-//! Launch snapshots: the launch snapshot path and subscription. Shell
+//! Launch snapshots: the launch snapshot path, subscription and flush. Shell
 //! command history is `mux/command_history.rs`.
 
 use super::*;
@@ -13,6 +13,41 @@ impl Mux {
         *self.launch_snapshot_path.lock().unwrap() = path;
     }
 
+    pub(crate) fn set_launch_snapshot_flush(
+        &self,
+        flush: Option<Arc<crate::server::LaunchSnapshotFlush>>,
+    ) {
+        *self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner) = flush;
+    }
+
+    /// Writes the launch snapshot now (`flush-launch-snapshot`) and waits up
+    /// to `wait` for it: true once the file holds the current state, false
+    /// without a writer (no durable registry) or when it did not land in time.
+    pub(crate) fn flush_launch_snapshot(&self, wait: Duration) -> bool {
+        let flush =
+            self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        flush.is_some_and(|flush| flush.flush(wait))
+    }
+
+    /// `client` wrote a native frontend projection: its close writes the
+    /// launch snapshot at once (`LaunchSnapshotFlush::client_left`).
+    pub(crate) fn launch_snapshot_projection_writer(&self, client: u64) {
+        let flush =
+            self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(flush) = flush {
+            flush.projection_writer(client);
+        }
+    }
+
+    /// A control connection closed (`disconnect_client`).
+    pub(crate) fn launch_snapshot_client_left(&self, client: u64) {
+        let flush =
+            self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(flush) = flush {
+            flush.client_left(client);
+        }
+    }
+
     /// Events that can change the launch snapshot.
     pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_launch_snapshot()
@@ -21,5 +56,18 @@ impl Mux {
     /// Local conversation changes (the host replica's Chief stream).
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_conversations()
+    }
+
+    /// A receiver of the events `accepts` takes (`MuxEventBroadcaster::subscribe_matching`).
+    pub(crate) fn subscribe_matching(&self, accepts: fn(&MuxEvent) -> bool) -> MuxEventReceiver {
+        self.subscribers.subscribe_matching(accepts)
+    }
+
+    /// A receiver of the events a stateful `accepts` takes (`MuxEventBroadcaster::subscribe_where`).
+    pub(crate) fn subscribe_where(
+        &self,
+        accepts: impl Fn(&MuxEvent) -> bool + Send + 'static,
+    ) -> MuxEventReceiver {
+        self.subscribers.subscribe_where(accepts)
     }
 }

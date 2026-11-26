@@ -16,13 +16,25 @@ import subprocess
 import sys
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / "scripts" / "ci"
 sys.path.insert(0, str(CI))
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str, file: str):
+    # One module object per file (tests/test_script_module_loads.py): reuse what another test registered.
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, CI / file)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -415,6 +427,12 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(doc, {"schema": 1, "build": self.BUILD, "verdict": "pass", "commit": self.COMMIT,
                                "canaryRun": f"https://github.com/{REPO}/actions/runs/555", "checkedAt": "T"})
 
+    def test_verdict_binds_to_the_attempt_that_measured_the_artifact(self) -> None:
+        jobs = [{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "success", "run_attempt": 1},
+                {"name": f"verdict pass {self.BUILD}", "status": "in_progress", "run_attempt": 2}]
+        doc = train.checked_verdict(self.api(jobs=jobs), REPO, self.BUILD, "pass", "555")
+        self.assertEqual(doc["canaryAttempt"], 1)
+
     def test_a_pass_needs_the_canary_job_green(self) -> None:
         with self.assertRaises(train.TrainError):
             train.checked_verdict(self.api(jobs=[{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "failure"}]),
@@ -539,7 +557,7 @@ class OwnedRefusal(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8"))["jobs"]
         pick = jobs["pick-train-runner"]
-        self.assertEqual(pick["environment"], "ci-routing-agent")
+        self.assertEqual(workflow_jobs.resolve(pick).environment, {"name": "ci-routing-agent", "deployment": False})
         self.assertIn("nightly_build_runner.py", pick["steps"][-1]["run"])
         self.assertNotIn("DEDICATED_LABEL", pick["steps"][-1]["env"])
         # vars.NIGHTLY_NEXT_TRAIN_RUNNER reaches only OWNED_LABELS, and the picker offers no hosted Mac from it.
@@ -551,12 +569,19 @@ class OwnedRefusal(unittest.TestCase):
         self.assertEqual([line.split(":")[0].strip() for line in text.splitlines()
                           if "vars.NIGHTLY_NEXT_TRAIN_RUNNER" in line and not line.lstrip().startswith("#")],
                          ["OWNED_LABELS"])
-        self.assertIn("ubuntu", pick["runs-on"])
-        runs_on = jobs["build"]["runs-on"]
+        pick_cells = workflow_jobs.runs_on_cells(pick)
+        self.assertIsNotNone(pick_cells, "pick-train-runner: runs-on has a matrix value nothing resolves")
+        self.assertIn("ubuntu", "\n".join(pick_cells))
+        cells = workflow_jobs.runs_on_cells(jobs["build"])
+        self.assertIsNotNone(cells, "build: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
-                      "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
+                      "needs.pick-train-runner.outputs.owned || vars.CI_BLACKSMITH_MACOS == 'on' && "
+                      "needs.pick-train-runner.outputs.blacksmith || (vars.CI_BLACKSMITH_MACOS != 'on' && "
+                      "vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}",
+                      runs_on)
 
 
 class Wiring(unittest.TestCase):

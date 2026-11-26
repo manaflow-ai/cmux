@@ -164,12 +164,28 @@ def _pack_npm_packages(
                 raise PackageContractError(f"npm install did not create launcher: {launcher}")
             version_result = _run([str(launcher), "--version"], env=env)
             _require_release_version(version_result.stdout, version, "cmux --version")
+            autocloud_result = _run([str(launcher), "autocloud", "--help"], env=env)
+            _require_autocloud(autocloud_result.stdout, "cmux autocloud --help")
         if install_relay_package is not None:
             _smoke_relay_launcher(
                 install_dir,
                 env,
                 temp_root,
             )
+
+
+# What `cmux autocloud --help` must say: the AutoCloud chat (RFD 0139, cmux-autocloud) ships
+# inside the cmux binary these packages carry, so `npx cmux autocloud` and `uvx cmux autocloud`
+# start a chat on an AutoCloud machine with nothing else to install.
+AUTOCLOUD_HELP_MARKERS = ("An agent chat on any machine", "login")
+
+
+def _require_autocloud(output: str, label: str) -> None:
+    missing = [marker for marker in AUTOCLOUD_HELP_MARKERS if marker not in output]
+    if missing:
+        raise PackageContractError(
+            f"{label} must show the AutoCloud chat (RFD 0139): missing {missing!r} in {output[:400]!r}"
+        )
 
 
 def _require_release_version(output: str, version: str, label: str) -> None:
@@ -324,6 +340,9 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
         NOTICE_FILE,
+        SCREEN_DETECTION_BINARY,
+        TERMINAL_HOST_BINARY,
+        npm_companion_binaries,
     )
 
     if package_name == "cmux":
@@ -342,7 +361,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
             }
         )
     else:
-        extension = ".exe" if "win32" in package_name else ""
+        os_name = "win32" if "win32" in package_name else "linux" if "-linux-" in package_name else "darwin"
+        extension = ".exe" if os_name == "win32" else ""
         expected = frozenset(
             {
                 "package.json",
@@ -352,8 +372,11 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 NPM_SSH_MANIFEST,
                 NOTICE_FILE,
             }
-            # The Windows package also packs the per-terminal host (cx-1vlzr).
-            | ({"bin/cmux-tui-host.exe"} if "win32" in package_name else set())
+            # The Windows package also packs the per-terminal host (cx-1vlzr);
+            # the macOS and Linux packages pack the agent screen-detection
+            # plugin the daemon runs from beside its own executable, and the
+            # Linux packages the slim terminal host (CMUX-571).
+            | {f"bin/{name}{extension}" for name in npm_companion_binaries(os_name)}
         )
     expected_names = {f"package/{path}" for path in expected}
     try:
@@ -379,6 +402,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui.exe")
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
                 or member.name.endswith("/bin/cmux-tui-host.exe")
+                or member.name.endswith(f"/bin/{SCREEN_DETECTION_BINARY}")
+                or member.name.endswith(f"/bin/{TERMINAL_HOST_BINARY}")
                 or member.name.endswith("/bin/chatmux-relay")
                 or member.name.endswith("/bin/chatmux-relay.exe")
                 or member.name.endswith("/bin/cmux-tui")

@@ -114,6 +114,12 @@ public final class PopupHostView: NSView {
         }
     }
 
+    /// The drop the shadow layer casts: the one popover shadow, or a theme file's menu shadow
+    /// (``MenuLook/Shadow``; nil draws none). It must fit in ``PopupStyle/shadowMargin``.
+    public var elevation: Elevation? = PopupStyle.standard.elevation {
+        didSet { if elevation != oldValue { applyElevation() } }
+    }
+
     /// `card` sizes by its frame (the host lays it out). An
     /// `OverlaySurfaceView` card takes the popup radius.
     public init(card: NSView) {
@@ -122,11 +128,8 @@ public final class PopupHostView: NSView {
         wantsLayer = true
         card.translatesAutoresizingMaskIntoConstraints = true
         if let surface = card as? OverlaySurfaceView { surface.cornerRadius = PopupStyle.standard.cornerRadius }
-        let elevation = PopupStyle.standard.elevation
         shadowLayer.shadowColor = NSColor.black.cgColor
-        shadowLayer.shadowOpacity = Float(elevation.alpha)
-        shadowLayer.shadowRadius = elevation.layerRadius
-        shadowLayer.shadowOffset = elevation.layerOffset()
+        applyElevation()
         shadowCutout.fillRule = .evenOdd
         shadowLayer.mask = shadowCutout
         layer?.addSublayer(shadowLayer)
@@ -135,6 +138,12 @@ public final class PopupHostView: NSView {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private func applyElevation() {
+        shadowLayer.shadowOpacity = Float(elevation?.alpha ?? 0)
+        shadowLayer.shadowRadius = elevation?.layerRadius ?? 0
+        shadowLayer.shadowOffset = elevation?.layerOffset() ?? .zero
+    }
 
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -146,12 +155,26 @@ public final class PopupHostView: NSView {
         placeCard()
     }
 
-    /// The card fills the host less the band. A host smaller than the band
+    /// The card's frame in the host while it resizes inside a larger window (a hover card's morph,
+    /// `HoverCardPanel+Morph.swift`); nil: the card fills the host less the band. The shadow and its
+    /// cutout follow the card's frame either way, in the same commit, so the surface, its rim and its
+    /// shadow are one shape on every frame.
+    public var cardRect: CGRect? {
+        didSet { if cardRect != oldValue { placeCard() } }
+    }
+
+    /// The card's frame in the host at rest: the host less the band.
+    public var restingCardRect: CGRect {
+        let margin = PopupStyle.standard.shadowMargin + travelMargin
+        return bounds.insetBy(dx: margin, dy: margin)
+    }
+
+    /// The card fills the host less the band (or takes ``cardRect``). A host smaller than the band
     /// (a window not yet placed) leaves the card where it is.
     private func placeCard() {
         let margin = PopupStyle.standard.shadowMargin + travelMargin
         guard bounds.width >= 2 * margin, bounds.height >= 2 * margin else { return }
-        let frame = bounds.insetBy(dx: margin, dy: margin)
+        let frame = cardRect ?? restingCardRect
         card.frame = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -159,6 +182,9 @@ public final class PopupHostView: NSView {
         let shape = CGPath(roundedRect: frame, cornerWidth: radius, cornerHeight: radius, transform: nil)
         shadowLayer.frame = bounds
         shadowLayer.shadowPath = shape
+        // Liquid Glass casts its own shadow; a second, black one under it read as a dark ring. The layer's
+        // opacity, not `isHidden`, which a popup that veils its card toggles (GroupEditorService).
+        shadowLayer.opacity = (card as? OverlaySurfaceView)?.castsSystemGlassShadow == true ? 0 : 1
         let cutout = CGMutablePath()
         cutout.addRect(bounds)
         cutout.addPath(shape)

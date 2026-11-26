@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("calm-motion.test.ts", async () => {
@@ -49,7 +50,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
 
   test("under Reduce Motion a live transcript row, new text and a highlighted code card still fade in", async () => {
     const p = await page(
-      `:root{--agent-motion-in:120ms}${desktop}${conversation}`,
+      `:root{--agent-motion-in:${MOTION_MS.micro}ms}${desktop}${conversation}`,
       `<div class="cv-enter">reply</div><div class="acpmux-row--enter">tool</div><span class="cv-fresh">new text</span>` +
         `<div class="cv-code-handoff is-fading"><div class="cv-code-handoff__real">code</div></div>`,
       "reduce",
@@ -58,12 +59,14 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       rows.map((row) => `${getComputedStyle(row).animationName} ${getComputedStyle(row).animationDuration}`),
     );
     await p.close();
-    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.36s", "cv-enter-fade 0.12s"]);
+    expect(fades).toEqual(Array(4).fill(`cv-enter-fade ${MOTION_MS.micro / 1000}s`));
   });
 
   test("a new message fades at final size and appears instantly under Reduce Motion", async () => {
-    const style = `:root{--agent-motion-in:180ms}${desktop}${conversation}`;
-    const message = `<div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div>`;
+    // Transcript messages use the host-scaled standard step for the shared arrival clock. Keep the
+    // root arrival token short here so the scroller's override is observable in the fixture.
+    const style = `:root{--agent-motion-arrive:80ms;--agent-motion-move:180ms}${desktop}${conversation}`; // motion-allow: a fixture clock set long, not the scale
+    const message = `<div class="acpmux-scroll"><div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div></div>`;
     const normal = await page(style, message, "no-preference");
     const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => {
       const animation = row.getAnimations()[0];
@@ -83,7 +86,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     });
     await normal.close();
     expect(normalMotion.name).toBe("cv-message-enter");
-    expect(normalMotion.duration).toBe("0.18s");
+    expect(normalMotion.duration).toBe("0.18s"); // motion-allow: a fixture clock set long, not the scale
     const finalBounds = normalMotion.bounds[2]!;
     expect(finalBounds.width).toBe(440);
     expect(finalBounds.height).toBe(72);
@@ -101,7 +104,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
 
   test("a message text update keeps its entrance animation object and start time", async () => {
     const p = await page(
-      `:root{--agent-motion-in:180ms}${desktop}${conversation}`,
+      `:root{--agent-motion-in:180ms}${desktop}${conversation}`, // motion-allow: a fixture clock set long, not the scale
       `<div class="acpmux-row__message-presentation" data-message>first token</div>`,
       "no-preference",
     );

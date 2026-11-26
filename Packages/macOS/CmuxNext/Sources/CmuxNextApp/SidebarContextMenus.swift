@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
 /// on SidebarBridge (SidebarBridge+Sections), which dispatches to these.
@@ -42,7 +43,7 @@ enum SidebarContextMenus {
                 for item in trailing { menu.addItem(item) }
             }
             // Customize Menu… ends the menu, after a pinned tile's own rows.
-            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow) }
+            if !selection { registry.appendCustomizeItem(to: menu, for: .workspaceRow, target: target) }
             if selection { nameSelection(menu, ids, services) }
             menu.themeRows(in: scope)
             return menu
@@ -66,12 +67,13 @@ enum SidebarContextMenus {
             menu.themeRows(in: scope)
             return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
-            // This Mac alone: its header is the list's "Projects" title and draws no machine icon.
-            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+            // This Mac alone: its header is the list's "Projects" title and draws no machine icon; it keeps Share This Mac.
+            return SidebarScreenIntentActions.addShareThisMacRow(to: registry.makeContextMenu(for: .sidebarBackground), registry: registry).themeRows(in: scope)
         case .section(.machine(let machine)):
-            return machineMenu(machine.rawValue, services: services).themeRows(in: scope)
+            return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+        case .newButton: return registry.makeContextMenu(for: .sidebarNew).themeRows(in: scope) // the + button's short list
         case .footer:
             // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
             let band = registry.makeContextMenu(for: .sidebarFooter, customize: false)
@@ -81,7 +83,9 @@ enum SidebarContextMenus {
             }
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .profile(let id):
-            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
+            let target = ActionTargetRef(kind: .profile, id: id.rawValue), menu = registry.makeContextMenu(for: .profile, target: target), space = model.profiles.first { $0.id == id }
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: space?.name ?? "", rename: "space.rename", current: space?.color, noColor: space?.color == nil) // the group menu's header
+            return menu.themeRows(in: scope)
         case .nowPlaying:
             // The media card's rows (u2437): Play/Pause, Picture in Picture (on the tab the card
             // shows), Hide, Hide Until Relaunch, Never Show Media Card.
@@ -113,7 +117,7 @@ enum SidebarContextMenus {
     /// Mac's and a paired server's are the sidebar's), with what every
     /// machine offers (`machineSection`: its icon) after the first group,
     /// or at the end of its Options folder when the top level is full.
-    static func machineMenu(_ machine: String, services: AppServices) -> NSMenu {
+    static func machineMenu(_ machine: String, header: SidebarMachine? = nil, services: AppServices) -> NSMenu {
         let registry = services.registry, machines = services.machines
         let target = ActionTargetRef(kind: .machine, id: machine)
         let menu = if machines.sshSession(machine) != nil {
@@ -123,8 +127,8 @@ enum SidebarContextMenus {
         } else {
             registry.makeContextMenu(for: .cloudMachine, target: target)
         }
-        // Its rows join the header's menu, which ends with its own Customize Menu….
-        let shared = registry.makeContextMenu(for: .machineSection, target: target, customize: false)
+        // Its rows join the header's menu, which ends with its own Customize Menu…; its screen rows follow the header's screen button.
+        let shared = registry.makeContextMenu(for: .machineSection, target: target, entries: registry.contextMenuEntries(for: .machineSection, removing: SidebarScreenIntentActions.hiddenMenuRows(header)), customize: false)
         let items = shared.items
         shared.removeAllItems()
         guard !items.isEmpty else { return menu }

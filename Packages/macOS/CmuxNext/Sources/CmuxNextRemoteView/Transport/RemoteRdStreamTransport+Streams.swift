@@ -27,9 +27,23 @@ extension RemoteRdStreamTransport {
 
     public func cursorUpdates() -> AsyncStream<RemoteCursorState> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteCursorState.self, bufferingPolicy: .bufferingNewest(1))
-        let previous = state.withLock { state in
+        let (previous, current) = state.withLock { state in
             defer { state.cursors = continuation }
-            return state.cursors
+            return (state.cursors, state.cursorFeed.current)
+        }
+        previous?.finish()
+        // A still cursor sends again only once a second: a new subscriber starts from the last.
+        if let current { continuation.yield(current) }
+        return stream
+    }
+
+    /// The host's once-a-second counters (`stats`: rate, loss, encode time), newest only; the viewer draws them
+    /// (D10: an ultra session shows the link it spends).
+    public func hostStatsUpdates() -> AsyncStream<RemoteRdHostStats> {
+        let (stream, continuation) = AsyncStream.makeStream(of: RemoteRdHostStats.self, bufferingPolicy: .bufferingNewest(1))
+        let previous = state.withLock { state in
+            defer { state.hostStats = continuation }
+            return state.hostStats
         }
         previous?.finish()
         return stream

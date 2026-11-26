@@ -10,20 +10,25 @@ extension DaemonStore {
     /// to the memo's dictionary once it returns, so the apply after it updates the memo in place.
     func snapshotDiff(of tree: DaemonTree) async -> SnapshotDiff? {
         guard !snapshotMemo.applied.isEmpty else { return nil }
-        return await SnapshotDiff.computed(tree, against: snapshotMemo.applied, revision: snapshotMemo.revision)
+        return await SnapshotDiff.computed(tree, against: snapshotMemo.applied, order: snapshotMemo.order, revision: snapshotMemo.revision)
     }
 
     /// What differs between `tree` and the last applied live snapshot when the memo can vouch for
-    /// the rest, else nil (apply in full): no live snapshot of this connection yet, a launch
-    /// snapshot shown, another daemon generation or registry, or a confirmed write since that named
-    /// no workspace. `diff` is used when it was computed against the current memo; otherwise the
-    /// comparison runs here.
+    /// the rest, else nil (apply in full): no live snapshot yet, a launch snapshot shown, another
+    /// daemon generation or registry, or a confirmed write since that named no workspace.
+    /// A reconnect to the same daemon (same generation and registry) keeps the memo: what the daemon
+    /// changed while the link was down is in its tree, so the diff finds it, and what applied here
+    /// before the drop is marked dirty (hq#19373, Leo: "a graceful if not imperceptible state
+    /// transition all around"; the full pass held main ~109 ms at 3,000 workspaces). A tree that names
+    /// no generation cannot prove it is the same daemon, so a new connection's first one applies in full.
+    /// `diff` is used when it was computed against the current memo; otherwise the comparison runs here.
     func incrementalDiff(_ tree: DaemonTree, diff: SnapshotDiff?) -> SnapshotDiff? {
-        guard !isProvisional, !snapshotMemo.untracked, snapshotMemo.epoch == connectionEpoch, !snapshotMemo.applied.isEmpty,
+        guard !isProvisional, !snapshotMemo.untracked, !snapshotMemo.applied.isEmpty,
+              snapshotMemo.epoch == connectionEpoch || tree.generation != nil,
               snapshotMemo.generation == tree.generation, snapshotMemo.registryID == tree.registryID else { return nil }
         if let diff, diff.revision == snapshotMemo.revision { return diff }
         snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
-        return SnapshotDiff.compute(tree, against: snapshotMemo.applied, revision: snapshotMemo.revision)
+        return SnapshotDiff.compute(tree, against: snapshotMemo.applied, order: snapshotMemo.order, revision: snapshotMemo.revision)
     }
 
     /// The workspaces an incremental apply touches: the ones `diff` names, and the ones an event
@@ -37,7 +42,7 @@ extension DaemonStore {
     /// `applyTree` for the workspaces in `touched` only, then their index entries, primes and state;
     /// removed workspaces leave the index; the order is the snapshot's. The sidebar flattens again
     /// only when the order, the membership or a group changed.
-    func applyTreeIncrementally(_ tree: DaemonTree, touching touched: Set<String>) {
+    func applyTreeIncrementally(_ tree: DaemonTree, touching touched: Set<String>, diff: SnapshotDiff? = nil) {
         directories.follow(tree.generation)
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
         // The sidebar's sections follow the groups' order (their `index`), which an in-place update can change.
@@ -62,6 +67,20 @@ extension DaemonStore {
             let saved = savedOpenGroups.contains(id)
             if group.isSaved != saved { group.isSaved = saved }
         }
+        // The same workspaces in the same order as the memo's snapshot, and the confirmed list unwritten since: only the
+        // touched records change, each found by identity. No walk of every workspace on main per `tree-changed`.
+        if let diff, let models = unmovedWorkspaces(touched, diff: diff, count: tree.workspaces.count) {
+            for (model, snapshot) in models {
+                let group = model.group
+                model.update(snapshot)
+                if model.group != group { sidebarNeedsRecompute = true }
+                indexed(model)
+            }
+            reapplyEventWrittenTabs(skipping: touched)
+            if !models.isEmpty { index.noteTabOrderChanged() }
+            return
+        }
+        workspaceListWalkedOnMain &+= workspaces.count
         // The confirmed records by identity, as the full reconcile matches them (the overlay is lifted).
         var existing: [String: WorkspaceModel] = [:]
         existing.reserveCapacity(workspaces.count)
@@ -101,6 +120,22 @@ extension DaemonStore {
         if !reindex.isEmpty { index.noteTabOrderChanged() }
     }
 
+    /// The records of `touched` with their snapshots in `diff`'s tree, when that tree lists the memo's workspaces in
+    /// the memo's order, no identity twice, and the confirmed list is the one the memo holds (no write since: the same
+    /// buffer); else nil. O(touched): the snapshot of an untouched or event-only workspace is the memo's.
+    private func unmovedWorkspaces(_ touched: Set<String>, diff: SnapshotDiff, count: Int) -> [(WorkspaceModel, WorkspaceSnapshot)]? {
+        guard diff.sameOrder, diff.revision == snapshotMemo.revision, snapshotMemo.applied.count == count, workspaceList.count == count,
+              workspaceList.sharesStorage(with: snapshotMemo.list)
+        else { return nil }
+        var models: [(WorkspaceModel, WorkspaceSnapshot)] = []
+        models.reserveCapacity(touched.count)
+        for id in touched {
+            guard let model = index.workspacesByID[id], let snapshot = diff.changed[id] ?? snapshotMemo.applied[id] else { return nil }
+            models.append((model, snapshot))
+        }
+        return models
+    }
+
     /// The tabs a whole-value event (title, size, exit) wrote since the last snapshot, in the
     /// workspaces the apply did not touch: each takes its own snapshot, the memo's (which equals the
     /// new tree's for an untouched workspace), and only that tab is re-indexed and re-laid. Records
@@ -129,21 +164,23 @@ extension DaemonStore {
     /// against it). O(tree) on main, as the full apply itself is.
     func recordSnapshotMemo(_ tree: DaemonTree) {
         snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
-        let applied = Dictionary(tree.workspaces.map { (WorkspaceModel.identity($0), $0) }, uniquingKeysWith: { _, new in new })
-        snapshotMemo = SnapshotMemo(applied: applied, epoch: connectionEpoch, generation: tree.generation, registryID: tree.registryID,
-                                    revision: snapshotMemo.revision &+ 1)
+        let order = tree.workspaces.map(WorkspaceModel.identity)
+        let applied = Dictionary(zip(order, tree.workspaces), uniquingKeysWith: { _, new in new })
+        snapshotMemo = SnapshotMemo(applied: applied, order: order, list: workspaceList, epoch: connectionEpoch,
+                                    generation: tree.generation, registryID: tree.registryID, revision: snapshotMemo.revision &+ 1)
     }
 
     /// Records `tree`, applied incrementally, as the last applied live snapshot: the memo takes
     /// only `diff`'s entries (O(changed)); an unchanged workspace's entry equals its snapshot
-    /// already. The memo's dictionary is moved out before it changes, so it is never copied.
+    /// already. The memo's dictionary is moved out before it changes, so it is never copied; an unmoved snapshot's
+    /// `diff.order` is the memo's own array (``SnapshotDiff/compute(_:against:order:revision:)``), so none is replaced.
     func advanceSnapshotMemo(_ tree: DaemonTree, applying diff: SnapshotDiff) {
         var applied: [String: WorkspaceSnapshot] = [:]
         swap(&applied, &snapshotMemo.applied)
         for (id, snapshot) in diff.changed { applied[id] = snapshot }
         for id in diff.removed { applied[id] = nil }
-        snapshotMemo = SnapshotMemo(applied: applied, epoch: connectionEpoch, generation: tree.generation, registryID: tree.registryID,
-                                    revision: snapshotMemo.revision &+ 1)
+        snapshotMemo = SnapshotMemo(applied: applied, order: diff.order, list: workspaceList, epoch: connectionEpoch,
+                                    generation: tree.generation, registryID: tree.registryID, revision: snapshotMemo.revision &+ 1)
     }
 
     /// Before `event` applies to the confirmed records: what it changes of the tree snapshot is
@@ -174,7 +211,7 @@ extension DaemonStore {
             } else {
                 snapshotMemo.untracked = true
             }
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
             // One tab's field: the next snapshot re-applies that tab, not its workspace.
             if index.tabsBySurface[surface] != nil { snapshotMemo.dirtyTabs.insert(surface) }
         case .agentChanged, .agentPresenceChanged, .notification:
@@ -184,9 +221,9 @@ extension DaemonStore {
         case .overflow:
             // Presence cleared on every tab, and the events it stands for named nothing.
             snapshotMemo.untracked = true
-        case .connected, .disconnected, .daemonShutdown, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
+        case .connected, .disconnected, .daemonShutdown, .screenDeviceChanged, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
              .frontendProjectionChanged, .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged,
-             .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
+             .agentSessionShareChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
              .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown:
             // No confirmed tree record changes (a resync, a connection change, side state).
             break

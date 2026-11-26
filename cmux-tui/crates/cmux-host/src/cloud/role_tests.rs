@@ -14,8 +14,15 @@ fn vm_receiver_client_socket_discards_reply_after_its_write_deadline() {
     use std::io::Read;
     let root = tempfile::tempdir().unwrap();
     let (_control, theirs) = UnixStream::pair().unwrap();
-    let mut worker =
-        Worker::new(Paths::new(root.path()), "vm-1".into(), None, theirs, Arc::default()).unwrap();
+    let mut worker = Worker::new(
+        Paths::new(root.path()),
+        "vm-1".into(),
+        None,
+        theirs,
+        Arc::default(),
+        Arc::default(),
+    )
+    .unwrap();
     let (mut caller, stream) = UnixStream::pair().unwrap();
     stream.set_nonblocking(true).unwrap();
     caller.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
@@ -46,8 +53,14 @@ fn agent_socket_clients_never_stop_the_worker() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker =
-            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);
@@ -79,8 +92,14 @@ fn github_token_asks_get_one_reply_line() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker =
-            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);
@@ -112,6 +131,51 @@ fn github_token_asks_get_one_reply_line() {
     let bad =
         ask("{\"handoff_report\": {\"session\": \"s1\", \"turn\": 0, \"status\": \"running\"}}\n");
     assert_eq!(bad["error"]["code"], "request.invalid");
+    let mut control = ours;
+    control.write_all(b"stop\n").unwrap();
+    let result = thread.join();
+    assert!(result.is_ok(), "the worker thread panicked");
+    result.unwrap().unwrap();
+}
+
+/// Every client of the agent socket is answered, however many hold it open (the old cap
+/// answered the 17th "busy").
+#[test]
+fn every_agent_socket_client_is_answered_past_the_old_cap() {
+    use std::io::{BufRead, BufReader};
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::new(root.path());
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    let worker_paths = paths.clone();
+    let thread = std::thread::spawn(move || {
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
+        worker.run()
+    });
+    let socket = paths.at(AGENT_SOCKET);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !socket.exists() {
+        assert!(Instant::now() < deadline, "the agent socket never appeared");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let held: Vec<UnixStream> = (0..40).map(|_| UnixStream::connect(&socket).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(100));
+    for mut client in held {
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        client
+            .write_all(b"{\"github_token\": {\"repo\": \"o/r\", \"permissions\": {\"contents\": \"read\"}}}\n")
+            .unwrap();
+        let mut reply = String::new();
+        BufReader::new(client).read_line(&mut reply).unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["error"]["code"], "vm.unbound", "{reply}");
+    }
     let mut control = ours;
     control.write_all(b"stop\n").unwrap();
     let result = thread.join();

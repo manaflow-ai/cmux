@@ -1,3 +1,4 @@
+import CmuxNextAppCore
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
@@ -24,7 +25,7 @@ struct LaunchSnapshotWindow {
 
     private func showSaved(_ document: WindowStateDocument) -> Bool {
         let saved = WindowRegistry(records: document.windows)
-        guard let front = saved.recency.first(where: { id in saved.window(id).map { $0.isOpen && manager.hasMirroredWorkspace($0) } == true }),
+        guard let front = saved.frontOpen(where: manager.hasMirroredWorkspace),
               let record = document.windows.first(where: { $0.id == front }), let window = saved.window(front) else { return false }
         manager.launchWindowID = front
         manager.state(for: front).adopt(record)

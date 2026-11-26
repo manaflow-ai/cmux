@@ -23,7 +23,9 @@ import itertools
 import json
 import os
 import random
+import re
 import shlex
+import tempfile
 import subprocess
 import sys
 import time
@@ -63,7 +65,9 @@ class Guest:
         self.binary = ""
         self.env = "CMUX_NEXT_SOCKET_MODE=automation"
         self.socket = ""
-        self.ctl = f"/tmp/fuzz-ssh-{os.getpid()}"
+        # The ControlMaster socket on this host: in a mkdtemp dir (short, under /tmp), never a guessable name
+        # another account could bind first and so answer this run's ssh.
+        self.ctl = os.path.join(tempfile.mkdtemp(prefix="fuzz-ssh-", dir="/tmp"), "ctl")
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
                      "-o", "LogLevel=ERROR", "-o", "ControlMaster=auto", "-o", f"ControlPath={self.ctl}",
                      "-o", "ControlPersist=600", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5",
@@ -312,11 +316,11 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
         return f"rc={r.returncode} {(r.stdout or r.stderr).strip()[:160]}"
     if k == "palette":
         vnc.chord("cmd+shift+p")
-        time.sleep(0.3)
+        opened = vnc.settle()  # the palette drew
         vnc.type_text(step["title"][:40])
-        time.sleep(0.3)
+        filtered = vnc.settle()  # its list filtered to the title
         vnc.chord("return")
-        return "palette"
+        return "palette" + ("" if opened and filtered else " (screen still changing after 5 s)")
     if k == "key":
         vnc.chord(step["chord"])
     elif k == "type":
@@ -331,7 +335,7 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
         if k == "click":
             vnc.click(px(step["fx"]), py(step["fy"]), step["right"], step["count"])
             if step["right"]:
-                time.sleep(0.3)
+                vnc.settle()  # the context menu drew
                 vnc.chord("esc")  # a context menu would swallow the next steps
         elif k == "drag":
             vnc.drag(px(step["fx0"]), py(step["fy0"]), px(step["fx1"]), py(step["fy1"]))
@@ -339,6 +343,10 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
             vnc.scroll(px(step["fx"]), py(step["fy"]), step["down"])
     elif k == "esc":
         vnc.chord("esc")
+    elif k == "wait":
+        # A saved repro's pause for the app to answer (a reply, a check): bounded, never a poll.
+        # sleep-ok: the repro step's own recorded length; replaying it is the point
+        time.sleep(min(max(float(step.get("seconds", 1)), 0), 120))
     return "ok"
 
 
@@ -416,8 +424,12 @@ def minimize(steps: list[dict], g: Guest, vnc: RFB, out: str) -> list[dict]:
             except (ConnectionError, OSError):
                 pass
             time.sleep(0.15)
-        time.sleep(5)
+        # Alive 5 s after the last step: watch for the app's exit over that window, done at once when it ends.
+        watch_until = time.monotonic() + 5
         dead = g.pid() is None
+        while not dead and time.monotonic() < watch_until:
+            time.sleep(0.25)
+            dead = g.pid() is None
         trials.write(json.dumps({"n": len(prefix), "dies": dead}) + "\n")
         trials.flush()
         print(f"trial {len(prefix)} steps: {'DIES' if dead else 'lives'}", flush=True)
@@ -549,6 +561,13 @@ def main() -> int:
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
         summary["steps"] = i + 1
+        shot = step.get("shot")
+        if isinstance(shot, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", shot):
+            # A saved repro names the screens it shows (shot-NAME.png), taken after its step.
+            try:
+                open(os.path.join(o.out, f"shot-{shot}.png"), "wb").write(vnc.screenshot_png())
+            except Exception as e:  # best effort
+                print("screenshot failed:", e, flush=True)
         if o.shot_every and i % o.shot_every == 0:
             try:
                 open(os.path.join(o.out, f"step-{i:05d}.png"), "wb").write(vnc.screenshot_png())

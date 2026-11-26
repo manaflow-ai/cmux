@@ -27,52 +27,18 @@ extension CloudService {
     func restartWithApprovals(_ session: CloudMachineSession) async -> AgentPaneRemoteApprovals.Failure? {
         await restartWithApprovals(machine: session.machineID, route: workerApprovalsRoute())
     }
+    func restartWithApprovals(machine: String) async -> AgentPaneRemoteApprovals.Failure? { await restartWithApprovals(machine: machine, route: workerApprovalsRoute()) } // a machine with no session yet (a warm spare)
 
     /// Prepares a Cloud machine's acpmux for a new chat when the remote daemon has said that a
     /// keyed restart is safe, or when an older daemon's status shows it is idle. The shared
     /// preparation actor serializes starts per machine; a busy or failed machine quietly falls
-    /// back to the unkeyed chat start so the user's Allow flow can show its normal restart notice.
-    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation) async -> Bool {
-        await Self.prepareRemoteApprovals(machine: session.machineID, preparation: preparation,
-                                          idle: { [machineAPI] in await Self.idleCloudDaemon(session.machineID, api: machineAPI) },
-                                          restart: { [self] in await restartWithApprovals(session) })
-    }
-
-    /// The preparation policy is kept separate from the Cloud session so its busy and failure
-    /// fallbacks stay deterministic in unit tests and for both Cloud API routes.
-    static func prepareRemoteApprovals(
-        machine: String,
-        preparation: AgentPaneRemoteApprovals.Preparation,
-        idle: @escaping @Sendable () async -> Bool,
-        restart: @escaping @Sendable () async -> AgentPaneRemoteApprovals.Failure?
-    ) async -> Bool {
-        switch preparation {
-        case .daemonSaidSafe:
-            return await RemoteApprovalPreparations.shared.run(machine: machine, keepBusy: false) {
-                await restart() == nil
-            }
-        case .checkStatus:
-            if AcpmuxRemotePersonKeys.shared.instance(machine: machine) != nil { return true }
-            return await RemoteApprovalPreparations.shared.run(machine: machine, keepBusy: true) {
-                guard await idle() else { return false }
-                return await restart() == nil
-            }
-        }
-    }
-
-    /// Reads the daemon's status through the authenticated Cloud machine route for older
-    /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`.
-    private static func idleCloudDaemon(_ machine: String, api: CloudAPIClient) async -> Bool {
-        let command = [
-            "set -eu",
-            #"b="$HOME/.cmux/bin/cmux-tui""#,
-            #"[ -x "$b" ] || exit 82"#,
-            #""$b" acp --json daemon status </dev/null""#,
-        ].joined(separator: "; ")
-        guard let result = try? await api.exec(machine, command: command, timeoutMs: 10_000),
-              result.exitCode == 0,
-              let status = RemoteAgentDaemonStatus(json: result.stdout) else { return false }
-        return status.idleForKeyedRestart
+    /// back to the unkeyed chat start so the user's Allow flow can show its normal restart notice; `proceed` and cancellation are checked right before the restart.
+    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation, proceed: @escaping @MainActor @Sendable () -> Bool = { true }, cacheBusy: Bool = true) async -> Bool {
+        if spareReadiness.isKeyed(session.machineID, scope: account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)) { return true } // keyed ahead in this app run (a warm spare, CloudSpareReadiness): no status read, no restart
+        return await RemoteApprovalPreparations.shared.prepare(machine: session.machineID, daemonSaidSafe: preparation == .daemonSaidSafe,
+                                                        held: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil, joinBudget: RemoteApprovalPreparations.startWait,
+                                                        idle: { [machineAPI] in await RemoteApprovalPreparations.bounded(RemoteApprovalPreparations.startWait) { await RemoteAgentDaemonStatus.read(cloudMachine: session.machineID, api: machineAPI)?.idleForKeyedRestart } == true },
+                                                        restart: { [self] in guard !Task.isCancelled, await proceed() else { return false }; return await restartWithApprovals(session) == nil }, cacheBusy: cacheBusy)
     }
 
     /// The shared verifier: new key, keyed start, a fresh nonce, the proof checked against the key, bind.
@@ -105,7 +71,7 @@ extension CloudService {
         let owner = CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO
         )
         return ApprovalsRoute(
             keyedStart: { machine, length, write in try await owner.acpmuxKeyedStart(machine, keyLineLength: length, writeKey: write) },

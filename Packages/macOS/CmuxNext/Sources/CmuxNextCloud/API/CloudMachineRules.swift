@@ -46,6 +46,9 @@ public nonisolated struct CloudMachineRules: Sendable {
         public var goneForPhones = false
         public var agentInfrastructure = false
         public var desktopViewer = "web"
+        /// The name for a title a person reads; nil when the machine has none or only a generated one
+        /// (cmux-cloud-machine `is_generated_name`: a `cmux cloud start-chat` machine's `chat-` and 16 hex).
+        public var humanName: String?
 
         init() {}
     }
@@ -95,7 +98,6 @@ private struct ModelReadReply<T: Decodable>: Decodable {
 
 // The answers ``CloudAPIClient`` reads through the crate, each with its `models::KINDS` kind.
 extension CloudMachine: CloudServerModel { public static var cloudModelKind: String { "machine_classic" } }
-extension CloudSnapshot: CloudServerModel { public static var cloudModelKind: String { "snapshot" } }
 extension CloudSCPEndpoint: CloudServerModel { public static var cloudModelKind: String { "scp_endpoint" } }
 extension CloudExecResult: CloudServerModel { public static var cloudModelKind: String { "exec_result" } }
 extension CloudFileStat: CloudServerModel { public static var cloudModelKind: String { "file_stat" } }

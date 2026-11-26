@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { BUSY_MAX_MS, busyDelay, countsAgainstBudget, RequestBudget, WORK_LIMIT, waitsForSlot } from "./requestBudget";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -19,7 +20,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -114,7 +116,7 @@ test("a burst of 200 reads on a slow daemon meets no busy refusal", async () => 
   }
 });
 
-test("a slow but alive daemon keeps reads pending and shows progress", async () => {
+test("a slow but alive daemon keeps reads pending and never says the service is down", async () => {
   // Each read crosses the old 10 ms cutoff; the daemon answers in 150 ms while the socket stays open.
   const daemon: Daemon = { inFlight: 0, peak: 0, refused: 0, latencyMs: 150 };
   const snapshots: unknown[] = [];
@@ -128,7 +130,7 @@ test("a slow but alive daemon keeps reads pending and shows progress", async () 
     expect(second.busy).toBe(0);
     expect(second.ok).toBe(64);
     expect(daemon.refused).toBe(0);
-    expect(snapshots.some((snapshot: any) => snapshot.daemonWaitingSince !== undefined)).toBe(true);
+    expect(snapshots.some((snapshot: any) => snapshot.daemonWaitingSince !== undefined)).toBe(false);
   } finally {
     client.close?.();
   }
@@ -229,7 +231,14 @@ test("only reads wait for a slot; a write, a click's answer or a Stop goes at on
   const sent: string[] = [];
   budget.admit(1, PROBE, () => sent.push("read"));
   budget.admit(2, PROBE, () => sent.push("waits"));
-  const others = [ANSWER, "_acpmux/bookmark_set", "_acpmux/permission_chat_revoke", "_acpmux/kill", "acp.session.fork"];
+  const others = [
+    ANSWER,
+    "_acpmux/bookmark_set",
+    "_acpmux/memory_resolve",
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/kill",
+    "acp.session.fork",
+  ];
   for (const [index, method] of others.entries()) {
     expect(waitsForSlot(method)).toBe(false);
     budget.admit(3 + index, method, () => sent.push(method));
@@ -238,6 +247,21 @@ test("only reads wait for a slot; a write, a click's answer or a Stop goes at on
   expect(budget.inFlight).toBe(1 + others.length);
   expect(waitsForSlot(PROBE)).toBe(true);
   expect(waitsForSlot("git.status")).toBe(true);
+});
+
+test("a preset read waits for a slot; a preset approval card's answer goes at once and never again", () => {
+  expect(waitsForSlot("_acpmux/presets", { name: "lane" })).toBe(true);
+  expect(waitsForSlot("_acpmux/presets")).toBe(true);
+  const approve = { name: "lane", approveMode: true, approveDigest: "d1", sessionId: "s1" };
+  expect(waitsForSlot("_acpmux/presets", approve)).toBe(false);
+  expect(waitsForSlot("_acpmux/presets", { ...approve, approveMode: false })).toBe(false);
+  expect(waitsForSlot("_acpmux/presets", { name: "lane", set: { model: "m" } })).toBe(false);
+  const budget = new RequestBudget(1);
+  const sent: string[] = [];
+  budget.admit(1, PROBE, () => sent.push("read"));
+  budget.admit(2, "_acpmux/presets", () => sent.push("preset read"), { name: "lane" });
+  budget.admit(3, "_acpmux/presets", () => sent.push("approve"), approve);
+  expect(sent).toEqual(["read", "approve"]);
 });
 
 test("a write refused as busy is never sent again, so a later write is not undone", async () => {

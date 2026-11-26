@@ -31,7 +31,13 @@ final class SidebarCardPresence {
         self.policy = policy
     }
 
-    var transition: SidebarCardTransition { SidebarCardTransition(policy: policy()) }
+    /// The card's transition under the motion settings; its movement lands at once while the
+    /// card's window is in a live resize or a full screen transition.
+    var transition: SidebarCardTransition {
+        var policy = self.policy()
+        policy.liveResize = policy.liveResize || Motion.isLiveResizing(view?.window)
+        return SidebarCardTransition(policy: policy)
+    }
 
     /// Shows the card (with the entrance) or hides it (after the exit).
     func setShown(_ shown: Bool) {
@@ -72,6 +78,20 @@ final class SidebarCardPresence {
             self.transition.clear(view.layer)
             view.superview?.needsLayout = true
         }
+    }
+
+    /// Hides the card in this frame, mid-exit too: another card has its place, and an exit there
+    /// would draw under that card's entrance.
+    func hideAtOnce() {
+        guard let view, !view.isHidden || isLeaving else { return }
+        generation += 1
+        isLeaving = false
+        pendingEnter = false
+        hidesNextAtOnce = false
+        laidOut = false
+        view.isHidden = true
+        transition.clear(view.layer)
+        view.superview?.needsLayout = true
     }
 
     /// Call from the card's `layout()`: plays a pending entrance once the card has a size.

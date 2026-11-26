@@ -147,6 +147,8 @@ def line_labels(line: str) -> tuple[str | None, list[str], str]:
 
     Shapes seen: `12 button Description: 1, ID: One` (index, role, pairs), `- [12] AXButton "1"
     (id=One)` (bracketed index, quoted title)."""
+    # A diff line's old values (`~ [3] text "7" (was: "0")`) are not the state.
+    line = line.split(" (was: ", 1)[0]
     m = LINE_INDEX.search(line)
     if not m:
         return None, [], ""
@@ -316,16 +318,19 @@ class Mcp:
         return result, size
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
+        # review F1). The group keeps the leader's pid as its id while any member lives.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                self.proc.terminate()
+                os.killpg(self.proc.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
             try:
-                self.proc.wait(timeout=10)
+                self.proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                pass
         for stream in (self.proc.stdin, self.proc.stdout, self.stderr):
             try:
                 if stream:
@@ -396,11 +401,19 @@ class Adapter:
         tool = dict(PROFILES)[self.profile]
         args = dict(self.target or {})
         p = props(self.tools[tool])
+        # cmux shows only the changes after a first look: a bench reads the
+        # whole state every time.
+        if "full" in p:
+            args["full"] = True
         if "screenshot" in p:
             args["screenshot"] = screenshot
         elif "include_screenshot" in p:
             args["include_screenshot"] = screenshot
         return tool, args
+
+    def state_has_no_flag(self) -> bool:
+        p = props(self.tools[dict(PROFILES)[self.profile]])
+        return self.profile != "tree" and "screenshot" not in p and "include_screenshot" not in p
 
     def op(self, op: str) -> tuple[str, dict]:
         """(tool, arguments) for one sample of `op`."""
@@ -455,6 +468,43 @@ class Adapter:
 
 # ---------------------------------------------------------------- the target app
 
+# On-screen normal windows (layer 0) of a pid, from the window server (CGWindowListCopyWindowInfo through JXA:
+# no Accessibility grant needed); None when the list cannot be read.
+WINDOWS_JXA = (
+    "ObjC.import('CoreGraphics'); function run(argv) { var pid = parseInt(argv[0]);"
+    " var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));"
+    " return String(list.filter(function (w) { return w.kCGWindowOwnerPID === pid && w.kCGWindowLayer === 0; }).length); }")
+
+
+def window_count(pid: int) -> int | None:
+    try:
+        out = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOWS_JXA, str(pid)],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        return int(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def front_pid() -> int | None:
+    """The frontmost app's pid (lsappinfo), None when unreadable."""
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True,
+                              timeout=5).stdout
+        found = re.search(r"=\s*(\d+)", info)
+        return int(found.group(1)) if found else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def wait_until(predicate, timeout: float, what: str, interval: float = 0.1) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"{what} within {timeout:g} s")
+        time.sleep(interval)
+
+
 class TargetApp:
     """The app under test, started as this bench's own child so the bench stops exactly it."""
 
@@ -479,9 +529,19 @@ class TargetApp:
             return None
         self.proc = subprocess.Popen([str(self.executable)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
-        time.sleep(self.settle_s)
+        proc, launched = self.proc, time.monotonic()
+
+        def shown() -> bool:
+            count = window_count(proc.pid)
+            # An unreadable window list (no osascript) falls back to the --settle time.
+            return proc.poll() is not None or (count > 0 if count is not None
+                                               else time.monotonic() - launched >= self.settle_s)
+        # Until the new app shows a window, then until it is the frontmost app after `open -a`.
+        wait_until(shown, max(10.0, 3 * self.settle_s), f"{self.name} (pid {proc.pid}) showed no window")
+        if proc.poll() is not None:
+            raise RuntimeError(f"{self.name} exited ({proc.returncode}) right after its launch")
         subprocess.run(["/usr/bin/open", "-a", self.path], capture_output=True, timeout=10)  # bring it forward
-        time.sleep(0.3)
+        wait_until(lambda: front_pid() in (proc.pid, None), 5.0, f"{self.name} (pid {proc.pid}) did not come to the front")
         return self.proc.pid
 
     def stop(self) -> None:
@@ -686,6 +746,9 @@ def report(engines: dict[str, Engine], run: dict) -> dict:
             "profile": e.adapter.profile if e.adapter else None,
             "tools": sorted(e.adapter.tools) if e.adapter else None,
             "startup_ms": e.startup_ms, "unavailable": e.unavailable, "errors": e.errors[:20],
+            # True when the state tool has no way to skip its screenshot: its ax_tree row then
+            # includes that capture and is not a tree-only number.
+            "ax_tree_has_screenshot": e.adapter.state_has_no_flag() if e.adapter else None,
             "ops": {op: summarize(s) for op, s in e.samples.items()},
             "e2e": {"n": len(e.e2e), "ok": len(e2e_ok) if e.e2e else None,
                     "reads_84": sum(1 for x in e.e2e if x.get("reads_84")) if e.e2e else None,
@@ -734,6 +797,8 @@ def markdown(data: dict) -> str:
         e = data["engines"][n]
         if e.get("unavailable"):
             notes.append(f"- {n}: unavailable: {e['unavailable']}")
+        if e.get("ax_tree_has_screenshot"):
+            notes.append(f"- {n}: its state tool cannot skip the screenshot, so ax_tree includes one")
         for op, row in e["ops"].items():
             if row.get("first_error"):
                 notes.append(f"- {n} {op}: {row['errors']} errors, first: {row['first_error']}")
@@ -742,7 +807,7 @@ def markdown(data: dict) -> str:
         for err in e.get("errors") or []:
             notes.append(f"- {n}: {err}")
     if notes:
-        lines += ["", "Errors:", ""] + notes
+        lines += ["", "Notes and errors:", ""] + notes
     return "\n".join(lines) + "\n"
 
 
@@ -773,7 +838,9 @@ def cmd_run(args) -> int:
     (out / "cu-bench.json").write_text(json.dumps(data, indent=2) + "\n")
     (out / "summary.md").write_text(markdown(data))
     print(markdown(data), flush=True)
-    return 0 if live else 4
+    measured = any(s.get("ok") for e in engines.values() for rows in e.samples.values() for s in rows)
+    # 4: no engine started, or none answered a single call (the artifacts above still say why).
+    return 0 if measured else 4
 
 
 def cmd_summary(args) -> int:
@@ -794,7 +861,7 @@ def main(argv=None) -> int:
     r.add_argument("--rounds", type=int, default=15)
     r.add_argument("--samples", type=int, default=2, help="samples of each op per engine per round")
     r.add_argument("--e2e-samples", type=int, default=1, help="end-to-end loops per engine per round")
-    r.add_argument("--settle", type=float, default=1.5, help="seconds the app gets after a launch")
+    r.add_argument("--settle", type=float, default=1.5, help="seconds a launch is expected to take; its window is waited for, at most max(10, 3x) s")
     r.add_argument("--timeout", type=float, default=30, help="seconds one call may take")
     r.add_argument("--budget", type=float, default=0, help="stop starting rounds after this many seconds")
     s = sub.add_parser("summary")

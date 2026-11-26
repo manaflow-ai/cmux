@@ -17,15 +17,28 @@ public struct BrowserTabSplitCommand: Sendable {
     public let direction: SplitDirection
     /// The address the tab opens (its stand-in shows it as its title).
     public let url: String
+    /// Set for Insert New at a divider: the split wraps `around` and shows its sizing instead of the even one.
+    public let insertion: DividerInsertion?
+    /// The tab's engine tag (`cef`, `webkit`) when the app renders its stand-in's page in the click's turn (this
+    /// Mac's daemon); nil: the stand-in has no page until the daemon's tab makes it.
+    public let engine: String?
+    /// Its browser profile id (with `engine`); nil is `default`.
+    public let profile: String?
 
     /// - Parameters:
     ///   - pane: the pane the split is made from.
     ///   - direction: the side of `pane` the new pane goes.
     ///   - url: the address the tab opens.
-    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String) {
+    ///   - engine: the stand-in's page engine (``engine``); nil for no page until the reply.
+    ///   - profile: its browser profile id.
+    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String, insertion: DividerInsertion? = nil,
+                engine: String? = nil, profile: String? = nil) {
         self.pane = pane
         self.direction = direction
         self.url = url
+        self.insertion = insertion
+        self.engine = engine
+        self.profile = profile
     }
 
     /// Whether `daemon` opens a browser tab straight into a split; else the caller makes it in
@@ -39,23 +52,38 @@ public struct BrowserTabSplitCommand: Sendable {
     /// returned work sends `create` with the request's `split` and answers the daemon's surface, or
     /// nil when the person closed the new pane first (its tab closes when it arrives,
     /// CancelledCreation). A refusal takes the split and its sizing away again and rethrows.
+    /// `minted` runs with the new pane's client-minted id (`pane_<32 hex>`, which the stand-in's pane and
+    /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page;
+    /// `settled` runs with that id and the daemon's surface once a reply names it. Not on an error: a timeout or a
+    /// lost connection can follow a commit whose reply is dropped, and its pane must still mount marked (review of #37733).
+    /// `handOver` (a stand-in with a page, ``engine``) runs once with the stand-in's tab id and the daemon's surface
+    /// once its tab is listed, or nil when the split was refused or closed first: the caller moves the stand-in's page
+    /// to the daemon's tab (if no pane asked for it first) or releases it.
     @MainActor
-    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID)
+    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID,
+                          handOver: (@MainActor (_ standIn: String, _ surface: SurfaceID?) -> Void)? = nil,
+                          minted: (@MainActor (_ paneID: String) -> Void)? = nil,
+                          settled: (@MainActor (_ paneID: String, _ surface: SurfaceID?) -> Void)? = nil)
         -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
-        let changes = layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
+        let changes = insertion?.sizing ?? layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
         let sizing = layout?.showSplitSizing(changes)
-        let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url))
+        let tab = ProvisionalTab(), handOver = engine == nil ? nil : handOver
+        let provisional = ProvisionalPane(holding: tab.browser(url, engine: engine, profile: profile)).wrapping(insertion?.around)
+        minted?(provisional.paneID)
         let transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
         let request = ConversationTabSplit(direction: direction, paneID: provisional.paneID,
-                                           splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? provisional.splitID : nil)
+                                           splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? provisional.splitID : nil,
+                                           around: insertion?.around)
         return { create in
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
+                handOver?(tab.id, nil)
                 store.rejectIntent(transaction)
                 if let sizing { layout?.cancelSplitSizing(sizing) }
                 throw error
             }
+            settled?(request.paneID, surface)
             ProvisionalTab.created(transaction, surface: surface, in: store)
             // Every event the daemon sent before the reply: the split settles there.
             if let sequence = await daemon.connection?.eventSequence() {
@@ -65,10 +93,12 @@ public struct BrowserTabSplitCommand: Sendable {
             }
             let cancelled = store.creations.wasCancelled(transaction)
             if let sizing { if cancelled { layout?.cancelSplitSizing(sizing) } else { layout?.commitSplitSizing(sizing) } }
-            if cancelled { return nil }
+            if cancelled { handOver?(tab.id, nil); return nil }
             // The reply can come before the pane's events: the next open beside this pane must find the
             // daemon's pane, not the provisional one (a create aimed at it is refused), as the move did.
-            return await Self.listed(surface, in: store) ? surface : nil
+            let made = await Self.listed(surface, in: store) ? surface : nil
+            handOver?(tab.id, made)
+            return made
         }
     }
 
@@ -94,12 +124,27 @@ public struct BrowserTabSplitRequest {
     /// Runs with the new tab's surface once the daemon made it, or nil when it was refused or the
     /// person closed the new pane first.
     public let finished: @MainActor (SurfaceID?) -> Void
+    /// Set for Insert New at a divider (``BrowserTabSplitCommand/insertion``).
+    public let insertion: DividerInsertion?
+    /// An agent asked for it (the CLI, MCP or a script): its pages are marked agent-driven before
+    /// they exist, so no saved password fills and the agent's URL rules hold from the first load.
+    public let agentDriven: Bool
+    /// The new tab shows in its split but takes no focus: the keyboard stays where it is (a terminal
+    /// program's link opened in the background).
+    public let keepsFocus: Bool
 
     /// - Parameters:
     ///   - direction: the side of the pane the split goes.
+    ///   - insertion: Insert New at a divider's target, `around` and sizing; nil for a plain split.
+    ///   - agentDriven: the CLI, MCP or a script asked for it (``agentDriven``).
+    ///   - keepsFocus: the new tab takes no focus (``keepsFocus``); false by default, as a person's open takes it.
     ///   - finished: runs with the new surface, or nil, once the daemon answered.
-    public init(direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) {
+    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, agentDriven: Bool = false, keepsFocus: Bool = false,
+                finished: @escaping @MainActor (SurfaceID?) -> Void) {
         self.direction = direction
+        self.insertion = insertion
+        self.agentDriven = agentDriven
+        self.keepsFocus = keepsFocus
         self.finished = finished
     }
 }

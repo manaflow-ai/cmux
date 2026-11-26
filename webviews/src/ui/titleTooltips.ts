@@ -4,20 +4,31 @@
 // with the app's hover intent (ui/hoverIntent.ts): the first waits the hover delay, a neighbor's
 // then shows at once while the group is warm. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
-// A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
-// a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
-// Above by default; `data-tooltip-side="bottom"` prefers below, "left" the side of its popup.
+// A `data-tooltip-instant` element shows its tooltip with no hover delay (a cut name in a menu row), and a
+// `data-tooltip-force` one shows it even when its text is in full view (a name a control draws over).
+// A `data-tooltip-shortcut` shows after the text on a keycap, like the native tooltip's.
+// Below by default, as the native tooltip and macOS's (Lawrence 2026-11-20: one tooltip everywhere);
+// `data-tooltip-side="top"` prefers above, "left" the side of its popup.
 // It anchors at what the element draws, not its whole box: a row as wide as the pane shows its
 // tooltip at its words, not over its middle. A `data-tooltip-anchor` (a selector) names that part.
 // It stays inside the scrolling region the element is in (the transcript), and out of a band the host
 // draws over (`data-tooltip-covered`: the agent pane's tab row, under the native tabs), so a row
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
-// which floats over the pane.
-// Text the element cuts off shows in full, wrapping in the same compact bubble.
+// which floats over the pane, and so may a row of a `data-tooltip-escape` scroller (the asks stack).
+// A tooltip is one line, as the native one (Chief, 2026-11-21: "Make web tooltips one line, like
+// native"; TooltipContentView.swift): only the text's first line shows, a text wider than the widest
+// tooltip ends in an ellipsis, and the bubble is as narrow as its line (ui/tooltipFit.ts). What a
+// row cannot show whole goes on a hover card (agent-session/acpmux/chips/FactsHoverCard.tsx).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
+import { fitTooltipWidth } from "./tooltipFit";
+import { keyHintElement } from "./keyHintModel";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
+import { onHoverSurfaceOpen, otherHoverSurfaceOpen } from "./hoverSurface";
+import { oneHoverSurface } from "./hoverLook";
+import { attachSeeThroughBlur } from "./glass/seeThroughBlur";
+import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
@@ -51,16 +62,17 @@ function clips(element: Element): boolean {
   return false;
 }
 
-/// Where a `size` tooltip for `anchor` goes in a `view` window: above and centered by default, below
-/// when there is no room above, and shifted to stay inside the edges. `side` "top" (the default,
-/// and an element's `data-tooltip-side="top"`) puts it above, below only when there is no room above.
+/// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered by default, above
+/// when there is no room below, and shifted to stay inside the edges (the native tooltip's
+/// `TooltipPresenter.origin`). `side` "top" (an element's `data-tooltip-side="top"`) puts it above,
+/// below only when there is no room above; "left" beside its popup, else below.
 /// `bounds` (the element's scrolling region, `boundsOf`) is where it goes when it fits there above
 /// or below the anchor; else the window's edges, as before.
 export function tooltipPosition(
   anchor: Box,
   size: { width: number; height: number },
   view: { width: number; height: number },
-  side: "top" | "bottom" | "left" = "top",
+  side: "top" | "bottom" | "left" = "bottom",
   scale = 1,
   bounds?: Box,
 ) {
@@ -91,7 +103,7 @@ export function tooltipPosition(
   const below = Math.max(minTop, anchor.top + anchor.height + gap);
   const above = anchor.top - gap - size.height;
   const top =
-    side !== "bottom"
+    side === "top"
       ? above >= minTop || below + size.height + edge > bottom
         ? Math.max(minTop, above)
         : below
@@ -132,7 +144,9 @@ function boundsOf(element: Element, view: { width: number; height: number }): Bo
   if (!element.closest(".ui-popup"))
     for (let node = element.parentElement; node && node !== doc.body && node !== doc.documentElement;) {
       const overflow = win.getComputedStyle(node).overflowY;
-      if (overflow === "auto" || overflow === "scroll") {
+      // A `data-tooltip-escape` scroller does not hold its tooltips (the agent pane's asks stack, as
+      // tall as its card: a top tooltip there flipped below, over the question, #56534).
+      if ((overflow === "auto" || overflow === "scroll") && !node.hasAttribute("data-tooltip-escape")) {
         const box = node.getBoundingClientRect();
         area = {
           left: Math.max(0, box.left),
@@ -182,8 +196,10 @@ function anchorBox(element: Element): Box {
 }
 
 /// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
-/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full.
+/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full, and a
+/// control that names a key (`data-tooltip-shortcut`) still shows it: the key is what it adds.
 function repeatsLabel(element: Element, text: string): boolean {
+  if (element.hasAttribute("data-tooltip-force") || element.getAttribute("data-tooltip-shortcut")) return false;
   const own = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase();
   return !!own && own === text.replace(/\s+/g, " ").trim().toLowerCase() && !clips(element);
 }
@@ -203,6 +219,17 @@ export function installTooltips(
   tip.hidden = true;
   doc.body.append(tip);
   let target: Element | undefined;
+  // Under the One hover look (experiments.hoverLook = one, ui/hoverLook.css), what the tooltip
+  // covers, blurred in place while it shows, as under every hover card. Off, nothing is blurred.
+  let unblur: (() => void) | undefined;
+  const blurUnder = () => {
+    unblur?.();
+    unblur = oneHoverSurface(doc) ? attachSeeThroughBlur(tip, hoverCardUnder, hoverCardGlass) : undefined;
+  };
+  const stopBlur = () => {
+    unblur?.();
+    unblur = undefined;
+  };
 
   const textOf = (element: Element) => {
     // A title React set or changed since the last hover moves over first.
@@ -229,6 +256,7 @@ export function installTooltips(
     if (event && event.target !== tip) return;
     endFade();
     tip.hidden = true;
+    stopBlur();
   }
   /** The longest of the tooltip's transitions now, in ms (0 with no stylesheet, as in a test page). */
   const fadeMs = () => {
@@ -245,26 +273,20 @@ export function installTooltips(
   /** Shows `target`'s tooltip: fading in and rising, or at once when `instant` (a warm group's). */
   const show = (instant = true) => {
     if (!target?.isConnected) return;
-    const text = textOf(target);
+    // One line: a text's second line never shows (TooltipContentView.firstLine, native).
+    const text = firstLine(textOf(target));
     if (!text) return;
+    // Under the One hover look, one hover surface at a time (ui/hoverSurface.ts): a hover card or
+    // tooltip already open (the chip's card inside this row) keeps the pointer's one hover.
+    if (oneHoverSurface(doc) && otherHoverSurfaceOpen(doc, tip)) return;
     const shortcut = target.getAttribute("data-tooltip-shortcut");
     const label = doc.createElement("span");
     label.className = "ui-tooltip-text";
     label.textContent = text;
-    // A `data-tooltip-detail` says what the control does, on its own line under the text.
-    const detail = target.getAttribute("data-tooltip-detail");
-    const note = detail ? doc.createElement("span") : undefined;
-    if (note) {
-      note.className = "ui-tooltip-detail";
-      note.textContent = detail;
-    }
     // The hint floats to the top right, so it comes first.
     if (shortcut) {
-      const hint = doc.createElement("span");
-      hint.className = "ui-tooltip-hint";
-      hint.textContent = shortcut;
-      tip.replaceChildren(hint, label, ...(note ? [note] : []));
-    } else tip.replaceChildren(label, ...(note ? [note] : []));
+      tip.replaceChildren(keyHintElement(doc, shortcut, "ui-tooltip-hint"), label);
+    } else tip.replaceChildren(label);
     const anchor = anchorBox(target);
     const scale = tooltipScale(doc);
     const fadeIn = !instant && (tip.hidden === true || ending !== undefined);
@@ -284,8 +306,10 @@ export function installTooltips(
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
+    // As narrow as its lines, measured here, before it is placed or painted (ui/tooltipFit.ts).
+    fitTooltipWidth(tip, width.max);
     const requestedSide = target.getAttribute("data-tooltip-side");
-    const side = requestedSide === "left" || requestedSide === "bottom" ? requestedSide : "top";
+    const side = requestedSide === "left" || requestedSide === "top" ? requestedSide : "bottom";
     // A rail's hint sits outside the popup rim, centered on its hovered tab.
     const surface = side === "left" ? target.closest(".ui-popup")?.getBoundingClientRect() : undefined;
     const view = { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight };
@@ -304,6 +328,7 @@ export function installTooltips(
     );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
+    blurUnder();
     if (fadeIn) {
       // The starting style is laid out (measuring did that); dropping it runs the fade in.
       void tip.offsetWidth;
@@ -402,6 +427,15 @@ export function installTooltips(
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
     target = element;
+    if (element.hasAttribute("data-tooltip-instant")) {
+      // No hover delay: it shows on the next frame. The intent's own timer, if any, finds another target and ends.
+      cancelHide();
+      frame = win.requestAnimationFrame(() => {
+        frame = undefined;
+        show(true);
+      });
+      return;
+    }
     intent.hover(element);
   };
   const onMove = (event: PointerEvent) => {
@@ -453,7 +487,13 @@ export function installTooltips(
   win.addEventListener("blur", dismiss);
   // Find's bar opening (or anything new covering the page's top) takes away a tooltip under it.
   const unwatchInset = onPopupInsetChange(dismiss);
+  // Under the One hover look, another hover surface opening (a hover card, a labeled tooltip) takes
+  // this one away at once (the surfaces only announce themselves under that look).
+  const unwatchSurfaces = onHoverSurfaceOpen(doc, (surface) => {
+    if (surface !== tip && oneHoverSurface(doc)) hideTip(true);
+  });
   return () => {
+    unwatchSurfaces();
     unwatchInset();
     dismiss();
     intent.dispose();
@@ -466,6 +506,12 @@ export function installTooltips(
     if (quiet !== undefined) clearTimeout(quiet);
     win.removeEventListener("blur", dismiss);
     endFade();
+    stopBlur();
     tip.remove();
   };
+}
+
+/** The first line of `text`, trimmed: a tooltip is one line (TooltipContentView.firstLine). */
+export function firstLine(text: string): string {
+  return (text.split(/\r?\n/).find((line) => line.trim() !== "") ?? "").trim();
 }

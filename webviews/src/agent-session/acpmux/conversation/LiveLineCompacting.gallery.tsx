@@ -24,12 +24,6 @@ type Phase = "before" | "thinking" | "compacting" | "compacted";
 type Props = { phase: Phase; arm?: "own" | "turn" | "calm"; accountSwitch?: boolean };
 
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 1_800,
 };
 
@@ -143,7 +137,7 @@ export default componentEntry<Props>({
     },
     left: {
       props: { phase: "compacting" },
-      note: 'Ended: "Conversation compacted · context 412k → 18k" in the transcript, the line on Thinking with the turn\'s clock and tokens.',
+      note: 'Ended: "Conversation compacted · context 412k → 18k" in the transcript, the line on Thinking with the turn\'s clock and no token count.',
       play: async (ctx) => {
         await finish(ctx);
         await settled(ctx);

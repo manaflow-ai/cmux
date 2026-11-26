@@ -13,6 +13,27 @@ use crate::adopt::{AdoptRequest, IfLive};
 use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
+/// A temporary load failure is not evidence that a conversation is gone. Keep its id
+/// so the next explicit retry can load it, instead of creating a replacement conversation.
+/// ACP adapters may carry the provider's cause in data.details under "Internal error".
+pub(super) fn unavailable_resume(error: &RpcError) -> Option<RpcError> {
+    let detail = error
+        .data
+        .as_ref()
+        .and_then(|data| data.get("details").or_else(|| data.get("message")))
+        .and_then(Value::as_str)
+        .filter(|detail| !detail.is_empty());
+    let cause = match detail {
+        Some(detail) if detail != error.message => format!("{}: {detail}", error.message),
+        _ => error.message.clone(),
+    };
+    super::turn_errors::transient_cause(&cause)?;
+    let mut error = error.clone();
+    error.message =
+        format!("Could not resume the conversation: {cause}. Retry when the service is available.");
+    Some(error)
+}
+
 /// What adopting resolved to before a session is created.
 pub(super) enum Adoption {
     /// A session already adopted this id; `session/new` returns it.
@@ -154,9 +175,7 @@ impl Hub {
         // This acpmux's own Claude Code session runs the chat: it opens, as for an adopt of
         // the id it records (one chat, one session).
         if let Some(existing) = own
-            .and_then(|own| {
-                self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
-            })
+            .and_then(|own| self.session_get(&own))
             .filter(|s| session_store(&stores, &s.meta()).is_some_and(|f| f == "claude"))
         {
             return Ok(Adoption::Existing(existing));
@@ -464,7 +483,7 @@ pub(super) fn store_families(cfg: &crate::config::Config) -> StoreFamilies {
 /// The store a session's conversation lives in: its profile's, else its recorded family when
 /// that names a store, else unknown (a profile gone from this config, such as a refused user
 /// file): such a session is never the one an adopt opens.
-fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
+pub(super) fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
     stores.get(&m.harness).cloned().or_else(|| {
         m.family.clone().filter(|f| matches!(f.as_str(), "claude" | "codex" | "opencode"))
     })
@@ -592,6 +611,32 @@ mod page_tests;
 #[cfg(test)]
 #[path = "adoption_profile_tests.rs"]
 mod profile_tests;
+
+#[cfg(test)]
+mod unavailable_resume_tests {
+    use super::*;
+
+    #[test]
+    fn temporary_load_errors_keep_the_provider_cause() {
+        for cause in ["Selected model is at capacity.", "connection reset by peer"] {
+            let original =
+                RpcError::new(-32603, "Internal error").with_data(json!({"details": cause}));
+            let explained = unavailable_resume(&original).unwrap();
+            assert!(explained.message.contains(cause));
+            assert_eq!(explained.code, original.code);
+            assert_eq!(explained.data, original.data);
+        }
+    }
+
+    #[test]
+    fn missing_conversation_and_auth_errors_keep_their_existing_handling() {
+        for cause in ["no rollout found for session", "401 authentication_failed"] {
+            let error =
+                RpcError::new(-32603, "Internal error").with_data(json!({"details": cause}));
+            assert!(unavailable_resume(&error).is_none(), "{cause}");
+        }
+    }
+}
 
 // The tests name Unix paths of another machine.
 #[cfg(all(test, unix))]

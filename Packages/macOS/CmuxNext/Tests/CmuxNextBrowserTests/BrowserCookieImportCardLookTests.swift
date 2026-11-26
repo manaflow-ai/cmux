@@ -11,12 +11,16 @@ import Testing
 /// Leo, 2026-11-06, on NIGHTLY: "The bottom import is unthemed." The neutral gray glass and the
 /// browser's plain gray text buttons ignored the app theme, where the browser's other prompts (the
 /// prompt bar, notices, the cookie consent panel) draw the theme's glass tint. The banner takes the
-/// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not Now in its gray.
+/// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not now in its gray.
 ///
 /// Leo, 2026-11-07: "This thing, um, this looks kind of ugly, to be honest. Like this isn't styled
 /// well." Its lines and answers are a React page on the design scale (webviews/src/pages/cookie-import;
 /// the row's look is CookieImportCard.test.tsx's); this view hosts it: the glass, the shadow, the
 /// size the page reports, and the page's answers back to the chrome.
+///
+/// Leo, 2026-11-08: "i dont like this. 1. looks bad. 2. not glass. 3. talks about too much irrelevant
+/// shit". It is a toast: the toast surface's glass, the window toasts' material on the same overlay
+/// host, and one line (no detail, no Keep in sync: that is Settings > Browser > Import).
 @MainActor @Suite(.serialized) struct BrowserCookieImportCardLookTests {
     /// The card's page, as the host sees it: the states pushed and a hook to send messages back.
     @MainActor final class FakePage: BrowserChromeWebContent {
@@ -30,9 +34,8 @@ import Testing
         func send(_ kind: String, _ params: [String: Any]) { onMessage?(kind, params) }
     }
 
-    static let offer = BrowserCookieImportOffer(icons: [], title: "Import cookies from Google Chrome",
-                                                detail: "Stay signed in to your sites. Nothing leaves this Mac.",
-                                                importTitle: "Import…", notNowTitle: "Not Now", neverTitle: "Don't Show Again")
+    static let offer = BrowserCookieImportOffer(icons: [], title: "Import sign-ins from Google Chrome",
+                                                importTitle: "Import…", notNowTitle: "Not now", neverTitle: "Never for Chrome")
 
     static func card(_ page: FakePage = FakePage(), offer: BrowserCookieImportOffer = offer) -> BrowserCookieImportCard {
         let card = BrowserCookieImportCard(offer: offer) { page }
@@ -46,11 +49,11 @@ import Testing
         let card = Self.card(page)
         let state = try #require(page.pushed.last)
         #expect(page.pushed.count == 1)
-        #expect(state["title"] as? String == "Import cookies from Google Chrome")
-        #expect(state["detail"] as? String == "Stay signed in to your sites. Nothing leaves this Mac.")
+        #expect(state["title"] as? String == "Import sign-ins from Google Chrome")
+        #expect(state["detail"] == nil && state["keepInSyncTitle"] == nil, "one line: no detail, no Keep in sync")
         #expect(state["importTitle"] as? String == "Import…")
-        #expect(state["notNowTitle"] as? String == "Not Now")
-        #expect(state["neverTitle"] as? String == "Don't Show Again")
+        #expect(state["notNowTitle"] as? String == "Not now")
+        #expect(state["neverTitle"] as? String == "Never for Chrome")
         #expect(state["icon"] == nil, "an offer with no icon sends none")
         #expect(card.content != nil)
     }
@@ -82,30 +85,6 @@ import Testing
         #expect(answers.count == 3, "a closing card answers nothing more")
     }
 
-    /// Keep in sync (Leo 2026-11-07: "we should be able to, like, just keep it in sync always"): a
-    /// checkbox under the detail, on by default; its state goes to the host with Import only.
-    @Test func keepInSyncGoesWithImportOnly() throws {
-        var kept: [Bool] = []
-        var offer = Self.offer
-        offer.keepInSyncTitle = "Keep in sync"
-        offer.onKeepInSync = { kept.append($0) }
-        let page = FakePage()
-        let card = Self.card(page, offer: offer)
-        let state = try #require(page.pushed.last)
-        #expect(state["keepInSyncTitle"] as? String == "Keep in sync")
-        #expect(state["keepInSync"] as? Bool == true, "on by default")
-        var answers: [BrowserCookieImportChoice] = []
-        card.onChoice = { answers.append($0) }
-        page.send("command", ["type": "notNow", "keepInSync": false, "revision": 1])
-        #expect(kept.isEmpty, "Not Now keeps the setting as it was")
-        page.send("command", ["type": "import", "keepInSync": false, "revision": 1])
-        #expect(kept == [false] && answers == [.notNow, .importCookies])
-
-        let plain = FakePage()
-        _ = Self.card(plain)
-        #expect(plain.pushed.last?["keepInSyncTitle"] == nil, "a browser whose cookies cannot be kept in sync shows no checkbox")
-    }
-
     @Test func theCardShowsAtTheHeightThePageMeasuredAndFollowsItsChanges() throws {
         let page = FakePage()
         let card = Self.card(page)
@@ -133,19 +112,23 @@ import Testing
         #expect(card.content == nil)
     }
 
-    @Test func theBannerIsTheThemesGlassInTheDialogRadius() throws {
-        let glass = try #require(Self.card().glass)
-        #expect(glass.tone == .theme)
-        #expect(glass.rimView == nil)
-        #expect(glass.cornerRadius == FloatingGlassStyle.dialog.cornerRadius)
-    }
-
-    @Test func theBannerHasNoVeilOfItsOwnUnderItsText() throws {
-        let glass = try #require(Self.card().glass)
-        func veils(_ view: NSView) -> Int {
-            (view is OverlayBackingView ? 1 : 0) + view.subviews.map(veils).reduce(0, +)
-        }
-        #expect(veils(glass) == 0)
+    /// Leo, 2026-11-24: "oh yeah the import from chrome popup/toast is there too...with yet another kind of
+    /// \"glass\"". The card drew the floating panels' clear Liquid Glass (gallery 1, no rim) while every
+    /// window toast draws the veil-tinted one with the rim (gallery 3, Debug Settings > Toasts); this test
+    /// compared it with `Glass.makeSurface(.toast)`, which is neither, so it never saw the two differ.
+    @Test func theCardIsTheWindowToastsGlass() throws {
+        let transparency = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let center = CmuxToastCenter(host: CmuxToastOverlayHost(reduceTransparency: transparency))
+        let card = BrowserCookieImportCard(offer: Self.offer, toastCenter: center, reduceTransparency: transparency) { FakePage() }
+        let glass = try #require(card.glass)
+        let toast = try #require(CmuxToastView(toast: CmuxToast(id: "saved", message: "Saved"), reduceTransparency: transparency,
+                                               tuning: center.tuning, style: center.style).surface)
+        #expect(glass.tone == toast.tone, "the window toasts' tone")
+        #expect(glass.glassVariant == toast.glassVariant, "the window toasts' glass (Debug Settings > Toasts)")
+        #expect(glass.material == toast.material, "the window toasts' material on this Mac")
+        #expect((glass.rimView != nil) == (toast.rimView != nil), "the window toasts' rim")
+        #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
+        #expect(glass.samplesBehindWindow, "the blur (macOS 14 and 15) samples the page behind the overlay window")
     }
 
     @Test func theBannerCastsThePopupShadow() throws {
@@ -155,30 +138,5 @@ import Testing
         #expect(!layer.masksToBounds)
         #expect(layer.shadowOpacity > 0)
         #expect(layer.shadowPath != nil)
-    }
-
-    /// The second half of the same report: on macOS 26 the banner still drew a near-black 1 px
-    /// line at its top and bottom (fleet capture, 60/255 over a 241/255 page). It floats on the
-    /// overlay host, a clear window over the page's window, where Liquid Glass has nothing to
-    /// refract and its lens bends the clear pixels into that line. It is the blur of what is
-    /// behind its window instead.
-    @Test func theBannerBlursThePageBehindItsWindowNeverLiquidGlass() throws {
-        let glass = try #require(Self.card().glass)
-        #expect(glass.samplesBehindWindow)
-        #expect(glass.material != .liquidGlass)
-        if glass.material == .vibrancy {
-            let blur = try #require(glass.subviews.compactMap { $0 as? NSVisualEffectView }.first)
-            #expect(blur.blendingMode == .behindWindow)
-        }
-    }
-
-    @Test func aSurfaceThatPrefersTheBlurTakesItOverLiquidGlassButKeepsReduceTransparency() {
-        let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
-        let surface = OverlaySurfaceView(interactive: true, reduceTransparency: clear, tone: .neutralGlass(.dialog))
-        surface.prefersBlurToLiquidGlass = true
-        #expect(surface.material != .liquidGlass)
-        let opaque = OverlaySurfaceView(interactive: true, reduceTransparency: .alwaysOpaque, tone: .neutralGlass(.dialog))
-        opaque.prefersBlurToLiquidGlass = true
-        #expect(opaque.material == .opaque)
     }
 }

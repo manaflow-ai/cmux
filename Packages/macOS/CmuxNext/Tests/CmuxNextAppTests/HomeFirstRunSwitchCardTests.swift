@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 @testable import CmuxNextHomeModel
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextHomeEngine
@@ -13,7 +14,7 @@ import CmuxNextHomeEngine
 @MainActor @Suite struct HomeFirstRunSwitchCardTests {
     private func defaults() -> UserDefaults {
         let name = "HomeFirstRunSwitchCardTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

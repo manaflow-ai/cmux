@@ -20,9 +20,10 @@ extension ConfigFileWatcher: ServerFileWatching {}
 /// intent; never on a timer. A missing CLI, or a CLI without the server
 /// verbs, reports `.unavailable`.
 ///
-/// Intents reach it only from `ServerModel`, which only the menu bar
-/// views drive, so a fix is always a user's click (the action catalog has
-/// no fix action, so MCP and the socket cannot start one).
+/// Intents reach it only from `ServerModel`, which only the server pages
+/// drive, and their provider takes a fix only from the person's own click or
+/// key (the action catalog has no fix action, so MCP and the socket cannot
+/// start one).
 @MainActor
 final class LocalServerSource: ServerSource {
     nonisolated struct CLIResult: Sendable, Equatable {
@@ -88,11 +89,10 @@ final class LocalServerSource: ServerSource {
     }
 
     /// The user-mode server's files on macOS (cmux-server-core layout): the
-    /// process roles status `<state>/roles/status.json` and `server.json`.
+    /// process roles status `<state>/roles/status.json` and `server.json`, in `cmux-next` roots and `cmux` (an older install stays).
     nonisolated static func watchedFiles(home: URL) -> [URL] {
-        let state = home.appendingPathComponent("Library/Application Support/cmux/server")
-        return [state.appendingPathComponent("roles/status.json"), home.appendingPathComponent(".config/cmux/server.json"),
-                state.appendingPathComponent("pairing/identity.json")]
+        ["cmux-next", "cmux"].flatMap { ["Library/Application Support/\($0)/server/roles/status.json", ".config/\($0)/server.json", "Library/Application Support/\($0)/server/pairing/identity.json"] }
+            .map { home.appendingPathComponent($0) }
     }
 
     // MARK: - ServerSource
@@ -116,8 +116,6 @@ final class LocalServerSource: ServerSource {
                 self?.work[intent.key] = nil
                 self?.settle(intent.key, reject: reject)
             }
-        case .openHealth:
-            settle(intent.key, reject: nil)
         case .setEnabled, .showPairingCode:
             _ = controls?.send(intent)
         case .lookupCode, .approveCode, .revokeDevice:

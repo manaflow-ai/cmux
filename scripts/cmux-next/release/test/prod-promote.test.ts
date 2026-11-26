@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, gh, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
+import { candidateRuns, gh, ghGraphql, GH_RATE_LIMIT_WAIT_MS, guardedVarGate, holdOff, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -34,8 +34,17 @@ describe("G6 hold values", () => {
     expect(holdPinned(`released:${upper}`)).toBeUndefined()
     expect(holdReleases("RELEASED", SHA)).toBe(false)
   })
-  it("anything else holds", () => {
-    for (const v of [undefined, "", "hold", "released ", " released", `released:${SHA}\n`, `released:${SHA.slice(0, 12)}`, `released:${SHA}0`]) {
+  it("the switch is off by default: unset or empty releases every commit", () => {
+    for (const v of [undefined, ""]) {
+      expect(holdOff(v)).toBe(true)
+      expect(holdReleases(v, SHA)).toBe(true)
+      expect(holdReleases(v, undefined)).toBe(true)
+      expect(holdPinned(v)).toBeUndefined()
+    }
+  })
+  it("anything else a person sets holds", () => {
+    for (const v of ["hold", "on: held for the launch", "released ", " released", `released:${SHA}\n`, `released:${SHA.slice(0, 12)}`, `released:${SHA}0`]) {
+      expect(holdOff(v)).toBe(false)
       expect(holdReleases(v, SHA)).toBe(false)
       expect(holdPinned(v)).toBeUndefined()
     }
@@ -188,7 +197,17 @@ describe("serving().heldBack", () => {
     versions = { v2: code(repo.B), v1: code(repo.A) }
     setDeployments([{ version: "v1", trigger: "rollback" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
     const s = await serving("cmux-api")
-    expect(s).toMatchObject({ version: "v1", sourceTag: tag(repo.A), heldBack: "production serves a rollback" })
+    expect(s).toMatchObject({ version: "v1", sourceTag: tag(repo.A), heldBack: "production serves a rollback", rolledBackTag: tag(repo.B) })
+  })
+  it("a rollback names the code it removed, past a secret-only deployment on either side", async () => {
+    versions = { v4: {}, v3: {}, v2: code(repo.B), v1: code(repo.A) }
+    setDeployments([{ version: "v4", trigger: "secret" }, { version: "v1", trigger: "rollback" }, { version: "v3", trigger: "secret" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    expect(await serving("cmux-api")).toMatchObject({ sourceTag: tag(repo.A), heldBack: "production serves a rollback", rolledBackTag: tag(repo.B) })
+  })
+  it("a normal deployment and the off switch name no rolled-back code", async () => {
+    versions = { v2: off(repo.A), v1: code(repo.A) }
+    setDeployments([{ version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    expect((await serving("cmux-api")).rolledBackTag).toBeUndefined()
   })
   it("the Chief off switch holds automatic promotes, also under a later secret-only deployment", async () => {
     versions = { v3: off(repo.A), v2: off(repo.A), v1: code(repo.A) }
@@ -442,6 +461,111 @@ describe("gh() retries GitHub 5xx", () => {
 })
 
 
+describe("ghGraphql() retries a failed read", () => {
+  // 2026-11-24 14:27Z (run 45406811977): the REST hour was spent 25 minutes before its reset, so G1 fell back to
+  // GraphQL, whose one 502 (then a 200 with an error and no data) failed promote-gates; production waited for the
+  // next backend push.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
+  const stub = (answers: Array<number | "errors" | "throw">) => {
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls++
+      const a = answers.shift()
+      if (a === undefined || a === "throw") throw new Error("test: network down")
+      if (a === "errors") return Response.json({ errors: [{ type: "SERVICE_UNAVAILABLE", message: "try again" }] })
+      return a === 200 ? Response.json({ data: { ok: true } }) : new Response("bad gateway", { status: a })
+    }) as typeof fetch
+    return () => calls
+  }
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
+  afterEach(() => { globalThis.fetch = saved.fetch })
+  afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
+
+  it("a 502 then data returns the data", async () => {
+    const calls = stub([502, 200])
+    expect(await ghGraphql("query{}", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls()).toBe(2)
+  })
+  it("a 200 with errors and no data, then a network error, then data returns the data", async () => {
+    const calls = stub(["errors", "throw", 200])
+    expect(await ghGraphql("query{}", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls()).toBe(3)
+  })
+  it("a failure on every try throws after the last retry, naming the error", async () => {
+    const calls = stub([502, "errors", 503, "errors"])
+    await expect(ghGraphql("query{}", {}, [0, 0, 0])).rejects.toThrow("SERVICE_UNAVAILABLE: try again")
+    expect(calls()).toBe(4)
+  })
+  it("a 400 (a bad query) throws at once", async () => {
+    const calls = stub([400, 200])
+    await expect(ghGraphql("query{}", {}, [0, 0, 0])).rejects.toThrow("HTTP 400")
+    expect(calls()).toBe(1)
+  })
+})
+
+describe("gh() waits once for a spent GITHUB_TOKEN hour", () => {
+  // 2026-11-21: the repository token's hour still ran out a few minutes before each reset (14:49Z for 14:51Z),
+  // and a promote-gates read in those minutes failed the promote ("API rate limit exceeded for installation").
+  // GitHub says when the hour resets; one bounded wait until then and one retry is cheaper than a failed promote.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
+  const NOW = 1_795_272_563_000 // 14:49:23Z
+  const limited = (resetIn: number, remaining = "0") => new Response(JSON.stringify({ message: "API rate limit exceeded for installation." }), {
+    status: 403, headers: { "x-ratelimit-remaining": remaining, "x-ratelimit-reset": String(Math.floor(NOW / 1000) + resetIn) },
+  })
+  const stub = (answers: Array<() => Response>) => {
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      calls.push(String(input))
+      return (answers.shift() ?? (() => new Response(JSON.stringify({ ok: true }), { status: 200 })))()
+    }) as typeof fetch
+    return calls
+  }
+  const clock = () => {
+    const slept: Array<number> = []
+    return { slept, limits: { now: () => NOW, sleep: async (ms: number) => { slept.push(ms) } } }
+  }
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
+  afterEach(() => { globalThis.fetch = saved.fetch })
+  afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
+
+  it("a rate-limit 403 waits until the reset, then the retry's 200 is the answer", async () => {
+    const calls = stub([() => limited(145)])
+    const { slept, limits } = clock()
+    expect(await gh("/actions/workflows/backend.yml/runs", {}, [0, 0, 0], limits)).toEqual({ ok: true })
+    expect(calls.length).toBe(2)
+    expect(slept).toEqual([146_000])
+  })
+  it("waits at most once: a second refusal throws with the rate-limit detail", async () => {
+    const calls = stub([() => limited(145), () => limited(145)])
+    const { slept, limits } = clock()
+    await expect(gh("/actions/workflows/backend.yml/runs", {}, [0, 0, 0], limits)).rejects.toThrow("HTTP 403")
+    expect(calls.length).toBe(2)
+    expect(slept.length).toBe(1)
+  })
+  it("a reset past GH_RATE_LIMIT_WAIT_MS throws at once instead of outliving the job", async () => {
+    const calls = stub([() => limited(Math.ceil(GH_RATE_LIMIT_WAIT_MS / 1000) + 60)])
+    const { slept, limits } = clock()
+    await expect(gh("/actions/workflows/backend.yml/runs", {}, [0, 0, 0], limits)).rejects.toThrow("rate limit")
+    expect(calls.length).toBe(1)
+    expect(slept).toEqual([])
+  })
+  it("a 403 with requests left is a permission, never waited on", async () => {
+    const calls = stub([() => limited(145, "4200")])
+    const { slept, limits } = clock()
+    await expect(gh("/issues/9", {}, [0, 0, 0], limits)).rejects.toThrow("HTTP 403")
+    expect(calls.length).toBe(1)
+    expect(slept).toEqual([])
+  })
+})
+
 describe("G1 excludes a source-fenced staging skip", () => {
   it("a superseded push neither proves green nor poisons another commit's soak; real smoke failures still count", async () => {
     const savedFetch = globalThis.fetch
@@ -473,5 +597,184 @@ describe("G1 excludes a source-fenced staging skip", () => {
       if (savedToken === undefined) delete process.env.GITHUB_TOKEN
       else process.env.GITHUB_TOKEN = savedToken
     }
+  })
+})
+
+describe("G1 reads staging runs over GraphQL when the REST hour is spent", () => {
+  // 2026-11-21 16:22Z: the repository token's REST hour ran out 29 minutes before its 16:51Z reset, too far to wait
+  // for. GraphQL has its own hour (about 550 of 5,000 used at 16:23Z), and one query answers the run list and every
+  // run's three jobs, so G1 still decides.
+  it("a REST refusal with a far reset answers from one GraphQL read: pushes to feat-cmux-next only, latest attempt", async () => {
+    const savedFetch = globalThis.fetch
+    const savedToken = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+    const check = (name: string, conclusion: string, steps: Array<[string, string]> = []) =>
+      ({ nodes: [{ name, conclusion, completedAt: "2026-11-21T15:00:00Z", steps: { nodes: steps.map(([n, c]) => ({ name: n, conclusion: c })) } }] })
+    const run = (id: number, sha: string, event: string, branch: string, deploy: string, smoke: string, status = "COMPLETED") => ({
+      databaseId: id, event, checkSuite: { status, branch: { name: branch }, commit: { oid: sha },
+        deploy: check("deploy-staging", deploy, [["Newer deployment inputs already queued; skip", "SKIPPED"], ["Smoke the API Worker; roll back on red", smoke]]),
+        test: check("test", "SUCCESS"), guard: check("migrations-push-guard", "SUCCESS") },
+    })
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      calls.push(`${init?.method ?? "GET"} ${url.pathname}`)
+      if (url.pathname.endsWith("/backend.yml/runs")) return new Response(JSON.stringify({ message: "API rate limit exceeded for installation." }), {
+        status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 29 * 60) },
+      })
+      if (url.pathname === "/graphql") return Response.json({ data: { node: { runs: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+        run(9, "pr", "pull_request", "lane/x", "SUCCESS", "SUCCESS"),
+        run(8, "running", "push", "feat-cmux-next", "SUCCESS", "SUCCESS", "IN_PROGRESS"),
+        run(7, "green", "push", "feat-cmux-next", "SUCCESS", "SUCCESS"),
+        run(6, "other", "push", "main", "SUCCESS", "SUCCESS"),
+        run(5, "red", "push", "feat-cmux-next", "FAILURE", "FAILURE"),
+        run(4, "skipped", "push", "feat-cmux-next", "SKIPPED", "SKIPPED"),
+      ] } } } })
+      throw new Error(`unexpected GitHub path ${url.pathname}`)
+    }) as typeof fetch
+    try {
+      expect(await stagingRuns()).toEqual([
+        { sha: "green", at: Date.parse("2026-11-21T15:00:00Z"), green: true },
+        { sha: "red", at: Date.parse("2026-11-21T15:00:00Z"), green: false },
+      ])
+      expect(calls).toEqual(["GET /repos/manaflow-ai/cmux/actions/workflows/backend.yml/runs", "POST /graphql"])
+    } finally {
+      globalThis.fetch = savedFetch
+      if (savedToken === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = savedToken
+    }
+  })
+})
+
+describe("gates after a rollback (no person needed to move forward)", () => {
+  /** main(["gates"]) against the fake Cloudflare above and a fake GitHub: staging proved `greenSha`, one open P0 issue (G2 stops there). */
+  const gates = async (greenSha: string, hold?: string) => {
+    const saved = { fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, hold: process.env.CMUX_NEXT_PRODUCTION_HOLD }
+    process.env.GITHUB_TOKEN = "test-token"
+    if (hold === undefined) delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+    else process.env.CMUX_NEXT_PRODUCTION_HOLD = hold
+    const greenJobs = [
+      { name: "test", conclusion: "success" },
+      { name: "migrations-push-guard", conclusion: "success" },
+      { name: "deploy-staging", conclusion: "success", completed_at: "2026-10-19T00:00:00Z", steps: [{ name: "Smoke the API Worker; roll back on red", conclusion: "success" }] },
+    ]
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+      if (url.host === "api.cloudflare.com") return fakeFetch(input)
+      if (url.host !== "api.github.com") throw new Error(`unexpected host ${url.host}`)
+      if (url.pathname.endsWith("/backend.yml/runs")) return Response.json({ workflow_runs: [{ id: 1, head_sha: greenSha }] })
+      if (url.pathname.endsWith("/runs/1/jobs")) return Response.json({ jobs: greenJobs })
+      if (url.pathname.endsWith("/issues")) return Response.json(url.searchParams.get("labels")?.endsWith("P0") ? [{ number: 7 }] : [])
+      throw new Error(`unexpected GitHub path ${url.pathname}`)
+    }) as typeof fetch
+    const lines: Array<string> = []
+    const [log, error] = [console.log, console.error]
+    console.log = (...a: Array<unknown>) => void lines.push(a.join(" "))
+    console.error = (...a: Array<unknown>) => void lines.push(a.join(" "))
+    try {
+      return { code: await main(["gates"]), out: lines.join("\n") }
+    } finally {
+      ;[console.log, console.error] = [log, error]
+      globalThis.fetch = saved.fetch
+      if (saved.token === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = saved.token
+      if (saved.hold === undefined) delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+      else process.env.CMUX_NEXT_PRODUCTION_HOLD = saved.hold
+    }
+  }
+  // B was promoted, then rolled back onto A: production serves A and holds B.
+  const rolledBackFromB = () => {
+    versions = { v2: code(repo.B), v1: code(repo.A) }
+    setDeployments([{ version: "v1", trigger: "rollback" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+  }
+  it("the rolled-back commit itself holds", async () => {
+    rolledBackFromB()
+    const r = await gates(repo.B)
+    expect(r.code).toBe(3)
+    expect(r.out).toContain(`HOLD (rolled-back) production serves a rollback of ${repo.B.slice(0, 12)}`)
+  })
+  it("a newer staging-proven commit goes on to the other gates with the hold switch unset", async () => {
+    rolledBackFromB()
+    const r = await gates(repo.C)
+    expect(r.out).not.toContain("HOLD (rolled-back)")
+    expect(r.out).not.toContain("HOLD (G6)")
+    expect(r.out).toContain("HOLD (G2) open P0/P1 regression issues: #7")
+  })
+  it("a hold a person set still stops it first", async () => {
+    rolledBackFromB()
+    const r = await gates(repo.C, "on: launch freeze")
+    expect(r.out).toContain("HOLD (G6) hold switch: on? launch freeze")
+  })
+  it("the Chief off switch still holds every automatic promote", async () => {
+    versions = { v2: off(repo.A), v1: code(repo.A) }
+    setDeployments([{ version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    const r = await gates(repo.C)
+    expect(r.out).toContain("HOLD (rolled-back) production serves the Chief off switch")
+  })
+})
+
+describe("one promote job reads each finished staging run's jobs once (the shared GITHUB_TOKEN hour)", () => {
+  // stale then gates, as backend.yml's promote-gates job runs them, each a fresh process sharing --runs-cache.
+  // Before: both read the run list and every listed run's jobs (2 x (1 + 30) calls); the 403 that held promotes
+  // came from this read when the repository's token hour was spent (run 44878749398, 2026-11-21).
+  const greenJobs = (at: string) => [
+    { name: "test", conclusion: "success" },
+    { name: "migrations-push-guard", conclusion: "success" },
+    { name: "deploy-staging", conclusion: "success", completed_at: at, steps: [{ name: "Smoke the API Worker; roll back on red", conclusion: "success" }] },
+  ]
+  const run = async (listed: Array<{ id: number; head_sha: string; run_attempt?: number }>, argv: Array<string>) => {
+    const saved = { fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, hold: process.env.CMUX_NEXT_PRODUCTION_HOLD }
+    process.env.GITHUB_TOKEN = "test-token"
+    delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+      if (url.host === "api.cloudflare.com") return fakeFetch(input)
+      if (url.host !== "api.github.com") throw new Error(`unexpected host ${url.host}`)
+      calls.push(url.pathname.replace(/^\/repos\/[^/]+\/[^/]+/, ""))
+      if (url.pathname.endsWith("/backend.yml/runs")) return Response.json({ workflow_runs: listed })
+      if (/\/runs\/\d+\/jobs$/.test(url.pathname)) return Response.json({ jobs: greenJobs("2026-10-19T00:00:00Z") })
+      if (url.pathname.endsWith("/issues")) return Response.json([])
+      throw new Error(`unexpected GitHub path ${url.pathname}`)
+    }) as typeof fetch
+    const [log, error] = [console.log, console.error]
+    console.log = () => {}
+    console.error = () => {}
+    try {
+      // Only the reads matter here: a later gate (G3 reads approvals this repository lacks) may throw.
+      await main(argv).catch(() => {})
+      return calls
+    } finally {
+      ;[console.log, console.error] = [log, error]
+      globalThis.fetch = saved.fetch
+      if (saved.token === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = saved.token
+      if (saved.hold === undefined) delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+      else process.env.CMUX_NEXT_PRODUCTION_HOLD = saved.hold
+    }
+  }
+  const jobReads = (calls: Array<string>) => calls.filter((c) => c.endsWith("/jobs")).sort()
+
+  it("stale then gates read each run's jobs once, and the next promote reads only the new run", async () => {
+    versions = { v1: code(repo.A) }
+    setDeployments([{ version: "v1", trigger: "deployment" }])
+    const cache = join(tmpRoot, "staging-runs.json")
+    rmSync(cache, { force: true })
+    const listed = [{ id: 3, head_sha: repo.C }, { id: 2, head_sha: repo.B }, { id: 1, head_sha: repo.A }]
+    const stale = await run(listed, ["stale", "--runs-cache", cache])
+    const gates = await run(listed, ["gates", "--runs-cache", cache])
+    expect(jobReads([...stale, ...gates])).toEqual(["/actions/runs/1/jobs", "/actions/runs/2/jobs", "/actions/runs/3/jobs"])
+    // The next push: one new run, and run 2 re-run (a new attempt may end differently).
+    const next = await run([{ id: 4, head_sha: repo.C }, { id: 3, head_sha: repo.C }, { id: 2, head_sha: repo.B, run_attempt: 2 }, { id: 1, head_sha: repo.A }], ["gates", "--runs-cache", cache])
+    expect(jobReads(next)).toEqual(["/actions/runs/2/jobs", "/actions/runs/4/jobs"])
+  })
+
+  it("a cached verdict for another commit is read again, never trusted", async () => {
+    versions = { v1: code(repo.A) }
+    setDeployments([{ version: "v1", trigger: "deployment" }])
+    const cache = join(tmpRoot, "staging-runs-mismatch.json")
+    writeFileSync(cache, JSON.stringify({ "1:1": { sha: repo.B, run: { sha: repo.B, at: 0, green: true } } }))
+    const calls = await run([{ id: 1, head_sha: repo.A }], ["gates", "--runs-cache", cache])
+    expect(jobReads(calls)).toEqual(["/actions/runs/1/jobs"])
   })
 })

@@ -66,7 +66,43 @@ fn hint_text(err: String, spec: &str, hits: &[String], claude_harness: Option<&s
         }
         return hint;
     }
-    err
+    match missing_harness_step(spec) {
+        Some(step) => format!("{err}. {step}"),
+        None => err,
+    }
+}
+
+/// The next step for a harness name this host has no profile for, so a first
+/// chat on an agent that is not set up never ends on a bare "unknown harness"
+/// (cmuxterm-hq first-user journey, rule error-without-next-step): the Install
+/// command for an agent cmux installs itself, the shipped example profile for
+/// one it knows, the ACP Registry for another agent it knows by name. None for
+/// any other name (a typo, a model name): the bare error stays.
+fn missing_harness_step(spec: &str) -> Option<String> {
+    let id = spec.split('/').next().unwrap_or(spec);
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return None;
+    }
+    if crate::harness_install::agent(id).is_ok() {
+        return Some(format!(
+            "{id:?} is not installed here: install it with `cmux harness install {id}`, \
+             or the Install button in Settings > Agents"
+        ));
+    }
+    if crate::cli::harness::example(id).is_some() {
+        return Some(format!(
+            "{id:?} is not set up here: install its CLI, then add it with \
+             `cmux harness add {id} --example {id}`"
+        ));
+    }
+    // An agent cmux knows by name (it has a mark) but ships no profile for: the ACP Registry adds it.
+    if crate::chats::brand::exact(id).is_some() {
+        return Some(format!(
+            "{id:?} is not set up here: install its CLI, then `cmux harness registry` lists the agents \
+             cmux can add with `cmux harness add ID --registry`"
+        ));
+    }
+    None
 }
 
 /// Whether `spec` has the shape of a Claude model id: a family release
@@ -91,57 +127,5 @@ pub(super) fn looks_like_claude_model_id(spec: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{hint_text, looks_like_claude_model_id};
-
-    #[test]
-    fn claude_model_shapes() {
-        for id in [
-            "claude-opus-5-5",
-            "claude-sonnet-4-6",
-            "claude-haiku-4-5-20251001",
-            "claude-opus-4-7[1m]",
-            "claude-3-5-sonnet-20241022",
-            "opus",
-            "sonnet[1m]",
-            "haiku",
-        ] {
-            assert!(looks_like_claude_model_id(id), "{id}");
-        }
-        for name in
-            ["claude-sr2", "claude-sr2-pipe", "claude", "claude-opus", "claude-work", "claude-"]
-        {
-            assert!(!looks_like_claude_model_id(name), "{name}");
-        }
-    }
-
-    #[test]
-    fn harness_profile_gets_no_claude_model_suggestion() {
-        let err = "unknown harness \"claude-sr2\"".to_owned();
-        let out = hint_text(err, "claude-sr2", &[], Some("claude"));
-        assert!(!out.contains("claude/claude-sr2"), "{out}");
-        assert!(!out.contains("is a model id"), "{out}");
-        assert!(out.contains("harness profile this host does not have"), "{out}");
-        assert!(out.contains("-m claude/claude-opus-5-5 -e medium"), "{out}");
-        assert!(!out.contains("fable"), "{out}");
-    }
-
-    #[test]
-    fn real_model_id_still_suggests_claude_spelling() {
-        assert!(looks_like_claude_model_id("claude-opus-5-5"));
-        let hits = vec!["claude/claude-opus-5-5".to_owned()];
-        let out = hint_text("unknown harness".into(), "claude-opus-5-5", &hits, Some("claude"));
-        assert!(
-            out.contains("\"claude-opus-5-5\" is a model id: write claude/claude-opus-5-5"),
-            "{out}"
-        );
-    }
-
-    #[test]
-    fn other_names_keep_the_bare_error() {
-        assert_eq!(
-            hint_text("unknown harness \"gpt\"".into(), "gpt", &[], None),
-            "unknown harness \"gpt\""
-        );
-    }
-}
+#[path = "model_hint_tests.rs"]
+mod tests;

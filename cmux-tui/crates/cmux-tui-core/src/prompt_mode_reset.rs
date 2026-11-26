@@ -68,6 +68,11 @@ pub(crate) struct ShellMarks {
     /// The title the stream set, for the title ops libghostty-vt skips
     /// (`CSI 22/23 t`, OSC 1; `crate::terminal_title`).
     titles: crate::terminal_title::TitleTracker,
+    /// The end of the last chunk when it may begin a prompt mark (at most
+    /// [`MARK`]'s length): it is parsed with the next chunk, so a mark split
+    /// across reader chunks still gets its reset before it. An incomplete
+    /// escape sequence shows nothing, so holding it changes no screen.
+    held: Vec<u8>,
 }
 
 impl ShellMarks {
@@ -77,11 +82,19 @@ impl ShellMarks {
     pub(crate) fn joined_midway() -> Self {
         Self { running: true, ..Self::default() }
     }
+
+    /// The title tracker, for a caller that rewrites the titles in its own
+    /// scan of the output ([`write_rewritten_output`]).
+    pub(crate) fn titles_mut(&mut self) -> &mut crate::terminal_title::TitleTracker {
+        &mut self.titles
+    }
 }
 
 /// Write `data` to `term`, resetting a dead program's modes right before
 /// each prompt mark the shell prints at its prompt. Returns the bytes the
-/// terminal parsed, resets included, for mirrors and attach taps.
+/// terminal parsed, resets included, for mirrors and attach taps. The output
+/// paths call [`write_rewritten_output`] after their one shared scan.
+#[cfg(test)]
 pub(crate) fn write_output<'a>(
     term: &mut Terminal,
     data: &'a [u8],
@@ -89,13 +102,73 @@ pub(crate) fn write_output<'a>(
 ) -> Cow<'a, [u8]> {
     // A title pop or an OSC 1 icon name becomes the OSC 2 that applies it,
     // here, so this terminal and every mirror fed the parsed bytes agree.
-    match marks.titles.rewrite(data) {
-        Cow::Borrowed(data) => write_marked(term, data, &mut marks.running),
-        Cow::Owned(data) => Cow::Owned(write_marked(term, &data, &mut marks.running).into_owned()),
+    let data = marks.titles.rewrite(data);
+    write_rewritten_output(term, data, marks)
+}
+
+/// [`write_output`] for `data` whose titles the caller already rewrote with
+/// [`ShellMarks::titles_mut`] (the host parser's one shared output scan,
+/// `TerminalMetadata::observe_output_rewriting_titles`).
+pub(crate) fn write_rewritten_output<'a>(
+    term: &mut Terminal,
+    data: Cow<'a, [u8]>,
+    marks: &mut ShellMarks,
+) -> Cow<'a, [u8]> {
+    write_rewritten_output_forwarding(term, data, marks, |_| {})
+}
+
+/// [`write_rewritten_output`] that hands each run of the bytes it returns to
+/// `forward` before the terminal parses that run, in order: the runs joined
+/// are exactly the returned bytes. A prompt mark that gets a reset splits the
+/// chunk at the mark, so the reset (which reads the modes as of the mark) is
+/// computed after the run before it parsed and forwarded before it parses
+/// itself. A held partial mark is neither parsed nor forwarded until the
+/// next chunk completes it. A mirror forwards to its viewers this way so
+/// they parse the chunk while it does, not after (goal terminal-throughput,
+/// G3), and see the same bytes as when it broadcast the returned stream.
+pub(crate) fn write_rewritten_output_forwarding<'a, F: FnMut(&[u8])>(
+    term: &mut Terminal,
+    data: Cow<'a, [u8]>,
+    marks: &mut ShellMarks,
+    mut forward: F,
+) -> Cow<'a, [u8]> {
+    let data = if marks.held.is_empty() {
+        data
+    } else {
+        let mut joined = std::mem::take(&mut marks.held);
+        joined.extend_from_slice(&data);
+        Cow::Owned(joined)
+    };
+    let keep = data.len().saturating_sub(partial_mark_len(&data));
+    match data {
+        Cow::Borrowed(data) => {
+            let (body, held) = data.split_at_checked(keep).unwrap_or((data, &[]));
+            marks.held.extend_from_slice(held);
+            write_marked(term, body, &mut marks.running, &mut forward)
+        }
+        Cow::Owned(data) => {
+            let (body, held) = data.split_at_checked(keep).unwrap_or((&data, &[]));
+            marks.held.extend_from_slice(held);
+            Cow::Owned(write_marked(term, body, &mut marks.running, &mut forward).into_owned())
+        }
     }
 }
 
-fn write_marked<'a>(term: &mut Terminal, data: &'a [u8], running: &mut bool) -> Cow<'a, [u8]> {
+/// How many bytes at the end of `data` begin a prompt mark the next chunk
+/// may complete: a proper prefix of `ESC ] 133 ;` and its letter.
+fn partial_mark_len(data: &[u8]) -> usize {
+    let tail = data.get(data.len().saturating_sub(MARK.len())..).unwrap_or_default();
+    let Some(escape) = memchr::memrchr(0x1b, tail) else { return 0 };
+    let candidate = tail.get(escape..).unwrap_or_default();
+    if MARK.starts_with(candidate) { candidate.len() } else { 0 }
+}
+
+fn write_marked<'a, F: FnMut(&[u8])>(
+    term: &mut Terminal,
+    data: &'a [u8],
+    running: &mut bool,
+    forward: &mut F,
+) -> Cow<'a, [u8]> {
     let mut parsed: Option<Vec<u8>> = None;
     let mut written = 0;
     let mut from = 0;
@@ -107,28 +180,32 @@ fn write_marked<'a>(term: &mut Terminal, data: &'a [u8], running: &mut bool) -> 
             Some(b'D') if *running => {
                 *running = false;
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
-                parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
+                parsed.extend_from_slice(
+                    &term.vt_write_forwarding(&data[written..at], &mut *forward),
+                );
                 written = at;
-                parsed.extend_from_slice(&term.vt_write_with_normalized(KEYBOARD_RESET));
+                parsed.extend_from_slice(&term.vt_write_forwarding(KEYBOARD_RESET, &mut *forward));
             }
             Some(b'D') => {}
             Some(b'A') if !*running => {
                 // The modes as of the mark: what this chunk set before it counts.
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
-                parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
+                parsed.extend_from_slice(
+                    &term.vt_write_forwarding(&data[written..at], &mut *forward),
+                );
                 written = at;
                 let reset = leftover_modes(term);
                 if !reset.is_empty() {
-                    parsed.extend_from_slice(&term.vt_write_with_normalized(&reset));
+                    parsed.extend_from_slice(&term.vt_write_forwarding(&reset, &mut *forward));
                 }
             }
             _ => {}
         }
     }
     match parsed {
-        None => term.vt_write_with_normalized(data),
+        None => term.vt_write_forwarding(data, &mut *forward),
         Some(mut parsed) => {
-            parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..]));
+            parsed.extend_from_slice(&term.vt_write_forwarding(&data[written..], &mut *forward));
             Cow::Owned(parsed)
         }
     }
@@ -151,5 +228,9 @@ fn leftover_modes(term: &Terminal) -> Vec<u8> {
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    memchr::memmem::find(haystack, needle)
 }
+
+#[cfg(test)]
+#[path = "prompt_mode_reset_tests.rs"]
+mod tests;

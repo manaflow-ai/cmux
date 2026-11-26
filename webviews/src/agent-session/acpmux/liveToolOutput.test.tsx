@@ -5,6 +5,7 @@
 // (`useLiveToolRow`). Leo, 2026-11-04: "It should just never, ever ... be [freaking] acceptable
 // for there to be some sort of linear time growth degradation".
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -228,7 +229,7 @@ test("every command form the row readers parse goes through the pane", () => {
     ["an assignment prefix", { command: "CMUX_SOCKET=/tmp/cmux.sock cmux acp send lane-a 'hi'" }],
     ["a timeout wrapper", { command: "timeout 30 cmux acp send lane-a 'hi'" }],
     ["a shell -c", { command: "bash -c 'cmux acp send lane-a hi'" }],
-    ["a reach wrapper", { command: "reach big-red 'cmux acp send lane-a hi'" }],
+    ["a reach wrapper", { command: "reach devbox 'cmux acp send lane-a hi'" }],
     [
       "a shell function",
       { command: "tell() { cmux acp send --no-wait \"$1\" 'Merged.' 2>&1 | tail -1; }; tell lane-a; tell lane-b" },
@@ -291,19 +292,23 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
 function mount(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

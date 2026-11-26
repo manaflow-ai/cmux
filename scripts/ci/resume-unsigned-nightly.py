@@ -40,7 +40,6 @@ DAEMON_BUILDER = "build-nightly-remote-daemon"
 OPTIONAL_PRODUCERS = {"cmux-nightly-ghostty-cli-helper": HELPER_RESOLVER,
                       "cmux-nightly-remote-daemon": DAEMON_BUILDER}
 
-
 def require(condition, message):
     if not condition:
         raise SystemExit(message)
@@ -127,12 +126,13 @@ def extract(archive, destination):
 
 def restore(receipt, root):
     root.mkdir(parents=True, exist_ok=True)
+    wanted = [(artifact, root / ARTIFACTS[name][1]) for name, artifact in receipt["artifacts"].items()]
     with tempfile.TemporaryDirectory() as tmp:
-        for name, artifact in receipt["artifacts"].items():
+        for artifact, destination in wanted:
             archive = str(Path(tmp) / f"{artifact['id']}.zip")
             download.download(artifact, os.environ["GH_TOKEN"], archive, 32)
             download.verify(archive, artifact)
-            extract(archive, root / ARTIFACTS[name][1])
+            extract(archive, destination)
     manifests = list((root / "daemon").glob("cmuxd-remote-manifest-*.json"))
     require(len(manifests) == 1 and manifests[0].name == f"cmuxd-remote-manifest-{receipt['build']}.json",
             "daemon build number does not match original run/attempt")
@@ -142,14 +142,23 @@ def restore(receipt, root):
     return version
 
 
-def bundled_client_commit(root):
+def bundled_client_commit(root, folder="app"):
+    return bundled_client_version(root, folder)[0]
+
+
+def bundled_client_version(root, folder="app"):
+    """(commit, tree key) from the app's cmux-tui.version; the key is "" when the file has none.
+    A build that bundled a fallback tree records that tree's key (app-bundle-cmux-tui-client.sh). The
+    restore step outputs it as cmux_tui_key; until nightly.yml passes it to the sign stage's marker gate
+    (INSTALLED_KEY, a nightly.yml change that needs its main twin), a resumed fallback build fails closed
+    there: it publishes nothing rather than the wrong client."""
     # The uploaded app artifact contains the precompressed unsigned tarball.
     # Open it only after the authenticated ZIP extraction and read the one
     # cmux-tui.version member, a regular file at a safe path, for the client
     # provenance the marker gate uses. Nothing is extracted: the app keeps its
     # framework symlinks (Versions/Current), and the folder is re-uploaded as
     # the artifact the signers untar, so it must hold only the original archive.
-    app_root = root / "app"
+    app_root = root / folder
     archives = list(app_root.glob("*.tar.gz"))
     require(len(archives) == 1, "resumed unsigned app has no unique app archive")
     texts = []
@@ -170,7 +179,8 @@ def bundled_client_commit(root):
     commit = fields.get("commit", "")
     require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
             "resumed unsigned app has no valid cmux-tui commit")
-    return commit
+    key = fields.get("key", "")
+    return commit, key if re.fullmatch(r"[0-9a-f]{40}", key) else ""
 
 
 def main():
@@ -186,7 +196,7 @@ def main():
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build_sha", "build")}
     if args.command == "restore":
         outputs["version"] = restore(receipt, args.out)
-        outputs["cmux_tui_commit"] = bundled_client_commit(args.out)
+        outputs["cmux_tui_commit"], outputs["cmux_tui_key"] = bundled_client_version(args.out)
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():

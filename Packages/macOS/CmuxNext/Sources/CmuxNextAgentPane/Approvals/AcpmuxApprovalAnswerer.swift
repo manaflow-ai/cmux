@@ -42,8 +42,10 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         guard pending.count == 1, let permission = pending[0]["permissionId"] as? String,
               let request = pending[0]["request"] as? [String: Any], AcpmuxPermissionPrompt.isToolPermission(request)
         else { return nil }
+        let offered = request["options"] as? [[String: Any]] ?? []
         return AgentApproval(session: session, permission: permission, digest: AcpmuxPermissionPrompt.digest(request),
-                             summary: AcpmuxPermissionPrompt.summary(request))
+                             summary: AcpmuxPermissionPrompt.summary(request),
+                             alwaysOffered: AcpmuxPermissionPrompt.alwaysOption(offered: offered) != nil)
     }
 
     /// The home inbox's read of one ask (``AgentPaneAskAnswer``): that prompt among the chat's
@@ -61,8 +63,51 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
                                denyOnce: AcpmuxPermissionPrompt.onceOption(allow: false, offered: offered))
     }
 
+    /// Another chat's question, read for ``AgentPaneAskAnswer``: that prompt among the chat's
+    /// pending ones while it is a question of a chat this daemon holds itself (never a peer's), as
+    /// the request's canonical JSON and digest, which the reply is validated against.
+    public func pendingQuestion(session: String, permission: String) async -> AgentPendingQuestion? {
+        guard let line = await AcpmuxPersonLine.open(environment) else { return nil }
+        defer { line.close() }
+        guard let entry = await line.ownPending(of: session, chiefHomeID: chiefHomeID).first(where: { $0["permissionId"] as? String == permission }),
+              let request = entry["request"] as? [String: Any], AcpmuxPermissionPrompt.question(request) != nil,
+              let json = AcpmuxSecretKey.canonicalJSON(request), let digest = AcpmuxSecretKey.canonicalDigest(request) else { return nil }
+        return AgentPendingQuestion(requestJSON: json, digest: digest)
+    }
+
+    /// Sends a validated question reply as the chat's own card does (`_acpmux/permission_respond`
+    /// with its `answers`), only on a person connection and only while the same request (its
+    /// canonical digest) is still pending in a chat this daemon holds itself.
+    public func answerQuestion(_ reply: AgentPaneQuestionReply, spend: @MainActor () -> Bool) async -> Bool {
+        guard let line = await AcpmuxPersonLine.open(environment) else { return false }
+        defer { line.close() }
+        // A question's answer is an allow: acpmux refuses it from a connection that is not the person.
+        guard line.isPerson else {
+            logger.error("question answer: acpmux refused this app's person proof; nothing answered")
+            return false
+        }
+        let input = reply.input
+        guard let now = await line.ownPending(of: input.sessionId, chiefHomeID: chiefHomeID)
+                .first(where: { $0["permissionId"] as? String == input.permissionId }),
+              let request = now["request"] as? [String: Any],
+              AcpmuxSecretKey.canonicalDigest(request) == input.requestDigest,
+              var params = (try? JSONSerialization.jsonObject(with: Data(reply.canonicalJSON.utf8))) as? [String: Any] else {
+            logger.info("question answer: the question ended or changed since it was read; nothing answered")
+            return false
+        }
+        guard spend() else { return false }
+        params["sessionId"] = input.sessionId
+        params["permissionId"] = input.permissionId
+        return await line.call("_acpmux/permission_respond", params) != nil
+    }
+
     public func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
         await answer(approval, allow: allow, once: false) { true }
+    }
+
+    /// A banner's Always allow: the prompt's one `allow_always` option, as the chat's own card sends it.
+    public func answerAlways(_ approval: AgentApproval) async -> Bool {
+        await answer(approval, allow: true, once: false, always: true) { true }
     }
 
     /// The inbox's answer: as ``answer(_:allow:)``, but only a chat this daemon holds itself, and
@@ -78,7 +123,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         await answer(approval, allow: allow, once: true, through: gate) { true }
     }
 
-    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool,
+    private func answer(_ approval: AgentApproval, allow: Bool, once: Bool, always: Bool = false,
                         through gate: (@Sendable (() -> Void) -> Bool)? = nil,
                         spend: @MainActor () -> Bool) async -> Bool {
         guard let line = await AcpmuxPersonLine.open(environment) else { return false }
@@ -92,7 +137,8 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         let offered = { (request: [String: Any]) in request["options"] as? [[String: Any]] ?? [] }
         guard let now = pending.first(where: { $0["permissionId"] as? String == approval.permission }),
               let request = now["request"] as? [String: Any], AcpmuxPermissionPrompt.digest(request) == approval.digest,
-              let option = once ? AcpmuxPermissionPrompt.onceOption(allow: allow, offered: offered(request))
+              let option = always ? AcpmuxPermissionPrompt.alwaysOption(offered: offered(request))
+                  : once ? AcpmuxPermissionPrompt.onceOption(allow: allow, offered: offered(request))
                   : AcpmuxPermissionPrompt.option(allow: allow, offered: offered(request))
         else {
             logger.info("approval banner: the prompt ended or changed since its banner posted; nothing answered")

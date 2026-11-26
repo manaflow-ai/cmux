@@ -1,7 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 import AppKit
 import Observation
 import os
@@ -87,7 +87,6 @@ final class HostPressureService {
 
     /// How many windows' indicators are subscribed, and whether the monitor (and its timer) runs.
     var subscriberCount: Int { subscribers }
-    var isMonitoring: Bool { running }
     /// Whether Debug Settings forces the level (its sessions are samples, with no Stop).
     var isForced: Bool { forced != nil }
     /// Whether the monitor itself runs (its timer and source exist), after the hops so far.

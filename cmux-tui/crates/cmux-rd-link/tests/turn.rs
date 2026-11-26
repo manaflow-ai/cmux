@@ -4,6 +4,9 @@
 //! the relay, the path is `turn_relay`, the allocation is refreshed, and bad
 //! credentials or a hostile server fail without bringing the driver down.
 
+// The in-process TURN server (support/fake_turn.rs) waits with poll(2).
+#![cfg(unix)]
+
 #[path = "support/fake_turn.rs"]
 mod fake_turn;
 #[path = "support/stun.rs"]
@@ -271,4 +274,23 @@ fn a_relay_only_side_reaches_the_peer_only_through_its_turn_allocation() {
         assert!(kinds.iter().all(|k| *k == PathKind::TurnRelay), "{kinds:?}");
     }
     assert!(turn.stats().channel_data_to_clients > 0);
+}
+
+#[test]
+fn a_turn_server_that_resolves_after_start_still_allocates_a_relay() {
+    let turn = FakeTurn::start(Options::default());
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let viewer = start(Role::Initiator, &v, h.public, Vec::new());
+    let mut seen = Vec::new();
+    // No relay without a server.
+    assert!(
+        !wait_for(&viewer, &mut seen, Duration::from_millis(300), |e| relay_candidate(e).is_some())
+    );
+    let late = server(&turn, "correct horse");
+    let mut asks = 0;
+    viewer.add_turn_later(Box::new(move || {
+        asks += 1;
+        (asks > 3).then(|| vec![late.clone()])
+    }));
+    assert!(wait(&viewer, &mut seen, |e| relay_candidate(e).is_some()), "the late relay allocates");
 }

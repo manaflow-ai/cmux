@@ -98,6 +98,9 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
   document.title = strings.t(L.title);
   let view: MonacoView | null = null;
   let mounting: HTMLElement | null = null;
+  // Vim's mode line and `:` prompt (`editor.vimMode`): the view's vim writes it, the status bar shows it.
+  const vimLine = document.createElement("div");
+  vimLine.className = "ed-vim";
   // The app gives the page the keyboard (pane click, Cmd-Opt-Arrow, tab switch, relaunch): Monaco
   // takes it, also when it mounts after the request (pane-focus-DESIGN.md P1, P2).
   const focus = contentFocus();
@@ -155,6 +158,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           return true;
         },
         onContentChange: () => find.refresh(),
+        vimLine,
       });
       view = next;
       store.attachView(next);
@@ -167,6 +171,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
   if (client) {
     // Cmd-S and the find chords are the app key dispatcher's page commands; the page never reads them.
     void subscribePageStreams(client, {
+      // The owner link back up reads the file again when the page lost it (EditorPage's quiet wait).
+      onConnection: (connected) => store.linkChanged(connected),
       onCommand: ({ command, text }) => {
         if (command === FOCUS_CONTENT_COMMAND) return focus.request();
         if (command === "save") return void store.save({ format: true });
@@ -213,7 +219,6 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           strings={emptyStrings}
           texts={{
             title: strings.t(EMPTY.title),
-            subtitle: strings.t(EMPTY.subtitle),
             choose: strings.t(EMPTY.choose),
             drop: strings.t(EMPTY.drop),
             recentsEmpty: strings.t(EMPTY.recents),
@@ -229,6 +234,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
       find={find}
       strings={strings}
       editorRef={editorRef}
+      vimLine={vimLine}
       emptyState={emptyState}
     />,
   );

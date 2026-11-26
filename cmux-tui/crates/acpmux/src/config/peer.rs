@@ -11,6 +11,11 @@ pub struct PeerConfig {
     /// Optional encrypted route. Tokens and application authorization are unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wireguard: Option<crate::wireguard::StaticPeer>,
+    /// `linkHost`: the paired install (`inst_...`) this machine's cmux link reaches the peer
+    /// at, for the link's `acpmux` service (`peer_carriers.rs`). Unset, the link's pairing
+    /// whose key is `wireguard.publicKey` is used, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// The peer daemon's peer token (`server/peer_auth.rs`), for a `ws://`
@@ -29,4 +34,17 @@ pub struct PeerConfig {
     /// machine; a plain `peer_add` and a Cloud lease never do.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub github_broker: bool,
+    /// `group`: `"own"` or `"agent"`, where the person put this machine in their machine
+    /// pickers. Wins over what acpmux derives (`hub/agent_vm.rs` `group_of`); unset, nothing
+    /// is overridden. Edit config.json, or `acpmux machine group NAME own|agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+}
+
+impl PeerConfig {
+    /// Whether this config names a route of its own (`wireguard` or `linkHost`). Such a peer
+    /// never gets an overlay path found for it (`peer_overlay.rs`), whatever runs.
+    pub fn names_route(&self) -> bool {
+        self.wireguard.is_some() || self.link_host.is_some()
+    }
 }

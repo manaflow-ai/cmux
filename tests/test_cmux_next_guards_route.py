@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """feat-cmux-next pull requests and pushes run the release-notary guard group.
 
-Pushes run it in nightly-guards (judged at the tip); pull requests run it in the CI guard group,
-compared with their base.
+Pushes run it in the release-notary job (in parallel, judged at the tip) and in the CI guard group (so the
+merge gate has a base verdict for each of its steps); pull requests run it in the CI guard group, compared
+with their base.
 
 ci.yml skips its guards for feat-cmux-next and has no push trigger, so the
 nightly, notarization and nightly-next publication tests ran nowhere on the
@@ -11,6 +12,7 @@ red there unseen).
 """
 
 import json
+import sys
 from pathlib import Path
 import unittest
 
@@ -30,58 +32,136 @@ def callers():
 
 class CmuxNextGuardsRouteTests(unittest.TestCase):
     def test_feat_cmux_next_runs_release_notary_on_pushes(self):
-        found = []
-        for name, triggers, job in callers():
-            if not isinstance(triggers, dict):
-                continue
-            push = triggers.get("push") or {}
-            if "feat-cmux-next" not in (push.get("branches") or []) or push.get("paths"):
-                continue
-            inputs = job.get("with") or {}
-            if "release-notary" in json.loads(inputs.get("linux_guard_test_groups", "[]")) and "true" in str(
-                inputs.get("linux_guard_tests")
-            ):
-                found.append(name)
-        self.assertTrue(found, "no workflow runs the release-notary guards for feat-cmux-next pushes")
+        # A push runs every release-notary step in parallel, judged at the tip. The ci-guards.yml matrix leg ran them
+        # one after another (915 s on 4 vCPU) and ended cancelled at its 15 minutes, with no verdict, on every push.
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import shlex  # noqa: PLC0415
+        import sys  # noqa: PLC0415
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import run_ci_guards  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        triggers = workflow.get(True) or workflow.get("on") or {}
+        push = triggers.get("push") or {}
+        self.assertIn("feat-cmux-next", push.get("branches") or [])
+        self.assertFalse(push.get("paths"))
+        job = workflow["jobs"]["release-notary"]
+        # base-coalesce.yml: a push runs it once per 30-minute window on the tip (needs.coalesce.outputs.run).
+        # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
+        self.assertTrue(job["if"].startswith(
+            "${{ (!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request')) && "),
+            job["if"])
+        self.assertEqual(job["timeout-minutes"], 15)
+        script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
+        call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
+        args = shlex.split(call.split(" || ", 1)[0].replace('"$(getconf _NPROCESSORS_ONLN)"', "4"))
+        args = args[args.index("scripts/ci/guards-local.sh") + 1:]
+        # The run stops itself inside the job's 15 minutes. Not GNU `timeout`: a placed mini has none (exit 127,
+        # run 44175871401).
+        self.assertLess(float(args[args.index("--deadline") + 1]), 15 * 60 - 60)
+        self.assertNotRegex(script, r"(?m)^\s*timeout\b")
+        # A worker per core (4 on the 4 vCPU pool), the whole group and nothing else, every step past a red one.
+        self.assertIn('--jobs "$(getconf _NPROCESSORS_ONLN)"', call)
+        self.assertEqual(args[args.index("--group") + 1], "release-notary")
+        self.assertEqual(args.count("--group"), 1)
+        for flag in ("--step", "--skip-group", "--feat-routes", "--root"):
+            self.assertNotIn(flag, args)
+        self.assertIn("--keep-going", args)
+        self.assertIn('python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/release-notary.json"', script)
+        # The command runs every step of the group (no step dropped), as one parallel unit.
+        workflow_steps = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
+        group_steps = [step["name"] for step in workflow_steps["jobs"]["workflow-guard-tests"]["steps"]
+                       if "'release-notary'" in str(step.get("if", ""))
+                       and step["name"] not in run_ci_guards.DEPENDENCY_STEPS and "uses" not in step]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(run_ci_guards.main(["--list"] + [a for a in args if a not in ("--keep-going",)
+                                                              and not a.startswith("--results")
+                                                              and "release-notary.json" not in a]), 0)
+        listed = out.getvalue().splitlines()
+        # "in order" names the group's ordered head (its ghostty-next init); the rest still share the pool
+        # (ordered_split; test_ci_run_guards.CheckoutSetupRunsFirst runs it through main()).
+        self.assertTrue(listed[0].startswith(f"workflow-guard-tests / release-notary: {len(group_steps)} steps, "), listed[0])
+        self.assertEqual([line[4:] for line in listed[1:]], group_steps)
 
     def test_a_pull_request_runs_release_notary_against_its_base(self):
         # Run on its own, every pull request was red while the branch was (833 of 1656 runs in the 24 h to
         # 2026-11-05 08:24Z). A pull request runs the group in the CI guard group's head-and-base comparison
-        # (guards_new_reds.py), which fails on a step red on the change and not on its base; a push still runs
-        # nightly-guards, judged at its tip, so a base red fails the push that caused it.
+        # (guards_new_reds.py), which fails on a step red on the change and not on its base; a push runs
+        # the release-notary job, judged at its tip, so a base red fails the push that caused it.
         workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
         triggers = workflow.get(True) or workflow.get("on") or {}
         pull = triggers.get("pull_request") or {}
         self.assertIn("feat-cmux-next", pull.get("branches") or [])
-        # No workflow path filter: the CI guard group (a required check) runs on every pull request and routes
-        # release-notary inside it, so a change that skips the group still reports a pass.
-        self.assertFalse(pull.get("paths"), "a path filter would leave the CI guard group pending")
+        # No workflow path filter but the docs-only block (scripts/ci/docs_only_paths.py): the CI guard group runs on
+        # every pull request that changes more than prose and routes release-notary inside it, so a change that
+        # skips the group still reports a pass. The group is not a required check, so a docs-only pull request
+        # that starts no run leaves nothing pending (tests/test_ci_docs_only_prs.py).
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import docs_only_paths  # noqa: PLC0415
+
+        self.assertEqual([str(p) for p in pull.get("paths") or []], list(docs_only_paths.DOCS_ONLY_PATHS),
+                         "the guards' only path filter is the docs-only block")
+        self.assertNotIn("paths-ignore", pull)
         jobs = workflow["jobs"]
-        # nightly-guards still runs on a pull request (the submodule forward-only guard, Guard status), without
-        # the release-notary matrix leg.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() }}")
-        self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"],
-                         "${{ github.event_name != 'pull_request' && 'true' || 'false' }}")
+        # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
+        # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
+        self.assertTrue(jobs["nightly-guards"]["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+            "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false')) && "),
+            jobs["nightly-guards"]["if"])
+        self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ !cancelled() }}")
+        self.assertTrue(group["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+                        "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
+                        group["if"])
+        # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
+        # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
+        self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
+                      "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
+                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))",
+                      jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
-        run = steps["Run the ci guard group and the routed groups"]
-        self.assertEqual(run["env"]["EVENT_NAME"], "${{ github.event_name }}")
-        script = run["run"]
-        calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line]
-        self.assertEqual(len(calls), 3, calls)
+        script = steps["Run the ci guard group and the routed groups"]["run"]
+        calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
+        self.assertEqual(len(calls), 2, calls)
         # A pull request routes release-notary by its paths (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS):
         # no --group, so the ci group plus every group classify_feat picks, release-notary among them.
         self.assertIn("--feat-routes", calls[0])
         self.assertNotIn("--group", calls[0])
-        self.assertNotIn("--skip-group", calls[0])
-        # A push leaves it to nightly-guards, judged at the tip, on the head and on the base.
-        self.assertIn('else\n  groups=(--skip-group release-notary)', script)
-        self.assertIn("--feat-routes", calls[1])
-        self.assertIn("--skip-group release-notary", calls[1])
-        self.assertIn('"${groups[@]}"', calls[2])
+        self.assertIn("--root .guard-base", calls[1])
         self.assertIn('python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"',
                       script)
+
+    def test_a_push_runs_every_guard_group_a_pull_request_can_run(self):
+        # The merge gate excuses a pull request's guard group red only by the base's newest push run of the same job
+        # (base_red_excuse.py GUARD_GROUP_JOB). A push that left release-notary out gave its steps no base verdict,
+        # so their reds on a pull request were never excused (cmux#45374 against base run 44110521024).
+        import sys  # noqa: PLC0415
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import detect_linux_guard_changes  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        group = workflow["jobs"]["ci-guard-group"]
+        steps = {step.get("name"): step for step in group["steps"]}
+        changes = steps["Changed files"]["run"]
+        # A push drops its changed-files list, so --feat-routes reads none and routes every group.
+        self.assertIn('if [[ "$EVENT_NAME" != pull_request ]]; then', changes)
+        self.assertIn('rm -f "$RUNNER_TEMP/changed-files.txt"', changes.split('!= pull_request ]]; then', 1)[1])
+        every = set(detect_linux_guard_changes.classify_feat([]))
+        self.assertIn("release-notary", every)
+        for path in ("scripts/ci/run_ci_guards.py", ".github/workflows/nightly.yml", "Packages/macOS/x.swift",
+                     "tests/test_x.py", "webviews/src/x.ts"):
+            with self.subTest(path=path):
+                self.assertLessEqual(set(detect_linux_guard_changes.classify_feat([path])), every)
+        # The same head call for a pull request and a push, and no group left out of either pass.
+        script = steps["Run the ci guard group and the routed groups"]["run"]
+        self.assertNotIn("--skip-group", script)
+        self.assertNotIn("EVENT_NAME", script)
 
     def test_release_notary_has_ghostty_next_for_the_toolchain_notices(self):
         # toolchain_notices.py fails on a missing ghostty-next/build.zig.zon by

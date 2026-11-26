@@ -5,6 +5,7 @@ import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 
@@ -56,14 +57,18 @@ enum TopPages {
         services.pages.register(HistoryTopPage(services: services))
         services.pages.register(BookmarksTopPage(services: services))
         services.pages.register(StashTopPage(services: services))
+        // Forum (experiments.forum, off by default): hidden in the sidebar and refused while off.
+        services.pages.register(ForumTopPage(services: services))
+        services.registry.addSettingOffReason(["forum.show"]) { [weak services] in
+            services?.settings?.snapshot.showsForum == true ? nil : CmuxConfigSnapshot.forumHiddenReason
+        }
+        _ = services.registry.bindEffect("forum.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.forum), services: $0) }; return .done })
         // Automations (docs/automations-platonic-ideal.md section 8): this Mac's store through the bundled CLI, Cloud through cloud.automation.
-        let automations = AutomationsPageHost(local: { [bundled = services.bundledCLI] in
-            guard let cli = await bundled.resolve() else { throw AutomationsPageHost.SourceError(code: "no_cli", message: "") }
-            let listed = try await ProcessRunner.run(executable: cli, arguments: ["--json", "automation", "list"], environment: nil, timeout: .seconds(10), clock: ContinuousClock())
-            guard listed.status == 0 else { throw AutomationsPageHost.SourceError(code: "cli_failed", message: String(decoding: listed.stderr, as: UTF8.self)) }
-            return listed.stdout
-        }, cloud: { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)] in
+        let automations = AutomationsPageHost(bundled: services.bundledCLI, cloud: { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)] in
             try AutomationsPageHost.cloudValue(await forward(Data(#"{"op":"automation.list","params":{"limit":100}}"#.utf8))) })
+        automations.openChat = { [weak services] session, title in // a prompt run's chat, found by its name
+            _ = services?.registry.perform("agent.openSessionWorkspace", invocation: .init(arguments: ["session": .string(session), "name": .string(title)], origin: .user))
+        }
         // Signed out, the page's Cloud line offers the app's one cmux sign-in (msg 3790).
         automations.signIn = { [weak services] in
             guard let services else { return }
@@ -71,7 +76,7 @@ enum TopPages {
         }
         services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
                                            view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
-        _ = services.registry.bindEffect("automations.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.automations), services: $0) }; return .done })
+        _ = services.registry.bindEffect("automations.show", effect: { [weak services] i in _ = services.map { TopPages.show(.page(.automations), services: $0) }; automations.show(named: i.arguments["name"]?.stringValue); return .done })
     }
 
     /// The bookmarks profile of a Bookmarks top page: the browser profile
@@ -98,10 +103,9 @@ enum TopPages {
     }
 
     /// The provider of internal page `id`: a registered one, else an app's
-    /// page registered on first use (CodeRouter, `app:<id>` pages).
+    /// page registered on first use (`app:<id>` pages).
     static func provider(_ id: InternalPageID, services: AppServices) -> (any InternalPageProvider)? {
         if let provider = services.pages.provider(id) { return provider }
-        if id == .coderouter { return services.apps.pageProvider(appID: CodeRouterPageTab.appID) }
         let prefix = AppPanePage.pageID("").rawValue
         guard id.rawValue.hasPrefix(prefix) else { return nil }
         return services.apps.pageProvider(appID: String(id.rawValue.dropFirst(prefix.count)))

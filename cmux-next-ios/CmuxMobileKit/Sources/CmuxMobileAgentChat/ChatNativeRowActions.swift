@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDiff
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -17,7 +18,9 @@ enum ChatNativeRowActions {
             actions.menu = { _ in
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
-                    UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
+                    UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out"), identifier: ChatSelectText.actionID) { _ in
+                        ChatSelectText.present(text)
+                    },
                 ]
                 if isLast {
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
@@ -172,25 +175,11 @@ enum ChatPolishMenus {
 /// The prompt's "Select Text" sheet: the whole text, selectable, at medium and large detents.
 @MainActor
 enum ChatSelectText {
+    /// The Select Text rows' identifier: a hold's in-place selection leaves them out of its edit menu.
+    static let actionID = UIAction.Identifier("cmux.agentChat.selectText")
+
     static func present(_ text: String) {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        var top = window?.rootViewController
-        while let presented = top?.presentedViewController { top = presented }
-        guard let top else { return }
-        let textView = UITextView()
-        textView.text = text
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.isEditable = false
-        textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
-        let controller = UIViewController()
-        controller.view = textView
-        controller.title = "Select text"
-        let navigation = UINavigationController(rootViewController: controller)
-        controller.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
-            navigation?.dismiss(animated: true)
-        })
-        navigation.sheetPresentationController?.detents = [.medium(), .large()]
-        top.present(navigation, animated: true)
+        SelectableTextView(text).present()
     }
 }
 #endif

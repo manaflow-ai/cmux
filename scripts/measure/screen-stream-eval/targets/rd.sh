@@ -10,6 +10,50 @@ shift
 crate="$EVAL_ROOT/cmux-tui/crates/cmux-rd-host"
 rd="$EVAL_BIN/cmux-rd"
 port=4103
+netem_port=4104
+
+record_pid() {
+  local pid=$1 file=$2
+  echo "$pid" >"$file"
+  LC_ALL=C ps -p "$pid" -o lstart= >"$file.start" || true
+}
+
+same_pid() {
+  local file=$1 pid=$2 expected actual
+  expected=$(cat "$file.start" 2>/dev/null) || return 1
+  [[ -n "$expected" ]] || return 1
+  actual=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  [[ "$actual" == "$expected" ]]
+}
+
+stop_pid() {
+  local file=$1
+  [[ -f "$file" ]] || return 0
+  local pid
+  pid=$(cat "$file")
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  # A reused PID is not the child this run recorded. Never signal it.
+  if ! same_pid "$file" "$pid"; then
+    rm -f "$file" "$file.start"
+    return 0
+  fi
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 50); do
+    if ! kill -0 "$pid" 2>/dev/null || ! same_pid "$file" "$pid"; then
+      rm -f "$file" "$file.start"
+      return 0
+    fi
+    sleep 0.1
+  done
+  if same_pid "$file" "$pid" && kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$file" "$file.start"
+}
+
+now_ms() {
+  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+}
 
 host_start() {
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
@@ -19,13 +63,26 @@ host_start() {
   host_flags=()
   [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
+  # A variant target's own host flags (rd-ladder.sh), space-separated.
+  if [[ -n "${EVAL_RD_HOST_FLAGS:-}" ]]; then
+    read -ra extra <<<"$EVAL_RD_HOST_FLAGS"
+    host_flags+=("${extra[@]}")
+  fi
   : >"$EVAL_STATE/timing.jsonl"
   rm -f "$EVAL_STATE/timing.offset"
-  CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
+  mkdir -p "$EVAL_STATE/quality"
+  chmod 700 "$EVAL_STATE/quality"
+  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
-  echo $! >"$EVAL_STATE/host.pid"
+  record_pid "$!" "$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
-    grep -q listening "$EVAL_STATE/host.log" && return 0
+    if grep -q listening "$EVAL_STATE/host.log"; then
+      if netem_start; then
+        return 0
+      fi
+      stop_pid "$EVAL_STATE/host.pid"
+      return 1
+    fi
     kill -0 "$(cat "$EVAL_STATE/host.pid")" 2>/dev/null || break
     sleep 0.1 # bounded wait for the host's listening line (10 s)
   done
@@ -34,12 +91,58 @@ host_start() {
   return 1
 }
 
+netem_start() {
+  [[ -n "${EVAL_NETEM_RTT_MS:-}" ]] || return 0
+  [[ -z "${EVAL_BIND:-}" || "${EVAL_BIND}" == 127.0.0.1 ]] || {
+    echo "rd: netem is supported only for the local loopback target (EVAL_BIND=${EVAL_BIND})" >&2
+    return 1
+  }
+  [[ -z "${EVAL_PEER:-}" || "${EVAL_PEER}" == 127.0.0.1 ]] || {
+    echo "rd: netem is supported only for the local loopback target (EVAL_PEER=${EVAL_PEER})" >&2
+    return 1
+  }
+  : >"$EVAL_STATE/netem.log"
+  python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/netem.py" \
+    --listen-host 127.0.0.1 --listen-port "$netem_port" \
+    --upstream-host 127.0.0.1 --upstream-port "$port" \
+    --rtt-ms "$EVAL_NETEM_RTT_MS" --loss-pct "${EVAL_NETEM_LOSS_PCT:-0}" \
+    --seed "${EVAL_NETEM_SEED:-1}" --stats-path "$EVAL_STATE/netem-stats.json" >>"$EVAL_STATE/netem.log" 2>&1 &
+  record_pid "$!" "$EVAL_STATE/netem.pid"
+  for _ in $(seq 1 100); do
+    grep -q 'netem: listening' "$EVAL_STATE/netem.log" && return 0
+    kill -0 "$(cat "$EVAL_STATE/netem.pid")" 2>/dev/null || break
+    sleep 0.1
+  done
+  echo "rd: netem relay did not start" >&2
+  tail -20 "$EVAL_STATE/netem.log" >&2
+  stop_pid "$EVAL_STATE/netem.pid"
+  return 1
+}
+
 bench() {
-  "$rd" bench --addr "${EVAL_PEER:-127.0.0.1}:$port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
+  local bench_port=$port
+  local eval_flags=()
+  if [[ -z "${EVAL_PEER:-}" || "${EVAL_PEER}" == 127.0.0.1 ]]; then
+    eval_flags+=(--eval-local 1)
+  fi
+  if [[ -n "${EVAL_NETEM_RTT_MS:-}" ]]; then
+    bench_port=$netem_port
+    eval_flags+=(--eval-netem-relay 1)
+  fi
+  # A variant target's own viewer flags (rd-ladder.sh), space-separated.
+  if [[ -n "${EVAL_RD_BENCH_FLAGS:-}" ]]; then
+    read -ra extra <<<"$EVAL_RD_BENCH_FLAGS"
+    eval_flags+=("${extra[@]}")
+  fi
+  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench ${eval_flags[@]+"${eval_flags[@]}"} --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
   build)
+    if [[ -n "${EVAL_PREBUILT:-}" ]]; then
+      cp "$EVAL_PREBUILT/cmux-rd" "$rd"
+      exit 0
+    fi
     # From cmux-tui, so rustup takes its rust-toolchain.toml: rustup reads the cwd, not the manifest's
     # folder, and a fleet worker's shared RUSTUP_HOME keeps no default toolchain on purpose
     # (scripts/build-cmux-cua.sh says why).
@@ -48,16 +151,8 @@ case "$verb" in
     ;;
   host-start) host_start ;;
   host-stop)
-    if [[ -f "$EVAL_STATE/host.pid" ]]; then
-      pid=$(cat "$EVAL_STATE/host.pid")
-      kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 50); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.1 # bounded wait for the host to exit and free its port or room (5 s)
-      done
-      kill -9 "$pid" 2>/dev/null || true
-      rm -f "$EVAL_STATE/host.pid"
-    fi
+    stop_pid "$EVAL_STATE/netem.pid"
+    stop_pid "$EVAL_STATE/host.pid"
     ;;
   latency-view)
     # latency-view INPUT SAMPLES RAW: INPUT is key or pointer (a click on the marker's pad).
@@ -97,8 +192,8 @@ if os.path.exists(sys.argv[4]):
         except ValueError:
             pass
     open(sys.argv[5], "w").write(str(start + len(whole)))
-def pct(values):
-    values = sorted(v for v in values if v is not None and v >= 0)
+def pct(values, signed=False):
+    values = sorted(v for v in values if v is not None and (signed or v >= 0))
     if not values:
         return None
     return {"n": len(values), "p50": round(values[len(values) // 2], 3), "p95": round(values[min(len(values) - 1, int(len(values) * 0.95))], 3)}
@@ -106,13 +201,45 @@ def span(f, a, b):
     return (f[b] - f[a]) / 1000 if f.get(a) is not None and f.get(b) is not None else None
 after_input = [f for f in frames if f.get("input_us") is not None]
 # Where input-to-capture goes, for the first frame after each injected input: render (the input until
-# the display showed the change: the app and the window server), sck (ScreenCaptureKit handing the
-# frame over), pickup (the session loop seeing its damage), gate (the frame gate holding it until
-# its interval allows), each as p50/p95 ms on the host's own clock.
-parts = {name: pct(span(f, a, b) for f in after_input) for name, a, b in (
+# the vsync the window server composited the change for: ScreenCaptureKit's display time), sck
+# (signed: the frame reaching the capture callback after that vsync; negative when it arrives before
+# the vsync, which is usual), to_arrived (the input until the callback: app, window server and
+# ScreenCaptureKit together), pickup (the session loop seeing its damage), gate (the frame gate
+# holding it until its interval allows), arrived_to_release (pickup and gate: the callback until the
+# encode starts), each as p50/p95 ms on the host's own clock.
+signed_parts = {"sck_ms"}
+parts = {name: pct((span(f, a, b) for f in after_input), name in signed_parts) for name, a, b in (
     ("render_ms", "input_us", "shown_us"), ("sck_ms", "shown_us", "arrived_us"),
+    ("to_arrived_ms", "input_us", "arrived_us"),
     ("pickup_ms", "arrived_us", "damage_us"), ("gate_ms", "damage_us", "release_us"),
+    ("arrived_to_release_ms", "arrived_us", "release_us"),
     ("encode_ms", "release_us", "encoded_us"))}
+# The same display-to-arrival offset over every frame, not only the first after an input.
+parts["sck_all_frames_ms"] = pct((span(f, "shown_us", "arrived_us") for f in frames), signed=True)
+# The marker's own draw commits (`commit COUNTER T_US`, protocol clock) split render in two: draw
+# (the input until the marker committed its redraw: event delivery and the app's draw) and
+# commit_to_vsync (signed: that commit until the frame's display time; negative when the frame
+# predates the commit, counted in frame_before_commit). Each input's commit is the first one after
+# it, within 100 ms.
+commits, refresh_hz = [], None
+marker_log = os.environ.get("EVAL_MARKER_LOG")
+if marker_log and os.path.exists(marker_log):
+    for line in open(marker_log, errors="replace"):
+        words = line.split()
+        if len(words) == 3 and words[0] == "commit" and words[2].isdigit():
+            commits.append(int(words[2]))
+        elif len(words) == 2 and words[0] == "refresh-hz" and words[1].isdigit():
+            refresh_hz = int(words[1])
+commits.sort()
+import bisect
+for f in after_input:
+    i = bisect.bisect_left(commits, f["input_us"])
+    if i < len(commits) and commits[i] - f["input_us"] <= 100_000:
+        f["commit_us"] = commits[i]
+parts["draw_ms"] = pct(span(f, "input_us", "commit_us") for f in after_input)
+parts["commit_to_vsync_ms"] = pct((span(f, "commit_us", "shown_us") for f in after_input), signed=True)
+parts["frame_before_commit"] = sum(1 for f in after_input if (span(f, "commit_us", "shown_us") or 0) < 0)
+parts["refresh_hz"] = refresh_hz
 g2g, cap, dec = raw.get("g2g_ms") or {}, raw.get("same_clock_capture_to_decoded_ms") or {}, raw.get("decode_ms") or {}
 encode = (raw.get("host_stats_last") or {}).get("encode_ms_p50")
 def p50(d): return d.get("p50") if d else None
@@ -135,11 +262,17 @@ EOF
     seconds=$1 snapshot=$2 go=$3 raw=$4
     ppm="$EVAL_STATE/snapshot.ppm"
     rm -f "$ppm"
+    start_ms=$(now_ms)
+    export EVAL_WINDOW_START_MS="$start_ms"
     bench --input none --duration-s "$seconds" --snapshot "$ppm" \
       >"$raw" 2>"$EVAL_STATE/window.err" &
     pid=$!
     for _ in $(seq 1 200); do
-      grep -q 'passive: first frame' "$EVAL_STATE/window.err" && break
+      if grep -q 'passive: first frame' "$EVAL_STATE/window.err"; then
+        first_ms=$(now_ms)
+        echo $((first_ms - start_ms)) >"$raw.first"
+        break
+      fi
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1 # bounded wait for the first frame (20 s)
     done
@@ -150,19 +283,35 @@ EOF
   window-report)
     # window-report RAW OUT: the per-second rows on the host's wall clock (EVAL_PEER_WALL_OFFSET_MS).
     raw=$1 out=$2
+    if [[ -f "$EVAL_STATE/netem.pid" ]]; then
+      netem_pid=$(cat "$EVAL_STATE/netem.pid")
+      if same_pid "$EVAL_STATE/netem.pid" "$netem_pid"; then
+        kill -USR1 "$netem_pid"
+      fi
+    fi
     python3 -I - "$raw" "$out" "${EVAL_PEER_WALL_OFFSET_MS:-0}" <<'EOF'
-import json, sys
+import json, os, sys
 lines = open(sys.argv[1]).read().strip().splitlines()
 if not lines:
     sys.exit("rd: the window viewer printed no report")
 raw = json.loads(lines[-1])
 offset = float(sys.argv[3])
 series = [{"unix_ms": round(s["unix_ms"] + offset), "bytes": s["bytes"], "frames": s["frames"],
+           "duration_ms": s.get("duration_ms", 1000),
            "decode_ms": (s.get("decode_ms") or {}).get("p50"),
            "encode_ms": (s.get("host_stats") or {}).get("encode_ms_p50")} for s in raw["series"]]
-json.dump({"series": series, "extra": {"decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
+first = None
+try:
+    if os.path.exists(sys.argv[1] + ".first"):
+        first = max(0, int(open(sys.argv[1] + ".first").read().strip()))
+except (ValueError, OSError):
+    first = None
+json.dump({"series": series, "extra": {"first_frame_ms": first, "cpu_pct": raw.get("client_cpu_pct"),
+                                       "decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
                                        "welcome": raw.get("welcome"), "ended": raw.get("ended")}}, open(sys.argv[2], "w"))
 EOF
+    python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/rd-metrics.py" \
+      "$raw" "$out" "$EVAL_STATE/timing.jsonl"
     ;;
   *) echo "rd.sh: unknown verb $verb" >&2; exit 2 ;;
 esac

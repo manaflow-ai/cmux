@@ -13,6 +13,7 @@
 // session-info-section-order-browser.test.tsx checks in Chromium that the handles draw nothing until hover.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -62,13 +63,9 @@ const { ORDER_KEY, parseOrder, resetSectionOrderForTests } =
 const gallery = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default;
 type SessionInfoProps = import("react").ComponentProps<typeof SessionInfo>;
 
-afterAll(() => {
+afterAll(async () => {
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -205,12 +202,10 @@ test("a section drags anywhere, lifted while held, and the order stays", async (
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, the line included, with Progress (no plan here) and Also working
-  // here (no other chat here) in their slots, neither drawn.
+  // The saved order is the drawn one, the line included, with Carried memory (no read here) in its
+  // slot, not drawn.
   expect(
-    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter(
-      (id) => id !== "progress" && id !== "alsoHere",
-    ),
+    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter((id) => id !== "carried"),
   ).toEqual(order(container));
   await act(async () => root.unmount());
 
@@ -345,13 +340,12 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "context",
     "outputs",
     "sources",
-    "progress",
     "tasks",
     "subagents",
-    "alsoHere",
     "more",
     "usage",
     "connectors",
+    "carried",
     "changes",
   ]);
   await act(async () => root.unmount());
@@ -366,15 +360,22 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "context",
     "usage",
     "connectors",
+    "carried",
     "changes",
     "sources",
     "outputs",
-    "progress",
     "tasks",
-    "alsoHere",
     "subagents",
   ]);
   expect(parseOrder(JSON.stringify({ about: 3 }))).toEqual([]);
+  // An order saved while Also working here was a section (removed 2026-11-25) drops it and keeps the rest.
+  expect(parseOrder(JSON.stringify(["environment", "outputs", "alsoHere", "context", "more", "usage"]))).toEqual([
+    "environment",
+    "outputs",
+    "context",
+    "more",
+    "usage",
+  ]);
 });
 
 test("another pane's drag reaches this one", async () => {
@@ -385,7 +386,7 @@ test("another pane's drag reaches this one", async () => {
     dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: ORDER_KEY, newValue: value }));
   });
   // A section the saved order lacks takes the place after the one it follows by default: Context after
-  // Environment, Subagents after Context (Progress, not drawn, between), the line's sections after it.
+  // Environment, Subagents after Context, the line's sections after it.
   // Environment is pinned first, so Outputs lands right under it.
   expect(order(container)).toEqual([
     "environment",
@@ -466,16 +467,15 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
   expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)).toEqual([
     "environment",
     "subagents",
-    "progress",
     "context",
     "tasks",
     "sources",
     "outputs",
-    "alsoHere",
     "more",
     "changes",
     "usage",
     "connectors",
+    "carried",
   ]);
   await act(async () => root.unmount());
 });

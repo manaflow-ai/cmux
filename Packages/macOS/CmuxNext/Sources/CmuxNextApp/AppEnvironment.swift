@@ -2,14 +2,16 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextOnboarding
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
 /// comes from the app bundle only (`LaunchIdentity`); inherited `CMUX_*`
-/// variables were stripped in `CmuxNextApp.shared.main` before this is read.
+/// variables were stripped in `CmuxNextApp.main` before this is read.
 struct AppEnvironment: Sendable {
     let launch: LaunchIdentity
     /// `CMUX_NEXT_NO_ACTIVATE=1`: never take focus from the user's frontmost
@@ -18,8 +20,8 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
-    /// The showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding` (capture builds): no first-run onboarding page opens; accounts and agents stay real.
-    let skipsOnboarding: Bool
+    /// First-run onboarding is off (Lawrence 2026-11-09) unless `--onboarding`; the showcase and `--skip-onboarding` show nothing (``OnboardingWindowPresenter/LaunchSteps``).
+    let launchSteps: OnboardingWindowPresenter.LaunchSteps
     /// DEBUG-only auth capture fixture. This composes isolated, offline auth
     /// dependencies for fleet captures; it is never enabled in release builds.
     let authCaptureFixture: Bool
@@ -32,6 +34,9 @@ struct AppEnvironment: Sendable {
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
+    /// `CMUX_NEXT_LAUNCH_DISPLAY`: the display shell windows open on (`LaunchDisplay`), the
+    /// built-in one by default in a tagged dev build (#51115); nil keeps the usual placement.
+    var launchDisplay: LaunchDisplay?
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
@@ -114,15 +119,23 @@ struct AppEnvironment: Sendable {
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
-            showcase: showcase, skipsOnboarding: showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding"),
+            showcase: showcase, launchSteps: OnboardingWindowPresenter.LaunchSteps(environment: environment, arguments: arguments, showcase: showcase),
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
+            launchDisplay: launchDisplay(environment, build: launch.build),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
+    }
+
+    /// `CMUX_NEXT_LAUNCH_DISPLAY` for `build`: a tagged DEV build defaults to the built-in display (#51115).
+    /// NIGHTLY (also cmux NEXT's `.cmux-next`, whose bundle id carries a tag too), RC, staging and
+    /// release keep the usual placement unless the variable asks.
+    nonisolated static func launchDisplay(_ environment: [String: String], build: BuildIdentity) -> LaunchDisplay? {
+        LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: build.kind == .dev && build.tag != nil)
     }
 
     /// The per-terminal `env` provider every local spawn path uses (daemon

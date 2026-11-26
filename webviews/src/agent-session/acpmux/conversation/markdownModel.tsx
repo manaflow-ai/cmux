@@ -41,6 +41,35 @@ function interruptsParagraph(line: string): boolean {
   return Boolean(m && (!/\d/.test(m[2]!) || parseInt(m[2]!, 10) === 1));
 }
 
+/// A table's delimiter row (`|---|---|`, `| :-- | --: |`, `---|---`).
+const TABLE_DELIMITER = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+/// A table row's cells. An escaped pipe (`\|`) is a literal one inside its cell, not a column break.
+function tableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.replace(/\\\|/g, "|").trim());
+}
+
+/// Whether a table starts at `lines[i]`, as GFM reads one: a row holding a `|`, then a delimiter
+/// row with as many cells. Such a table also interrupts a paragraph (the paragraph loop below
+/// asks the delimiter row for a `|` too, so `a | b` over a lone `---` stays text), so a table
+/// written right under a bold line draws as a table, as the height estimate's GFM lexer
+/// (model.ts markdownBlocks) already measured it (Leo 2026-11-08: "whoa table broke rendering
+/// here?"). A header whose cell count differs from its delimiter row's is text.
+function tableStarts(lines: string[], i: number): boolean {
+  const delimiter = lines[i + 1];
+  return (
+    lines[i]!.includes("|") &&
+    delimiter !== undefined &&
+    TABLE_DELIMITER.test(delimiter) &&
+    tableCells(lines[i]!).length === tableCells(delimiter).length
+  );
+}
+
 /// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
 /// costs stack while it draws (800 list levels overflowed it), so content below this depth draws
 /// as the plain text of one paragraph.
@@ -165,26 +194,14 @@ function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
       out.push({ type: "blockquote", children: nested(body, depth + 1, commonmark) });
       continue;
     }
-    if (
-      line.includes("|") &&
-      i + 1 < lines.length &&
-      /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])
-    ) {
-      // An escaped pipe (`\|`) is a literal one inside its cell, not a column break.
-      const cells = (l: string) =>
-        l
-          .trim()
-          .replace(/^\|/, "")
-          .replace(/(?<!\\)\|$/, "")
-          .split(/(?<!\\)\|/)
-          .map((c) => c.replace(/\\\|/g, "|").trim());
-      const header = cells(line);
-      const align = cells(lines[i + 1]).map<Align>((c) =>
+    if (tableStarts(lines, i)) {
+      const header = tableCells(line);
+      const align = tableCells(lines[i + 1]).map<Align>((c) =>
         c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : null,
       );
       i += 2;
       const rows: string[][] = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) rows.push(cells(lines[i++]));
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) rows.push(tableCells(lines[i++]));
       out.push({ type: "table", align, header, rows });
       continue;
     }
@@ -205,7 +222,8 @@ function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
       (commonmark ? !fenceOpening(lines[i]) : fenceStep(0, lines[i]) === 0) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
-      !interruptsParagraph(lines[i])
+      !interruptsParagraph(lines[i]) &&
+      !(lines[i + 1]?.includes("|") && tableStarts(lines, i))
     )
       para.push(lines[i++].trim());
     out.push({ type: "paragraph", text: joinParagraph(para) });
@@ -309,13 +327,33 @@ export function footnoteOrder(source: string): string[] {
   // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
   // A streaming reply runs this on every reveal frame, and most replies have no footnote.
   if (!source.includes("^") || !source.includes("[")) return [];
-  const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
-  const ids: string[] = [];
+  return noteIds(source.replace(FENCED, "").replace(CODE_SPANS, ""), []);
+}
+
+const FENCED = /^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm;
+const CODE_SPANS = /(`+)[^`]*?\1/g;
+const FENCE_LINE = /^\s*```/gm;
+
+function noteIds(prose: string, ids: string[]): string[] {
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
     const id = match[1]!;
     if (!/^\w-\w$/.test(id) && !ids.includes(id)) ids.push(id);
   }
   return ids;
+}
+
+/// `footnoteOrder` of a piece of a reply that ends at a line start, and whether the piece is sealed:
+/// every fence and code span it opens closes inside it, so `footnoteOrder(piece + rest)` is its ids
+/// followed by those of `rest` (replyScan.ts reads a streaming reply's closed blocks once this way).
+/// A piece that is not sealed reads again with the text after it.
+export function footnotePiece(piece: string): { ids: string[]; sealed: boolean } {
+  if (!piece.includes("`")) return { ids: footnoteOrder(piece), sealed: true };
+  // An even count of fence lines pairs each opener with a closer inside the piece; then only a
+  // backtick left over after the code spans could pair with one after it.
+  if ((piece.match(FENCE_LINE)?.length ?? 0) % 2 === 1) return { ids: [], sealed: false };
+  const prose = piece.replace(FENCED, "").replace(CODE_SPANS, "");
+  if (prose.includes("`")) return { ids: [], sealed: false };
+  return { ids: piece.includes("^") && piece.includes("[") ? noteIds(prose, []) : [], sealed: true };
 }
 
 /// An image's source the pane can show: a data URL of a raster or SVG image. The pane's CSP

@@ -10,6 +10,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -31,12 +32,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 function notes(build: string, items: { title: string; pr: number }[]): ReleaseNotes {
@@ -106,7 +104,8 @@ const note = () => [...host.querySelectorAll(".wn-card-note")].map((n) => n.text
 test("the Updated card summarizes every skipped nightly by area, not the newest commit's subject", async () => {
   await renderCard(data, span);
   // The newest commit is one change among the rest, never the card's headline.
-  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
+  // The change in full, never cut at its first clause (u51892: "we need to show everything").
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color, not grey"]);
   // CI, tests and autofixes stay out; no count of the rest.
   expect(host.querySelector(".wn-card-more")).toBeNull();
   expect(host.textContent).not.toContain("shard");
@@ -171,7 +170,8 @@ test("a build whose What's New is the generic entry shows its real top change, n
     },
     [build],
   );
-  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
+  // The change in full, never cut at its first clause (u51892: "we need to show everything").
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color, not grey"]);
   expect(host.textContent?.toLowerCase()).not.toContain("fixes and improvements");
 });
 

@@ -11,7 +11,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use cmux_holder::client::{HolderClient, launch};
 use cmux_holder::holder::error_code;
@@ -23,15 +23,10 @@ fn holder_binary() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_cmux-holder"))
 }
 
+mod support;
+
 fn temp_dir() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = PathBuf::from("/tmp").join(format!(
-        "cmhl-{}-{}",
-        std::process::id(),
-        stamp % 1_000_000_000
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    support::unique_dir("cmhl")
 }
 
 fn kill(mut holder: Child) {
@@ -126,6 +121,28 @@ fn a_daemon_superseded_with_a_full_queue_still_hears_superseded_last() {
     let mut input = In(&last.payload);
     assert_eq!((last.chan, input.u16().unwrap()), (0, Kind::Hello as u16));
     assert_eq!(input.u16().unwrap(), error_code::SUPERSEDED);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A daemon that connects first and says HELLO last is served however many connections wait
+/// to authenticate beside it (the old cap of 8 closed the oldest waiting one).
+#[test]
+fn a_waiting_connection_is_kept_past_the_old_cap() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let first = UnixStream::connect(&socket).unwrap();
+    wire::tune_socket(first.as_raw_fd());
+    std::thread::sleep(Duration::from_millis(50));
+    let idle: Vec<UnixStream> = (0..20).map(|_| UnixStream::connect(&socket).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(200));
+    let mut link = RawLink { stream: first, reader: Reader::default() };
+    let hello = Out::default().u16(wire::VERSION).bytes(&TOKEN).0;
+    link.send(&wire::encode(Kind::Hello, 0, &hello));
+    let welcome = link.frame().unwrap().expect("the holder closed the first connection");
+    assert_eq!(Kind::from_u16(welcome.kind), Some(Kind::Welcome));
+    drop(idle);
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
 }

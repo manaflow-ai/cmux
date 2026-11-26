@@ -55,8 +55,12 @@ stop_after() {
   local pid=$1 secs=$2 k=0
   while kill -0 "$pid" 2>/dev/null && [ $k -lt $((secs * 4)) ]; do sleep 0.25; k=$((k + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
-    echo "selftest: still running after ${secs} s, stopping pid $pid"
-    kill -TERM "$pid" 2>/dev/null; sleep 2
+    # In a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise end this script
+    # before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+    ( trap '' PIPE; echo "selftest: still running after ${secs} s, stopping pid $pid" ) || true
+    kill -TERM "$pid" 2>/dev/null
+    # Up to 5 s for it to exit on SIGTERM (by its own path: a zombie child still answers kill -0), then SIGKILL.
+    for _ in $(seq 50); do pgrep -f "^$exe" | grep -qx "$pid" || break; sleep 0.1; done
     pgrep -f "^$exe" | grep -qx "$pid" && kill -KILL "$pid" 2>/dev/null
   fi
   return 0
@@ -68,7 +72,7 @@ if [ "$key" = "--key" ]; then
   opener=$!
   pid=""
   for _ in $(seq 40); do pid="$(pgrep -f "^$exe" | head -1)"; [ -n "$pid" ] && break; sleep 0.25; done
-  [ -n "$pid" ] || { echo "selftest: the app did not start ($exe)"; cat "$out/app.log" 2>/dev/null; kill "$opener" 2>/dev/null; exit 3; }
+  [ -n "$pid" ] || { ( trap '' PIPE; echo "selftest: the app did not start ($exe)"; cat "$out/app.log" 2>/dev/null ) || true; kill "$opener" 2>/dev/null; exit 3; }
   stop_after "$pid" 120
   wait "$opener" 2>/dev/null
 else

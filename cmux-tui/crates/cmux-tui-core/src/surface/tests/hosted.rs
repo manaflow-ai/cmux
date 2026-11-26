@@ -372,6 +372,219 @@ fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
     }
 }
 
+/// Every output byte a byte viewer of `surface` receives within `within`.
+#[cfg(unix)]
+pub(super) fn attach_output_within(attach: &AttachStream, within: Duration) -> Vec<u8> {
+    let deadline = Instant::now() + within;
+    let mut received = Vec::new();
+    while Instant::now() < deadline {
+        match attach.stream.try_recv() {
+            Ok(AttachFrame::Output(bytes)) => received.extend(bytes),
+            Ok(AttachFrame::OutputWithColors { output, .. }) => received.extend(output),
+            Ok(_) => {}
+            Err(_) => std::thread::sleep(Duration::from_millis(1)),
+        }
+    }
+    received
+}
+
+/// A prompt mark split across two host Output frames still resets a killed
+/// program's mouse mode in the mirror, and a byte viewer gets each parsed
+/// byte once: the end the reader holds for the next frame is not also sent
+/// with the first.
+#[cfg(unix)]
+#[test]
+fn a_prompt_mark_split_across_host_frames_resets_modes_and_viewers_get_each_byte_once() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-split-prompt-mark", false);
+    let attach = surface.attach_stream().unwrap();
+    let stream: &[u8] = b"\x1b[?1000hkilled\r\n\x1b]133;A\x07$ ";
+    let mut reference = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    let expected = crate::prompt_mode_reset::write_output(
+        &mut reference,
+        stream,
+        &mut crate::prompt_mode_reset::ShellMarks::default(),
+    )
+    .into_owned();
+    // The first frame ends inside the mark (`ESC ] 1 3`).
+    let (first, second) = stream.split_at(20);
+    for (sequence, chunk) in [(1, first), (2, second)] {
+        let mut frame = Frame::new(MessageKind::Output, chunk.to_vec());
+        frame.sequence = sequence;
+        crate::terminal_host_protocol::write_frame(&mut host, &frame).unwrap();
+    }
+    assert_eq!(attach_output_within(&attach, Duration::from_millis(500)), expected);
+    assert_eq!(surface.try_with_terminal(|terminal| terminal.mouse_tracking()).ok(), Some(false));
+}
+
+/// The early forward (goal terminal-throughput, G3): a smart host's plain
+/// Output goes to byte viewers run by run before the mirror parses it, and a
+/// colors-paired Output after the parse, as before. Over a shell session
+/// with prompt marks split across host frames and colors frames between
+/// them, a viewer gets exactly the bytes the old parse-then-broadcast path
+/// sent, and a terminal fed them ends on the mirror's screen and modes.
+#[cfg(unix)]
+#[test]
+fn an_early_forwarded_session_gives_viewers_the_old_bytes_and_the_mirrors_screen() {
+    let (_mux, surface, mut host) =
+        hosted_surface_with("hosted-early-forward", false, |attachment| {
+            attachment.smart_renderer = true;
+        });
+    let attach = surface.attach_stream().unwrap();
+    let colors =
+        TerminalColorOverrides { foreground: Some(Rgb { r: 1, g: 2, b: 3 }), ..Default::default() };
+    // (payload, colors follow): marks cut inside `ESC ] 1 3 3 ;` and right
+    // after it, a colors frame between a held tail and its completion.
+    let chunks: [(&[u8], bool); 7] = [
+        (b"\x1b[?1049h\x1b[?1000h\x1b[?25lkilled\r\n\x1b]13", false),
+        (b"3;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;", false),
+        (b"C\x07\x1b[?2004h\x1b[?1004hcaf\xc3\xa9 \x1b]10;#010203\x1b\\", true),
+        (b"ran\r\n\x1b]", false),
+        (b"133;D;0\x07\x1b]133;A\x07", true),
+        (b"$ \x1b]133;C\x07\x1b[?1000hagain\r\n\x1b]133;D;1\x07\x1b]133;A", false),
+        (b"\x07$ done", false),
+    ];
+    let mut reference = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    let mut marks = crate::prompt_mode_reset::ShellMarks::default();
+    let mut expected = Vec::new();
+    let mut sequence = 0;
+    for (payload, colors_follow) in chunks {
+        expected.extend_from_slice(&crate::prompt_mode_reset::write_output(
+            &mut reference,
+            payload,
+            &mut marks,
+        ));
+        sequence += 1;
+        let mut frame = live_output(sequence, payload);
+        if colors_follow {
+            frame.flags = FLAG_COLORS_FOLLOW;
+        }
+        crate::terminal_host_protocol::write_frame(&mut host, &frame).unwrap();
+        if colors_follow {
+            sequence += 1;
+            let mut colors_frame = Frame::new(
+                MessageKind::Colors,
+                crate::terminal_host_runtime::encode_terminal_color_overrides(&colors),
+            );
+            colors_frame.sequence = sequence;
+            crate::terminal_host_protocol::write_frame(&mut host, &colors_frame).unwrap();
+        }
+    }
+    let received = attach_output_within(&attach, Duration::from_millis(800));
+    assert_eq!(received, expected, "viewers got other bytes than the parse-then-broadcast path");
+    let mut viewer = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    viewer.vt_write(&received);
+    let state = |term: &mut Terminal| {
+        (
+            term.viewport_text().unwrap(),
+            term.mouse_tracking(),
+            term.mode(25, false),
+            term.mode(2004, false),
+            term.mode(1004, false),
+        )
+    };
+    let mirror = surface.try_with_terminal(|terminal| state(terminal)).unwrap();
+    assert_eq!(state(&mut viewer), mirror, "the viewer's screen differs from the mirror's");
+    assert_eq!(state(&mut reference), mirror, "the mirror differs from the reference parse");
+    assert!(mirror.0.contains("$ done"), "{}", mirror.0);
+    assert!(!mirror.1 && mirror.2 && !mirror.3, "the marks' resets did not apply: {mirror:?}");
+}
+
+/// A live Output frame of the fake host with `sequence` and `payload`.
+#[cfg(unix)]
+fn live_output(sequence: u64, payload: &[u8]) -> Frame {
+    let mut frame = Frame::new(MessageKind::Output, payload.to_vec());
+    frame.sequence = sequence;
+    frame
+}
+
+/// The surface's reader joins the plain Output frames queued behind the one
+/// it applies, up to the coalesce limit, never past a frame of another kind,
+/// and stops at a sequence gap after the frames before it.
+#[cfg(unix)]
+#[test]
+fn queued_output_frames_coalesce_up_to_a_bell_a_limit_or_a_gap() {
+    let (client, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+    let frames = host_frames::HostFrames::spawn(
+        "coalesce-test".into(),
+        client,
+        Arc::new(crate::terminal_host_runtime::ControlResponses::new_for_test()),
+        PROTOCOL_VERSION,
+        true,
+    )
+    .unwrap();
+    let mut bell = Frame::new(MessageKind::Bell, Vec::new());
+    bell.sequence = 4;
+    let large = vec![b'L'; 64 * 1024 - 4];
+    let sent = [
+        live_output(1, b"one "),
+        live_output(2, b"two "),
+        live_output(3, b"three "),
+        bell,
+        live_output(5, b"five "),
+        live_output(6, &large),
+        live_output(7, b"seven "),
+        live_output(9, b"nine, after a gap"),
+    ];
+    for frame in &sent {
+        crate::terminal_host_protocol::write_frame(&mut host, frame).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while frames.queued_frames_for_test() < sent.len() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let mut stager = HostedFrameStager::new(0, true);
+    let next = |stager: &mut HostedFrameStager| {
+        let host_frames::HostFrame::Frame(frame) = frames.recv() else {
+            panic!("the stream ended")
+        };
+        match stager.push(frame).unwrap() {
+            Some(HostedTransition::Output(output)) => {
+                Some(hosted_reader::coalesce_queued_output_for_test(output, &frames, stager))
+            }
+            _ => None,
+        }
+    };
+    assert_eq!(next(&mut stager), Some((b"one two three ".to_vec(), false)));
+    assert_eq!(next(&mut stager), None, "the Bell keeps its place");
+    // `five` and the large frame do not fit together; the large frame and
+    // `seven` do not either.
+    assert_eq!(next(&mut stager), Some((b"five ".to_vec(), false)));
+    assert_eq!(next(&mut stager), Some((large, false)));
+    assert_eq!(next(&mut stager), Some((b"seven ".to_vec(), true)), "the gap ends the stream");
+}
+
+/// A backlog of small host Output frames is applied in a few parses, and a
+/// byte viewer and the terminal get every byte in order.
+#[cfg(unix)]
+#[test]
+fn a_backlog_of_small_host_frames_is_applied_in_a_few_parses() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-output-coalesce", false);
+    let attach = surface.attach_stream().unwrap();
+    let pty = surface.as_pty().unwrap();
+    let lines: Vec<Vec<u8>> =
+        (0..200).map(|index| format!("line {index}\r\n").into_bytes()).collect();
+    let before = pty.render_generation.load(Ordering::Acquire);
+    {
+        // The reader blocks on the terminal lock with the first frame; the
+        // rest queue behind it.
+        let _held = pty.term.lock().unwrap();
+        for (index, line) in lines.iter().enumerate() {
+            crate::terminal_host_protocol::write_frame(
+                &mut host,
+                &live_output(index as u64 + 1, line),
+            )
+            .unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    let expected = lines.concat();
+    assert_eq!(attach_output_within(&attach, Duration::from_millis(500)), expected);
+    let applies = pty.render_generation.load(Ordering::Acquire) - before;
+    assert!(applies <= 4, "{applies} parses for 200 queued frames");
+    let screen = surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+    assert!(screen.contains("line 199"), "{screen}");
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {
@@ -1173,7 +1386,7 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
     let pty = surface.as_pty().expect("a terminal");
     let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
     let generation =
-        mux.begin_creating_input(&terminal_id).expect("no live terminal has the id yet");
+        mux.begin_creating_input(&terminal_id, 7).expect("no live terminal has the id yet");
     let given_back = Arc::new(Mutex::new(Vec::new()));
     for bytes in [&b"a"[..], &b"b"[..]] {
         let given_back = given_back.clone();
@@ -1202,6 +1415,56 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
         vec![b"k".to_vec(), b"a".to_vec()],
         "the input the flush kept reached the host once"
     );
+}
+
+/// #41387 review, should-fix 1: the creator cancels the creation's input while the flush is in a write that then
+/// fails. The terminal stays live, so the id must still refuse input for the expiry time: before, the failed write
+/// removed the cancelled entry, and a key sent late by the id was written to the live terminal. The creator's
+/// bytes that the flush did not write are dropped, not given back.
+#[cfg(unix)]
+#[test]
+fn a_failed_write_of_a_cancelled_creating_input_keeps_the_refusal_of_its_id() {
+    let (mux, surface, _host) =
+        hosted_typing_surface("hosted-input-port-cancel-write-failed", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
+    let generation =
+        mux.begin_creating_input(&terminal_id, 7).expect("no live terminal has the id yet");
+    let given_back = Arc::new(Mutex::new(Vec::new()));
+    let notice = |given_back: &Arc<Mutex<Vec<u8>>>| -> crate::mux::creating_input::UnclaimedNotice {
+        let given_back = given_back.clone();
+        Arc::new(move |_terminal: &str, bytes: &[u8], _reason: &str| {
+            given_back.lock().unwrap().extend_from_slice(bytes);
+        })
+    };
+    for bytes in [&b"a"[..], &b"b"[..]] {
+        mux.write_terminal_input(&terminal_id, 7, bytes, false, notice(&given_back))
+            .expect("queued while creating");
+    }
+    mux.insert_surface_runtime_for_test(surface.clone());
+    let resume = running_paused_writer(&surface, pty);
+    pty.input_port.set_reply_wait_for_test(Duration::from_secs(2));
+    let taken = pty.input_port.accepted_for_test();
+    std::thread::scope(|scope| {
+        // The flush writes "a": the paused writer holds it, and the flush's wait for it ends in a failed write.
+        let flush = scope.spawn(|| mux.finish_creating_input(&terminal_id, generation, None));
+        wait_until("the flush is in its write", || pty.input_port.accepted_for_test() > taken);
+        assert!(mux.cancel_creating_input(&terminal_id, 7), "the creator's cancel was refused");
+        flush.join().expect("the flush ended");
+    });
+    assert!(
+        given_back.lock().unwrap().is_empty(),
+        "the creator's bytes went back to it after its cancel"
+    );
+    let late = mux
+        .write_terminal_input(&terminal_id, 7, b"c", false, notice(&given_back))
+        .expect_err("input by the id of a cancelled creation was taken after a failed write");
+    assert_eq!(
+        crate::mux::creating_input::error_code(&late).as_deref(),
+        Some("input.cancelled"),
+        "{late:#}"
+    );
+    drop(resume);
 }
 
 /// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon

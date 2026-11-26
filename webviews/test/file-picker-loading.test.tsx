@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { FileSearchSource } from "../src/agent-session/acpmux/fileSearchModel";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -29,7 +30,8 @@ afterEach(async () => {
   root = undefined;
   host.replaceChildren();
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -109,7 +111,7 @@ test("mention loading rows are decorative and yield to results, empty and failur
   expect(placeholders()).toHaveLength(3);
   expect(host.querySelectorAll('button, [role="option"], [tabindex]')).toHaveLength(0);
   expect([...placeholders()].every((row) => row.getAttribute("aria-hidden") === "true")).toBe(true);
-  const items = mentionItems({ query: "example", files: results, sessions: [] });
+  const items = mentionItems({ query: "example", files: results });
   await render({ kind: "searching", results }, items);
   expect(placeholders()).toHaveLength(0);
   expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);

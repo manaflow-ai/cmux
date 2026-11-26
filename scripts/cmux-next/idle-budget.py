@@ -58,7 +58,9 @@ STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 # ---------------------------------------------------------------------------------------------------------
 # Per-thread counters (libproc, same user, no root)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+import macos_libs  # noqa: E402
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -275,7 +277,7 @@ def measure(app, instance, seconds):
     pids = process_set(instance)
     first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
     began = time.monotonic()
-    time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
+    time.sleep(seconds)  # sleep-ok: the measured idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
     last_pids = process_set(instance)
     last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
@@ -510,15 +512,21 @@ def over_budget(session, kinds, budget):
 
 # Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
 CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2}
+# The kinds a session's cron rows must have (cron_report): Chromium's GPU process and a renderer in `light`.
+CRON_EXPECTED_KINDS = {"light": ("app", "cef-gpu", "cef-renderer")}
 
 
 def cron_rows(report, budget=None):
     """{row: {p50, p95, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
-    idle-budget report: `idle_budget.<session>.<kind>.<field>`, one value per run (p50 = p95)."""
+    idle-budget report: `idle_budget.<session>.<kind>.<field>`, one value per run (p50 = p95). A kind's limit in
+    idle-budget.json is the row's budget (null: stored and compared with its last good value, no target). The
+    `other:` kinds (a terminal's shell and what it runs) are the person's processes, not the app's: no rows."""
     budget = budget if budget is not None else json.load(open(BUDGET_FILE))
     out = {}
     for session, entry in ((report or {}).get("sessions") or {}).items():
         for name, values in (entry.get("kinds") or {}).items():
+            if name.startswith("other:"):
+                continue
             limits = (budget.get("kinds") or {}).get(name) or {}
             for field, floor in CRON_FLOORS.items():
                 value = values.get(field)
@@ -530,6 +538,25 @@ def cron_rows(report, budget=None):
                 unit = "threads" if field.startswith("threads") else "/s"
                 out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
                                                                  "budget": limit, "floor": floor}
+    return out
+
+
+def cron_report(report, budget=None):
+    """The perf cron's fields of report.json (its idle-budget part, budgets kind): `rows`, and `incomplete` naming
+    each session that did not measure (its rows stay for diagnostics; the part is not done)."""
+    out = {"rows": [{"name": name, **row} for name, row in sorted(cron_rows(report, budget).items())]}
+    failed = []
+    for name, entry in ((report or {}).get("sessions") or {}).items():
+        if entry.get("exit") or "kinds" not in entry:
+            failed.append(f"session {name}: {entry.get('error') or 'exit ' + str(entry.get('exit'))}")
+            continue
+        # The light session's Home pages run in Chromium: a run with no Chromium process would drop the judged
+        # cef-* rows without a word.
+        missing = [k for k in CRON_EXPECTED_KINDS.get(name, ()) if k not in entry["kinds"]]
+        if missing:
+            failed.append(f"session {name}: no {', '.join(missing)} process in the window")
+    if failed:
+        out["incomplete"] = failed
     return out
 
 
@@ -615,9 +642,11 @@ def fresh_session(app):
     if app.teardown:
         app.teardown.end()
         app.teardown.done = False
-    state = os.path.join(os.path.expanduser("~"), "Library/Application Support/cmux/tags", app.tag, "tui")
-    existed = os.path.isdir(state)
-    shutil.rmtree(state, ignore_errors=True)
+    existed = False
+    for parent in ("cmux-next", "cmux"):  # NEXT's own folder and an older build's (a new build adopts that one)
+        state = os.path.join(os.path.expanduser("~"), "Library/Application Support", parent, "tags", app.tag, "tui")
+        existed = existed or os.path.isdir(state)
+        shutil.rmtree(state, ignore_errors=True)
     return {"tui_state_removed": existed}
 
 
@@ -749,6 +778,7 @@ def main():
             app.stop()
     report["over"] = [list(o) for o in all_overs]
     report["session_exits"] = {name: entry.get("exit") for name, entry in report["sessions"].items()}
+    report.update(cron_report(report, budget))
     text = f"# cmux idle budget, {machine['host']} (macOS {machine['macos']}), settle {opts.settle:g} s, window {opts.measure:g} s\n" + "\n".join(markdown)
     print(text, flush=True)
     with open(os.path.join(out, "idle-budget.md"), "w") as handle:

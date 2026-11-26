@@ -36,12 +36,11 @@ impl Layout {
         let output = repository
             .run(&arguments, MAX_SMALL_BYTES)
             .map_err(|failure| crate::git_ops::git_failed(operation, &failure))?;
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        let mut lines = text.lines();
-        let (Some(common), Some(own)) = (lines.next(), lines.next()) else {
+        // A folder's name can have a line break: the answer is read as bytes.
+        let Some((common, own)) = cmux_git::two_folders(&output.stdout) else {
             return Err(failed(operation, "git_failed", "git did not name its directories"));
         };
-        let canonical = |path: &str| {
+        let canonical = |path: PathBuf| {
             fs::canonicalize(path)
                 .map_err(|error| failed(operation, "git_failed", error.to_string()))
         };
@@ -194,11 +193,15 @@ impl Untracked {
 }
 
 /// Untracked, nonignored paths in path order. A nested repository is one
-/// entry ending with `/`.
+/// entry ending with `/`. None in the home folder's repository, whose
+/// untracked files are the whole home folder (`cmux_git::home`).
 pub(super) fn untracked(
     repository: &Repository,
     operation: &'static str,
 ) -> Result<Vec<Untracked>, ResourceError> {
+    if !repository.lists_untracked() {
+        return Ok(Vec::new());
+    }
     let arguments = ["ls-files", "-z", "--others", "--exclude-standard"];
     let output = listing(repository, &arguments, operation)?;
     let mut paths = records(&output).map(<[u8]>::to_vec).collect::<Vec<_>>();
@@ -216,11 +219,16 @@ pub(super) fn untracked(
         .collect())
 }
 
-/// Ignored paths, an ignored folder as one entry ending with `/`.
+/// Ignored paths, an ignored folder as one entry ending with `/`. None in
+/// the home folder's repository: the listing walks every folder that is not
+/// ignored to find them (`cmux_git::home`).
 pub(super) fn ignored(
     repository: &Repository,
     operation: &'static str,
 ) -> Result<Vec<Vec<u8>>, ResourceError> {
+    if !repository.lists_untracked() {
+        return Ok(Vec::new());
+    }
     let arguments =
         ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"];
     let output = listing(repository, &arguments, operation)?;

@@ -13,6 +13,8 @@ import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
+import { teardownDom } from "./support/domTeardown";
+import { openSettled } from "./support/openSettled";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -116,13 +118,9 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { endTurnFold, startTurnFold } = await import("../src/agent-session/acpmux/conversation/turnFold");
 
-afterAll(() => {
+afterAll(async () => {
   performance.now = clock;
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let at = 0;
@@ -214,6 +212,9 @@ test("closing an open Worked for scrolled up the transcript leaves its line wher
   };
   try {
     await act(async () => render());
+    // The scrolls below yield no frame, so they find turn 7 among the rows already mounted: the history
+    // above the view, which mounts after the open's first frame painted, not in its first commit.
+    await openSettled(dom.window);
     // Up the transcript until turn 7's open line is drawn, then with it 200 px down the view.
     for (let top = latest(); !line(7) && top > 0; top -= VIEWPORT / 2) await scrollTo(top);
     await scrollTo(scroller().scrollTop + line(7).getBoundingClientRect().top - 200);

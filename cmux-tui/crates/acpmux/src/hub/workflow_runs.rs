@@ -6,7 +6,19 @@ use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::process::Stdio;
 
+/// The current trusted launch inputs for one workflow host request.  Resolve
+/// the owner's profile once, then derive every value from that same snapshot.
+#[derive(Clone, Debug)]
+pub(crate) struct WorkflowToolSnapshot {
+    pub allowed_tools: Option<Vec<String>>,
+    pub upstreams: String,
+    pub upstream_names: Vec<String>,
+}
+
 impl Hub {
+    /// Starts workflow `name` of chat `owner`. `caller_subagent` is the Claude Code subagent
+    /// (`{id, type}`) whose MCP call starts it, when one does (`subagent_call.rs`): the run's
+    /// commands and its runner's tool calls run as that subagent (`RunRecord::caller_subagent`).
     pub async fn workflow_start(
         self: &Arc<Self>,
         owner: &Arc<Session>,
@@ -14,6 +26,7 @@ impl Hub {
         source: String,
         args: Value,
         local_principal: bool,
+        caller_subagent: Option<Value>,
     ) -> Result<RunRecord> {
         let meta = owner.meta();
         anyhow::ensure!(!meta.remote_origin, "a remote chat starts no local workflow");
@@ -35,6 +48,7 @@ impl Hub {
             state: State::Running,
             activities: BTreeMap::new(),
             outcome: None,
+            caller_subagent,
         })?;
         let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
         self.workflow_launch(&run).await?;
@@ -43,49 +57,51 @@ impl Hub {
 
     /// Current preset restrictions can narrow a pinned run, never grant it new tools.
     pub async fn workflow_allowed_tools(&self, run: &RunRecord) -> Result<Option<Vec<String>>> {
+        Ok(self.workflow_tool_snapshot(run).await?.allowed_tools)
+    }
+
+    /// Resolve the owner's current profile once for a host request.  The
+    /// pinned run ceiling intersects with that one profile, and the same
+    /// profile supplies the folded upstream configuration.
+    pub(crate) async fn workflow_tool_snapshot(
+        &self,
+        run: &RunRecord,
+    ) -> Result<WorkflowToolSnapshot> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
         let meta = owner.meta();
         let profile = self.workflow_tool_profile(&meta).await?;
         let current = workflow_profile_tools(&profile, &meta);
-        Ok(match (&run.allowed_tools, current) {
+        let allowed_tools = match (&run.allowed_tools, current) {
             (None, current) => current,
             (Some(pinned), None) => Some(pinned.clone()),
             (Some(pinned), Some(current)) => {
                 Some(pinned.iter().filter(|tool| current.contains(tool)).cloned().collect())
             }
-        })
-    }
+        };
 
-    /// Fold only the same trusted tool-server specs this owner's next agent launch gets.
-    /// These launch credentials never enter the durable run record or status response.
-    async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
-        let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
-        let meta = owner.meta();
-        let profile = self.workflow_tool_profile(&meta).await?;
         let env = &profile.env;
-        if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
-            return Ok("[]".into());
-        }
-        let config = crate::agent_tools::current()
-            .scoped(env)
-            .without_off(env)
-            .for_session(&run.owner_session_id)
-            .folded()
-            .mcp_config();
-        Ok(config
-            .as_ref()
-            .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
-            .and_then(Value::as_str)
-            .unwrap_or("[]")
-            .to_owned())
-    }
-
-    pub(crate) async fn workflow_upstream_names(&self, run: &RunRecord) -> Result<Vec<String>> {
-        let specs: Vec<Value> = serde_json::from_str(&self.workflow_upstreams(run).await?)?;
-        Ok(specs
+        let upstreams = if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
+            "[]".into()
+        } else {
+            let config = crate::agent_tools::current()
+                .scoped(env)
+                .without_off(env)
+                .for_session(&run.owner_session_id)
+                .folded()
+                .mcp_config();
+            config
+                .as_ref()
+                .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
+                .and_then(Value::as_str)
+                .unwrap_or("[]")
+                .to_owned()
+        };
+        let specs: Vec<Value> = serde_json::from_str(&upstreams)?;
+        let upstream_names = specs
             .iter()
             .filter_map(|spec| spec.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect())
+            .collect();
+        Ok(WorkflowToolSnapshot { allowed_tools, upstreams, upstream_names })
     }
 
     async fn workflow_tool_profile(
@@ -272,6 +288,7 @@ impl Hub {
 
     async fn workflow_spawn(self: &Arc<Self>, run: &RunRecord) -> Result<()> {
         let mut command = workflow_runner_command()?;
+        let tools = self.workflow_tool_snapshot(run).await?;
         let Some(token) = self.workflow_runs.issue_runner(run)? else {
             return Ok(());
         };
@@ -284,18 +301,25 @@ impl Hub {
             &run.generation.to_string(),
         ]);
         command.env_clear();
-        for key in ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME"] {
+        for key in RUNNER_ENV {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }
         }
         command.envs(super::person::caller_env(&run.owner_session_id));
+        // The runner may outlive this daemon run: the next one knows it by this token too.
+        self.caller_issued(&run.owner_session_id);
         command.env("ACPMUX_SESSION_ID", &run.owner_session_id);
         command.env(crate::agent_tools::AGENT_SESSION_ENV, &run.owner_session_id);
         command.env(crate::workflow_runs::RUNNER_TOKEN_ENV, token);
-        command.env(crate::agent_tools::UPSTREAMS_ENV, self.workflow_upstreams(run).await?);
-        if let Some(tools) = self.workflow_allowed_tools(run).await? {
-            command.env(crate::agent_tools::MCP_TOOLS_ENV, tools.join(","));
+        // The subagent that started the run, as its Bash would be marked (`bg_hook.rs`): the
+        // acpmux MCP server the runner starts names it on the script's sends and tasks.
+        if let Some(mark) = workflow_subagent_mark(run) {
+            command.env(crate::cli::sender::SUBAGENT_ENV, mark);
+        }
+        command.env(crate::agent_tools::UPSTREAMS_ENV, tools.upstreams);
+        if let Some(allowed) = tools.allowed_tools {
+            command.env(crate::agent_tools::MCP_TOOLS_ENV, allowed.join(","));
         }
         command
             .current_dir(&run.cwd)
@@ -359,6 +383,21 @@ fn workflow_profile_tools(
         value.split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect()
     })
 }
+
+/// `TYPE:ID` of the subagent that started `run` (`cli::sender::SUBAGENT_ENV`), when its words are
+/// plain (`cli::sender::subagent_word`).
+fn workflow_subagent_mark(run: &RunRecord) -> Option<String> {
+    let sub = run.caller_subagent.as_ref()?;
+    let word = |key: &str| {
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
+    };
+    Some(format!("{}:{}", word("type")?, word("id")?))
+}
+
+/// What a workflow runner keeps of the daemon's environment; `CMUX_BUILD_SPACE` keeps its
+/// Cloud calls in the daemon's build space.
+const RUNNER_ENV: [&str; 7] =
+    ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME", "CMUX_BUILD_SPACE"];
 
 fn workflow_runner_command() -> Result<tokio::process::Command> {
     let own = crate::self_command::SelfCommand::current()?;
@@ -463,6 +502,7 @@ mod tests {
                 state: State::Running,
                 activities: BTreeMap::new(),
                 outcome: None,
+                caller_subagent: None,
             })
             .unwrap();
         (dir, hub, run)
@@ -550,6 +590,7 @@ mod tests {
                 },
             )]),
             outcome: None,
+            caller_subagent: None,
         };
         hub.workflow_cancel_children(&run).await.unwrap();
     }
@@ -580,6 +621,8 @@ mod tests {
             doing: Default::default(),
             notice: false,
             persons: true,
+            accepted: true,
+            device: None,
         });
         let before = session.cancels.load(Ordering::SeqCst);
         // The activity ended before pause arrived; it must not change even the
@@ -587,5 +630,15 @@ mod tests {
         hub.cancel_prompt(&session, "already-ended-workflow-prompt").await.unwrap();
         assert_eq!(session.cancels.load(Ordering::SeqCst), before);
         assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
+    }
+}
+
+#[cfg(test)]
+mod build_space_tests {
+    /// A workflow runner (`acpmux workflow __run`) calls the daemon's Cloud in the daemon's
+    /// build space.
+    #[test]
+    fn a_workflow_runner_keeps_the_build_space() {
+        assert!(super::RUNNER_ENV.contains(&"CMUX_BUILD_SPACE"));
     }
 }

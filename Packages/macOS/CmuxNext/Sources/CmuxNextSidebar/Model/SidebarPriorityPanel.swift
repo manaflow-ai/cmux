@@ -42,10 +42,16 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var unread: Bool
     /// Pinned to the Priority view: first in its tier, and kept while idle.
     public var pinned: Bool
+    /// The id of the chat's one pending tool permission when the row can answer it (Allow, Deny, y
+    /// and n): the App read it from this Mac's acpmux. Nil for a question, several prompts or another
+    /// machine's chat; those open the chat. An answer names it, so it never answers a later request.
+    public var answerRequest: String?
+    /// The row shows Allow and Deny.
+    public var answerable: Bool { answerRequest != nil }
 
     public init(id: String, title: String, project: String? = nil, machine: String? = nil, preview: String? = nil,
                 state: State, unread: Bool = false, pinned: Bool = false, brand: String? = nil,
-                agentColor: GroupColor? = nil) {
+                agentColor: GroupColor? = nil, answerRequest: String? = nil) {
         self.id = id
         self.title = title
         self.project = project
@@ -56,6 +62,7 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         self.state = state
         self.unread = unread
         self.pinned = pinned
+        self.answerRequest = answerRequest
     }
 
     /// Needs the person: waiting on them, finished unseen, failed, lost or Red CI.
@@ -82,17 +89,63 @@ public nonisolated struct SidebarPriorityPanel: Hashable, Sendable {
     /// The toggle action's shortcut as the person sees it ("⌥⌘K"), for the bell's tooltip.
     public var shortcut: String?
 
-    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil) {
+    /// The Archived fold at the bottom of the rows: archived chats, folded by default.
+    public var archived: SidebarArchivedChats
+
+    public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil,
+                archived: SidebarArchivedChats = SidebarArchivedChats()) {
         self.entries = entries
         self.shown = shown
         self.collapsed = collapsed
         self.shortcut = shortcut
+        self.archived = archived
     }
 
     /// The rows that need the person (the folded header's count and the bell's dot).
     public var attentionCount: Int { entries.count(where: \.needsAttention) }
     /// The bell carries a dot while something needs the person and the rows are out of sight.
     public var bellDot: Bool { attentionCount > 0 && (!shown || collapsed) }
+}
+
+/// One archived chat in the Archived fold: its title, its folder's name and when it was archived.
+public nonisolated struct SidebarArchivedChat: Hashable, Sendable, Identifiable {
+    public var id: String
+    public var title: String
+    public var project: String?
+    public var archivedAt: Date?
+
+    public init(id: String, title: String, project: String? = nil, archivedAt: Date? = nil) {
+        self.id = id
+        self.title = title
+        self.project = project
+        self.archivedAt = archivedAt
+    }
+}
+
+/// The Priority view's Archived fold (as the Claude app keeps archived sessions, and as the sidebar's
+/// workspace Archived fold looks): a header "Archived (N)" while any chat is archived, folded by default;
+/// unfolded, the newest archives first, one page at a time. Folded it holds no rows, so it costs one
+/// count however many chats are archived.
+public nonisolated struct SidebarArchivedChats: Hashable, Sendable {
+    /// How many chats are archived (the header's count).
+    public var count: Int
+    /// The rows shown: empty while folded.
+    public var rows: [SidebarArchivedChat]
+    public var folded: Bool
+
+    /// The rows one page adds (Show More).
+    public static let pageSize = 20
+
+    public init(count: Int = 0, rows: [SidebarArchivedChat] = [], folded: Bool = true) {
+        self.count = count
+        self.rows = folded ? [] : rows
+        self.folded = folded
+    }
+
+    /// The fold shows: some chat is archived.
+    public var isVisible: Bool { count > 0 }
+    /// More archived chats wait past the shown rows (the Show More row).
+    public var hiddenCount: Int { folded ? 0 : max(0, count - rows.count) }
 }
 
 /// A choice the person made in the Priority view. The App carries it out.
@@ -104,9 +157,20 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     /// Hide the row until its state changes or an hour passes.
     case snooze(String)
     case archive(String)
+    /// Allow (once) or Deny the chat's pending tool permission `request` (its id), from an answerable
+    /// row's buttons or its y and n keys. A request that ended meanwhile is answered nothing.
+    case answer(String, request: String, allow: Bool)
     case setCollapsed(Bool)
     /// The person dragged the chat; the view now shows `order` (top first). It keeps that place.
     case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
+    /// Open an archived chat from the Archived fold (it opens as any chat does; it stays archived).
+    case openArchived(String)
+    /// Restore an archived chat: it leaves the fold and lists again.
+    case restore(String)
+    /// Fold or unfold the Archived fold.
+    case setArchivedFolded(Bool)
+    /// The Archived fold's Show More: one more page of rows.
+    case showMoreArchived
 }

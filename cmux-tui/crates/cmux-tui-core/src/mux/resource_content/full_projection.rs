@@ -6,7 +6,9 @@
 
 use std::time::Instant;
 
-use super::scoped_projection::{LiveTreeInput, check_scope_containment, tab_row_unchanged};
+use super::scoped_projection::{
+    LiveTreeInput, WorkspaceRows, check_scope_containment, tab_row_unchanged,
+};
 use super::*;
 use crate::diagnostics::ProjectionSpans;
 use crate::workspace_registry::RegistryTerminal;
@@ -34,6 +36,8 @@ impl Mux {
         state: &mut State,
         result: Value,
     ) -> anyhow::Result<(ResourceEffectProjection, ProjectionSpans)> {
+        #[cfg(test)]
+        scoped_projection::FULL_PROJECTIONS.with(|count| count.set(count.get() + 1));
         let started = Instant::now();
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
@@ -65,6 +69,9 @@ impl Mux {
             tab_order: &tab_order,
             stored_live: &stored_live,
             active_terminal_hosts: None,
+            rows: WorkspaceRows::All,
+            order_unchanged: false,
+            unplaced_terminals: false,
         };
         let projection = self.project_live_tree(&input, state, result)?;
         let spans = ProjectionSpans {
@@ -121,8 +128,50 @@ impl Mux {
         let mut public = Vec::new();
         let mut screens = PublishedScreens::default();
 
-        for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
+        // A scoped walk whose rows state no workspace outside the scope (`Added` at the live count)
+        // has nothing to do for any other workspace: it visits the scope's workspaces, in list order,
+        // and not each live workspace (4,000 of them cost a split 20 ms).
+        let scope_only = match (scope, input.rows) {
+            (Some(scope), WorkspaceRows::Added(first)) if first >= state.workspaces.len() => {
+                let mut indexes = scope
+                    .iter()
+                    .filter_map(|workspace| state.resource_indexes.workspaces.get(workspace))
+                    .filter_map(|id| state.workspace_index(*id))
+                    .collect::<Vec<_>>();
+                indexes.sort_unstable();
+                indexes.dedup();
+                Some(indexes)
+            }
+            _ => None,
+        };
+        let visited = match scope_only {
+            Some(indexes) => indexes,
+            None => {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(state.workspaces.len());
+                (0..state.workspaces.len()).collect()
+            }
+        };
+        #[cfg(test)]
+        scoped_projection::WORKSPACES_PROJECTED
+            .with(|count| count.set(count.get() + visited.len() as u64));
+        for workspace_index in visited {
+            let Some(workspace) = state.workspaces.get(workspace_index) else { continue };
+            let in_scope = scope.is_none_or(|scope| scope.contains(&workspace.public_id));
+            if !in_scope && !input.rows.states(workspace_index) && input.rows.scope_frame() {
+                // `before` holds no row of this workspace and the walk states none: there is
+                // nothing to compare, to keep or to delete for it.
+                continue;
+            }
             live_workspaces.insert(workspace.public_id.clone());
+            if !in_scope && !input.rows.states(workspace_index) {
+                // The caller knows this workspace's row and public value did not change. Its key
+                // stays live, so the walk does not publish a delete of it.
+                unchanged_keys.insert(("workspace".into(), workspace.public_id.to_string()));
+                continue;
+            }
+            #[cfg(test)]
+            crate::walk_counters::workspace_rows_stated(1);
             changes.push(ResourceChange::UpsertWorkspace {
                 workspace: RegistryWorkspace {
                     id: workspace.id,
@@ -154,7 +203,7 @@ impl Mux {
                     ),
                 }),
             ));
-            if scope.is_some_and(|scope| !scope.contains(&workspace.public_id)) {
+            if !in_scope {
                 continue;
             }
             let screen_ids =
@@ -445,10 +494,17 @@ impl Mux {
                 &mut public,
             )?;
         }
-        let catalog = if scope.is_some() { None } else { Some(&state.terminal_catalog) };
+        let catalog =
+            (scope.is_none() || input.unplaced_terminals).then_some(&state.terminal_catalog);
+        // A scoped walk did not walk each pane: it reads which terminals have a view.
+        let placed = match scope {
+            Some(_) if input.unplaced_terminals => scoped_projection::placed_terminals(state),
+            _ => HashSet::new(),
+        };
         for (terminal_id, surface) in catalog.into_iter().flatten() {
             // An app terminal is published by its first view (`app_terminals.rs`).
-            if !live_terminals.insert(terminal_id.clone())
+            if placed.contains(terminal_id)
+                || !live_terminals.insert(terminal_id.clone())
                 || self.is_unregistered_app_terminal(surface.id)
             {
                 continue;
@@ -466,13 +522,15 @@ impl Mux {
                 .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
             public.push(("terminal", terminal_id.to_string(), value));
         }
-        changes.push(ResourceChange::SetWorkspaceOrder {
-            workspace_ids: state
-                .workspaces
-                .iter()
-                .map(|workspace| workspace.public_id.clone())
-                .collect(),
-        });
+        if !input.order_unchanged {
+            changes.push(ResourceChange::SetWorkspaceOrder {
+                workspace_ids: state
+                    .workspaces
+                    .iter()
+                    .map(|workspace| workspace.public_id.clone())
+                    .collect(),
+            });
+        }
         changes.push(ResourceChange::SetActiveWorkspace {
             workspace_id: state
                 .workspaces
@@ -577,6 +635,7 @@ impl Mux {
             changes: Value::Array(deltas),
             result,
             restates_all: scope.is_none(),
+            restated: Vec::new(),
         })
     }
 

@@ -14,7 +14,6 @@ use sha2::{Digest, Sha256};
 
 use super::attach_tap::SnapshotRequestHandle;
 use super::*;
-use kitty_replay_cache::KittyReplayCache;
 
 /// Default `viewer_backlog_bytes` (spec/terminal-frames.md: 8 MiB, set per
 /// attach by the viewer, no daemon setting): unacknowledged output kept for one
@@ -28,37 +27,40 @@ pub(crate) const SNAPSHOT_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis
 /// Published byte offset and grid generation of one terminal. Written only by
 /// the attach broadcasts, which run under the terminal lock; read under the
 /// same lock when a snapshot is taken.
-///
-/// It also holds the terminal's Kitty replay state for READY images, which is
-/// used under the same lock.
 #[derive(Default)]
 pub(crate) struct SnapshotStreamPosition {
     offset: AtomicU64,
     generation: AtomicU64,
-    kitty_replay: KittyReplayCache,
+    /// The bytes behind `offset`, for `terminal-resume-v1`.
+    pub(super) ring: resume_ring::ResumeRing,
 }
 
 impl SnapshotStreamPosition {
-    pub(super) fn add_output(&self, len: usize) {
-        self.offset.fetch_add(len as u64, Ordering::AcqRel);
+    pub(super) fn add_output(&self, output: &[u8]) {
+        self.ring.append(output);
+        self.offset.fetch_add(output.len() as u64, Ordering::AcqRel);
     }
 
     /// Account one broadcast frame: output advances the offset, a replacement
     /// of the grid (resize, host replay) starts a new generation.
     pub(super) fn observe_frame(&self, frame: &AttachFrame) {
         match frame {
-            AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => {
-                self.add_output(output.len());
+            AttachFrame::Output(output) => self.add_output(output),
+            AttachFrame::OutputWithColors { output, .. } => {
+                self.add_output(output);
+                self.ring.bump_epoch();
             }
             AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {
                 self.generation.fetch_add(1, Ordering::AcqRel);
+                self.ring.bump_epoch();
             }
-            AttachFrame::ColorsChanged(_) => {}
+            AttachFrame::ColorsChanged(_) => self.ring.bump_epoch(),
         }
     }
 
     pub(super) fn bump_generation(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        self.ring.bump_epoch();
     }
 
     /// `(generation, offset)`.
@@ -79,24 +81,15 @@ pub(crate) struct TerminalSnapshotFrame {
     /// The READY prefix: envelope through the READY record.
     pub data: Vec<u8>,
     /// The rest of the same COMPLETE encode: HISTORY manifests, scrollback
-    /// PAGE records and FINISH (`terminal-snapshot-history-v1`). READY plus
-    /// this is one complete snapshot taken at one cut.
+    /// PAGE records, Kitty pixel payloads and history placements, and FINISH
+    /// (`terminal-snapshot-history-v1`). READY plus this is one complete
+    /// snapshot taken at one cut, Kitty images included.
     pub history: Vec<u8>,
     pub colors: TerminalColors,
     /// Row-marker epoch and the marker of the active area's top row at the
     /// snapshot, so `terminal-history` pages line up with this READY.
     pub marker_epoch: u64,
     pub active_top_marker: u64,
-    /// The Kitty image replay at the same cut (`terminal-snapshot-images-v1`),
-    /// or `None` when the viewer did not opt in or the terminal has no images.
-    pub images: Option<Arc<SnapshotImages>>,
-}
-
-/// The Kitty image replay stream of one READY and what it holds.
-#[derive(Debug, Clone)]
-pub(crate) struct SnapshotImages {
-    pub data: Vec<u8>,
-    pub stats: ghostty_vt::KittyReplayStats,
 }
 
 /// A READY taken exactly at a resize cut for a viewer that reflows its own
@@ -305,23 +298,18 @@ impl Surface {
     /// Take the snapshot a viewer's worker owes it and drop the queued
     /// frames it supersedes, both under the terminal lock. One COMPLETE
     /// encode at one cut gives the READY prefix and the history after it, so
-    /// the history always continues exactly that READY. `images_cap`: the
-    /// viewer gets the Kitty images too, encoded in the same lock hold (they
-    /// can change right after), with at most that many decoded pixel bytes.
+    /// the history always continues exactly that READY, Kitty images
+    /// included.
     pub(crate) fn take_viewer_snapshot(
         &self,
         receiver: &AttachFrameReceiver,
-        images_cap: Option<u64>,
     ) -> ghostty_vt::Result<TerminalSnapshotFrame> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let term = pty.term.lock().unwrap();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
-        let cut = pty.snapshot_position.load();
-        let (generation, offset) = cut;
-        let replay = &pty.snapshot_position.kitty_replay;
-        let images = images_cap.and_then(|cap| replay.images_locked(&term, cut, cap, self.id));
+        let (generation, offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
         let (cols, rows) = (term.cols(), term.rows());
@@ -343,7 +331,6 @@ impl Surface {
             colors,
             marker_epoch,
             active_top_marker,
-            images,
         })
     }
 
@@ -374,25 +361,6 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         pty.term.lock().unwrap().encode_snapshot(phase)
-    }
-
-    /// The Kitty replay of this terminal now (tests compare it with a
-    /// viewer's images chunks).
-    #[cfg(test)]
-    pub(crate) fn encode_kitty_replay_for_test(
-        &self,
-        max_image_bytes: u64,
-    ) -> ghostty_vt::Result<(Vec<u8>, ghostty_vt::KittyReplayStats)> {
-        let Some(pty) = self.as_pty() else {
-            return Err(ghostty_vt::Error::InvalidValue);
-        };
-        pty.term.lock().unwrap().encode_kitty_replay(max_image_bytes)
-    }
-
-    /// Kitty replay encodes this terminal ran for READY images (tests).
-    #[cfg(test)]
-    pub(crate) fn kitty_replay_encodes_for_test(&self) -> u64 {
-        self.as_pty().map_or(0, |pty| pty.snapshot_position.kitty_replay.encodes())
     }
 
     /// The host terminal's history check now (tests compare it with a
@@ -461,7 +429,12 @@ impl PtySurface {
     /// grid queued after every frame before the resize, at the resize's
     /// generation and offset; every other snapshot viewer gets a READY with
     /// history at a later cut, as before.
-    pub(super) fn publish_resize_locked(&self, term: &Terminal, frame: Option<AttachFrame>) {
+    pub(super) fn publish_resize_locked(
+        &self,
+        term: &Terminal,
+        frame: Option<AttachFrame>,
+        windows: &pty_surface::TapWindowReplays,
+    ) {
         match &frame {
             Some(frame) => self.snapshot_position.observe_frame(frame),
             None => self.snapshot_position.bump_generation(),
@@ -478,7 +451,8 @@ impl PtySurface {
         let local = if wanted { self.encode_local_ready_locked(term) } else { None };
         let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match frame {
-            Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
+            Some(frame) => taps
+                .retain(|tap| tap.try_send_resize(windows.frame_for(tap, &frame), local.as_ref())),
             None => {
                 for tap in &*taps {
                     tap.resync_snapshot_at_cut(local.as_ref());
@@ -510,16 +484,12 @@ impl PtySurface {
                 colors: self.terminal_colors_locked(term, defaults),
                 marker_epoch: term.history_marker_epoch(),
                 active_top_marker: term.active_top_marker(),
-                images: None,
             },
             history_rows: check.rows,
             history_digest: check.digest,
         }))
     }
 }
-
-#[path = "kitty_replay_cache.rs"]
-mod kitty_replay_cache;
 
 #[cfg(test)]
 #[path = "tests/snapshot_attach.rs"]

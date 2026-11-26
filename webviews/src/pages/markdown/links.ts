@@ -1,6 +1,7 @@
 // Links in the markdown editor: what a link points at, GitHub-style heading anchors, and the
 // batched, cached existence check of relative targets (`cmux.markdown.resolveLinks`).
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
+import { BlockIndex, headingsIn, type Entry } from "./headingIndex";
 
 /** What following a link does. */
 export type LinkKind = "anchor" | "markdown" | "file" | "external" | "mail" | "app" | "unsafe";
@@ -14,13 +15,14 @@ export interface ParsedLink {
   anchor: string;
 }
 
-/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
- * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
+/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `group/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
+ * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. An agent link's
+ * percent-encoded or malformed hint is dropped by the host, never the link (schemas/deeplinks/agent-link.json). */
 const APP_AUTHORITY = /^cmux(-[a-z0-9-]+)?:\/\//i;
 const APP_ORDINARY =
-  /^(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^(workspace|pane|tab|session|chief|group)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
 const APP_AGENT =
-  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&%-]+)?(#[A-Za-z0-9._~-]+)?$/i;
 
 function isAppLink(href: string): boolean {
   const marker = href.indexOf("://");
@@ -71,7 +73,11 @@ export class Slugger {
   private readonly seen = new Map<string, number>();
 
   slug(text: string): string {
-    const base = githubSlug(text);
+    return this.next(githubSlug(text));
+  }
+
+  /** The slug of a heading whose `githubSlug` is `base`. */
+  next(base: string): string {
     let slug = base;
     while (this.seen.has(slug)) {
       const count = (this.seen.get(base) ?? 0) + 1;
@@ -90,30 +96,79 @@ export interface HeadingTarget {
   pos: number;
 }
 
+/**
+ * Each document's headings by their GitHub anchors, carried from edit to edit (headingIndex.ts).
+ * A heading's anchor depends on the headings before it with the same `githubSlug`, and on those
+ * whose slug is it with a `-1` (a repeat of "a" is "a-1", which is also the anchor of "A-1"): an
+ * edit gives anchors again only to those. Every anchor link asks; a walk per edit grew with the file.
+ */
+const headingSlugs = new BlockIndex<ProseNode>({
+  find: (block) =>
+    headingsIn(
+      block,
+      (node) => node.type.name === "heading",
+      (heading) => githubSlug(heading.textContent),
+    ),
+  ids: (bases) => {
+    const slugger = new Slugger();
+    return bases.map((base) => slugger.next(base));
+  },
+  parent: (key) => {
+    const suffix = /-\d+$/.exec(key);
+    return suffix ? key.slice(0, suffix.index) : null;
+  },
+});
+
+function target(entry: Entry<ProseNode>): HeadingTarget {
+  return {
+    slug: entry.id,
+    text: entry.value.textContent,
+    level: Number(entry.value.attrs.level ?? 1),
+    pos: entry.pos,
+  };
+}
+
+/** Each document's `headingTargets`: the link form's suggestions ask on each key. */
+const targetsByDoc = new WeakMap<ProseNode, readonly HeadingTarget[]>();
+
 /** Every heading of a document with its GitHub anchor, in order. */
-export function headingTargets(doc: ProseNode): HeadingTarget[] {
-  const slugger = new Slugger();
-  const out: HeadingTarget[] = [];
-  doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return true;
-    out.push({
-      slug: slugger.slug(node.textContent),
-      text: node.textContent,
-      level: Number(node.attrs.level ?? 1),
-      pos,
-    });
-    return false;
-  });
-  return out;
+export function headingTargets(doc: ProseNode): readonly HeadingTarget[] {
+  let targets = targetsByDoc.get(doc);
+  if (!targets) {
+    targets = headingSlugs.entries(doc).map(target);
+    targetsByDoc.set(doc, targets);
+  }
+  return targets;
+}
+
+/** Indexes `doc`'s headings now, so the first edit after reads only its own blocks. */
+export function indexHeadings(doc: ProseNode): void {
+  headingSlugs.entries(doc);
+}
+
+/**
+ * Carries the heading index from `before` to `after` (an edit of it): the anchors `after` gained or
+ * lost, or null when any may have (`before` had no index).
+ */
+export function stepHeadings(before: ProseNode, after: ProseNode): ReadonlySet<string> | null {
+  return headingSlugs.step(before, after)?.changedIds ?? null;
+}
+
+/** The heading entry an anchor names: its exact slug, then its `githubSlug` (anchors are unique). */
+function headingEntry(doc: ProseNode, anchor: string): Entry<ProseNode> | undefined {
+  const wanted = anchor.trim();
+  return headingSlugs.byId(doc, wanted) ?? headingSlugs.byId(doc, githubSlug(wanted));
+}
+
+/** Whether a heading of `doc` has the anchor `anchor`, as `findHeading` finds one. */
+export function hasHeading(doc: ProseNode, anchor: string): boolean {
+  return headingEntry(doc, anchor) !== undefined;
 }
 
 /** The heading an anchor names (exact slug, then case-insensitive), or undefined. */
 export function findHeading(doc: ProseNode, anchor: string): HeadingTarget | undefined {
-  const targets = headingTargets(doc);
-  const wanted = anchor.trim();
-  return (
-    targets.find((target) => target.slug === wanted) ?? targets.find((target) => target.slug === githubSlug(wanted))
-  );
+  const entry = headingEntry(doc, anchor);
+  return entry && target(entry);
 }
 
 /** The answer for one relative path of `cmux.markdown.resolveLinks`. */
@@ -184,10 +239,10 @@ export class LinkResolver {
   }
 }
 
-/** Relative link paths in a document (link marks and images), for `LinkResolver.request`. */
-export function relativeLinkPaths(doc: ProseNode): Set<string> {
+/** Relative link paths in a document, or between two positions (link marks and images), for `LinkResolver.request`. */
+export function relativeLinkPaths(doc: ProseNode, from = 0, to = doc.content.size): Set<string> {
   const paths = new Set<string>();
-  doc.descendants((node) => {
+  doc.nodesBetween(from, to, (node) => {
     for (const mark of node.marks) {
       if (mark.type.name !== "link") continue;
       const link = parseLink(String(mark.attrs.href ?? ""));

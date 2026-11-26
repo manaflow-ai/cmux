@@ -395,12 +395,14 @@ fn notify_help_names_reply_and_desktop() {
 }
 
 /// `acp` and `link` take their own options, so a cmux global option before
-/// them names the fix instead of calling them unknown scopes.
+/// them names the fix instead of calling them unknown scopes. (`--json`
+/// there is carried after the scope, docs/cli-conventions.md in cmuxterm-hq;
+/// any other global option is refused, under `--json` as the error object.)
 #[test]
 fn global_options_before_acp_or_link_name_the_fix() {
     let names = Names::new("acp-globals");
     for scope in ["acp", "link", "harness"] {
-        let output = names.run("cmux", &["--json", scope, "list"]);
+        let output = names.run("cmux", &["--json", "--socket", "/nonexistent.sock", scope, "list"]);
         assert_eq!(output.status.code(), Some(2));
         let error: serde_json::Value = serde_json::from_slice(&output.stdout)
             .or_else(|_| serde_json::from_slice(&output.stderr))
@@ -472,12 +474,9 @@ fn history_and_bookmark_search_without_text_say_what_is_missing() {
 #[test]
 fn help_names_the_process_scopes() {
     let names = Names::new("process-help");
-    for (scope, expected) in [
-        ("acp", "Usage: cmux acp"),
-        ("mcp", "cmux mcp serve"),
-        ("coderouter", "cmux coderouter status"),
-        ("link", "cmux link <init|show"),
-    ] {
+    for (scope, expected) in
+        [("acp", "Usage: cmux acp"), ("mcp", "cmux mcp serve"), ("link", "cmux link <init|show")]
+    {
         let direct = names.run("cmux", &[scope, "--help"]);
         let output = names.run("cmux", &["help", scope]);
         let stdout = text(&output.stdout);

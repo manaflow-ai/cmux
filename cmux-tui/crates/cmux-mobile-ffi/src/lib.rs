@@ -14,6 +14,9 @@
 //! shared fixtures run in Rust, Swift and Kotlin.
 //!
 //! [`ownership`] binds the `cmux.wire/1` stream mirror (object-sync phase 1).
+//!
+//! [`screen`] binds the screen stream's rules (`cmux-rd-screen`) as one JSON
+//! call, the same `screen_*` ops the Mac reaches over its C ABI.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -27,6 +30,7 @@ use cmux_mobile_core::sizing::{
 uniffi::setup_scaffolding!();
 
 pub mod ownership;
+pub mod screen;
 
 /// A terminal grid in cells.
 #[uniffi::remote(Record)]
@@ -63,7 +67,7 @@ pub struct TerminalSizingParticipant {
     pub counts_override: Option<bool>,
 }
 
-/// How the host picks the grid. `Smallest` ("fit everyone") is the default.
+/// How the host picks the grid. `Latest` ("last active") is the default.
 #[uniffi::remote(Enum)]
 pub enum TerminalSizingMode {
     Latest,

@@ -11,9 +11,16 @@ enum AgentPaneGitWriteReply {
     static func reply(to write: AgentPaneGitWrite, in model: AgentPaneModel) async -> [String: Any] {
         let message = AgentPaneModel.gitWriteFailedMessage
         guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
+        // New Worktree runs on the chat's machine: this Mac for a local chat, that machine for a
+        // Cloud or SSH chat, never this Mac's disk for one (cmuxterm-hq#7856).
+        if case .worktree(let cwd, _, _) = write {
+            let onChatMachine = model.remoteChat ? model.gitWritesOnChatMachine?() == true : model.gitWritesHere?() == true
+            guard onChatMachine else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+            return await newWorktree(write, in: cwd, model: model)
+        }
+        if case .worktreeSetupRun(let cwd, _, _) = write { return await setupRun(write, in: cwd, model: model) }
         // Only a chat whose repository is this Mac's writes (the same rule as Stage, cx-tcwj).
         guard model.gitWritesHere?() == true else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
-        if case .worktree(let cwd, _, _) = write { return await newWorktree(write, in: cwd, model: model) }
         guard let sessionId = model.sessionId else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
         guard write.sessionId == sessionId else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
         // Apply changes the user's own checkout and Remove deletes a folder: only on their click.
@@ -39,13 +46,17 @@ enum AgentPaneGitWriteReply {
     /// the chat starts. The folder passes the same check as one the user picks for a chat
     /// (`workspace.useFolder`): a project folder, never the home folder or a folder above it, and
     /// the worktree is made of the folder as that check names it (symlinks resolved). The page then
-    /// starts the chat in the worktree through `workspace.useFolder`.
-    private static func newWorktree(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel) async -> [String: Any] {
+    /// starts the chat in the worktree through `workspace.useFolder`. A Cloud or SSH chat's folder
+    /// is checked by that machine's store, as a folder picked there is, and this Mac's disk is never read.
+    /// `gestureSpent`: the click that asked was already counted (a GitHub repository's checkout, which ends here).
+    static func newWorktree(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel, gestureSpent: Bool = false) async -> [String: Any] {
         let message = AgentPaneModel.gitWriteFailedMessage
         guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
         guard model.sessionId == nil else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
-        guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        let answer = await model.startFolders.use(cwd, confirm: false, transport: model.transport)
+        guard gestureSpent || model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        let answer = model.remoteChat
+            ? await model.startFolders.useRemote(cwd, confirm: false, transport: model.transport)
+            : await model.startFolders.use(cwd, confirm: false, transport: model.transport)
         guard let value = answer["value"] as? [String: Any], value["status"] as? String == "ok",
               let folder = value["cwd"] as? String, folder.hasPrefix("/") else {
             return AgentPaneModel.gitFailure(.noSessionFolder, message: message)
@@ -53,5 +64,27 @@ enum AgentPaneGitWriteReply {
         guard case .worktree(_, let name, let key) = write else { return AgentPaneModel.gitFailure(.failed, message: message) }
         let named = AgentPaneGitWrite.worktree(cwd: folder, name: name, key: key)
         return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(named, folder) }
+    }
+
+    /// Run Setup / Retry: runs a repository's setup script, so only on the person's click, only
+    /// on this Mac, and only in the worktree this chat is in (its session's folder, or before the
+    /// first send the folder it was started in), which the page's `path` must name.
+    static func setupRun(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel) async -> [String: Any] {
+        let message = AgentPaneModel.gitWriteFailedMessage
+        guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
+        guard model.gitWritesHere?() == true else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+        let folder: String?
+        if let sessionId = model.sessionId {
+            do {
+                folder = try await model.host.sessionFolder(sessionId: sessionId).flatMap { $0.isLocal ? $0.cwd : nil }
+            } catch {
+                return AgentPaneModel.gitFailure(.notConnected, message: message)
+            }
+        } else {
+            folder = model.pickedFolder
+        }
+        guard let folder, folder == cwd else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+        guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, folder) }
     }
 }

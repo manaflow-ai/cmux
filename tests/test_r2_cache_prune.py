@@ -10,6 +10,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import r2_cache_prune as prune  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 NOW = dt.datetime(2026, 9, 24, tzinfo=dt.timezone.utc)
 NS = "v1/macOS-ARM64"
@@ -59,6 +61,8 @@ class Prune(unittest.TestCase):
             archive("xcode-compilation-release-macOS-ARM64-fp-b", 0.5),
             archive("git-seed-v1-" + "a" * 40, 2),
             archive("git-seed-v1-" + "b" * 40, 0.5),
+            archive("cmux-next-daemon-tests-cargo-v1-0123456789abcdef-20261122h8", 2),
+            archive("cmux-next-daemon-tests-cargo-v1-0123456789abcdef-20261124h8", 0.5),
             archive("spm-a", 31),
             archive("spm-b", 29),
             archive("spm-c", 2),
@@ -68,6 +72,7 @@ class Prune(unittest.TestCase):
             f"{NS}/objects/admission-derived-data-v1-macOS-ARM64-fp-a.tar.zst",
             f"{NS}/objects/xcode-compilation-release-macOS-ARM64-fp-a.tar.zst",
             f"{NS}/objects/git-seed-v1-{'a' * 40}.tar.zst",
+            f"{NS}/objects/cmux-next-daemon-tests-cargo-v1-0123456789abcdef-20261122h8.tar.zst",
             f"{NS}/objects/spm-a.tar.zst",
         ]))
 
@@ -134,7 +139,10 @@ class Workflow(unittest.TestCase):
         job = workflow["jobs"]["prune"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
         self.assertEqual(job["permissions"], {"contents": "read"})
-        self.assertNotIn("macos", str(job["runs-on"]).lower())
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            self.assertNotIn("macos", cell.lower())
         run = next(step for step in job["steps"] if "r2_cache_prune.py" in str(step.get("run", "")))
         # Deletes need a dispatch that says so, or the repository variable.
         self.assertIn("--delete", run["run"])

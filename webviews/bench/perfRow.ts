@@ -12,6 +12,13 @@
 //   floor   the change (in `unit`) that is noise on a shared runner; the cron's default is 10 % of p95.
 //   version bump it when an edit changes what the row measures: the cron then rebases the row instead of
 //           calling the change a regression (default 1).
+//   clock   "cpu" for a row that counts work done, not time waited (idle CPU ms, task ms per second): the suite never
+//           scales it by host load, since an app that burns more CPU on a busy host still burns more (default "wall").
+//   samples each round's value (`unit`), when a reader takes its own percentiles from them (cmuxterm-hq's web-startup
+//           probe); the suite scales them by host load with p50 and p95.
+//   load    set by bench/web-ui-suite.ts, never by a bench: the host's contention factor (bench/hostLoad.ts) the row's
+//           p50 and p95 were divided by, with the measured p95 as raw_p95. Only ms rows are scaled, only when the
+//           host was busy.
 export type PerfRow = {
   name: string;
   p50?: number;
@@ -20,6 +27,10 @@ export type PerfRow = {
   target?: number;
   floor?: number;
   version?: number;
+  clock?: "wall" | "cpu";
+  load?: number;
+  raw_p95?: number;
+  samples?: number[];
 };
 
 export const PERF_ROW_MARK = "PERF_ROW ";
@@ -41,5 +52,6 @@ export function perfRow(row: PerfRow): void {
   if (!Number.isFinite(row.p95)) throw new Error(`perfRow: ${row.name} has no p95`);
   const out: PerfRow = { ...row, p95: round(row.p95), unit: row.unit ?? "ms" };
   if (row.p50 !== undefined) out.p50 = round(row.p50);
+  if (row.samples !== undefined) out.samples = row.samples.map(round);
   console.log(PERF_ROW_MARK + JSON.stringify(out));
 }

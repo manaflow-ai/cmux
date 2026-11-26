@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -39,9 +40,10 @@ function renderRows(): HTMLElement {
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -52,10 +54,6 @@ afterEach(() => {
 });
 
 test("subagent, messaging, and inbox activity use the shared row and agent tag", () => {
-  expect(source("./ActivityLine.tsx")).toContain("TranscriptActivityRow");
-  expect(source("./ActivityLine.tsx")).toContain('className="cv-activity cv-tool"');
-  expect(source("./ActivityLine.tsx")).toContain('className="cv-tool__icon"');
-  expect(source("./ActivityLine.tsx")).toContain("row.doingCommand ? <TerminalSquare /> : null");
   expect(source("../subagents/SubagentDoneLine.tsx")).toContain("TranscriptActivityRow");
   expect(source("./LaneNoticeBatch.tsx")).toContain("TranscriptActivityRow");
   expect(source("./IncomingMessageCard.tsx")).toContain("AgentTag");

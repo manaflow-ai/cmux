@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextHome
 import CmuxNextScreenshots
 import CmuxNextTerminal
 import CmuxNextTerminalFind
@@ -28,7 +29,8 @@ extension TerminalHandlers {
                 // The chat's own find bar (Find in Chat).
                 AgentPaneFind(view).run("find", takeFocus: invocation.allowsViewChange)
             case .page, .conversation:
-                return ctx.refuse(RefusalStrings.notATerminal)
+                guard let home = home(content) else { return ctx.refuse(RefusalStrings.notATerminal) }
+                home.showFind(text: invocation["text"]?.stringValue, takeFocus: invocation.allowsViewChange)
             case .browser:
                 guard let window = ctx.services.windowController(showing: pane) else { return }
                 window.focus.send(.focusPane(pane.paneKey, source: .intent))
@@ -49,6 +51,7 @@ extension TerminalHandlers {
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             if sendToFilePage("hideFind", pane, content, ctx) { return }
             if case .agent(let view) = content { return AgentPaneFind(view).run("hideFind", takeFocus: false) }
+            if let home = home(content) { return home.hideFind(restoringFocus: invocation.allowsViewChange) }
             guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
             // A socket or CLI run leaves focus and the selection alone.
             entry.session.find.close(restoringFocus: invocation.allowsViewChange)
@@ -67,6 +70,9 @@ extension TerminalHandlers {
         return FilePageHandlers.sendFind(action, key, ctx.services)
     }
 
+    /// The Home chat a Home tab, the dock or a conversation tab shows (its own find bar).
+    private static func home(_ c: TabContent) -> HomeNativeTranscriptView? { switch c { case .page, .conversation: .first(in: c.view); default: nil } }
+
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (pane, content) = ctx.visibleContent(invocation) else { return }
         if sendToFilePage(forward ? "findNext" : "findPrevious", pane, content, ctx) { return }
@@ -74,25 +80,19 @@ extension TerminalHandlers {
         case .agent(let view):
             AgentPaneFind(view).run(forward ? "findNext" : "findPrevious", takeFocus: invocation.allowsViewChange)
         case .page, .conversation:
-            return ctx.refuse(RefusalStrings.notATerminal)
-        case .browser(let entry):
-            entry.chrome?.perform(forward ? .findNext : .findPrevious)
+            guard let home = home(content) else { return ctx.refuse(RefusalStrings.notATerminal) }
+            home.stepFind(forward: forward, takeFocus: invocation.allowsViewChange)
+        case .browser(let entry): entry.chrome?.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
-            // Opens the bar with the last query when it is closed.
-            let direction: TerminalFindDirection = forward ? .next : .previous
-            guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
-                return ctx.refuse(RefusalStrings.noActiveFind)
-            }
-        case .placeholder, .notice:
-            return
+            // A closed bar opens: with the last query, else as Find does (seeded with the selection).
+            entry.session.find.navigate(forward ? .next : .previous, seed: selection(of: entry), takeFocus: invocation.allowsViewChange)
+        case .placeholder, .notice: return
         }
     }
 
     static func bindInput(into registry: ActionRegistry, context ctx: AppActionContext) {
-        registry.bind("terminal.sendText", invoke: { invocation in
-            guard let text = invocation["text"]?.stringValue ?? ctx.refuse(RefusalStrings.textArgumentRequired) else { return }
-            send(text, paste: false, invocation, ctx)
-        })
+        registry.bind("terminal.sendText", invoke: { typeArgument($0, "text", { $0 }, ctx) })
+        registry.bindEffect("terminal.goToDirectory", effect: { typeArgument($0, "path", WindowRules().goToDirectoryInput, ctx); return .done })
         registry.bind("sendCtrlFToTerminal", invoke: { send("\u{06}", paste: false, $0, ctx) })
         // Ctrl-L: the shell redraws at the top and the old screen stays in scrollback.
         registry.bind("clearScreenKeepScrollback", invoke: { send("\u{0C}", paste: false, $0, ctx) })
@@ -104,55 +104,46 @@ extension TerminalHandlers {
             let daemon = ctx.services.daemon(for: pane)
             // action-wait-allow: the path to paste is known only after the screenshot folder is read
             return .waiting(.fileSystem) {
-                guard let url = await latestScreenshot() else {
+                guard let url = await ScreenshotFolderReader().newestSystemScreenshot() else {
                     return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot)
                 }
-                guard let text = shellQuoted(url.path) else { return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot) }
+                guard let text = WindowRules().shellQuoted(url.path) else { return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot) }
                 return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
             }
         })
+        InsertPhotoAction(target: { insertPhotoTarget($0, ctx) }, choose: { await InsertPhotoAction.choosePhotos(ctx.services.openPanel, window: ctx.activeWindow?.window) }).bind(into: registry)
+        // `app`: an editor id, `finder`, `terminal`, or an app name, bundle id or path (EditorCatalog.openFolder).
         registry.bind("palette.terminalOpenDirectory", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
+            guard ctx.services.daemon(for: pane).isLocal else { return ctx.registry.refuse(.remote, "palette.terminalOpenDirectory") }
             guard let cwd = tab.cwd ?? ctx.refuse(RefusalStrings.noWorkingDirectory) else { return }
-            open(URL(fileURLWithPath: cwd, isDirectory: true), with: invocation["app"]?.stringValue, ctx)
+            if invocation["app"]?.stringValue == "terminal" {
+                guard let controller = ctx.paneController(invocation) else { return }
+                return controller.newTerminalTab(cwd: cwd)
+            }
+            let app = invocation["app"]?.stringValue
+            if !ctx.services.editorCatalog.openFolder(URL(fileURLWithPath: cwd, isDirectory: true), with: app) { ctx.refuse(MiscHandlerStrings.appNotFound(app ?? "")) }
         })
     }
 
+    /// Insert Photo's pane: a chat takes the pictures through the one external-attach route (`chat.composer.get` reads it back).
+    private static func insertPhotoTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> InsertPhotoAction.Target? {
+        guard let (_, content) = ctx.visibleContent(invocation) else { return nil }
+        if case .agent(let view) = content { return .chat { ctx.services.externalOpen.chatAttach.attach($0, claimed: nil, target: view, openChat: { _ in false }, show: { _ in }) } }
+        guard case .terminal = content, let (tab, pane) = ctx.daemonTab(invocation), tab.kind == .pty else { return .refused(InsertPhotoAction.noPictureTarget) }
+        let surface = tab.surface, daemon = ctx.services.daemon(for: pane)
+        return .terminal(isLocal: daemon.isLocal) { text in await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) } }
+    }
+
+    /// Types the KEY argument as INPUT turns it into keys (Go to Directory: a shell `cd` line, so remote terminals too).
+    private static func typeArgument(_ invocation: ActionInvocation, _ key: String, _ input: (String) -> String?, _ ctx: AppActionContext) {
+        if let text = invocation[key]?.stringValue.flatMap(input) ?? ctx.refuse(RefusalStrings.textArgumentRequired) { send(text, paste: false, invocation, ctx) }
+    }
     static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
         let surface = tab.surface
         // The tab's own machine: a Cloud terminal's input goes over its link.
         ctx.services.daemon(for: pane).send("send") { try await $0.send(surface, text: text, paste: paste) }
-    }
-
-    /// Newest picture in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop).
-    @concurrent
-    nonisolated private static func latestScreenshot() async -> URL? {
-        let folder = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment()).systemFolder()
-        return await ScreenshotFolderReader().newestPicture(in: folder)
-    }
-
-    /// `path` as one shell word (Rust's `tabs::panes::shell_quoted`); nil when the FFI does not answer.
-    nonisolated static func shellQuoted(_ path: String) -> String? {
-        WindowRules().shellQuoted(path)
-    }
-
-    /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path).
-    private static func open(_ directory: URL, with app: String?, _ ctx: AppActionContext) {
-        guard let app, !app.isEmpty else {
-            NSWorkspace.shared.openInBackground(directory)
-            return
-        }
-        let workspace = NSWorkspace.shared
-        let candidates = [
-            workspace.urlForApplication(withBundleIdentifier: app),
-            app.hasSuffix(".app") ? URL(fileURLWithPath: app) : nil,
-            URL(fileURLWithPath: "/Applications/\(app).app"),
-            URL(fileURLWithPath: "/System/Applications/\(app).app"),
-        ]
-        guard let appURL = candidates.compactMap({ $0 }).first(where: { FileManager.default.fileExists(atPath: $0.path) })
-            ?? ctx.refuse(MiscHandlerStrings.appNotFound(app)) else { return }
-        workspace.open([directory], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
     }
 }

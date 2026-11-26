@@ -1,5 +1,5 @@
 //! Attaching to a session and reading its log: `_acpmux/attach`,
-//! `_acpmux/events`, `_acpmux/detach`, `_acpmux/view`, `_acpmux/markUnread`,
+//! `_acpmux/events`, `_acpmux/detach`, `_acpmux/view`, `_acpmux/markUnread`, `_acpmux/markRead`,
 //! `_acpmux/watch` and the `_acpmux/event` notification.
 //!
 //! A session is named by `sessionId`; the daemon also takes `session` or a
@@ -31,6 +31,24 @@ pub struct SessionEvent {
     pub msg: Value,
 }
 
+/// `_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`
+/// record, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the
+/// last `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's
+/// params with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same
+/// `ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the
+/// client does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct ChunkDelta {
+    #[serde(rename = "ref")]
+    pub chunk_ref: u64,
+    pub seq: u64,
+    /// Unix ms since the frame before it of this `ref`.
+    pub dt: u64,
+    pub text: String,
+}
+
 /// Which records a page or an event stream carries: one kind, or any of
 /// several. Absent or null: every record.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -47,6 +65,9 @@ pub struct AttachParams {
     pub session_id: String,
     /// Wait for restart-time log restoration before answering; false serves the page immediately.
     pub wait_logs: Option<bool>,
+    /// Answer from the chat's settled view first (`settled-attach-v1`,
+    /// `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+    pub settled: Option<bool>,
     pub kinds: Option<EventKinds>,
     /// Send every matching record as `_acpmux/event`; else the agent's
     /// updates arrive as ACP `session/update` and acpmux's own as
@@ -54,6 +75,13 @@ pub struct AttachParams {
     pub event_stream: Option<bool>,
     /// False attaches without showing the chat (`hub/seen.rs`); default true.
     pub visible: Option<bool>,
+    /// False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it
+    /// sees nothing, so a reconnect while they are away keeps the chat's unread; default true.
+    pub attending: Option<bool>,
+    /// True: the client draws nothing of the chat while it is hidden (`visible: false`), so the
+    /// agent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends
+    /// one `_acpmux/lagged` naming the chat (`server/view.rs`); default false.
+    pub quiet_hidden: Option<bool>,
     /// Page forward from here (oldest first) when `beforeSeq` is absent.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.
@@ -61,6 +89,13 @@ pub struct AttachParams {
     /// Default 2000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
+    /// The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier
+    /// attach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`
+    /// out (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.
+    pub time_breakdown_version: Option<String>,
+    /// True from a client that never draws the breakdown (the phone): the reply's `session`
+    /// leaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).
+    pub omit_time_breakdown: Option<bool>,
 }
 
 /// A session as `_acpmux/attach` returns it: its summary plus what an
@@ -104,6 +139,13 @@ pub struct AttachResult {
     /// with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
     /// acpmux leaves it out, and its client reads it with `_acpmux/events`.
     pub turn_opener: Option<SessionEvent>,
+    /// The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
+    /// saw while attending; null before they saw any. An older acpmux leaves it out.
+    pub read_through: Option<u64>,
+    /// The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.
+    /// Sent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy
+    /// out of `session`. An older acpmux leaves it out.
+    pub time_breakdown_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -112,6 +154,11 @@ pub struct AttachResult {
 pub struct EventsParams {
     pub session_id: String,
     pub kinds: Option<EventKinds>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
+    /// Read the transcript after this reader's New line, or their persisted readThrough cursor while away.
+    /// Without a cursor the page is empty. Incompatible with afterSeq, beforeSeq, promptIndex and turnOpener.
+    pub since_seen: Option<bool>,
     /// Records after this one; it may not lie beyond the last record.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.
@@ -119,17 +166,22 @@ pub struct EventsParams {
     /// Default 5000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
-    /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
-    /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+    /// The prompts before `beforeSeq`, newest page first and oldest first within a page, each cut
+    /// to its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the
+    /// page; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.
     pub prompt_index: Option<bool>,
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
     pub subagent: Option<String>,
+    /// True: answered in order, after every line already queued to this connection, as an attach
+    /// is. A pane's stall check sets it: it compares the newest record with what the stream has
+    /// delivered, so an answer ahead of the records queued before it reads a healthy stream as
+    /// stalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.
+    pub in_order: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
 pub struct EventsResult {
     pub events: Vec<SessionEvent>,
     pub has_more: bool,
@@ -141,6 +193,9 @@ pub struct EventsResult {
     /// The session the page is of (its `createdAt`): a session recreated under the same id while
     /// the page was asked is another journal (`hub/peer_snapshot.rs`).
     pub created_at: u64,
+    /// The cutover used by sinceSeen, null on a first visit. Absent from ordinary pages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -157,10 +212,74 @@ pub struct ViewParams {
     pub session_id: String,
     /// The attached client shows the chat (`hub/seen.rs`).
     pub visible: bool,
+    /// Its person attends the chat it shows: on screen, window key, input within the client's
+    /// idle window. Absent: true. A shown chat nobody attends stays shown, but its turns are
+    /// unread (`hub/seen.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attending: Option<bool>,
+    /// With `attending: false`, the log seq the client had at its person's last input: where the
+    /// chat is left off, when earlier than now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
+    /// A transient cutover for recap reads while this view is visible and attended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutover_seq: Option<u64>,
     /// An author changes only that person's presence (`hub/presence.rs`), not whether the
     /// chat counts as shown.
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<super::presence::AuthorMeta>,
+}
+
+/// `_acpmux/view`'s answer: the person's return when coming to attend put "New since you looked"
+/// on the chat (`hub/seen.rs`), so the client draws it without waiting for its list.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewDone {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_return: Option<crate::store::LastReturn>,
+}
+
+/// `_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it
+/// (`hub/seen.rs`). Moves their seen cursor forward only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct SeenParams {
+    pub session_id: String,
+    /// The newest log seq of a row that was on screen.
+    pub seq: u64,
+    /// Whose cursor: an author's, the owner's when absent.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
+}
+
+/// `_acpmux/seen`'s answer: the person's cursor after the request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeenDone {
+    pub read_through: u64,
+}
+
+/// `_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor
+/// moves back to it (never forward).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct MarkUnreadParams {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_through: Option<u64>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
+}
+
+/// `_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to
+/// their other replicas as `pin/<id>` (`hub/synced.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PinParams {
+    pub session_id: String,
+    pub pinned: bool,
 }
 
 /// An acknowledgement with nothing in it.
@@ -179,9 +298,13 @@ pub struct WatchParams {
     pub enabled: Option<bool>,
     pub limit: Option<u64>,
     pub cursor: Option<String>,
-    /// A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
-    /// list, with the digest of its row as last listed (`""` when it changed since). The reply
-    /// is then a delta: `delta: true`, the rows new or changed, and `removed`.
+    /// Follow the list from this position (`hub/row_log.rs`, capability
+    /// `session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the
+    /// rows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is
+    /// answered with the list's first page and `reset: true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub known: Option<std::collections::BTreeMap<String, String>>,
+    pub after_seq: Option<u64>,
+    /// The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_epoch: Option<String>,
 }

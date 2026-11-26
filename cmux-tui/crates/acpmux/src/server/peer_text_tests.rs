@@ -23,11 +23,15 @@ fn summary(token: &str) -> Value {
         "preview": format!("used {token}"),
         "lastMessage": {"role": "agent", "text": format!("used {token}")},
         "turn": {"prompt": format!("push with {token}"), "startedAt": 5, "client": "c", "turnId": "t", "promptId": "p", "turnSeq": 1,
-                 "activity": format!("curl -H {token}"), "planStep": format!("log in with {token}")},
+                 "activity": format!("curl -H {token}")},
         "waitingOn": "question",
         "waitingPrompt": format!("Use {token}?"),
         "queue": [{"prompt": format!("then {token}"), "promptId": "q", "turnId": "t2", "client": "c", "queuedAt": 6, "held": false}],
         "lastTurn": {"status": "failed", "errorText": format!("bad credentials {token}")},
+        "coldArchive": {"archivedAt": 7, "messages": 2, "bytesBefore": 900, "bytesAfter": 90, "last": [
+            {"role": "user", "text": format!("deploy with {token}"), "at": 3},
+            {"role": "assistant", "text": format!("pushed with {token}"), "at": 4},
+        ]},
         "lane": {"state": "working", "since": 5, "error": null, "step": format!("push with {MASK}"), "title": format!("rotate {MASK}")},
     })
 }
@@ -42,10 +46,14 @@ fn assert_masked(s: &Value) {
     assert_eq!(s["lastMessage"]["role"], "agent");
     assert_eq!(s["turn"]["prompt"], format!("push with {MASK}"));
     assert_eq!(s["turn"]["activity"], format!("curl -H {MASK}"));
-    assert_eq!(s["turn"]["planStep"], format!("log in with {MASK}"));
     assert_eq!(s["waitingPrompt"], format!("Use {MASK}?"));
     assert_eq!(s["queue"][0]["prompt"], format!("then {MASK}"));
     assert_eq!(s["lastTurn"]["errorText"], format!("bad credentials {MASK}"));
+    // A cold-archived chat's last messages (third review of #39141, F1).
+    assert_eq!(s["coldArchive"]["last"][0]["text"], format!("deploy with {MASK}"));
+    assert_eq!(s["coldArchive"]["last"][1]["text"], format!("pushed with {MASK}"));
+    assert_eq!(s["coldArchive"]["last"][1]["role"], "assistant");
+    assert_eq!(s["coldArchive"]["messages"], 2);
     // What addresses the session stays exact.
     assert_eq!(s["sessionId"], "s1");
     assert_eq!(s["name"], "deploy");

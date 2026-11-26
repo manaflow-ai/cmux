@@ -52,6 +52,40 @@
         }
       }
     },
+    "conversation.compose.needsRecipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add someone in To: first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に宛先を追加してください。"
+          }
+        }
+      }
+    },
+    "conversation.compose.unknownRecipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No one named “%@”. Type their email address to invite them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」という名前の人はいません。招待するにはメールアドレスを入力してください。"
+          }
+        }
+      }
+    },
     "conversation.composer.addComment": {
       "extractionState": "manual",
       "localizations": {
@@ -303,6 +337,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コピー"
+          }
+        }
+      }
+    },
+    "conversation.menu.copyMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをコピー"
           }
         }
       }
@@ -660,6 +711,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "開封済み %@"
+          }
+        }
+      }
+    },
+    "conversation.status.uploading": {
+      "comment": "Under a sending message whose photo, video or file is uploading: %@ is the percent sent (\"42%\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロード中 %@"
           }
         }
       }
@@ -1222,6 +1291,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "一時停止"
+          }
+        }
+      }
+    },
+    "conversation.audio.holdHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap and hold to record and send audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしたままにすると、オーディオを録音して送信できます"
           }
         }
       }

@@ -3,77 +3,17 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// The Now Playing card's Play or Pause: the one filled control, a disc in the
-/// theme's accent (`accentFill`, the text color when no accent is chosen) with
-/// the glyph in `onAccent`, so it reads first among the controls (music apps
-/// do the same). Pressed, it dims.
-final class SidebarNowPlayingPlayButton: NSButton {
-    var onPress: (() -> Void)?
-    var icon: IconName = .mediaPlay { didSet { if icon != oldValue { renderedSide = 0; needsLayout = true } } }
-    var label = "" {
-        didSet {
-            guard label != oldValue else { return }
-            setAccessibilityLabel(label)
-        }
-    }
-    private var renderedSide: CGFloat = 0
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        title = ""
-        isBordered = false
-        imagePosition = .imageOnly
-        wantsLayer = true
-        target = self
-        action = #selector(pressed)
-        refusesFirstResponder = true
-        focusRingType = .none
-        setButtonType(.momentaryChange)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    @objc private func pressed() { onPress?() }
-
-    override var wantsUpdateLayer: Bool { true }
-
-    override var isHighlighted: Bool { didSet { if isHighlighted != oldValue { needsDisplay = true } } }
-
-    override func layout() {
-        super.layout()
-        // The glyph is a bit under half the disc, nudged right for Play's triangle.
-        let side = (bounds.height * 0.42).rounded()
-        guard side > 0, side != renderedSide else { return }
-        renderedSide = side
-        let image = NSImage.icon(icon, size: side)
-        image.accessibilityDescription = label
-        self.image = image
-    }
-
-    override func updateLayer() {
-        layer?.cornerRadius = bounds.height / 2
-        performWithTheme {
-            layer?.backgroundColor = Palette.accentFill.cgColor
-            contentTintColor = Palette.onAccent
-        }
-        layer?.opacity = isHighlighted ? 0.75 : (isEnabled ? 1 : 0.4)
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-}
-
-/// Three thin bars beside the title that rise and fall while the track
-/// plays, the mark music apps put on what plays. Decorative: Now Playing
-/// reports no audio levels. Each bar loops on its own period as one Core
-/// Animation, so the render server runs it and the app takes no wakeups.
-/// Paused, under Reduce Motion or with animations off, they rest still at
-/// low heights, also when Reduce Motion turns on mid-track; nothing flashes.
+/// Three thin bars at the end of the controls that rise and fall while the
+/// track plays, the mark music apps put on what plays. Decorative: Now Playing
+/// reports no audio levels. Each bar grows from the view's vertical center, so
+/// at any height the bars stay on the controls' one center line (#52939). Each
+/// bar loops on its own period as one Core Animation, so the render server
+/// runs it and the app takes no wakeups. Paused, under Reduce Motion or with
+/// animations off, they rest still at low heights, also when Reduce Motion
+/// turns on mid-track; nothing flashes. The card sizes the view's height to
+/// the controls' glyph.
 final class SidebarNowPlayingLevels: NSView {
-    static let size = NSSize(width: 13, height: 11)
+    static let width: CGFloat = 13
     static let levelsKey = "levels"
     private static let barWidth: CGFloat = 2.5
     /// Heights at rest, as fractions of the view.
@@ -94,7 +34,8 @@ final class SidebarNowPlayingLevels: NSView {
         super.init(frame: frame)
         wantsLayer = true
         for bar in bars {
-            bar.anchorPoint = CGPoint(x: 0.5, y: 0)
+            // Centered, so a bar grows up and down from the controls' center line.
+            bar.anchorPoint = CGPoint(x: 0.5, y: 0.5)
             layer?.addSublayer(bar)
         }
         setAccessibilityElement(false)
@@ -178,9 +119,9 @@ final class SidebarNowPlayingLevels: NSView {
         let moves = moves
         for (index, bar) in bars.enumerated() {
             bar.removeAnimation(forKey: Self.levelsKey)
-            bar.cornerRadius = width / 2
+            bar.cornerRadius = width / 2 // radius-allow: an equalizer bar, not a button
             bar.bounds = CGRect(x: 0, y: 0, width: width, height: Self.rest[index] * height)
-            bar.position = CGPoint(x: CGFloat(index) * (width + gap) + width / 2, y: 0)
+            bar.position = CGPoint(x: CGFloat(index) * (width + gap) + width / 2, y: height / 2)
             guard moves, height > 0 else { continue }
             bar.add(Self.loop(index, height: height), forKey: Self.levelsKey)
         }

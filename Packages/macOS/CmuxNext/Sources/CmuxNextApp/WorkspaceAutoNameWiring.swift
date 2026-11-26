@@ -24,7 +24,7 @@ struct WorkspaceAutoNameWiring {
             allowsLegacyDefaults: { [weak services] workspace in
                 services?.machines.daemon(holding: workspace).map { !$0.supports(DaemonCapability.workspaceNameSource.rawValue) } ?? true
             },
-            homeShellTitle: { [weak services] in services?.machines.daemon(holding: $0).flatMap { MachineRegistry.isCloudMachineID($0.machineID) ? Strings.untitledTerminal : nil } })
+            homeShellTitle: { [weak services] in services?.machines.daemon(holding: $0).flatMap { MachineRegistry.isCloudMachineID($0.machineID) ? Strings.untitledTerminal : nil } }, cloudStarts: services.cloudStartTitles, shown: { [weak services] tab in services.flatMap { CloudFrontedChats.shown(by: tab, services: $0) } })
     }
 
     /// Variant B's focused-chat naming (`WorkspaceAutoNamer`) on every daemon that
@@ -35,14 +35,12 @@ struct WorkspaceAutoNameWiring {
                 guard let services else { return [] }
                 return services.machines.daemons.flatMap { daemon in
                     let identity = daemon.identity
+                    let supportsNameSource = daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
+                    // The list only: a workspace's name state is read by its own observation.
                     return daemon.store.workspaces.map { workspace in
-                        WorkspaceAutoNamer.Target(
-                            machineID: daemon.machineID,
-                            workspace: workspace,
-                            supportsNameSource: daemon.supports(DaemonCapability.workspaceNameSource.rawValue),
-                            daemonGeneration: identity?.generation,
-                            nameSource: workspace.nameSource,
-                            nameRevision: workspace.nameRevision)
+                        WorkspaceAutoNamer.Shown(machineID: daemon.machineID, workspace: workspace,
+                                                 supportsNameSource: supportsNameSource,
+                                                 daemonGeneration: identity?.generation)
                     }
                 }
             },

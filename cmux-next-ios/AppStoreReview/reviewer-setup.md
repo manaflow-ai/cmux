@@ -1,0 +1,85 @@
+# Reviewer setup for cmux-next-ios
+
+App Review gets a demo account and no Mac. The account's Hosted Chief runs in cmux
+Cloud and answers in chat, so the reviewer signs in, opens Chief (Main · Cloud) on
+Home and sends a message. `cloud-chief-review-account.md` is the operator runbook
+that sets the account up.
+
+## Where each live value lives
+
+Nothing below is in git. `asc_review_package.py sync-notes` reads them when it
+writes the notes and stops if any is empty.
+
+| Value | Where it lives |
+|---|---|
+| Demo account email | App Store Connect, App Review Information, demo account field. A `@mailinator.com` address gets its public inbox link in the notes by itself. |
+| Public inbox URL | Derived from a Mailinator demo account, or kept from a Mailinator link already in the App Store Connect notes |
+| Contact email and phone | App Store Connect, App Review Information |
+
+Sign-in uses a one-time email code ("Continue with email"), so there is no
+password field to fill.
+
+## The review path
+
+`review-notes-asc.txt` walks the reviewer through:
+
+1. Sign-in: "Continue with email", the code from the public inbox, "Check your
+   email".
+2. First launch: "Choose a space" (Personal), "Connect your Mac" (Not now) and
+   the notifications step, whichever the account gets.
+3. The review demo path (#40831): tap Chief (Main · Cloud) on Home, send a
+   message, read the reply; if Home shows "Chief Is Off", tap "Turn On" first.
+   The notes mark this block with `## REVIEW DEMO STEPS: START` and
+   `## REVIEW DEMO STEPS: END`. The review demo path work replaces the numbered
+   steps between the markers with its exact steps; the `##` lines never reach the
+   reviewer.
+4. In-app purchases: Settings → "Plan" opens "Plans" with cmux Go, cmux Pro and
+   cmux Max, monthly auto-renewable subscriptions (`com.cmux.app.go.monthly`,
+   `.pro.monthly`, `.max.monthly`; which products the cmux INTERNAL submission
+   carries is an open decision, cmuxterm-hq#18093). "Subscribe" buys in the Sandbox and the plan
+   shows as "Current plan". "Restore Purchases" is on the same screen;
+   "Manage Subscription" appears once the account has an App Store
+   subscription. "Terms of Use", "Privacy Policy" and the 3.1.2 renewal terms
+   sit below. The app has no other purchase or billing link.
+5. Account deletion: Settings, the account row, "Account", "Delete Account".
+
+The reviewer never has Tailscale, a VPN or a Mac: every step above, the
+purchases included, works on the demo account alone.
+
+Every quoted label must be a string the release app shows; the test reads the
+app source to check.
+
+## Before a submission
+
+- The demo account is set up as `cloud-chief-review-account.md` says: it exists in
+  production, has credits, and its team is on the Chief owner list, so "Turn On"
+  works. If it is not, Home says "Chief isn't available on this account." and the
+  reviewer has nothing to message.
+- The demo account email and contact are filled in App Store Connect.
+- The demo account can buy in the Sandbox: production's
+  `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS` lists `cmux-rev-0e6ba145@mailinator.com`
+  and that account's email is verified (`docs/billing/ios-in-app-purchases.md`,
+  Entitlement). Otherwise "Plans" says "Plans can't be bought in this version
+  of the app." and App Review finds no in-app purchases. The account must also
+  not be billed through a team or on the web, which hide the offers ("Your team
+  admin manages billing for this account.", "You subscribe on the web.").
+- The submission is cmux INTERNAL (`dev.cmux.app.internal`, ASC 6791408425),
+  not `com.cmux.app`. Whether 6791408425 has an App Store version, metadata and
+  privacy answers in App Store Connect is not verified.
+- cmux INTERNAL (`dev.cmux.app.internal`, ASC 6791408425) has no subscriptions
+  on its App Store record and the server sells it none, so its "Plans" screen
+  shows only the current plan, read-only: no prices, no purchase, Restore
+  Purchases or Manage Subscription control, no subscription terms, and no
+  text about buying (`BillingPurchaseAvailability`, App Review 2.1 and
+  3.1.1). Submit no subscriptions with an INTERNAL version and do not mention
+  in-app purchases in its review notes. The offers come back by themselves
+  once the INTERNAL record has its `dev.cmux.app.internal.<plan>.<period>`
+  products and production's `APPLE_IAP_BUNDLE_IDS` lists the bundle.
+- The subscriptions submitted with the version (today's ids are
+  `com.cmux.app.go.monthly`, `.pro.monthly`, `.max.monthly`; which product ids
+  the INTERNAL submission uses is open, cmuxterm-hq#18093) are the ones "Plans" lists: the server lists
+  cmux Go only while its flag is on, so a submitted Go product with the flag
+  off is a product the reviewer cannot find.
+- A reviewer may delete the demo account (the notes ask them to try it last).
+  After a review that did, make the account and its Cloud Chief again before the
+  next submission.

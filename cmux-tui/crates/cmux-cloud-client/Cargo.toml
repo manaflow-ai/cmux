@@ -12,31 +12,45 @@ description = "NEXT Cloud's one Rust client: generated from cmux-platform's open
 [lib]
 doctest = false
 
+[features]
+default = ["http"]
+# The app server uses only scoped lifecycle requests; credentials and HTTP
+# remain in its existing host relay. Default clients retain their HTTP API.
+http = ["dep:bytes", "dep:cmux-build-space", "dep:cmux-cloud-environment", "dep:futures", "dep:getrandom", "dep:progenitor-client", "dep:regress", "dep:reqwest", "dep:tokio", "dep:openapiv3", "dep:prettyplease", "dep:progenitor", "dep:syn"]
+
 [dependencies]
-bytes.workspace = true
-cmux-cloud-environment.workspace = true
+cmux-egress.workspace = true
+url.workspace = true
+bytes = { workspace = true, optional = true }
+cmux-build-space = { workspace = true, optional = true }
+cmux-cloud-environment = { workspace = true, optional = true }
+cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
-futures = "0.3"
-getrandom.workspace = true
+cmux-lifeline.workspace = true
+futures = { version = "0.3", optional = true }
+getrandom = { workspace = true, optional = true }
 # Pinned exactly like the generator (workers/cmux-vm/cli/Cargo.toml): the
 # generated code and its runtime move together.
-progenitor-client = "=0.15.0"
-regress = "0.12"
-reqwest = { workspace = true, features = ["query", "stream"] }
+progenitor-client = { version = "=0.15.0", optional = true }
+regress = { version = "0.12", optional = true }
+reqwest = { workspace = true, features = ["query", "stream"], optional = true }
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time"], optional = true }
 
 # The generator's own pins (workers/cmux-vm/cli/Cargo.toml), so the client
 # generated here is the one cmux-vm-codegen writes.
 [build-dependencies]
-openapiv3 = "=2.2.0"
-prettyplease = "=0.3.0"
-progenitor = { version = "=0.15.0", default-features = false }
+openapiv3 = { version = "=2.2.0", optional = true }
+prettyplease = { version = "=0.3.0", optional = true }
+progenitor = { version = "=0.15.0", default-features = false, optional = true }
 serde_json.workspace = true
-syn = { version = "=3.0.6", features = ["full"] }
+syn = { version = "=3.0.6", features = ["full"], optional = true }
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
+cmux-build-space = { workspace = true, features = ["testing"] }
 cmux-cloud-config.workspace = true
 rustls.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }

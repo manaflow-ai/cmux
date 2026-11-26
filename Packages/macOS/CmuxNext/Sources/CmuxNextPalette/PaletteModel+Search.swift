@@ -15,12 +15,15 @@ extension PaletteModel {
         // provider reads its source after the first frame (Cmd-Shift-P with thousands of tabs).
         let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
         var deferred: [any PaletteProvider] = []
+        state.providerTokens = []
         for provider in page.providers {
             if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
-                state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
+                state.providerItems[provider.id] = deferredStandIn(provider.id, page: page.id, state: state)
                 deferred.append(provider)
                 continue
             }
+            // Followed from the read on: a change after it reads the rows again.
+            follow(provider, of: state)
             // Read once: most providers build their rows in `immediateItems` (the command page's
             // registry builds a row per catalog action, Go to Workspace one per workspace).
             let immediate = provider.immediateItems
@@ -48,7 +51,9 @@ extension PaletteModel {
     /// (``PaletteProvider/itemUpdates()``). Same generation: the rows update, the selection stays.
     private func loadTask(_ provider: any PaletteProvider, into state: PageState) -> Task<Void, Never> {
         let providerID = provider.id
-        return Task { [weak self, weak state] in
+        state.liveReads += 1
+        return Task { [weak self, weak state, weak counted = state] in
+            defer { counted?.liveReads -= 1 }
             if let updates = provider.itemUpdates() {
                 var any = false
                 for await items in updates {
@@ -65,6 +70,23 @@ extension PaletteModel {
             guard !Task.isCancelled, let self, let state else { return }
             self.apply(items, of: providerID, to: state)
         }
+    }
+
+    /// Keeps `provider`'s rows on `state` current while the page is open (a workspace created while Cmd-P shows):
+    /// on each change of its source, its rows are read again, and the shown query is searched again with them.
+    private func follow(_ provider: any PaletteProvider, of state: PageState) {
+        let providerID = provider.id
+        guard let token = provider.followChanges({ [weak self, weak state, weak provider] in
+            guard let self, let state, let provider, self.pages[state.levelID] === state,
+                  !self.deferredLoads.contains(where: { $0.state === state }) else { return }
+            if let items = provider.immediateItems {
+                self.apply(items, of: providerID, to: state)
+            } else {
+                state.pendingProviders.insert(providerID)
+                state.tasks.append(self.loadTask(provider, into: state))
+            }
+        }) else { return }
+        state.providerTokens.append(token)
     }
 
     private func apply(_ items: [PaletteItem], of providerID: String, to state: PageState) {
@@ -86,6 +108,7 @@ extension PaletteModel {
         for load in loads where pages[load.state.levelID] === load.state {
             let state = load.state
             for provider in load.providers {
+                follow(provider, of: state)
                 if let items = provider.immediateItems {
                     state.providerItems[provider.id] = items
                     if !provider.refreshesOnOpen { continue }
@@ -115,6 +138,20 @@ extension PaletteModel {
             if !items.isEmpty { kept[provider.id] = items }
         }
         shownDeferredItems[page.id] = kept
+    }
+
+    /// The rows a hidden provider shows until it reads again after the frame: the Recent rows the
+    /// page's empty query last showed, each as `state` last read it. A reload of an open page (a
+    /// setting's write landed) must not show the copy kept before a keep-open run read the row
+    /// again: the empty query's rank keeps that copy only once it lands, so a write that landed
+    /// first flashed the row's old On/Off back.
+    func deferredStandIn(_ providerID: String, page pageID: String, state: PageState) -> [PaletteItem] {
+        let shown = shownDeferredItems[pageID]?[providerID] ?? []
+        guard !shown.isEmpty, let read = state.providerItems[providerID], !read.isEmpty else { return shown }
+        let ids = Set(shown.map(\.id))
+        var latest: [String: PaletteItem] = [:]
+        for item in read where ids.contains(item.id) { latest[item.id] = item }
+        return shown.map { latest[$0.id] ?? $0 }
     }
 
     /// Ranks the page's rows for its query and generation on the searcher,
@@ -166,7 +203,8 @@ extension PaletteModel {
             }
             let request = (query: state.query, entries: state.entries, version: state.version,
                            orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent,
-                           keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst)
+                           keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst,
+                           names: page.filtersBySection ? state.filterSectionNames(page) : nil)
             let searcher = searcher
             // Not `page`: a search the next keystroke supersedes keeps running on the searcher,
             // and holding the page would keep its providers alive after the palette moved on.
@@ -180,11 +218,13 @@ extension PaletteModel {
                     entries: request.entries, version: request.version,
                     query: request.query, generation: searchID, sectionOrders: request.orders,
                     frecency: request.frecency, now: request.now, showsRecent: request.recent,
-                    keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst
+                    keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst,
+                    sectionNames: request.names
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                let found = Self.leading(queryItems?(request.query), state.resolve(result.sections))
+                let found = self.withScopeTokenSuggestions(Self.leading(queryItems?(request.query), state.resolve(result.sections)),
+                                                           query: request.query, state: state)
                 self.deliver(Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state), to: state, generation: generation)
                 self.closeIfPending()
             }
@@ -291,14 +331,24 @@ extension PaletteModel {
         guard pages[state.levelID] === state, state.generation == generation else { return }
         // The contributed answers join the ranked rows (`PaletteContributedAnswers`): an older query's answer
         // shows only as a stand-in that navigation never selects, and a held query's rows are not final.
-        state.rankedSections = sections
+        // The v2 scope bar's typed tokens keep only the rows they name (`PaletteScopeFilter`).
+        let ranked = scopeTokenFiltered(sections, state: state)
+        state.rankedSections = ranked
         state.rankedGeneration = generation
         state.rankedProvisional = provisional
         state.rankedComplete = complete
-        let joined = Self.joined(sections, state: state)
+        let joined = Self.joined(ranked, state: state)
         state.deliveredAnswerFingerprint = Self.answerFingerprint(state)
         let held = joined.held
-        let sections = joined.shown
+        // The v2 look: the rows under its four group headers, the top match first (`PaletteV2Grouping`).
+        let groups = groupsRows(state)
+        let sections = groups ? PaletteV2Grouping.regroup(joined.shown) : joined.shown
+        var selectable = joined.selectable
+        if groups {
+            // The same cut as `joined`: navigation never selects a stand-in row, and every row it may select shows.
+            let standIns = joined.shown.count != joined.selectable.count
+            selectable = standIns ? PaletteV2Grouping.keeping(Set(joined.selectable.lazy.flatMap(\.rows).map(\.id)), of: sections) : sections
+        }
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
@@ -306,9 +356,50 @@ extension PaletteModel {
             queryFrames.delivered(final: complete && !provisional, answerRows: state.currentAnswers.reduce(0) { $0 + $1.rows.count })
             display(sections)
         }
-        send(.results(levelID: state.levelID, generation: generation, rows: navRows(joined.selectable), replace: true,
+        // The rail's choice narrows what navigation walks as it narrows the list (`display`).
+        if railFilter != nil, railLevelID == state.levelID { selectable = PaletteV2Grouping.filter(selectable, to: railFilter) }
+        // Grouped, every new result set selects its first row: the top match (a page's own empty-query row index
+        // names a row of the ungrouped order).
+        send(.results(levelID: state.levelID, generation: generation, rows: navRows(selectable), replace: true,
                       isFinal: complete && !provisional && !held && state.pendingProviders.isEmpty,
-                      emptyQuerySelection: state.emptyQuerySelection, provisional: provisional || held))
+                      emptyQuerySelection: groups ? 0 : state.emptyQuerySelection, provisional: provisional || held))
+    }
+
+    /// Whether `state` shows its rows under the v2 look's groups: only the full palette and Search, never an
+    /// argument picker, a text step or a setting's values.
+    func groupsRows(_ state: PageState) -> Bool {
+        guard experiments.look.isOn, case .list(let page) = state.kind else { return false }
+        return page.scopeID == .root || page.scopeID == PaletteScopeID.search
+    }
+
+    /// The rail's click or key (`PaletteV2Look.rail`): narrows the shown page's list to `group` (All when nil),
+    /// with its first row selected. Counts stay those of the whole query.
+    public func chooseRail(_ group: PaletteV2Group?) {
+        guard experiments.look.showsRail, let state = current, state.levelID == shownLevelID, groupsRows(state) else { return }
+        guard group == nil || railEntries.contains(where: { $0.group == group }) else { return }
+        guard railFilter != group || railLevelID != state.levelID else { return }
+        railFilter = group
+        railLevelID = state.levelID
+        if let ranked = state.rankedSections, state.rankedGeneration == state.generation {
+            deliver(ranked, to: state, generation: state.generation, provisional: state.rankedProvisional,
+                    complete: state.rankedComplete)
+        } else {
+            display(state.lastSections ?? [])
+        }
+        if let first = rows.first {
+            send(.select(first.id))
+            scrollRequest += 1
+        }
+    }
+
+    /// ⌥↑ / ⌥↓ on the rail: the entry `delta` steps from the chosen one (no wrap). False when no rail shows.
+    @discardableResult
+    public func moveRail(by delta: Int) -> Bool {
+        guard experiments.look.showsRail, actionsMenu == nil, !railEntries.isEmpty else { return false }
+        let index = railEntries.firstIndex { $0.group == railFilter } ?? 0
+        let next = min(max(index + delta, 0), railEntries.count - 1)
+        if next != index { chooseRail(railEntries[next].group) }
+        return true
     }
 
     /// What navigation needs from the rows.
@@ -323,12 +414,32 @@ extension PaletteModel {
     /// Puts `newSections` on screen (with the notice, if any). The
     /// selection is the reducer's.
     func display(_ newSections: [PaletteResultSection]) {
+        let newSections = railed(newSections)
         sections = notice.map { Self.applying($0, to: newSections) } ?? newSections
         resultsVersion += 1
         let rows = self.rows
         if let menu = actionsMenu, !rows.contains(where: { $0.id == menu.itemID }) {
             actionsMenu = nil
         }
+    }
+
+    /// The rail of the shown page's grouped rows (`railEntries`, counts of the whole query) and those rows
+    /// narrowed to its choice. Another page starts at All; a choice whose group the query no longer has goes back
+    /// to All.
+    private func railed(_ grouped: [PaletteResultSection]) -> [PaletteResultSection] {
+        if railLevelID != shownLevelID {
+            railLevelID = shownLevelID
+            if railFilter != nil { railFilter = nil }
+        }
+        guard experiments.look.showsRail, let state = shownLevelID.flatMap({ pages[$0] }), groupsRows(state) else {
+            if !railEntries.isEmpty { railEntries = [] }
+            if railFilter != nil { railFilter = nil }
+            return grouped
+        }
+        let entries = PaletteV2Grouping.railEntries(grouped)
+        if entries != railEntries { railEntries = entries }
+        if let filter = railFilter, !entries.contains(where: { $0.group == filter }) { railFilter = nil }
+        return PaletteV2Grouping.filter(grouped, to: railFilter)
     }
 
     /// Re-shows the rows on screen (after a notice changed).

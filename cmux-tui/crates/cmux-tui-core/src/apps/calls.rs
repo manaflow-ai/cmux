@@ -3,7 +3,7 @@
 //! thread (storage, egress, or the daemon's own dispatcher), answered back
 //! to the host that asked if it is still the same process.
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Instant;
 
 use cmux_app_host::ToHost;
@@ -13,9 +13,13 @@ use super::actions::{self, ActionDecision};
 use super::egress;
 use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_gesture};
 use super::host::HostProcess;
+use super::http_cache;
 use super::mirror::Origin;
+use super::pane_flow;
 use super::provider;
+use super::signal_sources;
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
+use super::view_state;
 
 /// Calls one host may have in flight (the VM caps itself at 64 too, but the
 /// VM is untrusted).
@@ -25,14 +29,16 @@ fn error(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into(), "retryable": false })
 }
 
-struct Work {
-    app: String,
-    op: String,
-    params: Value,
-    idempotency_key: Option<String>,
-    origin: Origin,
-    grant: Grant,
-    generation: u64,
+/// One admitted call, run on a worker thread: a host's (`call_locked`) or a
+/// web pane's (`page_calls.rs`).
+pub(super) struct Work {
+    pub app: String,
+    pub op: String,
+    pub params: Value,
+    pub idempotency_key: Option<String>,
+    pub origin: Origin,
+    pub grant: Grant,
+    pub generation: u64,
 }
 
 impl Supervisor {
@@ -116,9 +122,20 @@ impl Supervisor {
                 options.get("idempotencyKey").and_then(Value::as_str).filter(|k| !k.is_empty());
             format!("app:{}:{}", key.app, own.map_or_else(mint_key, str::to_string))
         });
+        // A pane's open arguments and result (`pane_flow.rs`), answered here.
+        if pane_flow::owns(&op) {
+            return self.pane_call_locked(inner, key, generation, &process, cb, &op, &params);
+        }
+        // A view's kept state (`view_state.rs`), answered here.
+        if op == view_state::OP {
+            return self.view_state_call_locked(inner, key, &process, cb, &params);
+        }
         // Ops the daemon does not own go to their provider (the Mac app), or
         // fail at once when none is connected (APP-R1).
-        let supervisor_op = op.starts_with("app.storage.") || op == "net.fetch";
+        let supervisor_op = op.starts_with("app.storage.")
+            || op == "net.fetch"
+            || signal_sources::owns(&op)
+            || self.github_read(&op, &params);
         if !supervisor_op && !self.router.owns(&op) {
             if op == "integration.request" {
                 // The provider sees the method the grant check decided on.
@@ -155,44 +172,110 @@ impl Supervisor {
     }
 
     fn execute(&self, key: &HostKey, work: Work) -> Result<Value, Value> {
-        let Work { app, op, params, idempotency_key, origin, grant, generation } = work;
+        let generation = work.generation;
+        let admitted = work.grant.clone();
+        // The same process, still holding the grant the call was admitted
+        // under: an uninstall or disable revokes it, a regrant replaces it.
+        self.execute_with(work, |inner| {
+            !key.preview
+                && inner.hosts.get(key).is_some_and(|h| {
+                    h.generation == generation && !h.grant.revoked && h.grant == admitted
+                })
+        })
+    }
+
+    /// Runs `work`. `current` says, under the supervisor lock, whether the
+    /// caller (a host process, a web pane) still speaks for the app with the
+    /// grant the call was admitted under; it is checked right before every
+    /// op, so an uninstall, a disable or a grant change that lands between
+    /// admission and execution stops the call (`app.revoked`).
+    pub(super) fn execute_with(
+        &self,
+        work: Work,
+        current: impl FnOnce(&Inner) -> bool,
+    ) -> Result<Value, Value> {
+        let Work { app, op, params, idempotency_key, origin, grant, .. } = work;
+        // Under the supervisor lock: an uninstall (which drops the storage
+        // table under the same lock) cannot interleave with a storage write.
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if !current(&inner) {
+            return Err(error("app.revoked", "the app's access was taken back"));
+        }
         if op.starts_with("app.storage.") {
-            // Under the supervisor lock: an uninstall (which drops the
-            // table under the same lock) cannot interleave with this write.
-            let inner = self.inner.lock().unwrap();
-            let current = inner
-                .hosts
-                .get(key)
-                .is_some_and(|h| h.generation == generation && !h.grant.revoked);
-            let installed = inner.mirror.apps.get(&app).is_some_and(|r| r.installed);
-            if !current || !installed || key.preview {
+            if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
-            let storage = self.storage();
-            let storage = storage
-                .as_ref()
-                .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
-            return storage
-                .call(&app, &op, &params)
-                .map(|value| json!({ "value": value }))
-                .map_err(|e| error(e.code, e.message));
+            let answer = {
+                let storage = self.storage();
+                let storage = storage
+                    .as_ref()
+                    .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
+                storage
+                    .call(&app, &op, &params)
+                    .map(|value| json!({ "value": value }))
+                    .map_err(|e| error(e.code, e.message))
+            };
+            drop(inner);
+            let rebinds = matches!(op.as_str(), "app.storage.set" | "app.storage.delete")
+                && params.get("key").and_then(Value::as_str)
+                    == Some(super::page_keys::OVERRIDES_KEY);
+            if answer.is_ok() && rebinds {
+                self.page_keys_changed(&app);
+            }
+            return answer;
+        }
+        drop(inner);
+        if signal_sources::owns(&op) {
+            return self.signal_call(&app, &op, &params, &grant);
         }
         if op == "net.fetch" {
             let request = egress::admit(&params, &grant.scopes, grant.sandboxed)
                 .map_err(|e| error(e.code, e.message))?;
-            return self
-                .fetcher
-                .fetch(request)
-                .map(egress::response_json)
-                .map_err(|e| error(e.code, e.message));
+            // `cache: "shared"` (the http.json signal source): one cached
+            // read per URL for every app, after the same gate.
+            let answer = match params.get("cache") {
+                None | Some(Value::Null) => self.fetcher.fetch(request).map(egress::response_json),
+                Some(Value::String(mode)) if mode == "none" => {
+                    self.fetcher.fetch(request).map(egress::response_json)
+                }
+                Some(Value::String(mode)) if mode == "shared" => {
+                    http_cache::shared_request(request)
+                        .and_then(|r| self.http_cache.get(&*self.fetcher, r, Instant::now()))
+                        .map(http_cache::Shared::json)
+                }
+                Some(other) => Err(egress::EgressError {
+                    code: "validation.invalid",
+                    message: format!("cache must be \"shared\" or \"none\", not {other}"),
+                }),
+            };
+            return answer.map_err(|e| error(e.code, e.message));
+        }
+        if self.github_read(&op, &params)
+            && let Some(github) = self.github.get()
+        {
+            // The grant check ran; the gateway admits only its read paths.
+            return github.request(&params);
         }
         self.router.route(&app, &op, params, idempotency_key, origin)
+    }
+
+    /// `integration.request` for GitHub, which the daemon's gateway answers
+    /// when it has one (`github_gateway.rs`).
+    fn github_read(&self, op: &str, params: &Value) -> bool {
+        op == "integration.request"
+            && self.github.get().is_some()
+            && params.get("provider").and_then(Value::as_str) == Some("github")
+    }
+
+    /// Installs the GitHub gateway (once; the daemon's slot does it at start).
+    pub fn set_github_gateway(&self, gateway: super::github_gateway::GitHubGateway) {
+        let _ = self.github.set(Arc::new(gateway));
     }
 
     /// Writes the answer if the host that asked is still the current process.
     fn answer(&self, key: &HostKey, generation: u64, process: &Arc<HostProcess>, message: ToHost) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(host) = inner.hosts.get_mut(key).filter(|h| h.generation == generation) else {
                 return;
             };
@@ -205,7 +288,7 @@ impl Supervisor {
     }
 }
 
-fn mint_key() -> String {
+pub(super) fn mint_key() -> String {
     let mut bytes = [0u8; 12];
     let _ = getrandom::fill(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()

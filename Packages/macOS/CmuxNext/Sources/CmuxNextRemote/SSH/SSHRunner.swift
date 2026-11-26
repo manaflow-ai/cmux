@@ -18,7 +18,8 @@ public struct SSHProcessResult: Sendable {
 /// probe, the install, the restart) or the Mac-side curl. Output is read on
 /// Foundation's pipe threads (bounded: 1 MiB stdout, 16 KiB stderr tail),
 /// never the main actor. The deadline terminates the process; cancelling
-/// the calling task does too.
+/// the calling task does too. Both output pipes close when the run returns
+/// or throws.
 public struct SSHProcessRunner {
     public init() {}
     public enum Input: Sendable {
@@ -32,9 +33,31 @@ public struct SSHProcessRunner {
 
     /// `stop` ends the process on the deadline or a cancel (by default SIGTERM to it alone; a caller
     /// whose process leads a group passes one that signals the group).
-    public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
+    /// `@concurrent`: a main-actor caller's launch and stdin never run on the main thread.
+    @concurrent public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
                            deadline: Duration, label: String,
                            stop: @escaping @Sendable (Process) -> Void = { $0.terminate() }) async throws -> SSHProcessResult {
+        try await run(argv, input: input, environment: environment, bound: .total(deadline), watching: nil, label: label, stop: stop)
+    }
+
+    /// Like ``run(_:input:environment:deadline:label:stop:)`` for work of unknown length (a download):
+    /// no total bound. The run fails with `DeadlineExceeded` only after `idle` passes with no byte
+    /// on stdout or stderr (nor growth of `watching`, a file the process writes quietly, as curl -s
+    /// does), so a slow but moving transfer keeps going and a silent one is cut off.
+    @concurrent public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
+                           idle: Duration, watching: URL? = nil, label: String,
+                           stop: @escaping @Sendable (Process) -> Void = { $0.terminate() }) async throws -> SSHProcessResult {
+        try await run(argv, input: input, environment: environment, bound: .idle(idle), watching: watching, label: label, stop: stop)
+    }
+
+    enum Bound: Sendable {
+        case total(Duration)
+        case idle(Duration)
+    }
+
+    @concurrent static func run(_ argv: [String], input: Input, environment: [String: String],
+                                bound: Bound, watching: URL?, label: String,
+                                stop: @escaping @Sendable (Process) -> Void) async throws -> SSHProcessResult {
         guard let executable = argv.first else { throw CocoaError(.executableNotLoadable) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -44,9 +67,13 @@ public struct SSHProcessRunner {
         process.standardOutput = stdout
         process.standardError = stderr
         var inputPipe: Pipe?
+        var inputFile: FileHandle?
         switch input {
         case .none: process.standardInput = FileHandle.nullDevice
-        case .file(let url): process.standardInput = try FileHandle(forReadingFrom: url)
+        case .file(let url):
+            let file = try FileHandle(forReadingFrom: url)
+            inputFile = file
+            process.standardInput = file
         case .data, .writer:
             let pipe = Pipe()
             inputPipe = pipe
@@ -62,7 +89,7 @@ public struct SSHProcessRunner {
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             switch handle.readReady() {
-            case .bytes(let data): output.withLock { if $0.stdout.count < 1 << 20 { $0.stdout.append(data) } }
+            case .bytes(let data): output.withLock { $0.bytesSeen += 1; if $0.stdout.count < 1 << 20 { $0.stdout.append(data) } }
             case .retry: return
             case .end:
                 handle.readabilityHandler = nil
@@ -74,6 +101,7 @@ public struct SSHProcessRunner {
             switch handle.readReady() {
             case .bytes(let data):
                 output.withLock { state in
+                    state.bytesSeen += 1
                     state.stderr.append(data)
                     if state.stderr.count > 16 * 1024 { state.stderr.removeFirst(state.stderr.count - 16 * 1024) }
                 }
@@ -81,27 +109,46 @@ public struct SSHProcessRunner {
             case .end: handle.readabilityHandler = nil
             }
         }
+        // On every way out (the exit, the deadline, a cancel, a launch that failed) both readers stop
+        // and both read ends close. End of file alone does not do it: a process the command left
+        // behind with the pipes open (a ControlPersist master) never ends them, and each run would
+        // keep two pipes and two readers for as long as that process lives.
+        defer {
+            for reader in [stdout.fileHandleForReading, stderr.fileHandleForReading] {
+                reader.readabilityHandler = nil
+                try? reader.close()
+            }
+        }
+        // An upload's progress is how far the child has read its stdin file: the child shares the
+        // file's offset, and a remote `cat > file` prints nothing while it receives.
+        let readFile = inputFile
+        let upload: @Sendable () -> Int = { Int((try? readFile?.offset()) ?? 0) }
         let exit = ExitLatch()
         process.terminationHandler = { exit.finish($0.terminationStatus) }
+        OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
         try process.run()
-        if case .data(let data) = input, let inputPipe {
-            let writer = inputPipe.fileHandleForWriting
-            // Scripts are a few KiB, well under the pipe buffer.
-            try? writer.write(contentsOf: data)
-            try? writer.close()
-        }
-        if case .writer(let write) = input, let inputPipe {
-            let writer = inputPipe.fileHandleForWriting
-            write(writer.fileDescriptor)
-            try? writer.close()
+        // Stdin goes on the feed's own queue, never this task: even a few KiB can wait in `write`
+        // (a child that never reads, the kernel's pipe memory used up), and that wait would hold
+        // off the deadline below. The deadline's stop ends the child, which ends a waiting write.
+        if let inputPipe {
+            let feed = PipeFeed(inputPipe.fileHandleForWriting)
+            if case .data(let data) = input { feed.write(data) }
+            if case .writer(let write) = input { feed.write(with: write) }
+            feed.close()
         }
         let status: Int32
         do {
             status = try await withTaskCancellationHandler {
                 // withDeadline waits for its operation after the deadline cancels it, and the
                 // exit only comes once the process is stopped: terminate it on that cancel.
-                try await withDeadline(deadline, label: label) {
+                let wait: @Sendable () async -> Int32 = {
                     await withTaskCancellationHandler { await exit.awaitValue() } onCancel: { stop(process) }
+                }
+                switch bound {
+                case .total(let deadline):
+                    return try await withDeadline(deadline, label: label, wait)
+                case .idle(let idle):
+                    return try await withIdleDeadline(idle, label: label, progress: { output.withLock { $0.bytesSeen } + upload() + Self.size(of: watching) }, wait)
                 }
             } onCancel: {
                 stop(process)
@@ -119,7 +166,14 @@ public struct SSHProcessRunner {
                                 stderr: String(decoding: drained.stderr, as: UTF8.self))
     }
 
+    private static func size(of file: URL?) -> Int {
+        guard let file else { return 0 }
+        return ((try? FileManager.checked.attributesOfItem(atPath: file.path)[.size]) as? NSNumber)?.intValue ?? 0
+    }
+
     private struct Output {
+        /// Reads that returned bytes, on either stream: the idle bound's progress.
+        var bytesSeen = 0
         var stdout = Data()
         var stderr = Data()
     }
@@ -152,5 +206,30 @@ final class ExitLatch: Sendable {
             }
             if let done { waiter.resume(returning: done) }
         }
+    }
+}
+
+/// Runs `operation`; throws `DeadlineExceeded` once `idle` passes with no change in `progress`.
+/// The window restarts whenever progress moved, so total time is unbounded while bytes move.
+func withIdleDeadline<T: Sendable>(_ idle: Duration, label: String, progress: @escaping @Sendable () -> Int,
+                                   _ operation: @escaping @Sendable () async -> T) async throws -> T {
+    // concurrency-allow: the operation waits on the exit latch inside a cancellation handler that stops the process, so cancelling the group ends it.
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { await operation() }
+        group.addTask {
+            var seen = progress()
+            // wakeup-allow: one wakeup per idle window; the loop ends on cancel (child exit) or a silent window.
+            while !Task.isCancelled {
+                // wakeup-allow: one idle window, cancelled when the child exits; progress permits the next.
+                try await Task.sleep(for: idle)
+                let now = progress()
+                if now == seen { throw DeadlineExceeded(label: label) }
+                seen = now
+            }
+            throw CancellationError()
+        }
+        defer { group.cancelAll() }
+        guard let first = try await group.next() else { throw DeadlineExceeded(label: label) }
+        return first
     }
 }

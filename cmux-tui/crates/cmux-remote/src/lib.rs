@@ -1,5 +1,6 @@
 //! Native remote runtime for cmux-tui.
 
+pub mod acpmux_bridge;
 #[cfg(unix)]
 pub mod admin;
 pub mod bridge;
@@ -7,11 +8,18 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
+pub mod first_dial;
 pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
+pub mod link_ports;
+#[cfg(all(test, unix))]
+mod lock_keeper_tests;
+pub mod network_watch;
+mod route_source;
 pub use mux_client::MuxLineClient;
+mod mux_carrier_role;
 mod mux_client;
 mod mux_codec;
 mod mux_input;
@@ -20,6 +28,8 @@ pub mod observability;
 mod owner_lock;
 mod per_lane;
 pub mod provider;
+pub mod resume_hold;
+pub mod resume_pipe;
 pub mod secret_file;
 pub mod secrets;
 pub mod secure_directory;

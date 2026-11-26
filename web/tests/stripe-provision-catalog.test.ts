@@ -112,9 +112,9 @@ describe("Stripe catalog provisioning", () => {
       .flatMap((call) => call.args)
       .find((argument) => argument.startsWith("description="));
     expect(description("prod_starter")).toContain("1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap.");
-    expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
-    expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
-    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+    expect(description("prod_pro")).toBe("description=Cloud VMs with no count cap, each up to 16 GB RAM and 8 vCPUs, metered beyond the included usage, plus the cmux iOS app.");
+    expect(description("prod_max")).toBe("description=Everything in Pro, with Cloud VMs up to 64 GB RAM and 32 vCPUs each, metered beyond the included usage.");
+    expect(description("prod_team")).toBe("description=Cloud VMs with no count cap for everyone on the team, metered beyond the included usage, with the team's spending cap as the stop, plus the cmux iOS app and priority support.");
   });
 
   test("renames the legacy Starter product to cmux Plus in place", async () => {
@@ -287,6 +287,47 @@ describe("Stripe catalog provisioning", () => {
     expect(result.stderr).toContain(
       "cmux-pro-monthly exists with unexpected configuration",
     );
+  });
+
+  test("finds the cmux Cloud $1 pass as a one-time price and sets its description", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Found price cmux-cloud-intro-1: price_cloud_intro_1");
+    expect(result.calls.some((call) =>
+      call.args.includes("POST") &&
+      call.args.includes("https://api.stripe.com/v1/products/prod_cloud_intro") &&
+      call.args.includes("description=cmux Cloud: $1 pass, 30 days, does not renew")
+    )).toBe(true);
+  });
+
+  test("creates the cmux Cloud $1 pass product and one-time price without a recurring interval", async () => {
+    const result = await runProvision("test", "cloud-intro-missing");
+
+    expect(result.exitCode).toBe(0);
+    const productCreate = result.calls.find((call) =>
+      call.args.includes("POST") &&
+      call.args.includes("https://api.stripe.com/v1/products") &&
+      call.args.includes("metadata[plan]=cloud_intro")
+    );
+    expect(productCreate?.args).toContain("name=cmux Cloud pass");
+    const priceCreate = result.calls.find((call) =>
+      call.args.includes("POST") &&
+      call.args.includes("https://api.stripe.com/v1/prices") &&
+      call.args.includes("lookup_key=cmux-cloud-intro-1")
+    );
+    expect(priceCreate).toBeDefined();
+    expect(priceCreate!.args).toContain("product=prod_new_cloud_intro");
+    expect(priceCreate!.args).toContain("unit_amount=100");
+    expect(priceCreate!.args).toContain("currency=usd");
+    expect(priceCreate!.args.some((argument) => argument.startsWith("recurring["))).toBe(false);
+  });
+
+  test("rejects a recurring price under the cmux Cloud $1 pass lookup key", async () => {
+    const result = await runProvision("test", "cloud-intro-recurring");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("cmux-cloud-intro-1 exists with unexpected configuration");
   });
 
   test("rejects duplicate live webhooks before mutating either endpoint", async () => {
@@ -469,6 +510,12 @@ const products = {
     active: true,
     metadata: { app: "cmux", plan: "go" },
   },
+  cloudIntro: {
+    id: "prod_cloud_intro",
+    name: "cmux Cloud pass",
+    active: true,
+    metadata: { app: "cmux", plan: "cloud_intro" },
+  },
 };
 const prices = {
   "cmux-starter-monthly-15": { id: "price_starter_month_15", unit_amount: 1500, interval: "month", product: "starter" },
@@ -544,6 +591,13 @@ const prices = {
     interval: "year",
     product: "team",
   },
+  // The cmux Cloud $1 pass is a one-time Price: no recurring interval.
+  "cmux-cloud-intro-1": {
+    id: "price_cloud_intro_1",
+    unit_amount: 100,
+    interval: scenario === "cloud-intro-recurring" ? "month" : null,
+    product: "cloudIntro",
+  },
 };
 
 if (url.endsWith("/prices") && !isPost) {
@@ -560,7 +614,8 @@ if (url.endsWith("/prices") && !isPost) {
     (
       scenario === "canonical-product-second-page" &&
       lookupKey?.startsWith("cmux-pro")
-    )
+    ) ||
+    (scenario === "cloud-intro-missing" && lookupKey === "cmux-cloud-intro-1")
   ) {
     respond({ data: [] });
   } else if (price) {
@@ -576,7 +631,8 @@ if (url.endsWith("/prices") && !isPost) {
         id: price.id,
         unit_amount: price.unit_amount,
         currency: "usd",
-        recurring: {
+        type: price.interval ? "recurring" : "one_time",
+        recurring: price.interval ? {
           interval: price.interval,
           interval_count:
             scenario === "wrong-interval-count" &&
@@ -584,7 +640,7 @@ if (url.endsWith("/prices") && !isPost) {
             !expandedProduct
               ? 2
               : 1,
-        },
+        } : null,
         product: expandedProduct ? returnedProduct : product.id,
         active: true,
       }],
@@ -620,7 +676,9 @@ if (url.endsWith("/prices") && !isPost) {
         ? "prod_new_max"
         : dataValue === "cmux Go"
           ? "prod_new_go"
-          : "prod_new_team",
+          : dataValue === "cmux Cloud pass"
+            ? "prod_new_cloud_intro"
+            : "prod_new_team",
   });
 } else if (url.includes("/products/prod_") && isPost) {
   respond({ id: url.split("/").at(-1) });

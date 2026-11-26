@@ -84,6 +84,7 @@ fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
+                room: None,
             },
         )
         .unwrap();
@@ -125,6 +126,7 @@ fn repeating_defaults_does_not_resync_smart_renderers() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
+                room: None,
             },
         )
         .unwrap();
@@ -194,16 +196,17 @@ fn smart_attach_replays_source_bytes_ahead_of_parser_boundary_exactly_once() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        room: None,
     };
     let boundary = state.subscribe(7, tap).unwrap();
     assert_eq!(boundary, 0);
     let replayed = receiver.recv().unwrap();
-    assert_eq!((replayed.sequence, replayed.payload), (1, b"unparsed".to_vec()));
+    assert_eq!((replayed.sequence, replayed.payload.clone()), (1, b"unparsed".to_vec()));
 
     state.mark_applied(first);
     state.publish(Frame::new(MessageKind::Output, b"live".to_vec()));
     let live = receiver.recv().unwrap();
-    assert_eq!((live.sequence, live.payload), (2, b"live".to_vec()));
+    assert_eq!((live.sequence, live.payload.clone()), (2, b"live".to_vec()));
     assert!(receiver.try_recv().is_err(), "attach duplicated a retained frame");
 }
 
@@ -258,6 +261,7 @@ fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        room: None,
     };
     assert_eq!(host.smart.subscribe(7, tap).unwrap(), 0);
     drop(term);
@@ -295,6 +299,7 @@ fn smart_retention_drops_applied_frames_and_still_replays_the_rest() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        room: None,
     };
     assert_eq!(state.subscribe(11, tap).unwrap(), 2);
     let replayed = receiver.try_recv().unwrap();
@@ -318,6 +323,7 @@ fn smart_attach_reports_retention_gap_instead_of_silent_corruption() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        room: None,
     };
     let gap = state.subscribe(9, tap).unwrap_err();
     assert_eq!(gap, SmartReplayGap::Retention { requested_after: 0, retained_after: 1 });
@@ -337,6 +343,7 @@ fn smart_attach_distinguishes_subscriber_queue_overflow() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: 0,
+        room: None,
     };
 
     let gap = state.subscribe(10, tap).unwrap_err();
@@ -360,6 +367,7 @@ fn smart_noisy_neighbor_is_evicted_without_stalling_other_renderers() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: capacity * (crate::terminal_host_protocol::HEADER_LEN + 1),
+                room: None,
             },
             receiver,
         )
@@ -388,6 +396,7 @@ fn smart_failed_transition_is_closed_by_applied_resync_boundary() {
         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
         shutdown: Arc::new(host_socket),
         max_queued_bytes: usize::MAX,
+        room: None,
     };
     state.subscribe(1, tap).unwrap();
 
@@ -415,6 +424,7 @@ fn parser_output_send_failure_closes_published_transition() {
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
                 max_queued_bytes: usize::MAX,
+                room: None,
             },
         )
         .unwrap();
@@ -425,7 +435,14 @@ fn parser_output_send_failure_closes_published_transition() {
     let (parser_sender, parser_receiver) = sync_channel(1);
     drop(parser_receiver);
 
-    assert!(!enqueue_parser_output(&parser_sender, &budget, &state, vec![1, 2, 3], failed, 3,));
+    assert!(!enqueue_parser_output(
+        &parser_sender,
+        &budget,
+        &state,
+        Arc::new(Frame::new(MessageKind::Output, vec![1, 2, 3])),
+        failed,
+        3,
+    ));
 
     assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
     assert_eq!(tap_receiver.recv().unwrap().kind, MessageKind::Output);
@@ -905,6 +922,34 @@ fn persistent_exit_record_failure_does_not_block_host_progress() {
     }
     assert!(weak.upgrade().is_none(), "exit publisher retained the dropped host");
     fs::remove_file(blocking_parent).unwrap();
+}
+
+#[test]
+fn exit_publisher_thread_starts_only_once_the_child_exit_is_known() {
+    let host = test_host_shared();
+    assert!(host.exit_publisher.lock().unwrap().is_some(), "the publisher is armed at start");
+
+    // A running program: requests (every host start makes one) start nothing.
+    host.publish_exit_if_drained();
+    host.publish_exit_if_drained();
+    assert!(
+        host.exit_publisher.lock().unwrap().is_some(),
+        "a host whose program runs started its exit publisher thread"
+    );
+
+    // The child thread stores the exit and asks while it holds the lock.
+    {
+        let mut exit = host.child_exit.0.lock().unwrap();
+        *exit = Some(TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 1,
+        });
+        host.publish_exit_if_drained();
+    }
+    assert!(
+        host.exit_publisher.lock().unwrap().is_none(),
+        "the request after the child's exit did not start the publisher thread"
+    );
 }
 
 #[test]

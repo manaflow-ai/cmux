@@ -1,10 +1,13 @@
 import { type SessionAuth } from "./sessionAuth";
+import type { HarnessUpdates } from "./harnessUpdateList";
 import { useEffect, useRef, useState } from "react";
 import { agentBrand, hasAgentMark } from "../shared/AgentMark";
+import { AGENT_BRANDS } from "../shared/agentBrands.generated";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { type Choice } from "./composerPickerModel";
 import { type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
@@ -49,6 +52,10 @@ export type QuickMenu = {
   widthLook?: "fit" | "stable" | "snug" | "wide";
   /// Auth for the selected session/route only, as acpmux last verified it.
   auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
+  /// A picked model's harness being set up (harnessSetup.ts): a strip over the lists says what it is
+  /// doing (`busy`: a spinner), with the last installer line under it and its actions (Sign In,
+  /// Try Again, Cancel). It shows whatever tab or search the menu shows.
+  setup?: QuickSetup;
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
   /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
@@ -58,12 +65,17 @@ export type QuickMenu = {
   /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
   /// from the model choices and their held height.
   update?: { text: string; run(): void };
+  /// Every agent CLI on this Mac with an update, the chat's own first (harnessUpdateList.ts): drawn
+  /// in `update`'s place as Harness updates available.
+  updates?: HarnessUpdates;
   /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
   /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
   /// the effort and fast mode the query named. Without it typing opens the full picker.
   search?: {
     find(query: string): QuickModel[];
-    pick(model: QuickModel): void;
+    /// Lands `model`; true when the pick instead sets its harness up (installs it or signs it in), whose
+    /// progress the columns menu shows, so it stays open (QuickModelColumns.tsx).
+    pick(model: QuickModel): boolean | void;
   };
   /// When the search field shows (gallery versions): `always` (the default), `typed` (only once
   /// a key is typed), or `long` (when the list holds more than LONG_LIST models, or once typed).
@@ -132,7 +144,21 @@ export type QuickModel = {
   tag?: string;
   /// The provider the row lands, named at its trailing edge (a harness that routes to several).
   provider?: string;
+  /// Where a search lists the row's family: 0 (unset) its harness is set up here, 1 a pick sets it
+  /// up first (installs or signs it in), 2 that harness lists the feed's models until it runs.
+  rank?: number;
+  /// Why a pick sets the row's harness up first ("Not installed", "Signed out"): its search
+  /// heading says so.
+  setupNote?: string;
   offers?: (QuickModel & { provider: string })[];
+};
+
+/// The setup strip's text and its buttons (QuickMenuProps `setup`).
+export type QuickSetup = {
+  text: string;
+  detail?: string;
+  busy: boolean;
+  actions: { label: string; run(): void }[];
 };
 
 /// A rail tab: its harness's top models (numbered), the rest under More models, or a `note` in
@@ -150,6 +176,9 @@ export type QuickFamily = {
   logIn?(): void;
   /// Sets up a harness this machine does not have (its Install… row).
   setUp?(): void;
+  /// The Claude Connect row that leads the tab (ClaudeConnectRow.tsx), while no Claude connection
+  /// serves Cloud.
+  connect?: ClaudeConnectRowProps;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
@@ -157,6 +186,9 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
   accountFamily?: string;
+  /// Its harness offers Claude Code's Ultracode on a model that runs Extra High (acpmux's own Claude
+  /// Code backend, CLAUDE_STDIO_KIND): the Effort column lists it before a chat runs the model.
+  ultracode?: boolean;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
   /// and each is a route of it (its transport, login or launch setup) the Account row chooses
   /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS
@@ -168,12 +200,37 @@ export type QuickFamily = {
 /// The tab a rail entry sits under: its model family (its `group`, else the brand its mark draws:
 /// Claude Code, claude-sr2 and a work login are all Claude; Codex and its app server are OpenAI),
 /// or itself when it has neither.
-export const groupKey = (family: Pick<QuickFamily, "id" | "group" | "starred" | "mark">) =>
-  family.starred ? family.id : (family.group ?? agentBrand(family.mark ?? family.id) ?? family.id);
+export const groupKey = (family: Pick<QuickFamily, "id" | "group" | "starred" | "mark">) => {
+  if (family.starred) return family.id;
+  if (family.group) return family.group;
+  const brand = agentBrand(family.mark ?? family.id);
+  return (brand && TAB_OF_BRAND[brand]) ?? brand ?? family.id;
+};
+
+/// Brands whose harnesses run another brand's models as a route of that brand's tab: Antigravity is
+/// Google's agent for Gemini models, so it is a route of the Gemini tab beside Gemini CLI, never a
+/// second tab (Lucas 2026-11-25: "we should probably just have the gemini symbol").
+const TAB_OF_BRAND: Readonly<Record<string, string>> = { antigravity: "gemini" };
+
+/// The brand whose tab a harness of `mark` is a route of, when that is another brand's
+/// (Antigravity: Gemini). Its menu then lists only that brand's models there: agy also serves
+/// Claude Opus and Sonnet and GPT-OSS, which are no Gemini models (Lucas 2026-11-25: "no bleeding
+/// through other harnesses").
+export function hostTabBrand(mark: string | undefined): string | undefined {
+  const brand = mark ? agentBrand(mark) : undefined;
+  return brand ? TAB_OF_BRAND[brand] : undefined;
+}
 
 /// One tab of the symbols row: a model family and its routes (transports, logins, launch setups),
 /// never a tab per route.
-export type QuickTab = { key: string; name: string; routes: QuickFamily[] };
+export type QuickTab = {
+  key: string;
+  name: string;
+  routes: QuickFamily[];
+  /// The mark the rail draws for a tab whose routes are other products: its brand's (the Gemini
+  /// mark also while the Antigravity route is shown). Absent: the shown route's own.
+  mark?: string;
+};
 
 /// The rail's tabs: one per model family, in the order its first route comes. A family's name is
 /// its first route's without a launch setup's "(suffix)".
@@ -185,22 +242,35 @@ export function familyTabs(list: readonly QuickFamily[]): QuickTab[] {
     if (tab) tab.routes.push(family);
     else tabs.set(key, { key, name: family.name, routes: [family] });
   }
-  for (const tab of tabs.values())
+  for (const tab of tabs.values()) {
     if (tab.routes.length > 1) {
       const lead = tab.routes.find((route) => !route.launch) ?? tab.routes[0]!;
       tab.name = lead.name.replace(/\s*\([^)]*\)\s*$/, "") || lead.name;
     }
+    // Routes of other products (Gemini CLI and Antigravity), or one product's routes in another
+    // brand's tab (Antigravity alone), take the brand's name and mark, not one product's.
+    const brands = new Set(tab.routes.map((route) => agentBrand(route.mark ?? route.id)));
+    if ((brands.size > 1 || !brands.has(tab.key as never)) && Object.hasOwn(AGENT_BRANDS, tab.key)) {
+      tab.name = AGENT_BRANDS[tab.key as keyof typeof AGENT_BRANDS].name;
+      tab.mark = tab.key;
+    }
+  }
   return [...tabs.values()];
 }
 
-/// The route a family's tab opens on: the chat's own when it runs this family, else the first
-/// that lists models, else the first.
+/// The route a family's tab opens on: the chat's own when it runs this family and can start, else
+/// the first that lists models and can start (Antigravity in the Gemini tab while Gemini CLI fails
+/// its probe, not signed in), else the chat's own, else the first.
 export function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
   const listsModels = (route: QuickFamily) =>
-    !route.launch && !route.note && [...route.models, ...route.more].some((model) => !model.disabled);
+    !route.launch &&
+    !route.note &&
+    !route.unavailable &&
+    [...route.models, ...route.more].some((model) => !model.disabled);
   return (
-    tab.routes.find((route) => route.id === running) ??
+    tab.routes.find((route) => route.id === running && !route.unavailable) ??
     tab.routes.find(listsModels) ??
+    tab.routes.find((route) => route.id === running) ??
     tab.routes.find((route) => !route.launch && !route.note) ??
     tab.routes[0]!
   );
@@ -214,7 +284,8 @@ export type QuickFamilies = {
   list: QuickFamily[];
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
-  onPick(model: QuickModel): void;
+  /// Lands `model`; true when the pick instead sets its harness up, as `search.pick`.
+  onPick(model: QuickModel): boolean | void;
   /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;
@@ -222,8 +293,9 @@ export type QuickFamilies = {
   /// next message's target (forkHold.ts): its row is the checked one and its tab opens first, and
   /// the columns' settings show its `effort` and `fast`.
   held?: { family: string; id?: string; effort?: string; fast?: boolean };
-  /// A started chat: the chat's own tab and running model (and its provider) carry the "used
-  /// here" mark (UsedMark) in this look, whatever is held.
+  /// A started chat with another harness's model held: the chat's own tab and running model (and
+  /// its provider) carry the "used here" mark (UsedMark) in this look. Absent while nothing is
+  /// held, where the running row's check already says it.
   used?: UsedLook;
   /// Starred models: each row's star at its trailing edge shows and toggles it (the Starred tab
   /// lists them). Absent: no stars on the rows.
@@ -238,7 +310,8 @@ export function heldTab(families: QuickFamilies | undefined): string | undefined
 
 /// One harness's search matches under its name. Groups keep the rail's order; Starred is never one,
 /// since every starred model also sits under its own harness.
-export type QuickSearchGroup = { id: string; name: string; rows: QuickModel[] };
+/// One harness family's matches; `note` says a pick sets the harness up first ("Not installed").
+export type QuickSearchGroup = { id: string; name: string; note?: string; rows: QuickModel[] };
 
 export function searchGroups(
   found: readonly QuickModel[],
@@ -268,9 +341,18 @@ export function searchGroups(
       group.rows.push(row);
     } else if (row.family === group.lead && group.rows[at]!.family !== group.lead) group.rows[at] = row;
   }
+  // A family whose harness a pick must set up first comes after the ready ones (QuickModel `rank`),
+  // each in rail order.
+  const rank = (group: QuickSearchGroup) => Math.min(...group.rows.map((row) => row.rank ?? 0));
   return [...groups.values()]
     .filter((group) => group.rows.length > 0)
-    .map(({ id, name, rows }) => ({ id, name, rows }));
+    .map(({ id, name, rows }) => {
+      const note = rows.find((row) => row.setupNote)?.setupNote;
+      return { id, name, ...(note ? { note } : {}), rows };
+    })
+    .map((group, index) => ({ group, index, rank: rank(group) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ group }) => group);
 }
 
 /// The rows of a group that another row of it would read the same as (name and detail): they also

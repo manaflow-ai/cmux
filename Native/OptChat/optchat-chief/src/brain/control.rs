@@ -12,8 +12,10 @@
 //! - `cancel id`: over for good (its transcript stays for `zoom`).
 //! - `restart id [message]`: stop the turn, continue in the same session.
 //! - `priority id`: a queued one starts next. `cap n`: the live cap.
-//! - `show id` / `hide id`: open or close its sidebar workspace (the Chief
-//!   chose at its start, sidebar_choice.rs; #26386, a1018).
+//! - `show id` / `hide id`: move its workspace to the top of the sidebar, or
+//!   into the collapsed "Chief's workspaces" group (the Chief chose its kind at
+//!   its start, action_lifetime.rs). Neither closes it; one with no workspace
+//!   (the user closed it) gets a new one in that place.
 //!
 //! Pushed to the Chief, never polled: reports (spawns.rs), prompts
 //! (`permission_note`), stuck runs (`sub_tick`) and delivered inboxes.
@@ -39,6 +41,13 @@ use crate::tools::ControlCall;
 /// A running subagent whose session did not change for this long has its
 /// events read (`sub_tick`).
 pub(super) const QUIET_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// How often the tick reads a subagent that waits on its own background work.
+pub(super) const WAIT_CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
+
+/// A subagent still waiting on its own background work this long reaches the
+/// Chief once (a fleet step and its queue rarely take longer).
+pub(super) const WAIT_SURFACE_AFTER: Duration = Duration::from_secs(3 * 60 * 60);
 /// Automatic continues of one silent run before the Chief hears of it.
 pub(super) const AUTO_CONTINUES: u32 = 2;
 /// A session idle this long after its run began, with no turn end since its
@@ -80,6 +89,7 @@ pub(super) fn state_name(sub: &SubRecord, now: u64) -> &'static str {
         SubStatus::Running if sub.permission.is_some() => "waiting-on-permission",
         SubStatus::Running if quiet(sub, now) => "quiet",
         SubStatus::Running => "running",
+        SubStatus::Done | SubStatus::Reported if sub.waiting() => "waiting",
         SubStatus::Done | SubStatus::Reported => {
             let report = sub.report.as_deref().unwrap_or("");
             if report.starts_with("(failed") || report.starts_with("(did not start") {
@@ -100,7 +110,7 @@ fn quiet(sub: &SubRecord, now: u64) -> bool {
     since > 0 && now.saturating_sub(since) >= QUIET_AFTER.as_millis() as u64
 }
 
-fn minutes(ms: u64) -> String {
+pub(super) fn minutes(ms: u64) -> String {
     crate::sub_watch::minutes(ms)
 }
 
@@ -110,7 +120,7 @@ fn busy(status: cmux_chief::acp::SessionStatus) -> bool {
 }
 
 /// `text` on one line, at most `n` characters.
-fn one_line(text: &str, n: usize) -> String {
+pub(super) fn one_line(text: &str, n: usize) -> String {
     let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= n {
         line
@@ -209,7 +219,7 @@ pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String 
         )
     } else {
         format!(
-            "No working local Allow button is confirmed yet for {id}. An eligible hidden local request appears in Home as an Allow/Deny card; any other opens its workspace, or control(action: \"show\", id: \"{id}\") does."
+            "No working local Allow button is confirmed yet for {id}. An eligible local request appears in Home as an Allow/Deny card; any other is answered in its workspace, which control(action: \"show\", id: \"{id}\") moves to the top of the sidebar."
         )
     };
     let deadline = crate::approval::PERMISSION_WAIT.as_secs();
@@ -255,10 +265,12 @@ impl Brain {
         }
     }
 
-    /// Serves `control show|hide id`: opens or closes the subagent's sidebar
-    /// workspace on a thread (the session daemon's I/O never runs on the
-    /// brain's loop), which answers `reply` once it is done. The record
-    /// changes first, so a second `show` while one opens is a noop.
+    /// Serves `control show|hide id`: moves the subagent's workspace to the top of the sidebar
+    /// (`show`) or into the collapsed "Chief's workspaces" group (`hide`), on a thread (the
+    /// session daemon's I/O never runs on the brain's loop), which answers `reply` once it is
+    /// done. Nothing is closed: no subagent is ever hidden (Aziz, 2026-11-11). One with no
+    /// workspace (the user closed it) gets a new one in that place; the record changes first,
+    /// so a second call while one opens is a noop.
     pub(super) fn control_workspace(
         &mut self,
         call: &ControlCall,
@@ -279,62 +291,79 @@ impl Brain {
             ));
             return;
         };
-        let log = self.log.clone();
-        if call.action == "hide" {
-            let Some(key) = sub.workspace.clone() else {
-                // A spawn may still be opening its workspace under the slot's
-                // key: a fresh key fences that open, which then closes.
-                if sub.workspace_slot.is_some() {
-                    if let Some(s) = self.state.sub_mut(&id) {
-                        retire_slot_key(s);
-                    }
-                    self.save();
-                }
-                let _ = reply.send(outcome(
-                    "noop",
-                    format!("{id} has no workspace; it runs hidden"),
-                ));
-                return;
-            };
-            if let Some(s) = self.state.sub_mut(&id) {
-                s.workspace = None;
-                s.ws_id = None;
-                retire_slot_key(s);
-            }
-            self.save();
-            self.rewatch_permission(&id);
+        let into_chief_group = call.action == "hide";
+        let place = if into_chief_group {
+            format!(
+                "the collapsed \"{}\" sidebar group",
+                crate::action_lifetime::CHIEF_GROUP
+            )
+        } else {
+            "the top of the sidebar".to_owned()
+        };
+        if let Some(key) = sub.workspace.clone() {
+            let tx = self.tx.clone();
+            let log = self.log.clone();
             std::thread::spawn(move || {
-                let mut text = format!(
-                    "closed {id}'s workspace; it goes on hidden, its link still opens its chat, and control(action: \"show\", id: \"{id}\") opens a new one"
-                );
-                // A workspace the user closed already fails here; the record
-                // stays hidden either way, so a later `show` opens a new one.
-                if let Err(e) = workspaces.close(&key) {
-                    log(&format!("subagent {id}: closing its workspace: {e}"));
-                    text.push_str(&format!(
-                        " (closing said: {e}; the user may have closed it already)"
-                    ));
-                }
-                let _ = reply.send(outcome("done", text));
+                let answer = match workspaces.move_to(&key, into_chief_group) {
+                    Ok(()) => {
+                        let _ = tx.send(Input::SubagentWorkspaceMoved {
+                            id: id.clone(),
+                            into_chief_group,
+                        });
+                        let mut text = format!("moved {id}'s workspace to {place}");
+                        if into_chief_group {
+                            text.push_str(
+                                "; it stays listed there and in search, and control(action: \"show\") moves it back",
+                            );
+                        }
+                        outcome("done", text)
+                    }
+                    // The user closed it: a show or hide opens a new one there.
+                    Err(e) if e.contains("does not list") => {
+                        let _ = tx.send(Input::SubagentWorkspaceFailed {
+                            id: id.clone(),
+                            key,
+                        });
+                        outcome(
+                            "noop",
+                            format!(
+                                "{id}'s workspace is gone (closed by the user?); control(action: \"{}\", id: \"{id}\") again opens a new one in {place}",
+                                if into_chief_group { "hide" } else { "show" }
+                            ),
+                        )
+                    }
+                    Err(e) => {
+                        log(&format!("subagent {id}: moving its workspace: {e}"));
+                        outcome(
+                            "noop",
+                            format!("{id} keeps its workspace where it is ({e})"),
+                        )
+                    }
+                };
+                let _ = reply.send(answer);
             });
-            return;
-        }
-        if sub.workspace.is_some() {
-            let _ = reply.send(outcome("noop", format!("{id} already has its workspace (closed by the user? hide, then show, opens a new one)")));
             return;
         }
         let Some(session) = sub.session_id.clone() else {
             let _ = reply.send(outcome(
                 "refused",
-                format!("{id} has not started yet; show it once it runs"),
+                format!("{id} has not started yet; it gets its workspace once it runs"),
             ));
             return;
         };
+        let log = self.log.clone();
         let mut record = sub.clone();
         if record.workspace_slot.is_none() {
             retire_slot_key(&mut record);
         }
-        let slot = record.workspace_slot.take().unwrap_or_default();
+        let mut slot = record.workspace_slot.take().unwrap_or_default();
+        slot.group = if into_chief_group {
+            crate::action_lifetime::CHIEF_GROUP.to_owned()
+        } else if crate::workspaces::is_chief_group(&slot.group) {
+            String::new()
+        } else {
+            slot.group
+        };
         let name = if sub.title.is_empty() {
             crate::workspaces::title(&sub.task)
         } else {
@@ -349,7 +378,6 @@ impl Brain {
         std::thread::spawn(move || {
             let answer = match workspaces.open(&slot.key, &session, &name, &slot.group, &slot.cwd) {
                 Ok(key) => {
-                    // No group unless the task named the user's "Chief agents" (#27712).
                     let group = if slot.group.is_empty() {
                         String::new()
                     } else {
@@ -502,8 +530,15 @@ impl Brain {
         if sub.priority != 0 {
             line.push_str(&format!("; priority {}", sub.priority));
         }
-        if sub.workspace.is_none() {
-            line.push_str("; hidden (no workspace)");
+        match (
+            &sub.workspace,
+            sub.made.as_ref().is_some_and(|m| m.in_chief_group()),
+        ) {
+            (None, _) => line.push_str("; no workspace now (control show opens one)"),
+            (Some(_), true) => {
+                line.push_str(&format!("; in \"{}\"", crate::action_lifetime::CHIEF_GROUP))
+            }
+            (Some(_), false) => {}
         }
         if sub.auto_continues > 0 {
             line.push_str(&format!("; auto-continued {}x", sub.auto_continues));
@@ -874,6 +909,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.told_ms = now_ms();
         }
         self.sign_ins.abandoned(id);
         self.save();
@@ -1121,12 +1157,111 @@ impl Brain {
         for id in quiet_ids {
             self.watch_sub(&id, now);
         }
+        // Held while its goal went on (goal.rs): Codex's own turns change no
+        // session status, so each tick reads it again until it reports.
+        let held: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| Self::running(s) && s.goal_held && !s.paused && !s.cancelled)
+            .filter_map(|s| Some((s.id.clone(), s.session_id.clone()?)))
+            .collect();
+        for (id, session) in held {
+            self.finish_sub(&id, &session);
+        }
+        // Held while it waits on its own background work (tests/subagent_waiting.rs):
+        // read again every WAIT_CHECK_EVERY.
+        let waiting: Vec<(String, String)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| {
+                s.waiting()
+                    && s.stopped
+                    && !s.paused
+                    && now.saturating_sub(s.waiting_checked_ms)
+                        >= WAIT_CHECK_EVERY.as_millis() as u64
+            })
+            .filter_map(|s| Some((s.id.clone(), s.session_id.clone()?)))
+            .collect();
+        for (id, session) in waiting {
+            self.check_waiting(&id, &session, now);
+        }
         let state = &self.state;
         self.watches.retain(|id, _| {
             state
                 .sub(id)
                 .is_some_and(|(_, s)| s.status == SubStatus::Running)
         });
+    }
+
+    /// Subagent `id` reported that it waits on its own background work, and
+    /// its report went in quietly. When that work ended and no notice woke it
+    /// (its harness went away with it), or it still waits after
+    /// [`WAIT_SURFACE_AFTER`], its report reaches the Chief now, once.
+    fn check_waiting(&mut self, id: &str, session: &str, now: u64) {
+        let Some((floor, before, since)) = self
+            .state
+            .sub(id)
+            .map(|(_, s)| (s.floor, s.background.clone(), s.waiting_ms))
+        else {
+            return;
+        };
+        // Running again: that run's end reports.
+        if let Ok(Some(summary)) = self.agents.session(session)
+            && busy(summary.status)
+        {
+            return;
+        }
+        let events = match self.agents.events(session, floor) {
+            Ok(events) => events,
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: its background work could not be read: {e}"
+                ));
+                return;
+            }
+        };
+        let background = super::children::background_after(&before, &events);
+        let ended = background.is_empty();
+        let long = now.saturating_sub(since) >= WAIT_SURFACE_AFTER.as_millis() as u64;
+        let Some(spawn) = self.state.sub(id).map(|(s, _)| s.clone()) else {
+            return;
+        };
+        let Some(sub) = self.state.sub_mut(id) else {
+            return;
+        };
+        sub.background = background;
+        sub.waiting_checked_ms = now;
+        if !(ended || long) {
+            self.save();
+            return;
+        }
+        let note = if ended {
+            "(its background work ended, and nothing woke it to go on)".to_owned()
+        } else {
+            format!(
+                "(still waiting after {} on its own background work)",
+                minutes(now.saturating_sub(since))
+            )
+        };
+        let words = sub.report.clone().unwrap_or_default();
+        sub.report = Some(format!("{note} {words}"));
+        sub.stopped = false;
+        sub.status = SubStatus::Done;
+        if ended {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {note}"));
+        self.trace.emit(
+            "subagent.waiting_surfaced",
+            json!({"id": id, "ended": ended, "waited_ms": now.saturating_sub(since)}),
+        );
+        self.deliver(&spawn);
     }
 
     fn watch_sub(&mut self, id: &str, now: u64) {
@@ -1263,8 +1398,10 @@ impl Brain {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
+        // One held on its goal reports through finish_sub (goal_goes_on).
         if sub.status != SubStatus::Running
             || sub.awaiting_task
+            || sub.goal_held
             || now.saturating_sub(sub.run_ms) < IDLE_GRACE.as_millis() as u64
         {
             return;
@@ -1290,24 +1427,44 @@ impl Brain {
     }
 }
 
-/// How often the host checks its cloud VMs for idle ones: a VM pauses at
-/// most this long after `cloud.autoPauseIdleSeconds`.
+/// The least time between two runs of the cloud checks: a VM pauses at most
+/// this long after `cloud.autoPauseIdleSeconds`.
 pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
 
-/// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
-pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
-    let _ = std::thread::Builder::new()
-        .name("cloud-tick".into())
-        .spawn(move || {
-            loop {
-                // A fixed, intended interval (idle VM check), not a poll for
-                // a result.
-                std::thread::sleep(CLOUD_TICK);
-                if tx.send(super::Input::CloudTick).is_err() {
-                    return;
-                }
-            }
-        });
+impl super::Brain {
+    /// When the brain next runs its cloud checks (VM pause, VM delete, key
+    /// revoke, fleet polls): the earliest deadline one of them waits for, at
+    /// least [`CLOUD_TICK`] after the last run, so a check that finds nothing
+    /// to do cannot spin. `None` while none of them waits for anything: an
+    /// idle host gets no cloud wakeup (perf-lead.md row 9; a ticker thread
+    /// used to wake it every 5 s while cloud VMs or keys were set up).
+    pub fn next_cloud_tick(&self) -> Option<std::time::Instant> {
+        let due_ms = self.cloud_due_ms()?;
+        let at = std::time::Instant::now() + Duration::from_millis(due_ms.saturating_sub(now_ms()));
+        Some(match self.cloud_ticked_at {
+            Some(last) => at.max(last + CLOUD_TICK),
+            None => at,
+        })
+    }
+
+    /// Runs the cloud checks now.
+    pub(super) fn run_cloud_checks(&mut self) {
+        self.cloud_ticked_at = Some(std::time::Instant::now());
+        self.cloud_tick();
+        self.agent_key_tick();
+        self.cloud_reap_tick();
+        self.fleet_tick();
+    }
+
+    /// Runs the cloud checks when their deadline came.
+    pub(super) fn fire_cloud_checks_if_due(&mut self) {
+        if self
+            .next_cloud_tick()
+            .is_some_and(|at| at <= std::time::Instant::now())
+        {
+            self.run_cloud_checks();
+        }
+    }
 }
 
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.

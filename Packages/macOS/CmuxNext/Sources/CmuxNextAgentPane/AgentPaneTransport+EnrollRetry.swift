@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Peer-route approvals in one click (Leo, 2026-11-04: "this is such an awkward flow it doesnt let
 /// me trust on click when i try it pops error or something then asks me to \"enroll\"???"). A peer of
@@ -63,5 +64,38 @@ extension AgentPaneTransport {
             return false
         }
         return true
+    }
+}
+
+/// The pane's own person proof (acpmux `hub/person.rs`): a connection that did not prove the
+/// person is never left to send the person's prompts as an unverified sender's (Leo, 2026-11-10:
+/// "Oh, it's turned me into an unverified sender."), and it is never narrated (Leo, 2026-11-22).
+/// A daemon that says `reprove` holds the proof until its key lands, so ``provePerson`` settles it
+/// by events and this sees only a refusal past acpmux's per-connection cap: nothing more to try.
+/// An older daemon refuses an early proof: the host enrolls this launch's key
+/// (``recoverPersonProof``) and, once that lookup ends, the pane reconnects once and the new
+/// connection proves. No clock decides any of it.
+extension AgentPaneTransport {
+    func personProofSettled(_ proven: Bool, connection: Int, reprove: Bool) {
+        guard connection == current else { return }
+        personRecovery?.cancel()
+        personRecovery = nil
+        onPersonProof?(proven)
+        if proven {
+            personRecoveries = 0
+            return
+        }
+        guard !reprove, let recover = recoverPersonProof, personRecoveries < Self.personRecoveryReconnects else {
+            Self.logger.error("agent pane transport: the person proof did not recover; prompts here stay unverified")
+            return
+        }
+        // task-owner: one identity recovery per unproven connection; a new connection or a proof cancels it
+        // main-hop-allow: one host lookup, then one close
+        personRecovery = Task { @MainActor [weak self] in
+            guard await recover(), let self, !Task.isCancelled, connection == self.current else { return }
+            self.personRecoveries += 1
+            Self.logger.info("agent pane transport: person key given again; reconnecting to prove it")
+            self.close(connection: connection)
+        }
     }
 }

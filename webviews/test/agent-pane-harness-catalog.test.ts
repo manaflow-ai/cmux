@@ -12,6 +12,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -244,7 +245,13 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
                       value = { cwd: project };
                       break;
                     case "chat.attach.dropped":
-                      value = { items: [{ path: "/Users/you/Desktop/first-chat.mov", folder: false }] };
+                      // The host knows where the pasted video is; a pasted screenshot has no file
+                      // (the page asks for every paste's paths, intakeFiles.ts `droppedPaths`).
+                      value = {
+                        items: ((params?.names as string[] | undefined) ?? []).includes("first-chat.mov")
+                          ? [{ path: "/Users/you/Desktop/first-chat.mov", folder: false }]
+                          : [],
+                      };
                       break;
                     case "video.info": {
                       const calls = ((
@@ -284,18 +291,43 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".nt-field").waitFor();
-    // Wait for the actual no-harness chip; the page may mount before the catalog arrives.
-    await page.locator(".acpmux-add-harness").waitFor();
-    // An inherited home folder is not a saved project: the clean card must still offer Browse.
-    expect(await page.locator('[data-action="browse-project"]').isVisible()).toBe(true);
+    // Wait for the actual no-harness chip; the page may mount before the catalog arrives. The
+    // shown one: the page also holds a hidden chat pane with its own composer.
+    await page.locator(".acpmux-add-harness:visible").waitFor();
+    // An inherited home folder is not a saved project: the folder chip reads No folder, and its menu
+    // still offers Add folder (Browse). The page is Minimal: the host's retired "default" (stage)
+    // template shows it (templates.ts, #47719), so there is no environment card.
+    expect(await folderChip(page).textContent()).toBe("No folder");
     return page;
   }
 
-  async function prepareDraft(page: Page, noProject: boolean, pendingImage = false) {
+  /// The shown New Tab's folder chip.
+  const folderChip = (page: Page) => page.locator('.acpmux-location-button[aria-label="Folder"]:visible');
+
+  /// Picks No folder, or Add folder (the host's folder panel answers PROJECT), from the folder menu.
+  async function pickFolder(page: Page, noProject: boolean) {
+    await folderChip(page).click();
     await page
-      .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
+      .locator('[role="option"]', { hasText: noProject ? /^No folder$/ : /^Add folder…$/ })
+      .first()
       .click();
-    await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
+    await page.waitForFunction(
+      ({ chip, want }) =>
+        [...document.querySelectorAll<HTMLElement>(chip)].some(
+          (node) => node.offsetParent !== null && node.textContent === want,
+        ),
+      { chip: '.acpmux-location-button[aria-label="Folder"]', want: noProject ? "No folder" : "atlas" },
+    );
+  }
+
+  /// Starts a chat from the first-run page: Return in the field (New Tab offers no create buttons
+  /// since 0d4d9033489, #45219), which opens harness setup with the draft held.
+  async function startChat(page: Page) {
+    await page.locator(".nt-field .acpmux-md").press("Enter");
+  }
+
+  async function prepareDraft(page: Page, noProject: boolean, pendingImage = false) {
+    await pickFolder(page, noProject);
     const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate(async (target, pendingImage) => {
@@ -324,10 +356,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   }
 
   async function preparePendingVideo(page: Page, noProject: boolean) {
-    await page
-      .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
-      .click();
-    await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
+    await pickFolder(page, noProject);
     const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate((target) => {
@@ -372,7 +401,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       );
       const source = await image.getAttribute("src");
       expect(source).toBeTruthy();
-      await page.locator('[data-create="chat"]').click();
+      await startChat(page);
       await page.locator(".acpmux-harnesses-close").waitFor();
       expect(await field.isVisible()).toBe(false);
       expect(await image.isVisible()).toBe(false);
@@ -384,18 +413,17 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       ).toBe(originalDraft);
       expect(await image.isVisible()).toBe(true);
       expect(await image.getAttribute("src")).toBe(source);
-      expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
-      expect(await page.locator('[data-action="browse-project"]').count()).toBe(0);
+      expect(await folderChip(page).textContent()).toBe("No folder");
     } finally {
       await page.close();
     }
   });
 
-  test("first-run Start Chat waits for a revealed video read before sending the draft", async () => {
+  test("first-run Start Chat sends a revealed video as its path without waiting for its read", async () => {
     const page = await firstRunPage();
     try {
       await preparePendingVideo(page, true);
-      await page.locator('[data-create="chat"]').click();
+      await startChat(page);
       const claude = page.locator('[data-harness-row="claude"]');
       await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
       await claude.locator(".acpmux-harness-action").click();
@@ -411,15 +439,12 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       });
       await claude.locator(".acpmux-harness-action").click();
 
-      // Setup hides and then reveals the New Tab Activity. The first video.info is interrupted;
-      // the second is the read that the resumed Start Chat must wait for.
-      await page.waitForFunction(() => (window as unknown as FirstRunWindow).firstRunVideoCalls?.length === 2);
-      expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
-      await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunVideo());
+      // A video goes as its path (Leo, 2026-11-11: "if you're literally just pointing to a file path,
+      // why would it ever take time to load anything anyways?"): the resumed Start Chat sends while
+      // the host's video.info is still out, never held for it.
       await page.waitForFunction(() =>
         (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
       );
-
       const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual({ harness: "claude", noProject: true });
@@ -435,7 +460,6 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
             name: "first-chat.mov",
             mimeType: "video/quicktime",
             path: VIDEO_PATH,
-            video: expect.objectContaining({ durationMs: 42_400, width: 1_920, height: 1_080 }),
           }),
         ],
       });
@@ -456,7 +480,18 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       const page = await firstRunPage();
       try {
         const { field } = await prepareDraft(page, noProject, pendingImage);
-        await page.locator(addHarness ? ".acpmux-add-harness" : '[data-create="chat"]').click();
+        if (pendingImage) {
+          // Return waits for a screenshot still being read (NewTabScreen submit, holdForAttachments):
+          // setup does not open yet and the draft stays. Setup opened from the Add harness chip meanwhile
+          // is what lets Start Chat run while the image is still pending.
+          await startChat(page);
+          // fixed-wait: the behavior is that setup does not open while the image is pending; there is no event to wait for.
+          await page.waitForTimeout(300);
+          expect(await page.locator(".acpmux-harnesses-close").count()).toBe(0);
+          expect(await field.isVisible()).toBe(true);
+        }
+        if (addHarness || pendingImage) await page.locator(".acpmux-add-harness:visible").click();
+        else await startChat(page);
         const claude = page.locator('[data-harness-row="claude"]');
         await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
         await claude.locator(".acpmux-harness-action").click();
@@ -517,7 +552,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     // started-chat harness switch is enabled so this chat offers the harness rail and its action.
     // Cmd-Ctrl-M and the model button open this same compact picker.
     await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
-    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
+    await page.locator(MODEL_PICKER).waitFor();
     await page.keyboard.press("Meta+Control+m");
     // The rail makes it the columns menu; Add harness… ends its rail.
     const menu = page.locator(COMPACT_MODEL_MENU).first();

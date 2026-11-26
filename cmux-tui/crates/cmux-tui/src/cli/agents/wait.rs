@@ -2,7 +2,8 @@
 //! agent stops working (`idle`), a permission or question dialog is pending
 //! (`dialog`), or text reaches a terminal's screen (`text`), then answer a
 //! receipt with a fresh composed snapshot. A timeout is an answer
-//! (`matched: false`), not an error, so an agent never polls snapshots.
+//! (`matched: false`, `timed_out: true`; the CLI exits 124), not an error,
+//! so an agent never polls snapshots.
 //!
 //! Waits wake on events. `text` is the daemon's own `terminal.wait`, which
 //! wakes on terminal output. `idle` and `dialog` hold the daemon's
@@ -21,8 +22,11 @@ use super::super::{UsageError, app};
 use super::{AgentFailure, fresh_state, snapshot_plan};
 
 pub(in crate::cli) const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
-/// Below the tool-call timeout of MCP clients.
+/// The `agents_wait` MCP tool's cap: below the tool-call timeout of MCP clients.
 pub(in crate::cli) const MAX_TIMEOUT_SECONDS: u64 = 120;
+/// `cmux agents wait`'s cap: a shell has no tool-call timeout, so the CLI waits as long as
+/// `cmux chat --wait` may (agents/turn.rs).
+pub(in crate::cli) const MAX_CLI_TIMEOUT_SECONDS: u64 = 4 * 60 * 60;
 /// How often a wait checks what no event announces.
 const RECHECK: Duration = Duration::from_secs(1);
 /// A burst of events checks once.
@@ -75,8 +79,9 @@ impl WaitRequest {
     }
 }
 
-/// Parses the words after `cmux agents wait`.
-pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
+/// Parses the words after `cmux agents wait`; `--timeout` is at most `max_seconds`
+/// ([`MAX_TIMEOUT_SECONDS`] for the MCP tool, [`MAX_CLI_TIMEOUT_SECONDS`] for the CLI).
+pub(super) fn parse(args: &[&str], max_seconds: u64) -> Result<WaitRequest, UsageError> {
     let usage = |message: String| UsageError::new(format!("agents wait: {message}"));
     let (mut until, mut target, mut text, mut regex, mut timeout) = (None, None, None, false, None);
     let mut index = 0;
@@ -145,20 +150,18 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
     // The daemon's terminal.wait compiles it with the same crate and limits;
     // a pattern it would refuse never starts a wait.
     if regex && let Some(pattern) = &text {
-        regex::Regex::new(pattern)
+        cmux_tui_core::wait_pattern::compile(pattern)
             .map_err(|error| usage(format!("--text is not a valid regular expression: {error}")))?;
     }
     let timeout = match timeout {
         None => Duration::from_secs(DEFAULT_TIMEOUT_SECONDS),
         Some(value) => match value.parse::<f64>() {
-            Ok(seconds)
-                if seconds.is_finite() && (0.0..=MAX_TIMEOUT_SECONDS as f64).contains(&seconds) =>
-            {
+            Ok(seconds) if seconds.is_finite() && (0.0..=max_seconds as f64).contains(&seconds) => {
                 Duration::from_secs_f64(seconds)
             }
             _ => {
                 return Err(usage(format!(
-                    "--timeout is a number of seconds from 0 to {MAX_TIMEOUT_SECONDS}"
+                    "--timeout is a number of seconds from 0 to {max_seconds}"
                 )));
             }
         },
@@ -167,7 +170,7 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
 }
 
 /// Waits as `request` says and answers the receipt `{until, matched,
-/// waited_seconds, match, state}`. Only a request that names nothing, or an
+/// timed_out, waited_seconds, match, state}`. Only a request that names nothing, or an
 /// owner that refuses the first read, fails.
 pub(in crate::cli) fn run<B: Backend>(
     backend: &B,
@@ -192,10 +195,45 @@ pub(in crate::cli) fn run<B: Backend>(
         "schema_version": 1,
         "until": request.until.name(),
         "matched": found.is_some(),
+        // Only the deadline ends a wait without a match, as for `terminal send`.
+        "timed_out": found.is_none(),
         "waited_seconds": waited,
         "match": found.unwrap_or(Value::Null),
         "state": fresh_state(backend, session),
     }))
+}
+
+/// When [`wait_for`] checks: on an event at least [`MIN_CHECK_GAP`] after the last check, else
+/// owed and run on the stream's next wake once the gap passed (it wakes every gap with no event),
+/// and every [`RECHECK`] regardless. Before, an event inside the gap was dropped, so a turn's
+/// end that came in a burst waited for the next event or the 1 s recheck (goal
+/// local-instant-start).
+pub(in crate::cli) struct CheckGate {
+    last: Instant,
+    owed: bool,
+}
+
+impl CheckGate {
+    pub(in crate::cli) fn new(now: Instant) -> Self {
+        Self { last: now, owed: false }
+    }
+
+    /// Whether to check now, on an event (`event`) or a wake with none.
+    pub(in crate::cli) fn due(&mut self, event: bool, now: Instant) -> bool {
+        let gap = now.saturating_duration_since(self.last);
+        let due = if event {
+            gap >= MIN_CHECK_GAP
+        } else {
+            (self.owed && gap >= MIN_CHECK_GAP) || gap >= RECHECK
+        };
+        if due {
+            self.owed = false;
+            self.last = now;
+        } else {
+            self.owed |= event;
+        }
+        due
+    }
 }
 
 /// Checks once, then on each daemon event and every [`RECHECK`] until the
@@ -211,12 +249,11 @@ fn wait_for<B: Backend>(
         return Ok(Some(found));
     }
     let mut outcome = None;
-    let mut last = Instant::now();
-    let _ = backend.session_events(session, None, deadline, RECHECK, &mut |item| {
-        if item.is_some() && last.elapsed() < MIN_CHECK_GAP {
+    let mut gate = CheckGate::new(Instant::now());
+    let _ = backend.session_events(session, None, deadline, MIN_CHECK_GAP, &mut |item| {
+        if !gate.due(item.is_some(), Instant::now()) {
             return false;
         }
-        last = Instant::now();
         match check(false) {
             Ok(None) => false,
             other => {
@@ -286,6 +323,7 @@ fn wait_text<B: Backend>(
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     let result = match backend.resource(session, plan, &[]) {
         Ok(result) => result,

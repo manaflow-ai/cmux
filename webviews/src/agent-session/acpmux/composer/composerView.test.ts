@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { queuePauseReason } from "../queuePause";
+import { composerTrustBlock } from "../useFolderTrustAsk";
 import { composerRows, composerView, sameComposerView } from "./composerView";
 
 const row = (id: string, kind: AcpmuxRow["kind"], extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
@@ -51,4 +52,82 @@ test("a tool call's snapshot is the same composer view; a new prompt is not", ()
   expect(sameComposerView(before, composerView(snapshot([start, prompt, reply], "disconnected", commands)))).toBe(
     false,
   );
+});
+
+test("a turn's token counts and subagent progress, and another chat's status, leave a started chat's view the same", () => {
+  // The shown chat's entry is the same object in each list, as the client keeps an entry it did not change.
+  const shown = { sessionId: "s1", title: "This", status: "running" };
+  const sessions = (status: string, title = "Other") =>
+    [
+      shown,
+      {
+        sessionId: "s2",
+        title,
+        status,
+        indicator: status === "running" ? "working" : "done",
+        updatedAt: status.length,
+      },
+    ] as AcpmuxSnapshot["sessions"];
+  const commands = [{ name: "plan" }];
+  const at = (extra: Partial<AcpmuxSnapshot>) =>
+    composerView({
+      ...snapshot([start, prompt, reply], "connected", commands),
+      sessionId: "s1",
+      sessions: sessions("idle"),
+      ...extra,
+    });
+  const before = at({});
+  // The turn's live fields are not in the view at all.
+  const step = at({ turnTokens: 1200, subagentStructureVersion: 3, subagentProgress: {} } as Partial<AcpmuxSnapshot>);
+  expect("turnTokens" in step).toBe(false);
+  expect(sameComposerView(before, step)).toBe(true);
+  // Another chat starting to run changes only its live fields.
+  expect(sameComposerView(before, at({ sessions: sessions("running") }))).toBe(true);
+  // Its title is shown in the @ menu: a change draws the composer again.
+  expect(sameComposerView(before, at({ sessions: sessions("idle", "Renamed") }))).toBe(false);
+  // The shown chat's own entry is compared whole.
+  const own = sessions("idle");
+  own[0] = { ...own[0]!, status: "idle" };
+  expect(sameComposerView(before, at({ sessions: own }))).toBe(false);
+  // A new chat (no rows yet) reads the other chats' recency for its folder strip and suggestion.
+  const fresh = (status: string) =>
+    composerView({ ...snapshot([], "connected", commands), sessions: sessions(status) } as AcpmuxSnapshot);
+  expect(sameComposerView(fresh("idle"), fresh("running"))).toBe(false);
+});
+
+test("a reconnect's rebuilt members with the same contents, and its wait, leave the view the same", () => {
+  // Leo, 2026-11-22: "idk if the waiting for agent service bullshit has anything to do with it".
+  const before = composerView(snapshot([start, prompt, reply]));
+  // The reattach builds every row, the commands and the queue anew with the same contents.
+  const rebuilt = composerView(snapshot([{ ...start }, { ...prompt }, { ...reply }], "connected", [{ name: "plan" }]));
+  expect(sameComposerView(before, rebuilt)).toBe(true);
+  // The shown chat's own entry read again with the same contents is the same too.
+  const listed = (title: string) =>
+    composerView({
+      ...snapshot([start, prompt, reply]),
+      sessionId: "s1",
+      sessions: [{ sessionId: "s1", title }],
+    } as unknown as AcpmuxSnapshot);
+  expect(sameComposerView(listed("This"), listed("This"))).toBe(true);
+  expect(sameComposerView(listed("This"), listed("Renamed"))).toBe(false);
+  // What the pane reads of the wait, never the composer.
+  const waiting = composerView({
+    ...snapshot([start, prompt, reply]),
+    daemonWaitingSince: 123,
+    listedSessions: false,
+  } as unknown as AcpmuxSnapshot);
+  expect(sameComposerView(before, waiting)).toBe(true);
+  // With no Resume offered the composer never reads the link: a drop is the same view.
+  const down = composerView(snapshot([start, prompt, reply], "connecting (attempt 3)…"), false);
+  expect(sameComposerView(composerView(snapshot([start, prompt, reply]), false), down)).toBe(true);
+  // Offering Resume, the drop still tells apart.
+  expect(sameComposerView(before, composerView(snapshot([start, prompt, reply], "disconnected")))).toBe(false);
+});
+
+test("the composer's trust block: none for a read in flight or a chat it does not hold, the one object while it holds", () => {
+  const held = { reason: "trust.remote" } as const;
+  expect(composerTrustBlock(true, {})).toBeUndefined();
+  expect(composerTrustBlock(true, undefined)).toBeUndefined();
+  expect(composerTrustBlock(false, held)).toBeUndefined();
+  expect(composerTrustBlock(true, held)).toBe(held);
 });

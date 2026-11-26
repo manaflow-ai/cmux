@@ -42,7 +42,7 @@ pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
 
 /// Whether `key` is one a Claude Code session plants for its children.
-pub(crate) fn is_nested_claude_key(key: &str) -> bool {
+pub fn is_nested_claude_key(key: &str) -> bool {
     key.starts_with("CLAUDE")
         || key.starts_with("ANTHROPIC_")
         || key.starts_with("CMUX_CLAUDE_")
@@ -73,7 +73,7 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 10] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
     // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
@@ -88,11 +88,21 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
     "CMUX_CHIEF_PARTICIPANT",
     // A coding agent's mark for the commands its tools run.
     "AI_AGENT",
+    // A terminal agent's answer to cmux's tools (the `claude` shim): a daemon its shell started
+    // must not hold it over the live setting. A chat another Mac started gets its own in its
+    // session env, applied after (`hub/cmux_tools_answer.rs`).
+    "CMUX_AGENT_TOOLS_ANSWER",
+    // A tool call's bound (leo-workspace tools/proc_env.py, glaeda-gh): the epoch second the call
+    // and all it started should be gone, and the tool that set it. The fleet's orphan reaper ends a
+    // process past it (exit 143), so a daemon a bounded command started handed it to every agent and
+    // terminal, which died minutes later, also after a relaunch kept them.
+    "CMUX_DEADLINE",
+    "CMUX_DEADLINE_OWNER",
 ];
 
 /// Whether `key` belongs to the daemon starter's turn or session alone: the
-/// prompt-cache switches ([`is_prompt_cache_key`]) and [`TURN_SCOPED_ENV`].
-pub(crate) fn is_caller_scoped_key(key: &str) -> bool {
+/// prompt-cache switches (`is_prompt_cache_key`) and `TURN_SCOPED_ENV`.
+pub fn is_caller_scoped_key(key: &str) -> bool {
     is_prompt_cache_key(key) || TURN_SCOPED_ENV.contains(&key)
 }
 

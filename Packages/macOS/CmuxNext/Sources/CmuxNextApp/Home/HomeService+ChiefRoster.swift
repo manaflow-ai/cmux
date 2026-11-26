@@ -1,10 +1,11 @@
-import CmuxNextFeed
+import Foundation
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextFeedClient
 
 /// Every Chief in the Home list on every host, one tagged Main (Lawrence
 /// 2026-10-19: "idk which is main one"; 2026-10-20: "local chiefs and cloud
@@ -77,6 +78,7 @@ extension HomeService {
     var defaultChiefConversation: String? {
         // A teleported Chief: the conversation where it answers now (HomeService+ChiefRoster).
         if let followed = chiefFollow.conversation { return followed }
+        if let cached = homeStore.launchChief { DebugTimings.markLaunch("home.chief_cached"); return cached.rawValue }  // until this launch names its Chief (CMUX-571)
         let local = HomeChiefName.select(from: conversations)
         return tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: hostedChief.choice,
                                   prefersLocal: prefersLocalChief)
@@ -102,17 +104,37 @@ extension HomeService {
     /// "we don't necessarily want to bother the chief with lots of TMI type information, but we want
     /// to make it like easily accessible ... you can opt out if you want".
     func observeFeedRows() {
-        // task-owner: lives as long as the service; event-driven (Observation)
+        // task-owner: lives as long as the service; event-driven (Observation, then the daemon's feed changes)
         feedRowsObservation = Task { [weak self] in
-            for await (rows, conversation) in ObservationStream({ [weak self] () -> ([HomeFeedRow], String?) in
-                guard let self, services.settings?.snapshot.homeFeedInChief ?? true else { return ([], nil) }
-                // Requests (approvals, questions) stay in the Feed, where they can be answered.
-                let notices = services.feed.model.visibleItems.lazy.filter { $0.type == .notice && !$0.isArchived }
-                return (notices.prefix(HomeFeedRow.limit).map {
-                    HomeFeedRow(id: $0.id, source: $0.poster.label, title: $0.title, url: $0.context.url, date: $0.createdAt)
-                }, defaultChiefConversation)
+            var reading: Task<Void, Never>?
+            defer { reading?.cancel() }
+            for await (enabled, conversation) in ObservationStream({ [weak self] () -> (Bool, String?) in
+                guard let self else { return (false, nil) }
+                return (services.settings?.snapshot.homeFeedInChief ?? true, defaultChiefConversation)
             }) {
-                self?.homeStore.setFeedRows(rows, in: conversation.map { CmuxHomeCore.ConversationID($0) })
+                reading?.cancel()
+                reading = nil
+                guard let self else { return }
+                guard enabled else {
+                    homeStore.setFeedRows([], in: nil)
+                    continue
+                }
+                let target = conversation.map { CmuxHomeCore.ConversationID($0) }
+                let daemon = services.feed.daemon
+                // task-owner: this observation's; cancelled on the next setting or default Chief change.
+                reading = Task { [weak self] in
+                    var shown = FeedAccountProjection<Never>() // another account's rows go at once
+                    for await _ in daemon.changes() {
+                        // Requests (approvals, questions) stay in the Feed, where they can be answered.
+                        guard let view = try? await daemon.view(.list, filter: ["category": .string("notices")], limit: HomeFeedRow.limit),
+                              !Task.isCancelled, shown.settled(view, clear: { self?.homeStore.setFeedRows([], in: target) }) else { continue }
+                        let notices = view.items.lazy.filter { $0.isNotice && !$0.isArchived }.prefix(HomeFeedRow.limit)
+                        self?.homeStore.setFeedRows(Array(notices).map {
+                            HomeFeedRow(id: $0.id, source: $0.poster?.label ?? "", title: $0.title ?? "",
+                                        url: $0.context?.url.flatMap(URL.init(string:)), date: $0.createdDate)
+                        }, in: target)
+                    }
+                }
             }
         }
     }
@@ -162,7 +184,7 @@ extension HomeService {
     private func readLocalChiefRunning() async -> Bool {
         chiefRunningReads += 1
         let read = chiefRunningReads
-        let running = await Self.localChiefRuns(chief.home)
+        let running = await Self.localChiefRuns(chief.home, canStart: HomeBrainHost.canStart(), gaveUp: brain.hasGivenUp)
         guard Self.publishes(read: read, published: chiefRunningPublished) else { return false }
         chiefRunningPublished = read
         if localChiefRunning != running { localChiefRunning = running }
@@ -174,23 +196,23 @@ extension HomeService {
     /// after it would put a stale answer back.
     static func publishes(read: Int, published: Int) -> Bool { read > published }
 
-    @concurrent nonisolated static func localChiefRuns(_ home: ChiefHome) async -> Bool {
-        ChiefHostStop.runningHostPID(home: home) != nil
+    @concurrent nonisolated static func localChiefRuns(_ home: ChiefHome, canStart: Bool, gaveUp: Bool) async -> Bool {
+        home.isOn(canStart: canStart, gaveUp: gaveUp)  // between two hosts (an update) is still on
     }
 
     // MARK: Teleport: Home follows this Mac's Chief wherever `cmux chief move` took it, with no step
-    // from the person (a963, 2026-11-03), and the location chip shows on its conversation.
+    // from the person (a963, 2026-11-03), and its Chief card shows the Runs On row.
 
     /// Where this Mac's Chief went (`AppServices.chiefTeleport`, which follows its home's
     /// `moved.json` with a file watch) and the conversation Home follows it to: a hosted Chief's
     /// main conversation for cmux Cloud. A Chief moved to an SSH host or a Mac mini stays "away":
     /// Home has no path to a Chief home on another machine yet (`host serve` splices only the main
-    /// session, chief-migration-DESIGN.md 7), so no host is reachable and the chip says where it is.
+    /// session, chief-migration-DESIGN.md 7), so no host is reachable and the Runs On chip says where it is.
     var chiefFollow: HomeChiefFollow {
         HomeChiefFollow(whereabouts: services.chiefTeleport.whereabouts, chiefs: directory.chiefs, reachableHost: nil)
     }
 
-    /// The conversations that show the Chief's location chip and teleport row: this Mac's default Chief (the one
+    /// The conversations whose Chief card shows the Runs On (teleport) row: this Mac's default Chief (the one
     /// `cmux chief move` moves), and the conversation Home followed it to.
     var teleportConversations: [String] { [HomeChiefName.select(from: conversations)?.id, chiefFollow.conversation].compactMap { $0 } }
     func showsTeleport(conversation: String) -> Bool { teleportConversations.contains(conversation) }

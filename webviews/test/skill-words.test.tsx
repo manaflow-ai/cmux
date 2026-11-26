@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -45,13 +46,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const VOCABULARY = "The precise design and UI vocabulary";
@@ -89,13 +86,13 @@ test("skill words split out of a prompt's text at command positions only", async
   expect(splitSkillWords("/emil-color", words)).toEqual([{ word: "/emil-color", description: "" }]);
 });
 
-test("in a bubble only skill words are blue; one with a description carries it as its tooltip", async () => {
+test("in a bubble only skill words are blue; one with a description carries it as its description", async () => {
   const words = await bubble("hello lets use /$emil-design-vocabulary and /$emil-color, keep /init and /nope");
   expect(words.map((word) => word.textContent)).toEqual(["/emil-design-vocabulary"]);
   const [vocabulary] = words;
-  expect(vocabulary!.dataset.tooltip).toBe(VOCABULARY);
+  // The word shows its own text, so no tooltip; its description is what assistive tech hears (c0ecbb88).
+  expect(vocabulary!.hasAttribute("data-tooltip")).toBe(false);
   expect(vocabulary!.getAttribute("aria-description")).toBe(VOCABULARY);
-  expect(vocabulary!.dataset.tooltipSide).toBe("top");
   // `/emil-color,` runs into its comma: no skill word, as in the composer.
   const plain = await bubble("then /$emil-color for the palette");
   expect(plain.map((word) => word.textContent)).toEqual(["/emil-color"]);
@@ -109,16 +106,15 @@ test("a prompt written in Markdown draws its skill words too, never inside code"
   expect(host.querySelector("code")?.textContent).toBe("bun test");
 });
 
-test("the app's tooltip shows the description on hover", async () => {
+test("the app's tooltip shows nothing over a skill word: its text shows", async () => {
   const { installTooltips } = await import("../src/ui/titleTooltips");
   const uninstall = installTooltips(dom.window.document, { delay: 0 });
   try {
     const [word] = await bubble("use /$emil-design-vocabulary here");
     word!.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
     await act(async () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve())));
-    const tip = dom.window.document.querySelector<HTMLElement>(".ui-title-tooltip")!;
-    expect(tip.hidden).toBe(false);
-    expect(tip.textContent).toBe(VOCABULARY);
+    const tip = dom.window.document.querySelector<HTMLElement>(".ui-title-tooltip");
+    expect(!tip || tip.hidden).toBe(true);
   } finally {
     uninstall();
   }
@@ -142,7 +138,7 @@ test("a queued prompt draws its skill words as the bubble does", async () => {
   );
   const word = box.querySelector<HTMLElement>(".cv-skill-word")!;
   expect(word.textContent).toBe("/emil-design-vocabulary");
-  expect(word.dataset.tooltip).toBe(VOCABULARY);
+  expect(word.getAttribute("aria-description")).toBe(VOCABULARY);
   await act(async () => queue.unmount());
   box.remove();
 });
