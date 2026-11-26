@@ -32,6 +32,9 @@
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
+//! - [`launch_recovery`]: how a launch follows the previous run (clean, a
+//!   restart with the notice, a safe restart after a restart loop).
+//! - [`keybind_route`]: which registry action a Ghostty keybind runs.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
@@ -45,7 +48,9 @@ pub mod closed;
 pub mod editors;
 pub mod files;
 pub mod history;
+pub mod keybind_route;
 pub mod launch;
+pub mod launch_recovery;
 pub mod notifications;
 pub mod remote;
 pub mod restore;
