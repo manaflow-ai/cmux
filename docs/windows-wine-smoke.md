@@ -28,7 +28,12 @@ checks take seconds, and an edit-build-check loop needs no Windows machine.
 | cmux-relay | `--version` | PASS, 0 s | not checked there |
 | cmux-relay | `serve` on loopback; Linux `curl` gets `/healthz` `{"status":"ok"}` and a `101` WebSocket upgrade on `/v1/relay` | PASS, 3 s (ready in under 1 s) | not checked there |
 | chatmux-relay | `--version`, `--help` | PASS, 0 s | not checked there |
-| cmux-tui, cmux-tui-hook, cmux-tui-host | `--version`; cmux-tui: `remote-probe` refusal, the long-path unit tests, the long state path smoke and the process-exit smoke | not measured yet: at feat-cmux-next on 2026-11-26 the daemon does not cross-compile for Windows (acpmux and cmux-tui-core use cfg(unix) crates unconditionally); the job runs them once it builds | run |
+| cmux-tui | `--version` | PASS, 2 s | run |
+| cmux-tui | `remote-probe --json` refuses with "remote daemon commands require Unix sockets" | PASS, 1 s | run |
+| cmux-tui | the long-path unit tests (`cmux-tui-core-tests.exe`) | LONGPATH_RESULT | run |
+| cmux-tui | the long state path smoke and the process-exit smoke | cannot run: both start the daemon, which fails with WSAEAFNOSUPPORT (10047) because its Windows socket is AF_UNIX and Wine 9.0 has none | run |
+| cmux-tui-hook | `--help` (it has no `--version`: it reads a native event) | PASS, 1 s | not checked there |
+| cmux-tui-host | started without a bootstrap pipe, it refuses with "not a bootstrap pipe name" | PASS, 2 s | not checked there |
 
 The relay check exercises Winsock, tokio's Windows I/O driver and TLS-free HTTP over loopback. A
 `--version` alone would not.
@@ -46,6 +51,12 @@ The relay check exercises Winsock, tokio's Windows I/O driver and TLS-free HTTP 
 - Windows Python with native wheels (pywinpty loads; CPython 3.12.10 runs the smoke scripts).
 
 ## What Wine cannot verify (stays on the Windows runner)
+
+- **AF_UNIX sockets, so the running daemon.** On Windows the daemon listens on an AF_UNIX socket (Windows
+  10 1803 and later). Wine 9.0's Winsock has no AF_UNIX: `socket(AF_UNIX, ...)` fails with WSAEAFNOSUPPORT
+  (10047), so `cmux-tui` exits before it publishes its socket. The long state path smoke, the process-exit
+  smoke and anything else that talks to a live daemon need the Windows runner. Newer Wine development
+  releases add AF_UNIX; recheck when the runner image's Wine moves past 9.0.
 
 - **ConPTY.** Under Wine 9.0, `CreatePseudoConsole` returns `S_OK`, but the child's output goes to the
   parent's own stdout instead of the pseudo console's pipe: 0 bytes came back on the pipe. And

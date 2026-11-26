@@ -4,7 +4,7 @@
 # The checks are the Windows runner's own (cmux-tui-build-package.yml build-windows): the same
 # smoke scripts, run by a Windows CPython 3.12.10 under Wine against the same .exe files, so a
 # Windows API the daemon calls goes through Wine's implementation of it. What Wine cannot stand in
-# for (ConPTY resize, PowerShell, the install-key handoff) stays on the Windows runner; see
+# for (AF_UNIX sockets, so the daemon smokes; ConPTY resize; PowerShell; the install-key handoff) stays on the Windows runner; see
 # docs/windows-wine-smoke.md for the list and why.
 #
 # Usage: wine-smoke.sh setup                     # Wine prefix + Windows Python + pywinpty (pinned)
@@ -100,19 +100,30 @@ relay_serves() { # exe: serve on loopback under Wine; Linux curl reads /healthz 
 
 help_ok() { local out; out="$(wrun "$1" --help)" || { printf '%s\n' "$out"; return 1; }; printf '%s\n' "$out"; grep -q 'Usage\|usage\|OPTIONS' <<<"$out"; }
 
+host_refuses() { # cmux-tui-host only runs under its daemon: without a bootstrap pipe it starts, then refuses
+  local out status
+  set +e; out="$(wrun "$1")"; status=$?; set -e
+  printf '%s\n' "$out"
+  [[ $status -ne 0 ]] && grep -Fq "not a bootstrap pipe name" <<<"$out"
+}
+
 smoke() { # binary name dist tests
   local name="$1" tests="$3" exe="$2/$1-x86_64-pc-windows-gnu.exe"
   [[ -f "$exe" ]] || { printf 'wine-smoke: FAIL %-48s missing %s\n' "$name" "$exe"; failed=1; return 0; }
-  check "$name --version" version_ok "$exe"
   case "$name" in
     cmux-tui)
+      check "$name --version" version_ok "$exe"
       check "$name remote-probe refuses" remote_probe_refuses "$exe"
       check "$name long-path unit tests" core_tests "$tests/cmux-tui-core-tests.exe"
-      check "$name long state path" wpy "$repo_root/cmux-tui/scripts/smoke-windows-long-state-path.py" --binary "$exe"
-      check "$name terminal process exit" wpy "$repo_root/cmux-tui/scripts/smoke-windows-process-wait.py" --binary "$exe"
+      # Not here: smoke-windows-long-state-path.py and smoke-windows-process-wait.py start the
+      # daemon, whose Windows socket is AF_UNIX, and Wine 9.0 has none (WSAEAFNOSUPPORT, 10047).
       ;;
-    cmux-relay) check "$name serves /healthz and a websocket" relay_serves "$exe" ;;
-    *) check "$name --help" help_ok "$exe" ;;
+    cmux-tui-hook) check "$name --help" help_ok "$exe" ;; # it has no --version: it reads a native event
+    cmux-tui-host) check "$name refuses without a bootstrap pipe" host_refuses "$exe" ;;
+    cmux-relay)
+      check "$name --version" version_ok "$exe"
+      check "$name serves /healthz and a websocket" relay_serves "$exe" ;;
+    *) check "$name --version" version_ok "$exe"; check "$name --help" help_ok "$exe" ;;
   esac
 }
 
