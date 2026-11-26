@@ -112,6 +112,9 @@ main() {
         run_env=(ACPMUX_DURESS=1 "ACPMUX_DURESS_LEGS=$legs")
         ;;
       CMUX_AGENT_PANE_COMPILE_HINTS)
+        # This is a reviewed measurement allowlist entry. The selected Rust test owns
+        # whether it invokes the pane build, so this generic runner cannot invent a
+        # crate/target restriction; those arguments remain the row's identity.
         [[ -z "$legs" ]] || {
           echo "rust-test-bench.sh: legs= is only valid with enable=ACPMUX_DURESS" >&2; exit 2;
         }
