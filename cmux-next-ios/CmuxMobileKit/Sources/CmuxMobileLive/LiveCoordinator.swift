@@ -387,9 +387,9 @@ public final class LiveCoordinator {
     /// lists the bind: its chat opens on that session meanwhile. Gone with the tab's store.
     @ObservationIgnored var boundHere: [String: String] = [:]
 
-    /// The first message of a chat this phone just started in tab `summary`: the tab's chat is
-    /// rebuilt on `session` now (its store reads the session's source), and the message goes as
-    /// that chat's own Send, so a failure to send it hands the draft back in the chat on screen.
+    /// Starts the chat in tab `summary`, then rebuilds its store on the bound session.
+    /// The replacement store adopts the first message with its original prompt id and shows
+    /// any send failure on that same message.
     private func unboundStart(_ owner: MacSession, summary: AgentSessionSummary, key: String) -> UnboundAgentSource.Start {
         { [weak self, weak owner] (_: String, _: [AgentAttachment]) async throws in
             guard let self, let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
