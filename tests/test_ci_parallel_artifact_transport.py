@@ -42,6 +42,12 @@ SOURCE_ORDER = (
 )
 
 
+# The transport runs inside a JavaScript action so it gets ACTIONS_RUNTIME_TOKEN
+# and resolves the artifact without the installation REST quota (run 45890106663).
+SHIM = "execFileSync('python3', ['scripts/ci/parallel_artifact_download.py']"
+WORKFLOWS = ("ci-macos.yml", "test-e2e.yml", "test-ios.yml")
+
+
 def job_block(name: str) -> str:
     start = WORKFLOW.index(f"\n  {name}:\n")
     end = WORKFLOW.find("\n  ", WORKFLOW.index("\n    steps:", start))
@@ -76,7 +82,8 @@ class WorkflowWiringTests(unittest.TestCase):
             step = step_block(job_block(job), "Try parallel GitHub artifact transport")
             self.assertIn("id: parallel-products", step)
             self.assertIn("continue-on-error: true", step)
-            self.assertIn("run: python3 scripts/ci/parallel_artifact_download.py", step)
+            self.assertIn("uses: actions/github-script@", step)
+            self.assertIn(SHIM, step)
             self.assertIn("ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}", step)
             self.assertIn(
                 "ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}", step
@@ -91,25 +98,48 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_fallback_download_has_a_bounded_transfer_wait(self):
         # A failed ranged fast path falls back to one actions/download-artifact
-        # stream. Mini telemetry saw that fallback hold an app-host runner for
-        # 25–50 minutes while the tests themselves took minutes; bound the
-        # action so a dead or crawling stream cannot consume the whole job.
+        # stream. A dead stream once held a CLI regressions shard for the whole
+        # 15 minutes (run 45890106663) while the other shard's fallback took 5.
+        # Every fallback is a bounded attempt plus one retry on a fresh stream,
+        # together within the old 15-minute budget.
         action = (ROOT / ".github/actions/download-test-product/action.yml").read_text(encoding="utf-8")
         step_start = action.index("    - name: Download artifact\n")
         step_end = action.find("\n    - name:", step_start + 1)
         step = action[step_start:step_end if step_end >= 0 else len(action)]
         self.assertIn("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", step)
-        self.assertNotIn("timeout-minutes: 15", step)
-        for workflow_name in ("ci-macos.yml", "test-e2e.yml"):
-            workflow = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
-            uses = "        uses: ./.github/actions/download-test-product\n"
-            occurrences = workflow.count(uses)
-            self.assertGreater(occurrences, 0, workflow_name)
-            self.assertEqual(
-                occurrences,
-                workflow.count("        timeout-minutes: 15\n" + uses),
-                workflow_name,
-            )
+        self.assertNotIn("timeout-minutes:", step)
+        seen = 0
+        for workflow_name in WORKFLOWS:
+            jobs = yaml.safe_load((ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8"))["jobs"]
+            for job_name, job in jobs.items():
+                steps = job.get("steps") or []
+                for index, item in enumerate(steps):
+                    uses = item.get("uses", "")
+                    if not (uses == "./.github/actions/download-test-product"
+                            or (uses.startswith("actions/download-artifact@") and "test product" in item.get("name", "").lower())):
+                        continue
+                    if item.get("if", "").startswith("steps.download-product.outcome"):
+                        continue
+                    seen += 1
+                    where = f"{workflow_name}:{job_name}:{item.get('name')}"
+                    self.assertEqual(item.get("id"), "download-product", where)
+                    self.assertIs(item.get("continue-on-error"), True, where)
+                    retry = steps[index + 1]
+                    self.assertEqual(retry.get("uses"), uses, where)
+                    self.assertEqual(retry.get("with"), item.get("with"), where)
+                    self.assertEqual(retry.get("if"), "steps.download-product.outcome == 'failure'", where)
+                    self.assertNotIn("continue-on-error", retry, where)
+                    self.assertLessEqual(item["timeout-minutes"] + retry["timeout-minutes"], 15, where)
+        self.assertEqual(seen, 6)
+
+    def test_no_workflow_runs_the_transport_without_the_runtime_token(self):
+        # Detector: a bare `run:` step has no ACTIONS_RUNTIME_TOKEN, so it would
+        # spend the shared REST quota again and 403 with every other consumer.
+        for workflow_name in WORKFLOWS:
+            text = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+            self.assertNotIn("run: python3 scripts/ci/parallel_artifact_download.py", text, workflow_name)
+        shims = sum((ROOT / ".github/workflows" / name).read_text(encoding="utf-8").count(SHIM) for name in WORKFLOWS)
+        self.assertEqual(shims, 6)
 
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
@@ -484,6 +514,107 @@ class EntryPointTests(unittest.TestCase):
                         os.environ[key] = value
             self.assertEqual(output.read_text(encoding="utf-8").strip(), "hit=false")
             self.assertFalse((Path(temp) / "app-host-products").exists())
+
+
+class RuntimeServiceTests(unittest.TestCase):
+    """The runtime artifact service resolves the artifact without the REST quota."""
+
+    @staticmethod
+    def token(scope="Actions.GenericRead:1 Actions.Results:run-backend:job-backend"):
+        def part(value):
+            return transport.base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+        return f"{part({'alg': 'none'})}.{part({'scp': scope})}.sig"
+
+    def service(self, replies):
+        calls = []
+
+        def post(method, body):
+            calls.append((method, body))
+            reply = replies[method]
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        return transport.RuntimeArtifacts(self.token(), "https://results.example/", post=post), calls
+
+    def test_backend_ids_come_from_the_results_scope(self):
+        self.assertEqual(transport.RuntimeArtifacts.backend_ids(self.token()), ("run-backend", "job-backend"))
+        for bad in ("not-a-jwt", self.token("Actions.GenericRead:1")):
+            with self.subTest(token=bad), self.assertRaises(transport.RuntimeUnavailable):
+                transport.RuntimeArtifacts.backend_ids(bad)
+
+    def test_missing_token_or_unsafe_results_url_is_unavailable(self):
+        for token, url in (("", "https://results.example/"), (self.token(), ""),
+                           (self.token(), "http://results.example/"), (self.token(), "https://u:p@results.example/")):
+            with self.subTest(url=url), self.assertRaises(transport.RuntimeUnavailable):
+                transport.RuntimeArtifacts(token, url, post=lambda *_: {})
+
+    def test_metadata_and_signed_url_are_resolved_by_exact_id(self):
+        runtime, calls = self.service({
+            "ListArtifacts": {"artifacts": [
+                {"databaseId": "77", "name": "product", "workflowRunBackendId": "run-backend",
+                 "workflowJobRunBackendId": "build-job", "size": "1234", "digest": "sha256:" + "a" * 64},
+                {"databaseId": "78", "name": "other"},
+            ]},
+            "GetSignedArtifactURL": {"signedUrl": "https://blob.example/product.zip?sig=1"},
+        })
+        info = runtime.metadata(9)("manaflow-ai/cmux", 77, None)
+        self.assertEqual(info, {"id": 77, "expired": False, "digest": "sha256:" + "a" * 64,
+                                "size_in_bytes": 1234, "workflow_run": {"id": 9}})
+        self.assertEqual(calls[0], ("ListArtifacts", {"workflowRunBackendId": "run-backend",
+                                                      "workflowJobRunBackendId": "job-backend", "idFilter": "77"}))
+        self.assertEqual(runtime.signed_url(runtime.resolved), "https://blob.example/product.zip?sig=1")
+        self.assertEqual(calls[1], ("GetSignedArtifactURL", {"workflowRunBackendId": "run-backend",
+                                                             "workflowJobRunBackendId": "build-job", "name": "product"}))
+
+    def test_an_unlisted_artifact_is_unavailable_not_a_foreign_read(self):
+        runtime, _ = self.service({"ListArtifacts": {"artifacts": [{"databaseId": "78", "name": "other"}]}})
+        with self.assertRaises(transport.RuntimeUnavailable):
+            runtime.metadata(9)("manaflow-ai/cmux", 77, None)
+
+    def test_a_non_https_signed_url_is_refused(self):
+        runtime, _ = self.service({"GetSignedArtifactURL": {"signedUrl": "http://blob.example/x"}})
+        with self.assertRaises(transport.TransportError):
+            runtime.signed_url({"run_backend": "r", "job_backend": "j", "name": "n"})
+
+    def run_main(self, environment, restore):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "github-output"
+            environ = {"RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ID": "9",
+                       "ARTIFACT_ID": "77", "ARTIFACT_PROVIDER_DIGEST": "sha256:" + "a" * 64, **environment}
+            with mock.patch.dict(os.environ, environ), \
+                    mock.patch.object(transport, "restore_aggregate", side_effect=restore) as restored:
+                self.assertEqual(transport.main(), 0)
+            return output.read_text(encoding="utf-8"), restored
+
+    def test_runtime_resolution_is_used_first_and_rest_only_when_it_is_unavailable(self):
+        def restore(*_arguments, **options):
+            if "metadata" in options:
+                options["metadata"]("repo", 77, None)
+            return {"zip_bytes": 1, "transfer_seconds": 1.0}
+        runtime = {"ACTIONS_RUNTIME_TOKEN": self.token(), "ACTIONS_RESULTS_URL": "https://results.example/"}
+        with mock.patch.object(transport.RuntimeArtifacts, "_post",
+                               side_effect=transport.RuntimeUnavailable("HTTP 500")):
+            text, restored = self.run_main(runtime, restore)
+        self.assertEqual(restored.call_count, 2)
+        self.assertNotIn("metadata", restored.call_args_list[1].kwargs)
+        self.assertIn("hit=true", text)
+
+        with mock.patch.object(transport.RuntimeArtifacts, "_post", return_value={}):
+            def transfer_fails(*_arguments, **options):
+                raise transport.TransportError("range failed")
+            text, restored = self.run_main(runtime, transfer_fails)
+        # A failed transfer is a miss: no second REST read of the same bytes.
+        self.assertEqual(restored.call_count, 1)
+        self.assertIn("hit=false", text)
+
+    def test_rest_refusal_names_a_spent_quota(self):
+        error = transport.urllib.error.HTTPError(
+            "https://api.github.com/x", 403, "Forbidden",
+            {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1795640000"},
+            io.BytesIO(b'{"message": "API rate limit exceeded for installation ID 1."}'))
+        self.assertEqual(str(transport._refusal(error)),
+                         "REST HTTP 403 rate limit (remaining 0, reset 1795640000): "
+                         "API rate limit exceeded for installation ID 1.")
 
 
 class RegistrationTests(unittest.TestCase):
