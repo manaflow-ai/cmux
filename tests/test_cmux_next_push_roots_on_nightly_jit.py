@@ -42,7 +42,9 @@ class PushRootsOnControlJit(unittest.TestCase):
         for names, arm in ((POOL_ROOTS, POOL_ARM), (EPHEMERAL_ROOTS, ARM)):
             for name in names:
                 with self.subTest(job=name):
-                    head = self.jobs[name]["runs-on"].removeprefix("${{ ").removeprefix(FORK)
+                    # The secret JIT switch may lead (tests/test_ci_secret_jobs_secret_jit.py); the push arm comes next.
+                    head = self.jobs[name]["runs-on"].removeprefix("${{ ").removeprefix(FORK).removeprefix(
+                        "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || ")
                     self.assertTrue(head.startswith(arm), f"{name}: the push arm comes before any pool")
 
     def test_only_the_ephemeral_roots_name_the_jit_label_and_only_on_a_push_attempt_1(self) -> None:

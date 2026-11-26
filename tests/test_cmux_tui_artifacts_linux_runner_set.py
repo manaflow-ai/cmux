@@ -65,6 +65,14 @@ NIGHTLY = "cmux-gcp-nightly-x64"
 NIGHTLY_JIT = "cmux-gcp-nightly-jit-x64"
 # Every x64 pool leads with our own one-job fleet label (#47803); its Blacksmith members follow in size order.
 FLEET = "cmux-fleet-linux-x64"
+# Secret-bearing jobs lead with the one-job secret JIT label behind CI_SECRET_SKIP_FLEET
+# (tests/test_ci_secret_jobs_secret_jit.py); the label they name after it is unchanged.
+SECRET_JIT = "cmux-gcp-secret-jit-x64"
+SECRET_SWITCH = f"vars.CI_SECRET_SKIP_FLEET != '1' && '{SECRET_JIT}' || "
+
+
+def secret_jit(runs_on: str) -> set[str]:
+    return {SECRET_JIT} if SECRET_SWITCH in runs_on else set()
 LINUX_LABEL_JOBS = {"tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "cmux-next-daemon-tests"}
 # The one-label tail scripts/ci/one_linux_label.py writes (Leo, 2026-11-20: "Just send it somewhere"): after its fork
 # branch, every own-branch run takes cmux-linux.
@@ -147,7 +155,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             with self.subTest(job=job):
                 arm = NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS else ""
                 self.assertEqual(jobs[job]["runs-on"],
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm + "'cmux-linux' }}")
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + SECRET_SWITCH + arm
+                                 + "'cmux-linux' }}")
         for job in ("build", "build-linux"):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["with"]["linux_runner"], "cmux-linux")
@@ -180,11 +189,12 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             if one_label(name, runs_on):
                 with self.subTest(job=name):
                     # A nightly tree job's attempt-1 pin keeps its place before the one label.
-                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()), {"cmux-linux"})
+                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()) - secret_jit(runs_on),
+                                     {"cmux-linux"})
                 continue
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
                        | ({PERSISTENT} if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}") else set())
-                       | ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()))
+                       | ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()) | secret_jit(runs_on))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
                 self.assertNotIn(NIGHTLY_JIT, labels)
@@ -251,11 +261,16 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
                 text = text.replace("github.workflow_ref",
                                     "'manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/x'")
-                for linux_runner in LINUX_RUNNER_VALUES:
-                    labels = resolve_labels(text, owner="manaflow-ai", silent=("needs", "inputs"), variables={
-                        "LINUX_RUNNER": [linux_runner], "CI_CLOUD_OVERFLOW_SAVED": [""]})
-                    with self.subTest(workflow=workflow, job=name, case=case, linux_runner=linux_runner):
-                        if owned:
+                # The secret JIT switch leads where a job holds a secret; CI_SECRET_SKIP_FLEET=1 gives the nightly pin.
+                for linux_runner, skip in itertools.product(LINUX_RUNNER_VALUES, ("", "1")):
+                    # resolve_labels always adds the unset value, so the switch-on case drops the switch's operand.
+                    labels = resolve_labels(text.replace(SECRET_SWITCH, "") if skip else text, owner="manaflow-ai",
+                                            silent=("needs", "inputs"), variables={
+                        "LINUX_RUNNER": [linux_runner], "CI_CLOUD_OVERFLOW_SAVED": [""], "CI_SECRET_SKIP_FLEET": [""]})
+                    with self.subTest(workflow=workflow, job=name, case=case, linux_runner=linux_runner, skip=skip):
+                        if not skip and secret_jit(runs_on):
+                            self.assertEqual(labels, {SECRET_JIT})
+                        elif owned:
                             self.assertEqual(labels, {owned})
                         else:
                             self.assertFalse(labels & {"cmux-gcp-lane-build-x64", NIGHTLY}, labels)

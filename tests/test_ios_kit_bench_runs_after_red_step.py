@@ -81,7 +81,10 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         self.assertIn('test "$LINT_RESULT" = success', lint["run"])
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         linux = jobs["connection-notices"]
-        self.assertEqual(linux["runs-on"], jobs["runner"]["runs-on"])
+        # The runner holds a secret, so it leads with the secret JIT switch (tests/test_ci_secret_jobs_secret_jit.py);
+        # the notice job holds none and takes the same selector without it.
+        self.assertEqual(linux["runs-on"], jobs["runner"]["runs-on"].replace(
+            "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || ", ""))
         self.assertEqual(linux["needs"], "runner")
         self.assertIn(linux["if"].removeprefix("${{ ").removesuffix(" }}"), jobs["kit-tests"]["if"])
         check = next(step for step in linux["steps"] if step.get("name") == "Connection notices")

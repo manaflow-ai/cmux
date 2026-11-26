@@ -45,7 +45,9 @@ SIGN = re.compile(
 LINUX_LABEL = re.compile(r"ubuntu-[0-9a-z.]+|blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?|cmux-gcp-[a-z0-9-]+-x64"
                          r"|cmux-linux|cmux-fleet-linux(?:-[a-z0-9-]+)?")
 LINUX_POOL = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.linux_\w+")
-MAC = re.compile(r"macos|cmux-mac", re.I)
+# A Mac selector: macOS labels, the owned glaeda Macs, or the CI_NIGHTLY_* Mac runner variables.
+MAC = re.compile(r"macos|cmux-mac|glaeda-|vars\.CI_NIGHTLY_(?:MINI|SIGN_RUNNER|ONLY_RUNNER)\b", re.I)
+SKIP_SWITCH = f"vars.CI_SECRET_SKIP_FLEET != '1' && '{SECRET_JIT_LABEL}'"
 JIT_LABEL = re.compile(r"'cmux-gcp-[a-z-]+-jit-x64'")
 LABEL_LITERAL = re.compile(r"'([a-z0-9][a-z0-9.-]*)'")
 # A fork pull request's clause: it holds no secret, so it may come first with any hosted label.
@@ -68,6 +70,8 @@ PR_GATE_JOBS = (
 )
 EXCEPTIONS = {
     **{job: PR_GATE for job in PR_GATE_JOBS},
+    ("ci-shed-superseded-runs.yml", "shed"): "runs only in manaflow-ai/cmux (its job `if`), so it has no fork branch; it "
+    "leads with the secret JIT switch, and tests/test_ci_shed_superseded_runs.py forbids a hosted label",
     ("ci-queue-janitor.yml", "sweep"): "queue janitor's own route, which must keep running while JIT capacity is short",
     ("pr-pipeline.yml", "ios-runner"): LEO_OVERFLOW,
 }
@@ -94,6 +98,25 @@ def top_level_operands(expression: str) -> list[str]:
     return operands
 
 
+def owner_selector(runs_on: str) -> str:
+    """RUNS_ON without the fork branch, fork-PR clauses and the secret JIT switch: the labels the owner's own runs ask for.
+
+    The fork branch's 'ubuntu-24.04' never runs on the owner's repo, so a Mac job's fork branch must not make it Linux.
+    """
+    if not runs_on.startswith(FORK_BRANCH) or not runs_on.rstrip().endswith("}}"):
+        return runs_on
+    operands = top_level_operands(runs_on[len(FORK_BRANCH):].rstrip()[:-2])
+    while len(operands) > 1 and (FORK_PR_CLAUSE.fullmatch(operands[0]) or operands[0] == SKIP_SWITCH or (
+            LABEL_LITERAL.findall(operands[0]) == ["ubuntu-24.04"] and operands[0] != "'ubuntu-24.04'")):
+        operands.pop(0)
+    return "${{ " + " || ".join(operands) + " }}"
+
+
+def is_mac(runs_on: str) -> bool:
+    """True when the owner's selector names a Mac label or a CI_NIGHTLY_* Mac runner variable."""
+    return bool(MAC.search(owner_selector(runs_on)))
+
+
 def runner_labels(runs_on: str) -> list[str]:
     """The label literals RUNS_ON can yield: its quoted literals, or the bare label itself."""
     return LABEL_LITERAL.findall(runs_on) if "${{" in runs_on else [runs_on.strip()]
@@ -101,7 +124,9 @@ def runner_labels(runs_on: str) -> list[str]:
 
 def is_linux(runs_on: str) -> bool:
     """True when RUNS_ON names a Linux runner label or a RUNNER_POOLS linux pool, not just the word linux."""
-    return any(LINUX_LABEL.fullmatch(label) for label in runner_labels(runs_on)) or bool(LINUX_POOL.search(runs_on))
+    owner = owner_selector(runs_on)
+    return not is_mac(runs_on) and (
+        any(LINUX_LABEL.fullmatch(label) for label in runner_labels(owner)) or bool(LINUX_POOL.search(owner)))
 
 
 def secret_linux_jobs():
@@ -115,7 +140,7 @@ def secret_linux_jobs():
             if not isinstance(job, dict) or "uses" in job:
                 continue
             runs_on = job.get("runs-on")
-            if not isinstance(runs_on, str) or not is_linux(runs_on) or MAC.search(runs_on):
+            if not isinstance(runs_on, str) or not is_linux(runs_on):
                 continue
             body = yaml.safe_dump(job)
             if SECRET.search(body) or SECRET.search(top_env) or SIGN.search(body):
@@ -193,6 +218,26 @@ class SecretJobsSecretJitTest(unittest.TestCase):
                 if SECRET.search(yaml.safe_dump(step)) or SIGN.search(yaml.safe_dump(step)):
                     self.assertIs(step.get("continue-on-error"), True,
                                   f"{key} step {step.get('name')!r} holds a secret the gate needs; move the job to JIT")
+
+    def test_mac_jobs_stay_off_the_jit_label(self) -> None:
+        offenders = []
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            document = yaml.safe_load(path.read_text())
+            for job_id, job in ((document or {}).get("jobs") or {}).items() if isinstance(document, dict) else ():
+                runs_on = job.get("runs-on") if isinstance(job, dict) else None
+                if isinstance(runs_on, str) and is_mac(runs_on) and SECRET_JIT_LABEL in runs_on:
+                    offenders.append(f"{path.name} {job_id}")
+        self.assertEqual(offenders, [], f"Mac jobs must not lead with the Linux {SECRET_JIT_LABEL} label")
+
+    def test_mac_selectors_are_not_linux(self) -> None:
+        for owner in ("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || "
+                      "'glaeda-nightly-only-m4pro'", "vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6'",
+                      "'macos-15'", "'cmux-mac-arm64'"):
+            self.assertFalse(is_linux(FORK_BRANCH + owner + " }}"), owner)
+            self.assertFalse(is_linux(FORK_BRANCH + SKIP_SWITCH + " || " + owner + " }}"), owner)
+            self.assertTrue(is_mac(FORK_BRANCH + SKIP_SWITCH + " || " + owner + " }}"), owner)
+        self.assertTrue(is_linux(FORK_BRANCH + SKIP_SWITCH + " || 'cmux-linux' }}"))
+        self.assertTrue(is_linux(FORK_BRANCH + f"'{SECRET_JIT_LABEL}' }}}}"))
 
     def test_linux_matches_a_runner_label(self) -> None:
         self.assertTrue(is_linux("blacksmith-4vcpu-ubuntu-2404"))
