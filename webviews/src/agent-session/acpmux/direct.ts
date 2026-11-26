@@ -15824,6 +15824,7 @@ export class AcpmuxDirectClient {
         return false;
       }
       console.warn("agent pane: taking over the session failed", error);
+      // retry-prompt-ok: taking over a session is the person's choice (it moves control of another's chat).
       this.transient(knownRefusalText(error) ?? translate("watch.takeOverFailed"), "error");
       return false;
     }

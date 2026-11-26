@@ -107,8 +107,19 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_REVIEW_QUEUE,
     method::MUX_REVIEW_VERDICT,
     method::MUX_AUDIT,
+    // A call for a machine names that machine, never a chat: this daemon sends it on itself
+    // (`computer_use_relay.rs`, `machine_files_relay.rs`, `keys_relay.rs`). A Computer Use
+    // call's `session` is the caller's own Computer Use key and its `name` the tool; forwarded by
+    // session, both were stripped and the far side refused `unknown Computer Use tool ""`.
+    method::MUX_COMPUTER_USE_CALL,
+    method::MUX_COMPUTER_USE_MACHINES,
+    method::MUX_COMPUTER_USE_STATE,
+    method::MUX_MACHINE_FILES_CALL,
+    method::MUX_KEYS_MINT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
+    // Names a peer machine, never a session (`autocloud_enroll.rs`).
+    "_acpmux/autocloud_enroll",
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
