@@ -43,6 +43,8 @@ thread_local! {
     /// Tests: the metadata bytes this thread's saves wrote (parts files, `session.json` by
     /// `LocalStore::save`, journal `meta` records), for the before and after of a save's cost.
     pub(crate) static WRITTEN: Cell<u64> = const { Cell::new(0) };
+    /// Tests: the parts this thread hashed for a fingerprint, in bytes.
+    pub(crate) static HASHED: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Counts `n` bytes in [`WRITTEN`] (no-op outside tests).
@@ -158,6 +160,8 @@ pub(super) fn fingerprint(meta: &SessionMeta) -> String {
     // A writer that never fails: an error here is a value that does not serialize, which the
     // metadata's own write reports.
     let _ = serde_json::to_writer(&mut hash, &hashed);
+    #[cfg(test)]
+    HASHED.with(|h| h.set(h.get().saturating_add(hash.1)));
     format!("{:016x}{:x}", hash.0, hash.1)
 }
 

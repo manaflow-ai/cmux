@@ -22,7 +22,7 @@ echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ul
 # there linked another commit's cmux-tui-platform into this head's acpmux (cmux#49864 run32:
 # "cannot find value ACPMUX_ARENAS", a constant this commit defines). It builds cold, which a
 # 2-hour timeout covers.
-export CARGO_TARGET_DIR=$ROOT/target-fanin
+export CARGO_TARGET_DIR=${FANIN_TARGET_DIR:-$ROOT/target-fanin}
 if [ "$PROFILE" = perf ]; then export RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes"; fi
 (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
 BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
