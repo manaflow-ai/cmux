@@ -3272,7 +3272,7 @@ jobs:
           REF: ${{ github.sha }}
           # Why: note-193
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
-          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,HandlerCoverageTests,AcpmuxClientTests
+          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,HandlerCoverageTests,AcpmuxClientTests,AcpmuxPaneInitializeParamsContractTests,AcpmuxPaneInitializeFailSafeTests
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           set -uo pipefail
@@ -4037,7 +4037,7 @@ jobs:
 
       - name: Restore the cargo build from R2
         id: r2-cargo-target
-        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.target-key != '' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -4051,7 +4051,7 @@ jobs:
 
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
-        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.registry-key != '' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -4083,7 +4083,7 @@ jobs:
       # Why: 2026-11-24-fast-tier-cargo-9.md
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
-        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
         continue-on-error: true
         env:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
@@ -4097,7 +4097,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -4112,7 +4112,7 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -6484,7 +6484,7 @@ jobs:
   # Why: note-scheme-fleet
   cmux-scheme-compile-fleet:
     needs: [path_route, push-head-preflight, dev-daily-tree-wait]
-    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && vars.CI_SCHEME_COMPILE_FLEET != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && (vars.CI_SCHEME_COMPILE_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux app scheme compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-cmux-scheme-compile-fleet', github.ref) || format('cmux-next-run-{0}-cmux-scheme-compile-fleet', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
@@ -6607,7 +6607,7 @@ jobs:
           FLEET_RESULT: ${{ needs.cmux-scheme-compile-fleet.result }}
           FLEET_VERDICT: ${{ needs.cmux-scheme-compile-fleet.outputs.verdict }}
           FLEET_JOB_NAME: "cmux app scheme compile (build fleet)"
-          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ vars.CI_SCHEME_COMPILE_FLEET != '0' }}"
+          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ (vars.CI_SCHEME_COMPILE_FLEET || '1') != '0' }}"
           FLEET_GATE_1: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
           FLEET_GATE_2: "same-repository pull request=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
         run: >-
