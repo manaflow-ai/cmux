@@ -38,5 +38,6 @@ jobs:
             tests/test_risk_tier.py
             tests/git_fixture_env.py
             tests/fleet_test_host.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

@@ -196,8 +196,8 @@ on:
       - "schemas/instrument/instrument.json"
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
-      - "schemas/settings/file-keys.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/settings/file-keys.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -379,8 +379,8 @@ on:
       - "schemas/instrument/instrument.json"
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
-      - "schemas/settings/file-keys.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/settings/file-keys.json"
   workflow_dispatch:
 
 concurrency:
