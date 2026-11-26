@@ -62,7 +62,8 @@ public nonisolated struct PackedResource: Sendable {
         // The cache is a folder other processes can write, so a kept file is served only when it
         // matches the digest the build stored beside the packed copy (inside the signed app), the
         // same rule PagePackedFile keeps for first-party page code.
-        let digest = (try? String(contentsOf: Self.digestFile(packed), encoding: .utf8))?
+        let digest = (try? Data(blockingContentsOf: Self.digestFile(packed)))
+            .flatMap { String(data: $0, encoding: .utf8) }?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let kept, let digest, let data = try? Data(blockingContentsOf: kept), Self.sha256(data) == digest {
             return data
