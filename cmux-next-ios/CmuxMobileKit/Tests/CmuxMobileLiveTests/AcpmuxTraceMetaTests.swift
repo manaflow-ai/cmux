@@ -28,7 +28,7 @@ struct AcpmuxTraceMetaTests {
         ]))
     }
 
-    @Test func aPromptCarriesItsSendTraceID() {
+    @MainActor @Test func aPromptCarriesItsSendTraceID() {
         let prompt = AcpmuxSessionSource.HeldPrompt(text: "hi", attachments: [], promptID: "p1", steer: false, resend: false,
                                                     blocks: [], at: .now, traceID: "4bf92f3577b34da6a3ce929d0e0e4736")
         let traced = PhoneTrace.$traceID.withValue(prompt.traceID) {
