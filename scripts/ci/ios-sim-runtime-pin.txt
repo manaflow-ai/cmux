@@ -1,0 +1,5 @@
+# The fleet's pinned iOS simulator runtime build (simctl buildversion), one per line.
+# Source: cmuxterm-hq build-fleet/mini-fleet.json defaults.ios_simulator.runtimes.
+# scripts/ci/ios_sim_runtime.py --prefer-pin picks one of these when the host has it,
+# so a newer runtime beside the pin (iOS 27.0, 24A434) is never chosen by accident.
+23F77

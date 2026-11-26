@@ -5051,6 +5051,49 @@ class UnreadPartFirstTests(unittest.TestCase):
         self.assertEqual(d["action"], "finish")
         self.assertIn("build failed", d["reason"])
 
+    def test_a_build_that_never_ran_is_no_broken_base(self):
+        # 2026-11-26: tip c2b1760e's checkout was refused (HTTP 403, source download failed 3 times, before the job
+        # started) and ended build_failed; the next tip 60a23ed3's source fetch got 503 from the controller's git
+        # proxy, and it held the Mac behind 21 Linux parts as if the base were broken (tabs, chat-snappy, typing and
+        # the launch rows stayed stale).
+        why = ("step checkout: GitHub refused the fetch (HTTP 403) (exit status 128) "
+               "(source download failed 3 times, before the job started)")
+        state = cron.empty_state(T0)
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True,
+                             "failed_why": {"build": why, "tabs": "build_failed"}}]
+        self.assertFalse(cron.last_tip_build_failed(state))
+        state["history"][0]["failed_why"]["build"] = "step exited 65"
+        self.assertTrue(cron.last_tip_build_failed(state), "a build that ran and failed still counts")
+
+    def test_a_tip_whose_build_never_ran_frees_the_mac_after_another_failed(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True}]
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        tail = ["ci-step reviewed check: no reviewed tip could be fetched for scripts/measure/split-spring.sh at "
+                "60a23ed343cf (main: not fetched (git: unable to access 'http://controller/v1/git/manaflow-ai/cmux.git/': "
+                "The requested URL returned error: 503)"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER,
+                                        "tail": tail}, "u", T0)
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish", "its build never ran: the base is not judged broken")
+
+    def test_a_held_superseded_tip_ends_once_its_base_is_not_judged_broken(self):
+        # The state written before this fix: tip 60a23ed3 superseded, its Linux parts held for the bound.
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = [{"sha": "e" * 40, "kind": "tip", "build_failed": True,
+                             "failed_why": {"build": "step checkout: GitHub refused the fetch (HTTP 403)"}}]
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER,
+                                        "tail": ["step exited 65"]}, "u", T0)
+        cur["superseded"] = {"by": self.NEW, "why": f"its app build failed; {self.NEW[:12]} is newer", "at": cron.iso(at(1))}
+        self.assertTrue(cur["parts_todo"])
+        d = cron.decide(state, at(1.2), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+
     def test_a_bisect_step_whose_build_failed_is_not_superseded(self):
         cur = {"kind": "bisect", "sha": self.OLD, "parts": {"wake": {"state": "build_failed"}}}
         self.assertFalse(cron.build_failed_tip(cur), "a bisect step skips the commit when it ends (drop_dead_measurement)")
