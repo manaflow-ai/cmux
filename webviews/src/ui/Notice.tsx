@@ -83,11 +83,13 @@ export interface NoticeProps {
   count?: number;
   /** Work it tracks: the lead is a spinner while working, then a check or the error's mark. */
   state?: NoticeState;
-  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
+  /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card.
+   * @status experimental */
   look?: ToastLook;
   /** A stack toast's glass is the App's own toast glass under the page (glass/hostGlass.ts), as its
    * native toasts are drawn; false (the default) keeps the page's floating material. NoticeStack
-   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default). */
+   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default).
+   * @status experimental */
   hostGlass?: boolean;
 }
 

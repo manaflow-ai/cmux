@@ -32,6 +32,10 @@ echo "swift $* env=${CMUX_TERMINAL_CLIENT_MODEL_ONLY:-}" >> "$FAKE_SWIFT_LOG"
 case "$1" in
   build) echo "Build complete!" ;;
   test)
+    if [ "${2:-}" = list ]; then
+      printf '%s\\n' 'ListedTests.Suite/test()' 'ListedTests.Other/test()' 'ListedTestsExtra.Suite/test()' 'ModelTests.Suite/test()'
+      exit 0
+    fi
     filter="${@: -1}"
     for id in 'ListedTests.Suite/test()' 'ListedTests.Other/test()' 'ListedTestsExtra.Suite/test()' 'ListedTestsXSuite/test()' 'ModelTests.Suite/test()'; do
       if printf '%s\n' "$id" | grep -Eq -- "$filter"; then echo "ran $id" >> "$FAKE_SWIFT_LOG"; fi
