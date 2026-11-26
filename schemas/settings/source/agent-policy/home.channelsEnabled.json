@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer)."
+}

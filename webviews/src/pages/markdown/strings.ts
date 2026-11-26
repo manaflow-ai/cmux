@@ -33,6 +33,7 @@ export const L = {
   rawSource: "block.source",
   plainText: "code.plainText",
   diagramFailed: "diagram.failed",
+  diagramUnavailable: "diagram.unavailable",
   remoteImageBlocked: "remoteImage.blocked",
   remoteImageLoad: "remoteImage.load",
   followHint: "link.followHint",
@@ -110,4 +111,8 @@ export const L = {
   findMatchCase: "find.matchCase",
   findCount: "find.count",
   findNoMatches: "find.noMatches",
+  outlineLabel: "outline.label",
+  outlineShow: "outline.show",
+  print: "print.button",
+  printTitle: "print.title",
 } as const;

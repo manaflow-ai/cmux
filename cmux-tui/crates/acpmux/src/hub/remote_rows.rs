@@ -21,6 +21,8 @@ use super::*;
 
 /// A persistent map: `clone` is O(1), its nodes shared until one side writes.
 type PMap<K, V> = imbl::HashMap<K, V>;
+/// A persistent sorted map, used where prefix lookup needs ordered keys.
+type POrdMap<K, V> = imbl::OrdMap<K, V>;
 /// A persistent sorted set, likewise.
 type PSet<A> = imbl::OrdSet<A>;
 
@@ -93,6 +95,16 @@ impl RemoteRows {
 
     /// Inserts a row its writer shares too (a peer's list announces the rows it changed).
     pub(crate) fn insert_shared(&mut self, key: String, row: Arc<RemoteSession>) {
+        // The usual change (a turn, a status) keeps every index key: replace the row alone, not
+        // a take and re-add that path-copies every index twice.
+        if let Some(old) = self.rows.get_mut(&key)
+            && Self::same_index(old, &row)
+        {
+            *old = row;
+            self.stale_from.remove(&key);
+            self.writes += 2;
+            return;
+        }
         self.take(&key);
         self.writes += 1;
         if let Some(pair) = row.summary.pair() {
@@ -110,6 +122,15 @@ impl RemoteRows {
             self.open_order.insert(place);
         }
         self.rows.insert(key, row);
+    }
+
+    /// Whether two rows file under the same index keys (`Names::entries`, `by_pair`, `by_peer`).
+    fn same_index(a: &RemoteSession, b: &RemoteSession) -> bool {
+        a.peer == b.peer
+            && a.receipt.mux_session_id == b.receipt.mux_session_id
+            && a.summary.name() == b.summary.name()
+            && a.summary.alias() == b.summary.alias()
+            && a.summary.same_pair(&b.summary)
     }
 
     pub(crate) fn remove(&mut self, key: &str) -> Option<RemoteSession> {
@@ -310,6 +331,7 @@ impl RemoteRows {
         let mut keys: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
         keys.extend(n.by_name.get(key).into_iter().flatten());
         keys.extend(n.by_bare_name.get(key).into_iter().flatten());
+        keys.extend(n.by_alias.get(key).into_iter().flatten());
         keys.extend(
             n.keys
                 .range::<_, str>((std::ops::Bound::Included(key), std::ops::Bound::Unbounded))
@@ -320,6 +342,12 @@ impl RemoteRows {
                 .range::<_, (String, String)>((key.to_owned(), String::new())..)
                 .take_while(|(mux, _)| mux.starts_with(key))
                 .map(|(_, k)| k),
+        );
+        keys.extend(
+            n.by_alias
+                .range::<_, str>((std::ops::Bound::Included(key), std::ops::Bound::Unbounded))
+                .take_while(|(alias, _)| alias.starts_with(key))
+                .flat_map(|(_, rows)| rows.iter()),
         );
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
@@ -376,6 +404,7 @@ impl<T: Ord, A: Iterator<Item = T>, B: Iterator<Item = T>> Iterator for Merged<A
 struct Names {
     by_name: PMap<String, PSet<String>>,
     by_bare_name: PMap<String, PSet<String>>,
+    by_alias: POrdMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
@@ -404,6 +433,9 @@ impl Names {
                 self.map(which).entry(value).or_default().insert(key.to_owned());
             }
         }
+        if let Some(alias) = row.summary.alias() {
+            self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
+        }
         self.keys.insert(key.to_owned());
         self.muxes.insert((row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -419,6 +451,14 @@ impl Names {
                 }
             }
         }
+        if let Some(alias) = row.summary.alias()
+            && let Some(keys) = self.by_alias.get_mut(alias)
+        {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.by_alias.remove(alias);
+            }
+        }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -427,6 +467,7 @@ impl Names {
     fn is_empty(&self) -> bool {
         self.by_name.is_empty()
             && self.by_bare_name.is_empty()
+            && self.by_alias.is_empty()
             && self.by_last_segment.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
@@ -490,6 +531,32 @@ mod tests {
         assert!(rows.is_empty());
         assert!(rows.by_peer.is_empty(), "no empty entry is left behind");
         assert!(rows.names.is_empty(), "no name entry is left behind");
+    }
+
+    #[test]
+    fn a_row_replaced_in_place_keeps_its_index_and_a_rename_moves_it() {
+        let mut rows = RemoteRows::default();
+        let named = |name: &str, status: &str| {
+            let (key, mut r) = row("a", "s1", status);
+            r.summary =
+                json!({"sessionId": "s1", "peer": "a", "status": status, "name": name}).into();
+            (key, r)
+        };
+        let (key, r) = named("a/one", "running");
+        rows.insert(key.clone(), r);
+        let writes = rows.writes;
+        let (_, r) = named("a/one", "ready");
+        rows.insert(key.clone(), r);
+        assert_eq!(rows.writes, writes + 2, "a replace counts as the take and insert it was");
+        assert_eq!(rows.find_mux("a", "s1").unwrap().1.summary.status(), Some("ready"));
+        assert_eq!(rows.names.by_name.get("a/one").map(|k| k.len()), Some(1));
+
+        let (_, r) = named("a/two", "ready");
+        rows.insert(key.clone(), r);
+        assert!(rows.names.by_name.get("a/one").is_none(), "the old name is dropped");
+        assert_eq!(rows.names.by_name.get("a/two").map(|k| k.len()), Some(1));
+        rows.take(&key);
+        assert!(rows.names.is_empty() && rows.by_peer.is_empty());
     }
 
     #[test]

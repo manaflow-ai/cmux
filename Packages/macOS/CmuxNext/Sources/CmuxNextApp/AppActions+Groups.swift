@@ -66,32 +66,22 @@ extension AppActions {
             registry.bind(id, isEnabled: { chrome().flatMap { BrowserPrompt.firstPermission(in: $0.tab.pendingPrompts) } != nil },
                           invoke: { _ = chrome($0).map { BrowserPrompt.answerFirstPermission(choice, in: $0.tab.pendingPrompts) } })
         }
-        // Cmd-L goes through the window's focus coordinator, which also takes
-        // key back from a focused Chromium page window.
-        registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in
-            guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
-                  let window = services.windowController(showing: pane) else { return }
-            // Chromium `OmniboxViewViews::SetFocus(is_user_initiated=true)`:
-            // Cmd-L while the omnibar already has focus shows the full URL
-            // and selects all again. The responder stays; focusing the pane
-            // first would hand focus to the page and back.
-            if let bar = entry.chrome?.addressBar, bar.isEditing {
-                bar.focus()
-                return
-            }
-            window.focus.send(.focusPane(pane.paneKey, source: .intent))
-            window.focus.send(.focusTarget(.addressBar, source: .intent))
-        })
-        // Opt-Cmd-F (Chrome's Search the Web): the address bar as Cmd-L
-        // focuses it, then a search with the default engine ("Search Google").
-        registry.bind("browser.focusSearch", isEnabled: { chrome() != nil }, invoke: { invocation in
-            guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
-                  let window = services.windowController(showing: pane) else { return }
-            if entry.chrome?.addressBar.isEditing != true {
-                window.focus.send(.focusPane(pane.paneKey, source: .intent))
-                window.focus.send(.focusTarget(.addressBar, source: .intent))
-            }
-            entry.chrome?.addressBar.beginSearch()
-        })
+        // Cmd-L goes through the window's focus coordinator, which also takes key back from a focused Chromium page window.
+        // Opt-Cmd-F (Chrome's Search the Web, `search`): the address bar as Cmd-L focuses it, then a default-engine search.
+        let addressBarFocuses: [(ActionID, search: Bool)] = [("focusBrowserAddressBar", false), ("browser.focusSearch", true)]
+        for (id, search) in addressBarFocuses {
+            registry.bind(id, isEnabled: { chrome() != nil }, invoke: { invocation in
+                guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
+                      let window = services.windowController(showing: pane) else { return }
+                let bar = entry.chrome?.addressBar
+                // Chromium `OmniboxViewViews::SetFocus(is_user_initiated=true)`: Cmd-L in a focused omnibar shows the full URL and
+                // selects all again. The responder stays; focusing the pane first would hand focus to the page and back.
+                if bar?.isEditing != true {
+                    window.focus.send(.focusPane(pane.paneKey, source: .intent))
+                    window.focus.send(.focusTarget(.addressBar, source: .intent))
+                } else if !search { bar?.focus() }
+                if search { bar?.beginSearch() }
+            })
+        }
     }
 }

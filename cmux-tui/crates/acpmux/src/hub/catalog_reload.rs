@@ -58,6 +58,10 @@ impl Hub {
                 .lock()
                 .unwrap()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            self.known_efforts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -90,13 +94,20 @@ impl Hub {
                 stalled_turn_ms,
                 stalled_turn_end_ms,
                 usage_warnings,
+                auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                lane_gh_broker,
+                direct_port,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
+                person_hold,
+                page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
+                capacity_fallback_after,
+                auto_resume_disk_free_bytes,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
@@ -105,6 +116,7 @@ impl Hub {
                 titles,
                 context_overrides,
                 send_relay,
+                new_relay,
                 artifacts,
                 composer_max_rows,
                 tui,
@@ -112,11 +124,14 @@ impl Hub {
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
                 artifacts_sync: _, // its sync task starts with the daemon
+                memory: _,         // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
-                websocket: _,      // the bound listener
-                transport: _,      // WireGuard and the hub carrier start with the daemon
-                mesh_relay: _,     // started at start, then owned by join and leave
+                // The bound listener, its port and token stay; the hosts and origins it admits
+                // follow the file at once (`server::configured_policy`, `acpmux web --tailnet`).
+                websocket,
+                transport: _,  // WireGuard and the hub carrier start with the daemon
+                mesh_relay: _, // started at start, then owned by join and leave
                 // The daemon's default policy is its own setter's (`_acpmux/start_mode`), not
                 // the file's: an agent can write the file.
                 permission_policy: _,
@@ -131,6 +146,10 @@ impl Hub {
                 saved: _,              // what this process last wrote (`save_merge.rs`)
                 mcp_store,
             } = next;
+            if let (Some(now), Some(next)) = (current.websocket.as_mut(), websocket) {
+                now.allowed_origins = next.allowed_origins;
+                now.allowed_hosts = next.allowed_hosts;
+            }
             current.harnesses = harnesses;
             // A profile that is new or changed back is served its disk list, if any.
             self.serve_acp_cache(&current.harnesses);
@@ -174,13 +193,25 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The next broker stream reads it (`hub_carrier_broker.rs`).
+            current.lane_gh_broker = lane_gh_broker;
+            // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
+            // restart applies a change.
+            current.direct_port = direct_port;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
             current.agent_inbox = agent_inbox;
+            // The next person's prompt to an idle chat reads it (`person_hold.rs`).
+            current.person_hold = person_hold;
+            // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            current.capacity_fallback_after = capacity_fallback_after;
+            // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
+            current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
@@ -191,6 +222,7 @@ impl Hub {
             current.titles = titles;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
             current.tui = tui;
@@ -200,6 +232,9 @@ impl Hub {
             // The next summary read warns by the new thresholds (`usage_warnings.rs`).
             *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner()) = usage_warnings.limits();
             current.usage_warnings = usage_warnings;
+            // On starts its timer below (`start_auto_evacuate`); its next tick reads the new
+            // setting, and off ends it there (`auto_evacuate.rs`).
+            current.auto_evacuate = auto_evacuate;
             let start_changed = current.default_permission_mode != default_permission_mode;
             current.default_permission_mode = default_permission_mode;
             if start_changed || harness_modes_changed {
@@ -212,6 +247,7 @@ impl Hub {
                 retained,
             )
         };
+        self.start_auto_evacuate().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
@@ -255,6 +291,8 @@ mod tests {
                 swap_mb: Some(2048),
                 tasks_max: Some(8192),
                 sessions_tasks_max: Some(131_072),
+                lanes: Some(6),
+                disk_mb: Some(8192),
                 cpu_class: Some(crate::cpu_class::CpuClass::Normal),
             },
             SessionResourceConfig::default(),
@@ -382,6 +420,7 @@ mod tests {
         changed.agent_inbox = Some(false);
         changed.hold_agent_starts_to_starter = true;
         changed.auto_resume_delays_ms = Some(vec![]);
+        changed.capacity_fallback_after = Some(0);
         changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
         changed.coderouter_claude_route = Some("claude".into());
         changed.btw.model.insert("claude".into(), "claude-haiku".into());
@@ -397,6 +436,7 @@ mod tests {
         assert_eq!(current.agent_inbox, Some(false));
         assert!(current.hold_agent_starts_to_starter);
         assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
+        assert_eq!(current.capacity_fallback_after, Some(0));
         assert_eq!(current.login_env_allow, expected.login_env_allow);
         assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
         assert_eq!(current.btw, expected.btw);

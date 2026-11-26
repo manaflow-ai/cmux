@@ -14,6 +14,7 @@ when it is not a feat-cmux-next push (the feat push that shares its key no
 longer waits to ask).
 """
 
+import json
 import os
 import stat
 import subprocess
@@ -37,6 +38,15 @@ def started(minutes):
 args = sys.argv[1:]
 url = next(a for a in args if a.startswith("http"))
 out = args[args.index("-o") + 1] if "-o" in args else None
+if "gh-events." in url:
+    # The build controller's run feed (cmux_tui_owner_feed.py): unreachable unless a test gives one.
+    if not os.environ.get("FAKE_FEED"):
+        sys.exit(22)
+    print(os.environ["FAKE_FEED"])
+    sys.exit(0)
+if "api.github.invalid" in url:
+    with open(os.environ["FAKE_LOG"], "a") as log:
+        log.write("api " + url + "\n")
 if "/actions/artifacts?name=cmux-tui-tree-feat-builder-" in url:
     if os.environ.get("FAKE_BUILDERS", "") == "fail":
         sys.exit(22)
@@ -128,7 +138,9 @@ def run_wait(owner, script=None, **fake):
         for path, body in ((os.path.join(bin_dir, "curl"), FAKE_CURL), (os.path.join(bin_dir, "sleep"), FAKE_SLEEP),
                            (os.path.join(tmp, "scripts", "ci", "cmux-tui-tree-claim.sh"), FAKE_CLAIM),
                            (os.path.join(tmp, "scripts", "ci", "cmux_tui_publisher_testing.py"),
-                            open(os.path.join(ROOT, "scripts", "ci", "cmux_tui_publisher_testing.py")).read())):
+                            open(os.path.join(ROOT, "scripts", "ci", "cmux_tui_publisher_testing.py")).read()),
+                           (os.path.join(tmp, "scripts", "ci", "cmux_tui_owner_feed.py"),
+                            open(os.path.join(ROOT, "scripts", "ci", "cmux_tui_owner_feed.py")).read())):
             with open(path, "w") as handle:
                 handle.write(body)
             os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
@@ -211,6 +223,63 @@ def check_recheck():
            f"an owner whose hand-off never ends: the wait is bounded ({out.strip()!r}, {log.count('sleep')} sleeps)")
 
 
+def feed(owner_minutes=5, attempt=1, jobs=(("build", "in_progress"),), delivery_minutes=0.0, owner="4",
+         status="in_progress", event="push", branch="feat-cmux-next"):
+    """A controller run feed (gh-events.cmux.com/v1/github/actions) holding owner run OWNER."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    stamp = lambda minutes: (now - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    runs = [{"id": int(owner), "repo": "manaflow-ai/cmux", "status": status, "event": event, "head_branch": branch,
+             "attempt": attempt, "created_at": stamp(owner_minutes + (30 if attempt > 1 else 0)),
+             "path": ".github/workflows/cmux-tui-artifacts.yml"}] if owner else []
+    return json.dumps({"repo": "manaflow-ai/cmux", "receiver_last_delivery": stamp(delivery_minutes), "runs": runs,
+                       "jobs": [{"run_id": int(owner or 0), "attempt": attempt, "name": name, "status": job_status,
+                                 "created_at": stamp(owner_minutes), "started_at": stamp(owner_minutes)}
+                                for name, job_status in jobs]})
+
+
+def check_run_feed():
+    """An owner still building is read from the build controller's run feed, not the Actions API.
+
+    cmux#48592's CDN check never matched for these: in job 137333436826 (2026-11-22) owner run
+    45059180516 was still in progress, so its tree was not on the CDN, and the job spent 3 Actions
+    reads on the routing App installation (164690637): the run twice and its jobs once. The
+    controller's webhook feed lists every active run and job with no GitHub read.
+    """
+    api = lambda log: log.count("api ")
+    recheck = recheck_step()["run"]
+    result, out, log = run_wait("4", FAKE_FEED=feed())
+    _check(result.returncode == 0 and "deferred=true" in out and "takeover=false" in out and api(log) == 0
+           and "Actions reads in this step: 0" in result.stdout,
+           f"a live owner in the feed: the waiter defers with no Actions read ({out.strip()!r}, {log.strip()!r})")
+    result, out, log = run_wait("4", script=recheck, FAKE_FEED=feed())
+    _check(result.returncode == 0 and "takeover=false" in out and api(log) == 0 and "sleep" not in log,
+           f"the re-check reads the live owner and its jobs from the feed: no Actions read ({log.strip()!r})")
+    result, out, log = run_wait("4", script=recheck, FAKE_FEED=feed(jobs=(("report an unpublished cmux-tui tree to cmux-next", "queued"),)))
+    _check(result.returncode == 0 and "takeover=false" in out and api(log) == 0 and "sleep" not in log,
+           f"a queued hand-off has not listed the markers yet: no waiting, no Actions read ({log.strip()!r})")
+    result, out, log = run_wait("4", script=recheck, FAKE_FEED=feed(jobs=(("report an unpublished cmux-tui tree to cmux-next", "in_progress"),)))
+    _check(result.returncode == 0 and "sleep" in log and api(log) == 0,
+           f"a hand-off the feed shows running: the re-check waits for the owner as before ({log.strip()!r})")
+    result, out, log = run_wait("4", script=recheck, FAKE_FEED=feed(jobs=()))
+    _check(result.returncode == 0 and "/jobs" in log and api(log) == 1,
+           f"an owner with no active job in the feed may have finished its hand-off: its jobs are read from the API ({log.strip()!r})")
+    result, out, log = run_wait("4", FAKE_FEED=feed(owner_minutes=40))
+    _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out,
+           f"the lease reads the feed's start: a stuck branch-or-feat owner is still taken over ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_FEED=feed(owner_minutes=10, attempt=2))
+    _check(result.returncode == 0 and "deferred=true" in out and api(log) == 0,
+           f"a re-run owner's start is its attempt's earliest job, not the run's creation ({out.strip()!r}, {log.strip()!r})")
+    for name, fake in (("a stale feed", feed(delivery_minutes=10)), ("an owner the feed does not list", feed(owner="")),
+                       ("a re-run with no job of its attempt", feed(attempt=2, jobs=())), ("no feed", "")):
+        result, out, log = run_wait("4", FAKE_FEED=fake)
+        _check(result.returncode == 0 and "deferred=true" in out and api(log) >= 1 and "Actions reads in this step: 1" in result.stdout,
+               f"{name}: the owner is read from the API as before ({out.strip()!r}, {log.strip()!r})")
+    result, out, log = run_wait("4", FAKE_FEED=feed(), FAKE_OWNER_STATUS="completed", FAKE_OWNER_CONCLUSION="failure")
+    _check("deferred=true" in out and api(log) == 0,
+           f"the feed is trusted for a live owner (its webhooks are seconds old) ({out.strip()!r})")
+
+
 def check_lease():
     """A live owner holds its key for a bounded lease, not until its job timeout.
 
@@ -240,9 +309,24 @@ def check_lease():
                                     REF="refs/heads/nightly-next")
         _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
                f"a nightly-next push takes over a key whose {status} owner is past its lease ({out.strip()!r})")
-    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10", REF="refs/heads/nightly-next")
+    # 2026-11-21: nightly 44834489124 failed behind lane-branch owner 44833374379, queued and 9 minutes old.
+    for event in ("push", "workflow_dispatch"):
+        for branch in ("lane/ci-linux-pickers-rest-v2", "feat-cmux-next"):
+            result, out, log = run_wait("4", FAKE_OWNER_STATUS="queued", FAKE_OWNER_MINUTES="9", FAKE_OWNER_BRANCH=branch,
+                                        REF="refs/heads/nightly-next", EVENT_NAME=event)
+            _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
+                   f"a nightly-next {event} takes over a key a live {branch} run owns, inside its lease ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10", FAKE_OWNER_BRANCH="nightly-next", REF="refs/heads/nightly-next")
     _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
-           f"a nightly-next push still defers to an owner inside its lease ({out.strip()!r})")
+           f"a nightly-next run still defers to a nightly-next owner inside its lease ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="9", FAKE_OWNER_BRANCH="lane/x", FAKE_BUILDERS="9",
+                                FAKE_BUILDER_MINUTES="5", FAKE_BUILDER_BRANCH="feat-cmux-next", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"a nightly-next run does not defer to a feat-cmux-next builder ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="9", FAKE_OWNER_BRANCH="lane/x", FAKE_BUILDERS="9",
+                                FAKE_BUILDER_MINUTES="5", FAKE_BUILDER_BRANCH="nightly-next", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=false" in out and "owner=9" in out,
+           f"a nightly-next run defers to a live nightly-next builder ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out,
            f"a stuck owner that published anyway: no build ({out.strip()!r})")
@@ -400,6 +484,7 @@ def main():
 
     check_lease()
     check_recheck()
+    check_run_feed()
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

@@ -10,10 +10,15 @@
 // font (the lane's Linux fonts are narrower than the app's), in English and in two languages with
 // long (German) and wide (Japanese) text. A frame opened alone is as wide as its viewport (the
 // gallery sizes its iframe), so the viewport is the pane.
+//
+// The German and Japanese stages must show German and Japanese: the message, the buttons and the
+// page's language. The gallery had drawn every pane entry in English whatever its `locale`, so
+// these cases had measured the English words three times (Lawrence 2026-11-21: "make the gallery
+// switch the Harnesses page's language so the German and Japanese cases measure real translated text").
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { readCatalog } from "../scripts/pages/catalog.mjs";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -27,16 +32,20 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
   /** A message may wrap, but stays a sentence: no column of single words. */
   const MAX_LINES = 3;
   const CASES = [
-    { variant: "install-network-dropped", key: "harnesses.install.networkDropped", actions: 2 },
-    { variant: "install-waiting-network", key: "harnesses.install.waitingNetwork", actions: 0 },
+    {
+      variant: "install-network-dropped",
+      key: "harnesses.install.networkDropped",
+      labels: ["harnesses.retry", "harnesses.setupGuide"],
+    },
+    { variant: "install-waiting-network", key: "harnesses.install.waitingNetwork", labels: [] },
   ];
   /** How long a stage may take to show the row's message (the play installs once the page draws). */
   const SHOWN_MS = 20_000;
 
   type Localizations = Record<string, { stringUnit?: { value?: string } }>;
-  const catalog = JSON.parse(
-    readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/Localizable.xcstrings"), "utf8"),
-  ) as { strings: Record<string, { localizations?: Localizations }> };
+  const catalog = readCatalog(path.resolve(import.meta.dir, "../src/agent-session/acpmux/Localizable.xcstrings.d")) as {
+    strings: Record<string, { localizations?: Localizations }>;
+  };
   /** The words the row shows in `locale`, as the page's catalog has them. */
   const words = (key: string, locale: string) => {
     const value = catalog.strings[key]?.localizations?.[locale]?.stringUnit?.value;
@@ -46,6 +55,7 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
 
   type Box = { left: number; right: number; top: number; bottom: number };
   type Row = {
+    lang: string;
     text: string;
     scrollWidth: number;
     clientWidth: number;
@@ -67,6 +77,7 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
       };
       const lineHeight = parseFloat(getComputedStyle(detail).lineHeight);
       return {
+        lang: document.documentElement.lang,
         text: detail.textContent ?? "",
         scrollWidth: detail.scrollWidth,
         clientWidth: detail.clientWidth,
@@ -100,18 +111,16 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
     const failures: string[] = [];
     try {
       await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: CASES[0]!.variant } });
-      for (const { variant, key, actions } of CASES)
+      for (const { variant, key, labels } of CASES)
         for (const locale of LOCALES) {
-          // The page's own table may lack a language the catalog has (the gallery then shows English).
-          const shown = [words(key, locale), words(key, "en")];
+          const shown = words(key, locale);
+          const buttons = labels.map((label) => words(label, locale));
           const page = await browser.newPage({ viewport: { width: WIDTHS[0]!, height: 900 } });
           try {
             await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, locale })}`);
             await page.waitForFunction(
-              (texts) =>
-                texts.includes(
-                  document.querySelector('[data-harness-row="opencode"] .acpmux-harness-detail')?.textContent ?? "",
-                ),
+              (text) =>
+                document.querySelector('[data-harness-row="opencode"] .acpmux-harness-detail')?.textContent === text,
               shown,
               { timeout: SHOWN_MS },
             );
@@ -123,6 +132,11 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
                 () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
               );
               const row = await measure(page);
+              if (row.lang !== locale) failures.push(`${where}: the page's language is ${JSON.stringify(row.lang)}`);
+              if (JSON.stringify(row.actions.map((action) => action.label)) !== JSON.stringify(buttons))
+                failures.push(
+                  `${where}: the buttons read ${JSON.stringify(row.actions.map((action) => action.label))}, not ${JSON.stringify(buttons)}`,
+                );
               if (row.scrollWidth > row.clientWidth + 1)
                 failures.push(
                   `${where}: "${row.text}" is cut off (${row.scrollWidth} px of text in ${row.clientWidth} px)`,
@@ -132,8 +146,6 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
                   `${where}: "${row.text}" is cut off below (${row.scrollHeight} px in ${row.clientHeight} px)`,
                 );
               if (row.lines > MAX_LINES) failures.push(`${where}: "${row.text}" takes ${row.lines} lines`);
-              if (row.actions.length !== actions)
-                failures.push(`${where}: ${row.actions.length} actions, expected ${actions}`);
               for (const action of row.actions) {
                 if (action.left < row.row.left - 0.5 || action.right > row.row.right + 0.5)
                   failures.push(`${where}: ${action.label} runs out of the row`);

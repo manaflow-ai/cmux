@@ -1,0 +1,31 @@
+// Lily Pond: see-through teal blocks over Monet's water lilies, with glass blur and a lily-pink
+// accent on Kanagawa Wave. Copy it to ~/.config/cmux/themes/lily-pond.json (yours wins over this
+// one), edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Lily Pond",
+  "description": "Teal glass blocks over Monet's water lilies, lily-pink accent.",
+
+  // Kanagawa Wave, with a deep pond-teal pane and a lily-pink accent.
+  "appearance.theme": "Kanagawa Wave",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#15262a", "foreground": "#dcd7ba", "selection": "#6d8d90", "accent": "#e898b0" },
+  "appearance.accent": "theme",
+
+  // The bundled painting behind the window, seen through blurred glass.
+  "appearance.background": "monet-water-lilies",
+  "appearance.backgroundOpacity": 1,
+  "appearance.backgroundBlur": "glass",
+  "appearance.chromeStyle": "blocks",
+
+  // Tinted teal blocks: the sidebar and tab bar let more of the pond through than the panes.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#10201f",
+  "appearance.surfaces.sidebar.opacity": 0.72,
+  "appearance.surfaces.tabBar.color": "#10201f",
+  "appearance.surfaces.tabBar.opacity": 0.72,
+  "appearance.surfaces.terminal.color": "#15262a",
+  "appearance.surfaces.terminal.opacity": 0.86,
+  "sidebar.sectionLook": "card",
+
+  "terminal.fontSize": 14
+}

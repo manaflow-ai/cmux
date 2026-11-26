@@ -22,15 +22,22 @@ interface TransportOptions {
 export type FreestyleOptions = ({
     apiKey?: string;
     identityAccessToken?: never;
+    accessToken?: never;
 } & TransportOptions) | ({
     identityAccessToken: string;
     apiKey?: never;
+    accessToken?: never;
+} & TransportOptions) | ({
+    accessToken: string;
+    apiKey?: never;
+    identityAccessToken?: never;
 } & TransportOptions) | ({
     /** Stack access token used by the CLI; resolved to `teamId` at the gateway. */
     stackAccessToken: string;
     teamId: string;
     apiKey?: never;
     identityAccessToken?: never;
+    accessToken?: never;
 } & TransportOptions);
 /** `undefined`/`null` query values are dropped; everything else is stringified. */
 export type QueryValue = string | number | boolean | undefined | null;

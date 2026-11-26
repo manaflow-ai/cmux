@@ -1,3 +1,5 @@
+import { SecurityKeysNamespace } from "./security-keys.js";
+export * from "./security-keys.js";
 import { CustomersNamespace } from "./customers.js";
 export * from "./customers.js";
 import { type FreestyleOptions } from "./client.js";
@@ -29,6 +31,7 @@ export * from "./identities.js";
  */
 export declare class Freestyle {
     private readonly client;
+    readonly securityKeys: SecurityKeysNamespace;
     readonly customers: CustomersNamespace;
     readonly vms: VmsNamespace;
     readonly vpc: VpcNamespace;

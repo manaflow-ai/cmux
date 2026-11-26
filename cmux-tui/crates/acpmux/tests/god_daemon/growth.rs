@@ -260,6 +260,7 @@ async fn growth_under_mesh_churn_and_short_clients() {
                     read_bytes: 0,
                     longest_line: 0,
                     flood: Flood::default(),
+                    batch_notes: vec![],
                 };
                 counts.clients.fetch_add(1, Ordering::Relaxed);
                 let init = r.call(
@@ -347,7 +348,7 @@ async fn growth_under_mesh_churn_and_short_clients() {
         }
         _ => 0.0,
     };
-    let heap = profile.as_deref().map(attribute);
+    let heap = profile.as_deref().map(|p| crate::dhat_sites::attribute(p, crate::dhat_top()));
     // The blocks held at the end, by whole stack: the largest few, every frame (a site's first
     // acpmux frames may all be inlined into one task's future).
     if let Some(path) = profile.as_deref()
@@ -366,7 +367,7 @@ async fn growth_under_mesh_churn_and_short_clients() {
             println!("GROWTH-STACK {n} endBytes={} endBlocks={}", pp["eb"], pp["ebk"]);
             for f in pp["fs"].as_array().into_iter().flatten() {
                 let frame = ftbl.get(f.as_u64().unwrap_or(0) as usize).copied().unwrap_or("");
-                println!("GROWTH-STACK {n}   {}", short_frame(frame));
+                println!("GROWTH-STACK {n}   {}", crate::dhat_sites::short_frame(frame));
             }
         }
     }

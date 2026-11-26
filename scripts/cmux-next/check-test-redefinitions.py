@@ -20,7 +20,7 @@ pre-push gate refuses it rather than pass a file it could not judge.
   python3 scripts/cmux-next/check-test-redefinitions.py [--root DIR] [FILE ...]
 
 The pre-push gate (prepush-gate.py, "Test redefinitions") runs it on the tests/ files a push changes, at the base and
-the head, and refuses only a redefinition the push adds. Local only, like SwiftFormat: no new CI gate.
+the head, and refuses only a redefinition the push adds. Local only, like SwiftFormat (built under the 2026-10-23 no-new-CI rule, since lifted).
 """
 from __future__ import annotations
 

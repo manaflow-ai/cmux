@@ -5,10 +5,7 @@ import UIKit
 /// Read-only text with the system's range selection: handles, an adjustable range, the edit
 /// menu's Copy, links and VoiceOver's text rotor (a `UITextView`).
 ///
-/// SwiftUI's `.textSelection(.enabled)` on iOS takes a long press for itself and selects the
-/// whole `Text` at once, with no handles, and that press then fights the row's context menu
-/// (CMUX-33). Chat text follows ChatGPT on iOS instead: a long press opens the context menu,
-/// and its Select Text opens this view, where a range can be selected and copied.
+/// The explicit Select Text command opens this view for selecting across the whole message.
 public struct SelectableTextView: UIViewRepresentable {
     public let text: String
     public let textStyle: UIFont.TextStyle

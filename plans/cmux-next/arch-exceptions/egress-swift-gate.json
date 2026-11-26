@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-24",
+  "row": "global_mutable_statics",
+  "allow": 1,
+  "why": "CmuxEgress (Packages/Shared/CmuxEgress) is the Swift half of the egress gate docs/privacy.md describes. Its one lock-guarded state (CmuxEgress.state: mode override, hosts the person named, hosts already logged, the shared gated sessions) must be process-wide: the check that catches every request and redirect hop is URLProtocol.canInit(with:), a class method URLSession calls with no instance to inject a gate into, and the mode is read from CMUX_EGRESS once per process. Passing a gate through the 64 calling files would move the same global behind a parameter. The Rust crate cmux-egress keeps the same state global.",
+  "author": "goal privacy-runtime-egress-enforced (claude opus, session a346c20e)",
+  "owner": "goal privacy-runtime-egress-enforced (session a346c20e)",
+  "receipt": "Review (claude opus subagent a5c9cf34): SHIP at 0e0d249c17f8503b0d7c746faa55797fa2fbba1a",
+  "expiry": "2026-12-24"
+}

@@ -8,7 +8,7 @@
 .acpmux-harnesses-list{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
 .acpmux-harness-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px var(--harness-gap);min-height:40px;padding:4px var(--harness-inset);border-radius:8px}
 .acpmux-harness-text{flex:1 1 160px;min-width:0;display:flex;flex-direction:column}
-.acpmux-harness-actions{flex:none;display:flex;align-items:center;gap:var(--harness-gap);margin-inline-start:auto}
+.acpmux-harness-actions{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px var(--harness-gap);margin-inline-start:auto}
 .acpmux-harness-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-harness-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-harness-detail[data-harness-detail="words"]{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;white-space:normal;overflow-wrap:break-word;text-wrap:pretty}

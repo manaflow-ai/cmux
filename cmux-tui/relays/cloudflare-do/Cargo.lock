@@ -64,6 +64,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-cloudflare-relay"
 version = "0.1.0"
 dependencies = [
@@ -82,6 +86,7 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
