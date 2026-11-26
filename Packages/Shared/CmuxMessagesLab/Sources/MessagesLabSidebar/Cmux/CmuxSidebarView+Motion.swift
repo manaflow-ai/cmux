@@ -26,10 +26,14 @@ extension CmuxSidebarView {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// The host's motion gate for movement (cmux-next: `Motion.animatesMovement`, so the
-    /// animation speed `off` and the motion settings also apply); nil: only Reduce Motion
-    /// decides. Read when a movement starts.
-    public static var movementGate: (@MainActor () -> Bool)?
+    /// The host's hooks (movement gate, tooltip); set once, before the list's first frame.
+    public static var host = CmuxSidebarHost()
+
+    /// The host's motion gate for movement: ``CmuxSidebarHost/movementGate``.
+    public static var movementGate: (@MainActor () -> Bool)? {
+        get { host.movementGate }
+        set { host.movementGate = newValue }
+    }
 
     /// Movement (the pin drag's lift, slides and landing) animates: not Reduce Motion, and the
     /// host's gate allows it. When false the change applies in one frame.

@@ -119,4 +119,27 @@ struct CmdPFindsWorkspacesTests {
         palette.model.run(row.item.primary, of: row.item)
         #expect(store.selected == ["next"])
     }
+
+    /// The footer says what Return does to which row before it runs (Leo 2026-11-22: show the outcome before the
+    /// action): a workspace's or a tab's row names it.
+    @Test func footerNamesTheRowReturnActsOn() async throws {
+        let store = Store()
+        let (palette, registry) = Self.palette(store)
+        defer { palette.closeForTest() }
+        _ = registry.perform("goToWorkspace", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settleDeferredLoads()
+        palette.model.send(.setQuery("landing"))
+        await palette.model.settle()
+        palette.model.select(rowID: "workspace:next")
+        #expect(palette.model.primaryTitle == "Switch to Workspace “cmux-next landing”")
+    }
+}
+
+/// A subtitle that only restates its row's title is dropped; one that adds a fact stays.
+struct PaletteSubtitleRestatesTests {
+    @Test(arguments: [("New Browser Tab", "Open a browser tab"), ("Settings", "Show settings"), ("cmux", "cmux")])
+    func restating(title: String, subtitle: String) { #expect(subtitle.restatesTitle(title)) }
+
+    @Test(arguments: [("New Workspace", "In ~/Projects/cmux"), ("Fix the login bug", "cmux · Agents"), ("Tab", "")])
+    func notRestating(title: String, subtitle: String) { #expect(!subtitle.restatesTitle(title)) }
 }

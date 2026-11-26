@@ -1,7 +1,9 @@
+import Foundation
 #if os(iOS)
 import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileModel
 import CmuxMobileScreenSharing
 import SwiftUI
@@ -22,6 +24,22 @@ extension TabsKitTheme {
         tabs.colors.overviewTop = TabsKitTheme.Colors.pair(0xF2F2F7, 0x1C1C1E)
         tabs.colors.overviewBottom = TabsKitTheme.Colors.pair(0xE5E5EA, 0x000000)
         tabs.colors.accent = TabsKitTheme.Colors.pair(0x1C1C1E, 0x636366)
+        // The bar under the status bar (Leo 2026-11-23: "we keep the "safari" esque thing. but we
+        // move it to the top"): the bottom is the composer's, and Back stays one tap away with
+        // the keyboard up.
+        tabs.metrics.barEdge = .top
+        #if DEBUG
+        // Gallery variants of the top bar's placement (TopBarGalleryUITests); the shipped one is `grid`.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-cmux-mobile-topbar-variant"), args.indices.contains(i + 1) {
+            switch args[i + 1] {
+            case "edge": tabs.metrics.topBarGap = 0; tabs.metrics.topSideInset = 12
+            case "airy": tabs.metrics.topBarGap = 10; tabs.metrics.topSideInset = 24
+            case "safari": tabs.metrics.topBarGap = 2; tabs.metrics.topSideInset = tabs.metrics.sideInset
+            default: break
+            }
+        }
+        #endif
         return tabs
     }
 }
@@ -30,7 +48,7 @@ extension TabsKitTheme {
 /// `AppStore.openingTab` says (the tab left on screen when it was open before in this
 /// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
-/// screen surfaces own the bottom edge). Ways back to the list: the
+/// screen surfaces own the bottom edge). Ways back to the list: the top
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
 public struct WorkspaceScreen: View {
@@ -40,6 +58,8 @@ public struct WorkspaceScreen: View {
     @State private var holder = SourceHolder()
     private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
+    /// The tab overview's columns at this page's width.
+    @State private var overviewColumnCount = 2
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
@@ -74,6 +94,16 @@ public struct WorkspaceScreen: View {
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
+            // The overview shows as many columns as the page's width fits (Rust's
+            // `overview_columns`): two on a phone, more on an unfolded screen.
+            .environment(\.tabsKitOverviewColumns, overviewColumnCount)
+            .onGeometryChange(for: Int.self) { proxy in
+                Int(overviewColumns(width: Double(proxy.size.width)))
+            } action: { columns in
+                overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
+            }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
                 if showsGrid, !source.isSelectingTabs {
@@ -93,6 +123,9 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // Its own layer: the Workspaces bar (title, Macs online, Search) never
+            // draws over it through a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -107,6 +140,7 @@ public struct WorkspaceScreen: View {
             // The grid's view stays "visible" in the background: its refresh stops here.
             // Inactive (Control Center, the app switcher's first moment) still shows it.
             .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
@@ -118,7 +152,8 @@ public struct WorkspaceScreen: View {
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
-                             start: { [source] start in source.startAgentChat(start) })
+                             start: { [source] start in source.startAgentChat(start) },
+                             macID: source.workspace?.macID ?? "")
                     .presentationDetents([.medium, .large])
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
@@ -155,8 +190,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
@@ -369,7 +403,7 @@ struct WorkspaceGridHeader: View {
                         .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()

@@ -120,7 +120,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<RawEnv, Automation
             // prove the command did not start (run.retry makes a new run).
             if (!awake.has(s.machine)) {
               // A stopped machine is started first (as the automation's creator); one that does not come up skips the run.
-              if (!(await awaitMachine(journal, machinePowerFor(this.env, p.owner, p.charged_user ?? null), s.machine, p.run))) {
+              if (!(await awaitMachine(journal, machinePowerFor(env, p.owner, p.charged_user ?? null), s.machine, p.run))) {
                 await report(`cmux:${s.type}-not-running-${i}`, { state: "skipped", step: i - 1, error: { code: "machine_not_running", message: `step ${i}: ${s.machine} is not running and did not start` } })
                 return
               }

@@ -27,6 +27,11 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     // Secondary, not tertiary: the path is text you read (4.5:1), not a 3:1 mark.
     private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let keywordHint = PaletteKeywordHintView()
+    /// The v2 look's "Esc" keycap at the field's right end (`PaletteV2Look.isOn`); a click closes the palette.
+    private let escChip = PaletteEscChipView()
+    var onEscChip: (() -> Void)? {
+        didSet { escChip.onClick = onEscChip }
+    }
     private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
     /// The text width the placeholder was last fitted to.
@@ -55,7 +60,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             self.onPopTo?(self.depth - 2)
         }
         tokens.isHidden = true
-        [magnifier, chips, breadcrumb, tokens, field, keywordHint, spinner].forEach(addSubview)
+        escChip.isHidden = true
+        [magnifier, chips, breadcrumb, tokens, field, keywordHint, escChip, spinner].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -66,8 +72,13 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     /// `chips` are the levels above the root; `rootTitle` names the root
     /// in the breadcrumb.
     func update(query: String, placeholder: String, chips scopeChips: [PaletteScopeChip], rootTitle: String,
-                style: PaletteScopeChipStyle, keywordHint hint: String?, isLoading: Bool, tokens chosen: [PaletteToken] = []) {
-        tokens.update(tokens: chosen)
+                style: PaletteScopeChipStyle, keywordHint hint: String?, isLoading: Bool,
+                tokens chosen: [(title: String, symbol: String)] = [], showsEscChip: Bool = false) {
+        tokens.update(chips: chosen)
+        if escChip.isHidden == showsEscChip {
+            escChip.isHidden = !showsEscChip
+            needsLayout = true
+        }
         if field.stringValue != query {
             field.stringValue = query
             // Keep a caret at the end instead of a selection.
@@ -109,7 +120,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             // ellipsis (#26606).
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
-            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textTertiary,
+            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textSecondary,
                                                              .paragraphStyle: style]
             field.placeholderAttributedString = NSAttributedString(
                 string: Self.fitted(placeholder, width: placeholderWidth, attributes: attributes),
@@ -158,6 +169,12 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         // and kind labels end; a spinner takes the edge only with no hint, else it sits left of the
         // hint, so the hint never moves while results load.
         var right = bounds.maxX - PaletteLayout.trailingInset
+        // The v2 look's Esc chip takes the edge; the hint and the spinner sit left of it.
+        if !escChip.isHidden {
+            let size = escChip.intrinsicContentSize
+            escChip.frame = pixelAligned(NSRect(x: right - size.width, y: (bounds.height - size.height) / 2, width: size.width, height: size.height))
+            right = escChip.frame.minX - Metrics.space4
+        }
         if !keywordHint.isHidden {
             let width = keywordHint.fittingWidth
             keywordHint.frame = pixelAligned(NSRect(x: right - width, y: 0, width: width, height: bounds.height))
@@ -195,5 +212,128 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
 
     private static func truncated(_ characters: [Character], _ count: Int) -> String {
         String(characters.prefix(count)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+}
+
+/// The v2 look's "Esc" keycap at the right end of the field (the reference's command menu): a click closes the
+/// palette. It draws the rows' keycap and changes nothing while held.
+final class PaletteEscChipView: NSView {
+    var onClick: (() -> Void)?
+    private let keys = PaletteKeycapsView()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        keys.keycaps = [PaletteStrings.escKey]
+        addSubview(keys)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(PaletteStrings.closePalette)
+        setAccessibilityIdentifier("palette.escChip")
+        themedToolTip = PaletteStrings.closePalette
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize { keys.intrinsicContentSize }
+
+    override func mouseDown(with event: NSEvent) { onClick?() }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
+    }
+
+    override func layout() {
+        super.layout()
+        keys.frame = bounds
+    }
+}
+
+/// The v2 scope bar under the field (`PaletteV2Look.scoped`): All, This Workspace and Sessions in a soft track, the
+/// chosen one a filled pill (the segmented scope bar pattern). A click, or Cmd-1 to Cmd-3, picks one.
+final class PaletteScopeBarView: NSView {
+    var onChoose: ((PaletteScopeSegment) -> Void)?
+    private var buttons: [PaletteClickView] = []
+    private var labels: [PaletteLabel] = []
+    private var selected: PaletteScopeSegment?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        for segment in PaletteScopeSegment.allCases {
+            let button = PaletteClickView()
+            let label = PaletteText.label(Typography.caption, tone: .secondary)
+            label.alignment = .center
+            label.stringValue = segment.title
+            button.addSubview(label)
+            button.onClick = { [weak self] in self?.onChoose?(segment) }
+            button.setAccessibilityElement(true)
+            button.setAccessibilityRole(.radioButton)
+            button.setAccessibilityLabel(segment.title)
+            button.setAccessibilityIdentifier("palette.scopeBar.\(segment)")
+            addSubview(button)
+            buttons.append(button)
+            labels.append(label)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.radioGroup)
+        setAccessibilityIdentifier("palette.scopeBar")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    func update(selected segment: PaletteScopeSegment) {
+        guard segment != selected else { return }
+        selected = segment
+        for (index, button) in buttons.enumerated() {
+            let isOn = index == segment.rawValue
+            button.fillsBackground = isOn
+            labels[index].tone = isOn ? .primary : .secondary
+            button.setAccessibilityValue(isOn)
+        }
+    }
+
+    /// The track: inside the field's side padding, as tall as a keycap row with room around it.
+    private var trackRect: NSRect {
+        let padding = PaletteLayout.horizontalPadding
+        let height = min(bounds.height - Metrics.space2 * 2, PaletteLayout.keycapSize + Metrics.space2 * 2)
+        let width = max(0, min(bounds.width, PaletteLayout.listWidth) - 2 * padding)
+        return NSRect(x: padding, y: (bounds.height - height) / 2, width: width, height: max(0, height))
+    }
+
+    override func layout() {
+        super.layout()
+        let track = trackRect
+        let inset = Metrics.space1
+        let count = CGFloat(max(1, buttons.count))
+        let width = (track.width - inset * 2) / count
+        for (index, button) in buttons.enumerated() {
+            button.frame = pixelAligned(NSRect(x: track.minX + inset + width * CGFloat(index), y: track.minY + inset,
+                                               width: width, height: track.height - inset * 2))
+            let label = labels[index]
+            let height = PaletteText.height(label)
+            label.frame = button.pixelAligned(NSRect(x: 0, y: (button.bounds.height - height) / 2, width: button.bounds.width, height: height))
+        }
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let track = trackRect
+        guard track.width > 0, track.height > 0 else { return }
+        performWithTheme {
+            Palette.hoverFill.setFill()
+            let radius = Metrics.buttonCornerRadius(fitting: track.size)
+            NSBezierPath(roundedRect: track, xRadius: radius, yRadius: radius).fill()
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }

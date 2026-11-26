@@ -9,7 +9,10 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   hostSelfRetrying,
+  lostRetryDelay,
   nextRetryDelay,
+  SELF_RETRY_SAID_MS,
+  troubleSinceAfterLoss,
   QUICK_RETRY_WINDOW_MS,
   quickRetry,
   offersAcpmuxRestart,
@@ -233,4 +236,49 @@ test("a handshake refused as message.too_large is told apart from every other re
   expect(hostRefusedTooLarge({ code: -32000, reason: "trust.pending" })).toBe(false);
   expect(hostRefusedTooLarge(new Error("message too large to send"))).toBe(false);
   expect(hostRefusedTooLarge(null)).toBe(false);
+});
+
+// Leo, 2026-11-23: "im getting an infinite Reconnecting... thing with claude-sr2-coord-old". A chat
+// that never opens (its attach never answers, or the daemon drops the pane right after every
+// connect) was a bare "Reconnecting…" forever: no reason, no Details, no Retry. The loop below is the
+// pane's own (App.tsx): each connect clears `failingSince`, so only the trouble clock, which a
+// connection lost within CONNECTION_STABLE_MS does not end, can bound it.
+test("a chat that never stays open stops being a bare Reconnecting… past the bound", () => {
+  const timedOut = { code: "native.timed_out" };
+  let now = 0;
+  let troubleSince: number | undefined;
+  let connectedAt = 0;
+  let delay = 250;
+  const said: boolean[] = [];
+  // A handshake that fails (the attach never answered), then a connect lost 3 s later, over and over.
+  while (now < 4 * 60_000) {
+    troubleSince ??= now; // the handshake catch
+    said.push(!hostSelfRetrying(timedOut, false, now - troubleSince));
+    now += 2_000;
+    connectedAt = now; // a connect
+    now += 3_000; // lost soon after
+    troubleSince = troubleSinceAfterLoss(troubleSince, now - connectedAt, now);
+    const lost = lostRetryDelay(delay, now - connectedAt);
+    delay = lost.next;
+    now += lost.wait;
+    said.push(!hostSelfRetrying(timedOut, false, now - troubleSince));
+  }
+  const firstSaid = said.indexOf(true);
+  expect(firstSaid).toBeGreaterThan(0);
+  // Quiet for the usual recovery, then said, and said from then on.
+  expect(said.slice(firstSaid).every(Boolean)).toBe(true);
+  expect(troubleSince).toBe(0);
+});
+
+test("the usual recovery stays quiet, and a connection that stayed up starts the trouble over", () => {
+  const lostLink = new Error("Couldn't connect to the agent.");
+  expect(hostSelfRetrying(lostLink, false, 0)).toBe(true);
+  expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS - 1)).toBe(true);
+  expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS)).toBe(false);
+  // A refusal that waits on the person is said at once, bound or not.
+  expect(hostSelfRetrying({ code: "host_unavailable" }, false, 0)).toBe(false);
+  // Lost after a minute up: a new trouble, starting now; lost after a second: the old one goes on.
+  expect(troubleSinceAfterLoss(5_000, 60_000, 200_000)).toBe(200_000);
+  expect(troubleSinceAfterLoss(5_000, 1_000, 200_000)).toBe(5_000);
+  expect(troubleSinceAfterLoss(undefined, 1_000, 200_000)).toBe(200_000);
 });

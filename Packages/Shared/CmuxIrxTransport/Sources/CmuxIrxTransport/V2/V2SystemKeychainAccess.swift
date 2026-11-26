@@ -1,7 +1,12 @@
+#if canImport(Security)
 public import Foundation
 import Security
 
 /// The production Security.framework implementation of ``V2KeychainAccess``.
+///
+/// No call shows UI: each runs inside ``KeychainUserInteraction/withoutUI(_:)`` (the macOS file
+/// Keychain), and a data-protection query carries a no-prompt context. A call that would ask throws
+/// `errSecInteractionNotAllowed` instead.
 public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
     private static let migrationMarker = "cmux.v2.keychain.migration-complete"
 
@@ -33,7 +38,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = KeychainUserInteraction.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return false }
         guard status == errSecSuccess, let attributes = result as? NSDictionary else {
             throw V2KeychainAccessError.status(status)
@@ -48,15 +53,17 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         accessGroup: String?,
         dataProtection: Bool
     ) throws {
-        let status = SecItemUpdate(
-            baseQuery(
-                service: service,
-                account: account,
-                accessGroup: accessGroup,
-                dataProtection: dataProtection
-            ) as CFDictionary,
-            [kSecAttrComment as String: Self.migrationMarker] as CFDictionary
-        )
+        let status = KeychainUserInteraction.withoutUI {
+            SecItemUpdate(
+                baseQuery(
+                    service: service,
+                    account: account,
+                    accessGroup: accessGroup,
+                    dataProtection: dataProtection
+                ) as CFDictionary,
+                [kSecAttrComment as String: Self.migrationMarker] as CFDictionary
+            )
+        }
         guard status == errSecSuccess else { throw V2KeychainAccessError.status(status) }
     }
 
@@ -76,7 +83,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = KeychainUserInteraction.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else {
             throw V2KeychainAccessError.status(status)
@@ -100,7 +107,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         )
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
+        let status = KeychainUserInteraction.withoutUI { SecItemAdd(query as CFDictionary, nil) }
         if status == errSecDuplicateItem { throw V2KeychainAccessError.duplicate }
         guard status == errSecSuccess else { throw V2KeychainAccessError.status(status) }
     }
@@ -112,14 +119,16 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         accessGroup: String?,
         dataProtection: Bool
     ) throws {
-        let status = SecItemDelete(
-            baseQuery(
-                service: service,
-                account: account,
-                accessGroup: accessGroup,
-                dataProtection: dataProtection
-            ) as CFDictionary
-        )
+        let status = KeychainUserInteraction.withoutUI {
+            SecItemDelete(
+                baseQuery(
+                    service: service,
+                    account: account,
+                    accessGroup: accessGroup,
+                    dataProtection: dataProtection
+                ) as CFDictionary
+            )
+        }
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw V2KeychainAccessError.status(status)
         }
@@ -140,6 +149,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
             kSecUseDataProtectionKeychain as String: dataProtection,
         ]
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
-        return query
+        return dataProtection ? KeychainNoPromptContext.applied(to: query) : query
     }
 }
+#endif

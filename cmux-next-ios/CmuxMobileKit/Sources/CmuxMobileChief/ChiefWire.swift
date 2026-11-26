@@ -127,7 +127,10 @@ struct ChiefWire {
             mentions: tabled?.mentions ?? styled.mentions,
             textRuns: tabled?.runs ?? styled.runs,
             links: tabled?.links ?? styled.links,
-            tables: tabled?.tables ?? []
+            tables: tabled?.tables ?? [],
+            // A reply's quote says their words, never their Markdown (a table by its
+            // titles, pictures counted); my own text quotes as typed.
+            previewText: mine ? nil : plainPreview(shown)
         )
     }
 

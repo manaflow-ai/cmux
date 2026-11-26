@@ -597,7 +597,7 @@ pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> 
         Some(part) => {
             let text = format!("{note}\n\n{}", part.text.as_deref().unwrap_or_default());
             part.tokens = estimated_tokens(&text);
-            part.text = Some(text);
+            part.text = Some(text.into());
         }
         None => parts.push(ContextPart {
             id: format!("{SOURCE}-moved"),
@@ -609,7 +609,7 @@ pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> 
             measurement: "estimated".into(),
             source_bytes: None,
             channel: Some("user-context".into()),
-            text: Some(note),
+            text: Some(note.into()),
         }),
     }
     parts
@@ -652,7 +652,7 @@ pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(bytes),
         channel: Some("user-context".into()),
-        text: Some(text),
+        text: Some(text.into()),
     })
 }
 
@@ -686,6 +686,32 @@ mod tests {
         assert!(part("codex", dir.path()).is_none());
         let dir = folder(&[(".claude/CLAUDE.md", "c"), ("AGENTS.md", "a")]);
         assert!(part("claude", dir.path()).is_none());
+    }
+
+    #[test]
+    fn a_cached_claude_folder_does_not_build_a_folder_context_block() {
+        let dir = folder(&[
+            ("AGENTS.md", "duplicate system prompt"),
+            (
+                ".claude/CLAUDE.md",
+                "Your instructions are your system prompt. This folder's AGENTS.md holds the same text for other harnesses.\n",
+            ),
+        ]);
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": "acpmux.session.v1", "id": "s", "name": "s", "harness": "claude",
+            "cwd": dir.path(), "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        let parts =
+            crate::context_inventory::snapshot_session(&meta, &crate::config::Config::default());
+        let mut blocks = Vec::new();
+        crate::context_inventory::append_snapshot(Some(&parts), &mut blocks);
+        let text: Vec<&str> = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+        assert!(
+            text.iter().all(|t| !t.starts_with("<cmux-folder-context>")),
+            "the cached preset must not receive a duplicate folder block: {text:?}"
+        );
+        assert!(!text.iter().any(|t| t.contains("duplicate system prompt")));
     }
 
     #[test]

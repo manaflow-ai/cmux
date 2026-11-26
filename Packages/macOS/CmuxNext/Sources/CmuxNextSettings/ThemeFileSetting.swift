@@ -3,7 +3,7 @@ import CmuxNextCompat
 public import Foundation
 
 /// `appearance.themeFile` in cmux-next.json: the theme file whose look applies, by name. A theme file
-/// is `~/.config/cmux/themes/<name>.json` (beside cmux-next.json): a partial overlay of the look
+/// is `~/.config/cmux-next/themes/<name>.json` (beside cmux-next.json): a partial overlay of the look
 /// settings (`ThemeFileOverlay`), so a person rices the whole app from a dotfile with no build.
 /// Unset (the default) applies none, so nothing changes until a person picks one.
 public nonisolated struct ThemeFileSetting: Sendable {
@@ -90,8 +90,11 @@ extension SettingsController {
     /// A palette row's values: for `appearance.themeFile` None and every file in the themes folder
     /// (as the last load read it, so hovering one previews it with no disk read); for any other
     /// setting its kind's values (`SettingDescriptor.paletteOptions`).
-    public func paletteOptions(_ descriptor: SettingDescriptor, current: JSONValue?, themeColors: [ThemeRGB]) -> [SettingOption] {
-        guard descriptor.path == ThemeFileSetting.configPath else { return descriptor.paletteOptions(current: current, themeColors: themeColors) }
+    public func paletteOptions(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue? = nil,
+                               themeColors: [ThemeRGB]) -> [SettingOption] {
+        guard descriptor.path == ThemeFileSetting.configPath else {
+            return descriptor.paletteOptions(current: current, inherited: inherited, themeColors: themeColors)
+        }
         let names = themeFileSources.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         return [SettingOption(value: nil, title: descriptor.defaultLabel ?? "", isCurrent: current == nil)]
             + names.map { SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0) }

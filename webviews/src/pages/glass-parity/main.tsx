@@ -50,7 +50,9 @@ export type ParityCell = {
 /** The menu row's box in the menu (CSS px) and its corner: the native row's (GlassParityPlayground.menuRow). */
 export type ParityRowBox = { left: number; top: number; width: number; height: number; radius: number };
 
-export type ParityLayout = { mode: "host" | "css"; cells: ParityCell[]; menu_row?: ParityRowBox };
+/** How the text is rasterized (GlassParityPlayground.TextRendering); `smooth` lets the page smooth its text. */
+export type ParityText = "standard" | "flat" | "smooth";
+export type ParityLayout = { mode: "host" | "css"; text?: ParityText; cells: ParityCell[]; menu_row?: ParityRowBox };
 
 export const GlassParityOps = {
   layout: "cmux.glass_parity.layout",
@@ -80,7 +82,7 @@ export const PARITY_CLASS: Record<ParityKind, string> = {
   menu: "ui-popup ui-menu ui-glass",
   popover: "ui-popup ui-glass ui-popover",
   card: "ui-tooltip ui-card ui-glass",
-  tooltip: "ui-tooltip",
+  tooltip: "ui-tooltip ui-glass",
   dialog: "ui-dialog ui-glass ui-glass-floats",
   toast: "ui-notice ui-glass",
   // Docked glass: the root level of .ui-glass (glass.css: panes, bars, rails).
@@ -116,6 +118,8 @@ export function paritySurface(
 ): HTMLElement {
   const surface = doc.createElement("div");
   surface.className = `glass-parity-surface ${PARITY_CLASS[cell.kind]}`;
+  // A picture of a surface for the parity grid, never an open popup (ui/popupSettle.ts).
+  surface.dataset.popupSettle = "own";
   surface.dataset.parityId = cell.id;
   surface.dataset.parityKind = cell.kind;
   if (mode === "host") {
@@ -154,6 +158,7 @@ export function paritySurface(
  * mode. Returns its stop. */
 export function renderParity(doc: Document, root: HTMLElement, layout: ParityLayout, client: PageClient | null) {
   root.replaceChildren(...layout.cells.map((cell) => paritySurface(doc, cell, layout.mode, layout.menu_row)));
+  doc.documentElement.dataset.parityText = layout.text ?? "standard";
   if (layout.mode !== "host" || !client) return () => undefined;
   // This page asks for the App's glass in either engine (the agent pane keeps it to Chromium).
   doc.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
