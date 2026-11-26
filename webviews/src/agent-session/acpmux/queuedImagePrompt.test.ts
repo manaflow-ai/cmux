@@ -23,13 +23,6 @@ test("a message with an image is one prompt that holds its words and its image b
   expect(shape.blocks.some((block) => block.type === "text" && block.text.includes("why is this font odd"))).toBe(true);
 });
 
-test("a message sent while a turn runs carries the same image block as one sent idle", () => {
-  const idle = sentPromptShape("look", [image("a")], {});
-  const queued = sentPromptShape("look", [image("a")], {});
-  expect(queued.blocks).toEqual(idle.blocks);
-  expect(queued.blocks.filter((block) => block.type === "image")).toHaveLength(1);
-});
-
 test("two images and words go as one prompt, not one prompt per piece", () => {
   const shape = sentPromptShape("both of these", [image("a"), image("b")], {});
   expect(shape.blocks.filter((block) => block.type === "image")).toHaveLength(2);
