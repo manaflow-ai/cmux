@@ -267,6 +267,8 @@ public struct CloudGitHubPicker {
         let status = Status(app, reposScope: scope, reauthDetail: detail)
         // A completion the API refused is the last word on a team that is still not connected: say so where Connect is.
         if case .notConnected = status, let refusal = auth.gitHubChanges.refusal { return .linkRefused(reason: refusal.reason) }
+        // An organization's owners were asked to install the App: say so until it is approved (the status turns ready).
+        if case .requested(let asked) = auth.gitHubChanges.phase, status == .notConnected || status == .linking { return .requested(owner: asked) }
         return status
     }
 
@@ -284,6 +286,9 @@ public struct CloudGitHubPicker {
         case error
         /// The last completion the API refused (an expired state, a non-owner's request); `reason` is the API's, if any.
         case linkRefused(reason: String?)
+        /// The person asked an organization's owners to install the App (GitHub's `setup_action=request`); `owner` is the
+        /// organization when known. Connected once an owner approves.
+        case requested(owner: String?)
         case unavailable(Unavailable)
 
         /// The status route's answer for a signed-in person.
@@ -303,7 +308,7 @@ public struct CloudGitHubPicker {
         public var state: String {
             switch self {
             case .ready: "ready"
-            case .notConnected, .needsReauth, .linking, .error, .linkRefused: "not_connected"
+            case .notConnected, .needsReauth, .linking, .error, .linkRefused, .requested: "not_connected"
             case .unavailable: "unavailable"
             }
         }
@@ -315,6 +320,7 @@ public struct CloudGitHubPicker {
             case .linking: "linking"
             case .error: "error"
             case .linkRefused: "link_refused"
+            case .requested: "requested"
             case .ready, .notConnected, .unavailable: nil
             }
         }
@@ -405,13 +411,17 @@ public struct CloudGitHubPicker {
     /// settings page can never add an organization's repository, nor does GitHub's save there carry a state to finish
     /// anything with), so the API is asked for it: an active connection that covers it answers ``Connect/connected``,
     /// and an owner with the App installed answers GitHub's authorize page, whose redirect the app finishes (#55104).
-    public func connect(repo: String? = nil) async -> Connect {
+    ///
+    /// `addAccount`: the picker's Add organization. A connected team gets GitHub's install page too (its account chooser
+    /// lists the organizations the App is not on yet), as a new connection beside the first, instead of the first one's
+    /// settings page.
+    public func connect(repo: String? = nil, addAccount: Bool = false) async -> Connect {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         auth.gitHubChanges.forgetRefusal() // a new Connect starts over: the last refused link no longer applies
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
               let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
-        if let known = Self.connectFromStatus(status: status.status, body: status.body, repo: repo) { return known }
+        if !addAccount || repo != nil, let known = Self.connectFromStatus(status: status.status, body: status.body, repo: repo) { return known }
         let client = owner.client
         if auth.gitHubChanges.count != connects.seenChanges { connects.forgetPages(); connects.seenChanges = auth.gitHubChanges.count }
         if let repo {

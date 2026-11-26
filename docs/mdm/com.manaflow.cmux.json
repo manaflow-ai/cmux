@@ -719,7 +719,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Compacts an idle Claude chat while its cache is warm, so the next message costs less.",
       "title" : "Compact Before the Cache Expires",
       "type" : "boolean"
@@ -830,6 +830,18 @@
       "title" : "Add Message Relay to Claude Code",
       "type" : "boolean"
     },
+    "agents.claudeOutputStyle" : {
+      "default" : "agent",
+      "description" : "The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting.",
+      "enum" : [
+        "agent",
+        "default",
+        "Explanatory",
+        "Learning"
+      ],
+      "title" : "Claude Code Response Style",
+      "type" : "string"
+    },
     "agents.cmuxMcp" : {
       "default" : "on",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
@@ -852,8 +864,20 @@
       "title" : "Use in Codex",
       "type" : "boolean"
     },
+    "agents.codexPersonality" : {
+      "default" : "agent",
+      "description" : "The personality new Codex chats use. Agent’s Own keeps Codex’s setting.",
+      "enum" : [
+        "agent",
+        "pragmatic",
+        "friendly",
+        "none"
+      ],
+      "title" : "Codex Personality",
+      "type" : "string"
+    },
     "agents.coldWake.compact" : {
-      "default" : true,
+      "default" : false,
       "description" : "A large chat whose cache expired is compacted before batched messages arrive.",
       "title" : "Compact Cold Chats Before Waking",
       "type" : "boolean"
@@ -867,10 +891,20 @@
       "type" : "number"
     },
     "agents.coldWake.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.",
       "title" : "Batch Wakes of Cold Chats",
       "type" : "boolean"
+    },
+    "agents.commitAttribution" : {
+      "default" : "agent",
+      "description" : "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting.",
+      "enum" : [
+        "agent",
+        "strip"
+      ],
+      "title" : "Co-Author Line on Commits and PRs",
+      "type" : "string"
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
@@ -1181,6 +1215,12 @@
       "default" : false,
       "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
       "title" : "React to Agents",
+      "type" : "boolean"
+    },
+    "appearance.agentSignature" : {
+      "default" : false,
+      "description" : "Give each agent a small dot glyph made from its session, on sidebar rows and the running line.",
+      "title" : "Agent Dot Signatures",
       "type" : "boolean"
     },
     "appearance.appFont" : {
@@ -4365,6 +4405,12 @@
       "default" : false,
       "description" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts.",
       "title" : "App Font in Native Chrome",
+      "type" : "boolean"
+    },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
       "type" : "boolean"
     },
     "experiments.attachmentTypeIcons" : {

@@ -1775,7 +1775,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Compacts an idle Claude chat while its cache is warm, so the next message costs less.</string>
 			<key>pfm_name</key>
@@ -1819,7 +1819,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.</string>
 			<key>pfm_name</key>
@@ -1831,7 +1831,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A large chat whose cache expired is compacted before batched messages arrive.</string>
 			<key>pfm_name</key>
@@ -5195,6 +5195,18 @@
 			<string>focusRing.showWhenSinglePane</string>
 			<key>pfm_title</key>
 			<string>Show With One Pane</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Give each agent a small dot glyph made from its session, on sidebar rows and the running line.</string>
+			<key>pfm_name</key>
+			<string>appearance.agentSignature</string>
+			<key>pfm_title</key>
+			<string>Agent Dot Signatures</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12279,6 +12291,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>The App Store gets a Features tab where built-in features turn on and off.</string>
+			<key>pfm_name</key>
+			<string>experiments.appStoreFeatures</string>
+			<key>pfm_title</key>
+			<string>App Store Features</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Inbox shows your GitHub notifications</string>
 			<key>pfm_name</key>
 			<string>feed.github.enabled</string>
@@ -12695,6 +12719,61 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Prompt Cache</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent</string>
+			<key>pfm_description</key>
+			<string>The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting.</string>
+			<key>pfm_name</key>
+			<string>agents.claudeOutputStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent</string>
+				<string>default</string>
+				<string>Explanatory</string>
+				<string>Learning</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Claude Code Response Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent</string>
+			<key>pfm_description</key>
+			<string>The personality new Codex chats use. Agent’s Own keeps Codex’s setting.</string>
+			<key>pfm_name</key>
+			<string>agents.codexPersonality</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent</string>
+				<string>pragmatic</string>
+				<string>friendly</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Codex Personality</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent</string>
+			<key>pfm_description</key>
+			<string>Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting.</string>
+			<key>pfm_name</key>
+			<string>agents.commitAttribution</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent</string>
+				<string>strip</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Co-Author Line on Commits and PRs</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

@@ -101,12 +101,15 @@ agents.chats.roots
 agents.chats.sessionRecap
 agents.chats.terminalChatWritable
 agents.claudeCodeInboxRelay
+agents.claudeOutputStyle
 agents.cmuxMcp
 agents.cmuxMcpClaude
 agents.cmuxMcpCodex
+agents.codexPersonality
 agents.coldWake.compact
 agents.coldWake.compactAboveTokens
 agents.coldWake.enabled
+agents.commitAttribution
 agents.defaultPermissionMode
 agents.guidance.claude
 agents.guidance.codex
@@ -145,6 +148,7 @@ app.warnBeforeClosingTab
 app.warnBeforeQuitShortcut
 appearance.accent
 appearance.agentGlow
+appearance.agentSignature
 appearance.appFont
 appearance.appTheme
 appearance.backdropArt
@@ -466,6 +470,7 @@ editor.wordWrapColumn
 experiments.agentBadges
 experiments.agentBadgesBeam
 experiments.appFontChrome
+experiments.appStoreFeatures
 experiments.attachmentTypeIcons
 experiments.browserProfileCard
 experiments.chatWidgets
