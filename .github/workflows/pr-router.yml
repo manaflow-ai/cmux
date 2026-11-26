@@ -227,7 +227,7 @@ jobs:
   pipeline-fail-fast:
     name: head fail-fast after pr pipeline
     needs: pipeline
-    if: ${{ failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ready-to-land' && !(github.event.action == 'labeled' && github.event.label.name == 'full-ci')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: pr-router.yml

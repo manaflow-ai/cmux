@@ -98,6 +98,9 @@ jobs:
             /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
+            /scripts/ci/detect_linux_guard_changes.py
+            /scripts/ci/workflow_guard_groups.py
+            /scripts/ci/workload_entrypoints.py
             /scripts/ci/fast-check-inputs.json
 
       - name: "Pool mirror: checkout the merge ref"
@@ -709,7 +712,7 @@ jobs:
   fast-gates-fail-fast:
     name: head fail-fast after fast gates
     needs: fast-gates
-    if: ${{ failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.fast-gates.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next-fast-gates.yml

@@ -64,6 +64,13 @@ GUARDED: dict[str, tuple[str, ...]] = {
         "rust-workspaces.yml", "cmux-tui-spec.yml")},
 }
 
+# Labels of a GUARDED workflow that start a run only when added, not removed, and why.
+LABELED_ONLY: dict[str, tuple[str, ...]] = {
+    # cmux#55766: a lane VM's broker cannot set ready-to-land but can add full-ci, so an added full-ci is the land
+    # tier's handoff too (tests/test_head_tier.py); removing it re-routes nothing.
+    "pr-router.yml": ("full-ci",),
+}
+
 # GUARDED workflows whose label events arrive as pull_request_target.
 TARGET_EVENT: set[str] = {"merge-freeze.yml", "backend-migrations.yml"}
 
@@ -88,12 +95,15 @@ REACTS: dict[str, str] = {
 }
 
 
-def guard(labels: tuple[str, ...], event: str = "pull_request") -> str:
-    """The job-level condition: false only for a label event of a label not in `labels`."""
+def guard(labels: tuple[str, ...], event: str = "pull_request", labeled_only: tuple[str, ...] = ()) -> str:
+    """The job-level condition: false only for a label event of a label not in `labels`, or for the removal of
+    a label in `labeled_only`."""
     if len(labels) == 1:
         other = f"github.event.label.name != '{labels[0]}'"
     else:
         other = f"!contains(fromJSON('{json.dumps(list(labels), separators=(',', ':'))}'), github.event.label.name)"
+    for label in labeled_only:
+        other += f" && !(github.event.action == 'labeled' && github.event.label.name == '{label}')"
     return (f"!(github.event_name == '{event}' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
             "(github.event.action == 'labeled' || "
             f"github.event.action == 'unlabeled') && {other})")
@@ -170,6 +180,11 @@ def main() -> int:
                         "or say why in REACTS")
     for name in sorted((set(GUARDED) | set(REACTS)) - found):
         failures.append(f"{name} is listed here but no longer triggers on labels: drop the entry")
+    for name in sorted(set(LABELED_ONLY) - set(GUARDED)):
+        failures.append(f"{name} is in LABELED_ONLY but not GUARDED")
+    for name, added in sorted(LABELED_ONLY.items()):
+        failures.extend(f"{name}: LABELED_ONLY {label} is also in GUARDED, which starts a run on its removal"
+                        for label in added if label in GUARDED.get(name, ()))
     for name in sorted(set(GUARDED) & set(REACTS)):
         failures.append(f"{name} is in both GUARDED and REACTS")
 
@@ -179,7 +194,8 @@ def main() -> int:
             continue
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
         event_name = "pull_request_target" if name in TARGET_EVENT else "pull_request"
-        expected = guard(labels, event_name)
+        added_only = LABELED_ONLY.get(name, ())
+        expected = guard(labels, event_name, added_only)
         isolated = f"{expected[2:-1]} && format('-label-{{0}}', github.run_id)"
         for job, body in (doc.get("jobs") or {}).items():
             condition = str((body or {}).get("if") or "")
@@ -213,7 +229,10 @@ def main() -> int:
             # Other bases keep re-running: main's required checks must not be superseded by a skip.
             ({"event_name": event_name, "action": "labeled", "label": "risk:high", "base": "main"}, True),
         ] + [({"event_name": event_name, "action": action, "label": label}, True)
-             for label in labels for action in ("labeled", "unlabeled")]
+             for label in labels for action in ("labeled", "unlabeled")] + [
+            case for label in added_only for case in (
+                ({"event_name": event_name, "action": "labeled", "label": label}, True),
+                ({"event_name": event_name, "action": "unlabeled", "label": label}, False))]
         for event, want in cases:
             if evaluate(expected, event) is not want:
                 failures.append(f"{name}: guard gives {not want} for {event}, want {want}")
