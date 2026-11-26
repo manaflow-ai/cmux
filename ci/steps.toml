@@ -171,14 +171,23 @@ ln -sf "$zig_bin" "$CI_TOOLS/bin/zig"
 
 # Valgrind for the instruction-count step (Callgrind). A host valgrind is used as is; otherwise the distribution's
 # package is fetched with `apt-get download` (no root: apt checks it against the signed index) and unpacked into
-# $CI_TOOLS, with a wrapper that points it at its own tool directory.
+# $CI_TOOLS, with a wrapper that points it at its own tool directory. A runner whose apt index lacks the package (a
+# hosted image ships its lists pruned: "Can't select candidate version from package valgrind") gets a job-local index
+# fetched into $CI_TOOLS/apt, still signature-checked, still without root.
 valgrind = '''
 if command -v valgrind >/dev/null 2>&1; then
   valgrind --version
   exit 0
 fi
 mkdir -p "$CI_TOOLS/valgrind-deb" "$CI_TOOLS/bin"
-(cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind)
+if ! (cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind); then
+  apt_dir="$CI_TOOLS/apt"
+  mkdir -p "$apt_dir/lists/partial" "$apt_dir/cache/archives/partial"
+  apt_opts=(-o "Dir::State::Lists=$apt_dir/lists" -o "Dir::Cache=$apt_dir/cache" -o Debug::NoLocking=1)
+  echo "the host apt index has no valgrind; fetching a job-local index into $apt_dir"
+  apt-get "${apt_opts[@]}" -o Acquire::Retries=3 update -qq
+  (cd "$CI_TOOLS/valgrind-deb" && apt-get "${apt_opts[@]}" download valgrind)
+fi
 dpkg -x "$CI_TOOLS"/valgrind-deb/valgrind_*.deb "$CI_TOOLS/valgrind-root"
 lib="$(dirname "$(find "$CI_TOOLS/valgrind-root" -name 'callgrind-*-linux' | head -n 1)")"
 [ -d "$lib" ] || { echo "the valgrind package holds no callgrind"; exit 1; }
@@ -1881,7 +1890,11 @@ job = "linux"
 timeout = 120
 title = "Phone connection notices"
 about = "a phone connection state waits QuietStatusGate's 10 s or carries an action (check-connection-notices.py)"
-inputs = ["cmux-next-ios/**", "scripts/cmux-next/check-connection-notices.py"]
+# Every surface the detector judges (its SURFACES, the bound's schema, its allowlist): a web or Mac change that adds an
+# offender fails on its own PR, not on the next phone PR (GitHubConnectCard.tsx from #56129 reddened every iOS PR).
+inputs = ["cmux-next-ios/**", "webviews/src/**", "Packages/macOS/CmuxNext/Sources/**", "Packages/iOS/**",
+          "schemas/notice-timing/**", "scripts/cmux-next/check-connection-notices.py",
+          "scripts/cmux-next/connection-notices-allowlist.tsv"]
 ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
           "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
 run = '''
