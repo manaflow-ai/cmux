@@ -267,10 +267,12 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         .and_then(|s| s.get("cwd").and_then(Value::as_str))
         .unwrap_or("")
         .to_owned();
+    let wait = crate::capacity_wait::of_row(app.selected_session());
     let Some(t) = app.transcripts.get_mut(&id) else {
         buf.set_stringn(inner.x, inner.y, "loading…", inner.width as usize, c.dim());
         return;
     };
+    crate::capacity_wait::sync(t, wait);
     if t.items.is_empty() && t.status != "running" {
         let project = project_label(&cwd);
         let headline = if project.is_empty() {
@@ -300,7 +302,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     }
     let empty = std::collections::HashSet::new();
     let toggled = app.toggled.get(&id).unwrap_or(&empty);
-    if let Some(changed) = app.transcript_cache.update(
+    let changed_rows = app.transcript_cache.update(
         &id,
         t,
         inner.width as usize,
@@ -308,7 +310,8 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         app.show_system,
         toggled,
         &c,
-    ) {
+    );
+    if let Some(changed) = changed_rows {
         app.rows_cache.truncate(changed);
         app.row_meta.truncate(changed);
         app.rows_cache.extend(app.transcript_cache.rows[changed..].iter().map(|r| r.text.clone()));
@@ -328,6 +331,22 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         // below the final item; moving the text under the pointer is worse.
         vp.offset = anchor_row.saturating_sub(screen_row);
         vp.follow = false;
+    }
+    if let Some(find) = app.find.as_mut() {
+        if find.session != id {
+            find.session = id.clone();
+            find.matches.clear();
+            find.stale = true;
+        }
+        if find.stale || changed_rows.is_some() {
+            find.refresh(&app.rows_cache, vp.offset);
+        }
+        if std::mem::take(&mut find.reveal)
+            && let Some(o) = find.reveal_offset(vp.offset, inner.height as usize, rows.len())
+        {
+            vp.offset = o;
+            vp.follow = false;
+        }
     }
     vp.hover = hover.map(|(hx, hy)| vp.track_contains(hx, hy)).unwrap_or(false);
     let offset = vp.offset;
@@ -380,6 +399,23 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
                 href,
             });
         }
+        if let Some(find) = &app.find {
+            // Every match is marked; the current one is drawn reversed, as the GUI rings it.
+            let from = find.matches.partition_point(|m| m.row < i);
+            for (k, m) in find.matches.iter().enumerate().skip(from).take_while(|(_, m)| m.row == i)
+            {
+                let style = if k == find.current {
+                    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                } else {
+                    Style::default().bg(c.selection_bg).add_modifier(Modifier::UNDERLINED)
+                };
+                for x in m.start..m.end.min(inner.width as usize) {
+                    if let Some(cell) = buf.cell_mut((inner.x + x as u16, y)) {
+                        cell.set_style(cell.style().patch(style));
+                    }
+                }
+            }
+        }
         if let Some(s) = &sel
             && let Some((c0, c1)) = s.cols_on_row(i, &row.text)
         {
@@ -401,6 +437,9 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             vp.thumb_state(),
         );
     }
+    if let Some(find) = &app.find {
+        draw_find_bar(buf, inner, find, &c);
+    }
     let below = vp.rows_below();
     if below > 0 {
         let tag = format!(" ↓ {below} more · End ");
@@ -411,6 +450,41 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             &tag,
             w as usize,
             c.status_active(),
+        );
+    }
+}
+
+/// The find bar, top right over the transcript like the GUI's: "Find  query▏  3 of 12  esc".
+fn draw_find_bar(buf: &mut Buffer, inner: Rect, find: &crate::chat_find::Find, c: &Chrome) {
+    let count = find.count_label();
+    let tail = if count.is_empty() { "  esc ".to_owned() } else { format!("  {count}  esc ") };
+    let room = (inner.width as usize).saturating_sub(tail.width() + 8);
+    let query: String = {
+        // Keep the end of a long query, where the typing is.
+        let mut w = 0;
+        let mut kept: Vec<char> = Vec::new();
+        for ch in find.query.chars().rev() {
+            w += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if w > room {
+                break;
+            }
+            kept.push(ch);
+        }
+        kept.into_iter().rev().collect()
+    };
+    let head = format!(" Find  {query}▏");
+    let w = (head.width() + tail.width()).min(inner.width as usize) as u16;
+    let x = inner.x + inner.width.saturating_sub(w);
+    let style = c.status_active();
+    buf.set_stringn(x, inner.y, &head, w as usize, style);
+    let hw = head.width() as u16;
+    if hw < w {
+        buf.set_stringn(
+            x + hw,
+            inner.y,
+            &tail,
+            (w - hw) as usize,
+            style.add_modifier(Modifier::DIM),
         );
     }
 }

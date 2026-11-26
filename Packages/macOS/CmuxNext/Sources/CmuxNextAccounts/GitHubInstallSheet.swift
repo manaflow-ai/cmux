@@ -1,7 +1,7 @@
 import CmuxNextBrowser
-import CmuxNextCloud
+package import CmuxNextCloud
 import CmuxNextPages
-import CmuxNextPopups
+package import CmuxNextPopups
 import Foundation
 
 /// Connect GitHub's pages (the App's install page, its account chooser, an installation's settings, GitHub's authorize
@@ -11,7 +11,8 @@ import Foundation
 /// said "this app wants to reopen in" but you're already in the app. so it shouldnt say shit" and "like cant we own
 /// more of this end of the flow?" The rules are ``CloudGitHubCompletion``'s (`opensInApp`, `endsInApp`, `nextInApp`).
 @MainActor
-package enum GitHubInstallSheet {
+package struct GitHubInstallSheet {
+    package init() {}
     /// The app's sign-in panel at launch: other apps' sign-ins (installed as the system's session handler when the build
     /// serves them) and the app's own Connect GitHub (every ``LinkRouter/openGitHubConnect(_:)`` link, and GitHub's return
     /// in a WebKit tab, ``BrowserExternalApps/ownReturn``). Returns the handler, which the app keeps.

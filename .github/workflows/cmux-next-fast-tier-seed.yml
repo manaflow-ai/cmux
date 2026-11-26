@@ -78,6 +78,7 @@ jobs:
             scripts/cmux-next/fast-tier-seed-due.py
             scripts/cmux-next/fast-tier-cache-key.sh
             scripts/ci/r2_cache_census.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check each pool's newest seed's age
@@ -161,6 +162,44 @@ jobs:
           bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/ci/zig-tarball-r2.sh seed "$RUNNER_TEMP/cmux-zig-tarballs"
 
+  # The pinned Node, Bun and Rust, for Freestyle runners: their setup-node, setup-bun and rustup installs
+  # read nodejs.org, github.com and static.rust-lang.org at 0.3-1 MB/s and took 190 s / 96 s / 522 s at p50
+  # (697 / 580 / 1,357 s at p90) on 2026-11-23. scripts/ci/toolchain-r2.sh restore reads these copies; a key
+  # the bucket holds exits after one HEAD request, and a failed seed is only a miss for the readers.
+  toolchains:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed the pinned Node, Bun and Rust copies
+    concurrency:
+      group: cmux-next-toolchains-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            cmux-tui/rust-toolchain.toml
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Save the pinned Node, Bun and Rust
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          TOOLCHAIN_R2_URL: ${{ env.CI_CACHE_R2_PUBLIC_URL }}
+        run: bash scripts/ci/toolchain-r2.sh seed all
+
   # The .deb files .github/actions/playwright-apt-cache restores, one key per week and engine set, in R2 instead
   # of the GitHub store (one 1,020 MB copy there on 2026-11-24, a tenth of its 10 GB cap). Downloaded in a bare
   # ubuntu:24.04 container, so the archive holds everything a runner image might lack and nothing older: the
@@ -185,6 +224,7 @@ jobs:
             scripts/ci/playwright-apt-deps.sh
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Save this week's Playwright apt packages

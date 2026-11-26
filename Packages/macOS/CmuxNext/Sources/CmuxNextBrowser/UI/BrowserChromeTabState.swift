@@ -51,8 +51,8 @@ public final class BrowserChromeTabState: Sendable {
         didSet { if let suggestionEngine { chrome?.addressBar.suggestionEngine = suggestionEngine } }
     }
     public var tabKey: String? { didSet { chrome?.addressBar.tabKey = tabKey } }
-    public var profileBadge: BrowserProfileBadge? { didSet { chrome?.addressBar.setProfileBadge(profileBadge) } }
-    public var profileBadgeMenu: (() -> NSMenu?)? { didSet { chrome?.addressBar.profileBadgeMenu = profileBadgeMenu } }
+    /// The tab's browser profile as the toolbar's profile button draws it (nil: its plain glyph, an incognito tab).
+    public var profileBadge: BrowserProfileBadge? { didSet { chrome?.toolbarButtons.profileBadge = profileBadge } }
     public var machineBadgeMenu: (() -> NSMenu?)? { didSet { chrome?.addressBar.machineBadgeMenu = machineBadgeMenu } }
     public var bookmarkStar: BookmarkStarState = .hidden { didSet { chrome?.addressBar.setBookmarkStar(bookmarkStar) } }
     public var onBookmarkStar: ((NSView) -> Void)? { didSet { chrome?.addressBar.onBookmarkStar = onBookmarkStar } }

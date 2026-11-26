@@ -8,12 +8,10 @@ import Foundation
 
 /// Hover card and drag thumbnails of `TabContentCache` tabs.
 extension TabContentCache {
-    /// A tab's thumbnail. Terminals render one off the main thread. A browser
-    /// page on screen is pictured on demand when its version moved since its
-    /// last picture (once per navigation or load); a hidden one returns its
-    /// last picture (the engine cannot picture it; nil: the card shows its
-    /// placeholder). `captureIfMissing` (a tab drag) also asks for a hidden
-    /// page that has none (Chromium gives none of a hidden page).
+    /// A tab's thumbnail. Terminals render one off the main thread. A page on screen is pictured on demand when its
+    /// version moved since its last picture (once per navigation or load), or while it loads with none; a hidden one
+    /// returns its last picture, in memory, else on disk (a tab not shown since the relaunch has no page, cmux#56141);
+    /// nil: the card shows its placeholder. `captureIfMissing` (a tab drag) also asks for a hidden page that has none.
     func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
         if let entry = terminals[key] {
             guard entry.session.showsOutput || entry.session.showsHeldFrame else { return nil } // a new shell's prompt: nothing to picture
@@ -21,19 +19,17 @@ extension TabContentCache {
         } else if let image = await lastFrames.preview(key)?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) ?? lastFrames.picture(key) {
             return image // an evicted (hibernated) terminal: its last frame, pictured on demand, else the picture taken at its eviction
         }
-        // A loaded page on screen whose picture is older (or gone) is pictured on demand, one capture
-        // at a time; a hidden one keeps its last picture.
-        if let entry = browsers[key], !pagePictureIsCurrent(entry, key: key),
-           (shownPages.contains(key) && entry.tab.state.phase == .finished) || (captureIfMissing && pageThumbnails.image(for: key) == nil),
+        let held = pageThumbnails.image(for: key)
+        if let entry = browsers[key], !pagePictureIsCurrent(entry, key: key),  // one capture at a time
+           (shownPages.contains(key) && (entry.tab.state.phase == .finished || held == nil)) || (captureIfMissing && held == nil),
            let image = await capturePage(entry, key: key, accepts: { [weak self] in self?.browsers[key] === entry }) {
             return await PreviewImageCache.fit(image, maxPixelSize)
         }
-        if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key) {
-            // Leave pictures and hibernation pictures decode from their JPEG when drawn: the card gets a bitmap made
-            // off the main thread, never a decode in its commit.
-            return await PreviewImageCache.decoded(image, maxPixelSize)
-        }
-        return nil
+        // Leave, hibernation and disk pictures decode from their JPEG when drawn: the card gets a bitmap made off the main thread.
+        var kept = held ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key)
+        if kept == nil { kept = await pageFrames?.lastPicture(key) }
+        guard let image = kept else { return nil }
+        return await PreviewImageCache.decoded(image, maxPixelSize)
     }
 
     /// R131: the hover card thumbnail of a page that left the screen. The

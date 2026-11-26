@@ -17,6 +17,15 @@ import UIKit
 ///   moved, or a placeholder came or went), wall clock, so the test's own clock can subtract.
 /// The counters are cumulative for the process; the test reads them before and after each action.
 /// One JSON object in a nearly transparent label, `debug.load-probe`.
+///
+/// `CMUX_MOBILE_SEND_TRACE=1` (with the probe on) also writes `Documents/send-trace.txt` for
+/// `SnappySendBenchUITests` (Leo, 2026-11-25: "when you press enter, the stuff should just start
+/// playing. we dont need to wait/get blocked by anything on rendering."): for each list watched
+/// with a `role`, one line per display frame whose rows changed,
+/// `t=<CACurrentMediaTime> v=<list> off=<contentOffset.y> rows=<id>|<role>|<content minY>|<height>;...`
+/// (the visible rows, in content coordinates, so following the bottom is not a move), and the
+/// app's own marks as `t=<...> ev=<name>` (`event`). The time is the display link's callback,
+/// so a row in a line was laid out for the frame that callback precedes (within one frame).
 @MainActor
 @Observable
 public final class LoadFrameProbe {
@@ -40,8 +49,15 @@ public final class LoadFrameProbe {
     private struct Watched {
         weak var view: UIScrollView?
         let rows: () -> [(String, CGRect)]
+        var role: ((String) -> String)?
+        let tag: Int
         var last: [String: CGRect] = [:]
+        var traced = ""
     }
+
+    @ObservationIgnored private var nextTag = 0
+    @ObservationIgnored private var trace: SendFrameTrace? =
+        ProcessInfo.processInfo.environment["CMUX_MOBILE_SEND_TRACE"] == "1" ? SendFrameTrace() : nil
 
     private init() {
         let link = CADisplayLink(target: Ticker(self), selector: #selector(Ticker.tick))
@@ -57,8 +73,15 @@ public final class LoadFrameProbe {
 
     /// A list whose rows are compared frame to frame: `rows` gives each visible row's id and its
     /// frame in the list's visible bounds (content frame less the content offset).
-    public func watch(_ view: UIScrollView, rows: @escaping () -> [(String, CGRect)]) {
-        watched.append(Watched(view: view, rows: rows))
+    /// `role` names a row's part in a turn (`user`, `work`, `answer`, ...) for the send trace.
+    public func watch(_ view: UIScrollView, rows: @escaping () -> [(String, CGRect)], role: ((String) -> String)? = nil) {
+        nextTag += 1
+        watched.append(Watched(view: view, rows: rows, role: role, tag: nextTag))
+    }
+
+    /// An app mark in the send trace (`send`: the composer's send ran).
+    public func event(_ name: String) {
+        trace?.write(String(format: "t=%.6f ev=%@", CACurrentMediaTime(), name))
     }
 
     /// More fields for the label (the row height memory's counters).
@@ -75,6 +98,10 @@ public final class LoadFrameProbe {
             guard let view = watched[index].view, view.window != nil else {
                 if !watched[index].last.isEmpty { changed = true }
                 watched[index].last = [:]
+                if let trace, watched[index].role != nil, !watched[index].traced.isEmpty {
+                    watched[index].traced = ""
+                    trace.write(String(format: "t=%.6f v=%d off=0 rows=", CACurrentMediaTime(), watched[index].tag))
+                }
                 continue
             }
             let scrolling = view.isTracking || view.isDragging || view.isDecelerating
@@ -94,6 +121,17 @@ public final class LoadFrameProbe {
                 }
             }
             watched[index].last = now
+            if let trace, let role = watched[index].role {
+                let y = view.contentOffset.y
+                let line = now.sorted { $0.value.minY < $1.value.minY }.map { id, frame in
+                    let clean = id.prefix(48).map { "|; ".contains($0) ? "_" : $0 }
+                    return "\(String(clean))|\(role(id))|\(Int((frame.minY + y).rounded()))|\(Int(frame.height.rounded()))"
+                }.joined(separator: ";")
+                if line != watched[index].traced {
+                    watched[index].traced = line
+                    trace.write(String(format: "t=%.6f v=%d off=%d rows=", CACurrentMediaTime(), watched[index].tag, Int(y.rounded())) + line)
+                }
+            }
         }
         if shifted > 0 {
             shiftFrames += 1
@@ -124,6 +162,23 @@ public final class LoadFrameProbe {
         weak var probe: LoadFrameProbe?
         init(_ probe: LoadFrameProbe) { self.probe = probe }
         @objc func tick() { probe?.tick() }
+    }
+}
+
+/// `Documents/send-trace.txt`, appended off the main thread (one line a frame at most).
+private final class SendFrameTrace: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "cmux.send-trace", qos: .utility)
+    private let handle: FileHandle?
+
+    init() {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("send-trace.txt")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        handle = try? FileHandle(forWritingTo: url)
+    }
+
+    func write(_ line: String) {
+        let data = Data((line + "\n").utf8)
+        queue.async { [handle] in try? handle?.write(contentsOf: data) }
     }
 }
 

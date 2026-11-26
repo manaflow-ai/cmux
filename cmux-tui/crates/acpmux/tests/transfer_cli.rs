@@ -119,19 +119,6 @@ impl Daemon {
         Self::spawn_inner(tag, peer, agent_env, "fake", linked, None).await
     }
 
-    /// [`Daemon::spawn`], and with `link` (this daemon's WebSocket port, the peer's, a one-way
-    /// delay in milliseconds) the daemon listens there and its own peer link to `target` runs
-    /// over the stand-in `ssh -W`, so a chat on the peer is reached from this daemon as the app
-    /// reaches it.
-    async fn spawn_linked(
-        tag: &str,
-        peer: Option<(PathBuf, PathBuf)>,
-        agent_env: Value,
-        link: Option<(u16, u16, u64)>,
-    ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, "fake", false, link).await
-    }
-
     async fn spawn_inner(
         tag: &str,
         peer: Option<(PathBuf, PathBuf)>,
@@ -159,7 +146,15 @@ impl Daemon {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {harness: {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": harness, "permissionPolicy": policy});
+        // `FAMILY` in `agent_env` is not the agent's environment: it is the profile's `family`
+        // (`claude`, `codex`), which names the native store the chat's files travel from.
+        let mut agent_env = agent_env;
+        let family = agent_env.as_object_mut().and_then(|env| env.remove("FAMILY"));
+        let mut profile = json!({"argv": ["python3", fake], "env": agent_env});
+        if let Some(family) = family {
+            profile["family"] = family;
+        }
+        let mut config = json!({"harnesses": {harness: profile}, "defaultHarness": harness, "permissionPolicy": policy});
         if linked {
             let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
             let listen = free.local_addr().expect("its address").to_string();
@@ -247,6 +242,8 @@ mod composer_attachments;
 mod first_turn_fence;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
+#[path = "transfer_cli/place_set.rs"]
+mod place_set;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
 #[path = "transfer_cli/session_move_as.rs"]

@@ -235,7 +235,11 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
+pub(crate) use launch_snapshot::{
+    LAUNCH_SNAPSHOT_FILE, LaunchSnapshotFlush, MAX_LAUNCH_SNAPSHOT_BYTES,
+};
 #[cfg(unix)]
 mod carrier_role;
 #[cfg(unix)]
@@ -700,6 +704,9 @@ pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 /// `launch_snapshot_path` in `identify`: a read-only file with the last
 /// settled tree and frontend projections, for drawing before connecting.
 pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
+/// `flush-launch-snapshot`: the launch snapshot written at once, with no
+/// settle or byte-budget wait (a quitting frontend asks after its last save).
+pub const LAUNCH_SNAPSHOT_FLUSH_CAPABILITY: &str = "launch-snapshot-flush-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
@@ -1217,6 +1224,9 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// `flush-launch-snapshot` (`launch-snapshot-flush-v1`): write the launch
+    /// snapshot now, not after changes settle (a quitting frontend's last save).
+    FlushLaunchSnapshot,
     JournalFrontendEvent {
         event: crate::FrontendJournalEvent,
     },
@@ -1598,6 +1608,11 @@ enum Command {
         /// same request (`{kind: "browser", url, engine, ...}`).
         #[serde(default)]
         first_tab: Option<frontend_browser_history::FirstTabParams>,
+        /// `user`: `name` is exactly what the caller asked for (`agents chat
+        /// new --name`), pinned like a rename (#56422). Absent or `auto`: a
+        /// starting name the automatic namer may replace.
+        #[serde(default)]
+        name_source: Option<crate::resource_name::NameSource>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
