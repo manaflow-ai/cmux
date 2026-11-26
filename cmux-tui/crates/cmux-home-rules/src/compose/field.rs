@@ -70,7 +70,9 @@ impl ListState {
             .and_then(|h| pickable.iter().position(|&i| i == h))
             .map_or(-1, |p| p as i64);
         let next = (at + offset).clamp(0, pickable.len() as i64 - 1) as usize;
-        self.highlighted = Some(pickable[next]);
+        if let Some(&row) = pickable.get(next) {
+            self.highlighted = Some(row);
+        }
     }
 
     pub fn highlighted_row(&self) -> Option<&SuggestionRow> {
@@ -502,7 +504,7 @@ pub fn lines(rows: &[Option<LineInput>]) -> Vec<Option<String>> {
     let collisions = |result: &[Option<String>]| -> Vec<Vec<usize>> {
         let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (index, detail) in result.iter().enumerate() {
-            if let (Some(detail), Some(row)) = (detail, &rows[index]) {
+            if let (Some(detail), Some(Some(row))) = (detail, rows.get(index)) {
                 groups.entry(format!("{}\u{0}{detail}", row.label)).or_default().push(index);
             }
         }
@@ -510,9 +512,10 @@ pub fn lines(rows: &[Option<LineInput>]) -> Vec<Option<String>> {
     };
     for group in collisions(&result) {
         for index in group {
-            if let (Some(detail), Some(Some(activity))) =
-                (&mut result[index], rows[index].as_ref().map(|r| &r.activity))
-            {
+            if let (Some(Some(detail)), Some(Some(activity))) = (
+                result.get_mut(index),
+                rows.get(index).and_then(Option::as_ref).map(|r| &r.activity),
+            ) {
                 detail.push_str(DOT);
                 detail.push_str(activity);
             }
@@ -520,7 +523,7 @@ pub fn lines(rows: &[Option<LineInput>]) -> Vec<Option<String>> {
     }
     for group in collisions(&result) {
         for (number, index) in group.into_iter().enumerate().skip(1) {
-            if let Some(detail) = &mut result[index] {
+            if let Some(Some(detail)) = result.get_mut(index) {
                 detail.push_str(&format!("{DOT}{}", number + 1));
             }
         }
