@@ -5,6 +5,7 @@ import CmuxMobileTransport
 public import CmuxScreenKit
 public import Foundation
 public import Observation
+import os
 
 /// Why a session ended on this phone, as `/end` reasons (PROTOCOL.md, End reasons).
 public enum ScreenSharingEndReason: String, Sendable {
@@ -123,7 +124,13 @@ public final class ScreenSharingViewer: Identifiable {
         }
     }
 
+    /// Each session end and its reason, so a run (or a sysdiagnose) says why the card says "over".
+    private static let log = Logger(subsystem: "dev.cmux.mobile", category: "screen-sharing")
+
     private func phaseChanged() {
+        if case let .ended(reason) = phase {
+            Self.log.info("viewer ended: \(reason ?? "none", privacy: .public)")
+        }
         if phase.goesFullScreen {
             shown = true
         } else if case let .refused(refusal, requested) = phase, !shown {
@@ -413,6 +420,7 @@ public final class ScreenSharingViewer: Identifiable {
     /// cmux.rd/1 from then on, in control with a Full Control grant (taps are the host's clicks).
     func hostServes(_ transport: String, sessionID id: String) {
         guard transport == TicketSignaling.rdTransport, rd == nil, case .streaming(id, _) = phase else { return }
+        Self.log.info("host serves \(transport, privacy: .public): reattaching for it")
         rd = MacScreenRdTarget(displayID: nil, control: true)
         streamDropped(id)
         stopStream()
@@ -421,6 +429,7 @@ public final class ScreenSharingViewer: Identifiable {
     /// The `cmux.rd/1` stream closed: the host's end or refusal ends the session; a link that
     /// failed or closed reattaches like a dropped WebRTC stream.
     func rdClosed(sessionID id: String, code: String, reason: String) {
+        Self.log.info("rd closed: \(code, privacy: .public) \(reason, privacy: .public)")
         guard rdScreen != nil, sessionID == id else { return }
         switch code {
         case "ended":

@@ -105,6 +105,17 @@ class PairInputProbe:
 
 
 
+# The viewer's own session lines (ScreenSharingViewer's `screen-sharing` log): a transport switch,
+# an rd/1 close and the end reason, the phone's half of the share-host log.
+VIEWER_LOG_LINE = re.compile(r"(host serves \S+: reattaching for it|rd closed: .*|viewer ended: .*)$")
+
+
+def viewer_log(lines, limit=6):
+    """The phone's last session lines, cut to 160 characters each, joined with ` | `."""
+    found = [m.group(1)[:160] for m in map(VIEWER_LOG_LINE.search, (l.rstrip() for l in lines)) if m]
+    return " | ".join(found[-limit:]) or "no viewer session lines"
+
+
 # rd/1's meter line: "30 fps · 812 kbps · 1280×800 · lan".
 RD_METER_LINE = re.compile(r"[0-9]+(?:\.[0-9]+)? fps · [0-9]+ kbps")
 

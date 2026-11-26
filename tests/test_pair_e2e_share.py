@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from cmux_next_pair_share_host import TaggedShareHost, share_log_line, share_without_asking_off
-from cmux_next_pair_share_phone import PairShareFailure, PairSharePhone, screen_sharing_page_state, viewer_state
+from cmux_next_pair_share_phone import (PairShareFailure, PairSharePhone, screen_sharing_page_state, viewer_log,
+                                        viewer_state)
 from cmux_next_screen_sharing_proof import positive_fps
 
 
@@ -189,3 +190,18 @@ class ViewerStateTests(unittest.TestCase):
                  {"AXLabel": "0 fps · 0 kbps · 0×0 · lan"}]
         self.assertEqual(viewer_state(nodes, "Rig Mac"),
                          "viewer: no card; views: browser.stream, macScreen.status; meter: 0 fps · 0 kbps")
+
+
+class ViewerLogTests(unittest.TestCase):
+    def test_the_phone_says_why_its_session_ended(self):
+        lines = [
+            "2026-11-26 00:01:02.000 I cmux[1:2] [dev.cmux.mobile:screen-sharing] host serves cmux.rd/1: reattaching for it\n",
+            "2026-11-26 00:01:02.100 I cmux[1:2] [dev.cmux.mobile:links] live data on\n",
+            "2026-11-26 00:01:04.000 I cmux[1:2] [dev.cmux.mobile:screen-sharing] rd closed: ended \n",
+            "2026-11-26 00:01:04.001 I cmux[1:2] [dev.cmux.mobile:screen-sharing] viewer ended: ended\n",
+        ]
+        self.assertEqual(viewer_log(lines),
+                         "host serves cmux.rd/1: reattaching for it | rd closed: ended | viewer ended: ended")
+
+    def test_no_lines_says_so(self):
+        self.assertEqual(viewer_log(["live data on\n"]), "no viewer session lines")
