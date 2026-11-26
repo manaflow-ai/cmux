@@ -2359,8 +2359,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let probe_dir = std::env::var_os("ACPMUX_GOD_COLD_PROBE").map(PathBuf::from);
     let perf = probe_dir.as_ref().map(|dir| {
         let out = dir.join(format!("perf-{label}.data"));
-        let child = std::process::Command::new("perf")
-            .args(["record", "-F", "4999", "-g", "-a", "-o"])
+        let child = std::process::Command::new("timeout")
+            .args(["-s", "INT", "-k", "5", "20", "perf", "record", "-F", "1999", "-a", "-o"])
             .arg(&out)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
