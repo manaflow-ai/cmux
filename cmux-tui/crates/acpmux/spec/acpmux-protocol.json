@@ -6532,6 +6532,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "The Fork-first copy the app made before this risky step (`{machine, fork, forkMs}`); the\nperson's answer then records it as the chat's checkpoint (`Hub::fork_checkpoint`)."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
