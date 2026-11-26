@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": { "en": "Reference profile" },
   "version": "1.0.0",
-  "description": "The whole reference profile's drawn parts: the Chats section (New chat, Pinned, chats by project or in one list, a sort, archive from a row), the thread hover card, quiet one-line row decorations, and the builder New Tab page.",
+  "description": "The whole reference profile's drawn parts: the Chats section (New chat, Active work, Pinned, chats by project with Recents or in one list, a sort, archive from a row), the thread hover card, quiet one-line row decorations, and the builder New Tab page.",
   "engines": { "cmux": "^2.0" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "runtime": { "main": "main.js" },
