@@ -109,7 +109,9 @@ function allKinds(): AcpmuxSnapshot {
         id: backgroundTurnRowId("spacing-scheduled"),
         background: { id: "spacing-scheduled", trigger: "scheduled", running: false, quiet: true, hasRows: true },
       }),
-      activity([tool("git fetch origin", "execute", "completed", { command: "git fetch origin" })], 8.4, {
+      // A push: a quiet background turn with no effect goes to the composer hat (silentTurns.ts), and
+      // this table measures the turn's own line.
+      activity([tool("git push origin HEAD", "execute", "completed", { command: "git push origin HEAD" })], 8.4, {
         inBackground: "spacing-scheduled",
       }),
       activity(
@@ -177,7 +179,7 @@ const received = (text: string, minutes: number, continues = false) =>
 
 /// Leo's 2026-11-02 capture ("wtf these tool call spacing things are still weird"): a finished
 /// reply's footer, then another machine's lane's message, then the turn it started, its work folded
-/// to "Ran 2 commands, received a message". Every line on one 22px line, its icon in the shared
+/// to "Ran 2 commands, received a message". Every line on one line of the shared row metric, its icon in the shared
 /// column, the sender named once (transcript-received-line.test.ts).
 const peerLines = () => {
   const snapshot = chat(

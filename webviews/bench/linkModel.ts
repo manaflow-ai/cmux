@@ -10,6 +10,7 @@
 // d + rttMs / 2. Opening a connection costs one full round trip before the first byte can go.
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 
 export type LinkProfile = { rttMs: number; bps: number };
 
@@ -42,6 +43,20 @@ export function schedule(
   return { departAt, arriveAt: departAt + profile.rttMs / 2 };
 }
 
+/// The machine link's compression of large lines (LINK_ZLIB=1): a line of `ZLIB_MIN_BYTES` or more crosses as one
+/// zlib stream at the fastest level, as acpmux's own links do (cmux-tui/crates/acpmux/src/frame_compress.rs:
+/// `MIN_BYTES`, `Compression::new(1)`); smaller lines cross as text.
+export const ZLIB_MIN_BYTES = 16 << 10;
+
+/// The bytes `message` takes on the wire with zlib on, and the deflated stream (null when it stays text). The
+/// sender's deflate runs here, in real time, so its cost is in the measure.
+export function zlibWire(message: string): { bytes: number; deflated: Buffer | null } {
+  const text = Buffer.from(message);
+  if (text.length < ZLIB_MIN_BYTES) return { bytes: text.length, deflated: null };
+  const deflated = zlib.deflateSync(text, { level: 1 });
+  return { bytes: deflated.length, deflated };
+}
+
 /// One direction of one connection. `send` delivers each message, in order, when the model says it arrives.
 /// Stop condition: `close` drops every pending delivery and its timer; a closed pipe delivers nothing more.
 export class LinkPipe {
@@ -49,18 +64,27 @@ export class LinkPipe {
   private lastArrival = 0;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private closed = false;
-  /// Bytes handed to this pipe so far.
+  /// Bytes put on the wire by this pipe so far (after compression, with `zlib`).
   bytes = 0;
 
+  /// `zlib`: lines of `ZLIB_MIN_BYTES` or more go deflated (`zlibWire`) and are inflated on arrival, in real time.
   constructor(
     private readonly profile: LinkProfile,
     private readonly now: () => number = () => performance.now(),
+    private readonly zlib = false,
   ) {}
 
   send(message: string, deliver: (message: string) => void): void {
     if (this.closed) return;
-    const size = Buffer.byteLength(message);
+    const wire = this.zlib ? zlibWire(message) : { bytes: Buffer.byteLength(message), deflated: null };
+    const size = wire.bytes;
     this.bytes += size;
+    if (wire.deflated) {
+      const deflated = wire.deflated;
+      const plain = deliver;
+      // The receiver inflates what arrived before handing the line on.
+      deliver = () => plain(zlib.inflateSync(deflated).toString("utf8"));
+    }
     const { departAt, arriveAt } = schedule(this.profile, this.now(), this.pipeFreeAt, size);
     this.pipeFreeAt = departAt;
     // Arrivals are in order by construction (departures are, latency is constant); held to it anyway.

@@ -315,13 +315,30 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
                 e
             };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
-                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
-                .or_else(|| {
-                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
-                });
-            match refusal {
-                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
-                None => e.exit(),
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
+            if let Some(refusal) = refusal {
+                errors::exit_with(&refusal.into(), json_out)
+            }
+            // The one form a mistyped or wishful one meant (cmux-intent, the shared layer of
+            // tools/intent.py): run and said on stderr when clear and safe, else listed or
+            // refused with its exact form. A destructive or outward form is never rewritten.
+            let words: Vec<String> =
+                argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+            let Some(fixed) = cmux_intent::recover(&grammar, "acpmux", name, &words, &e) else {
+                match json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten() {
+                    Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                    None => e.exit(),
+                }
+            };
+            argv = argv
+                .first()
+                .cloned()
+                .into_iter()
+                .chain(fixed.into_iter().map(OsString::from))
+                .collect();
+            match grammar.try_get_matches_from_mut(argv.clone()) {
+                Ok(matches) => matches,
+                Err(again) => again.exit(),
             }
         }
     };

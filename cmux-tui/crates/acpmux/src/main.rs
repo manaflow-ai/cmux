@@ -14,7 +14,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// mimalloc's options for a long-lived daemon, as measured (RFD 0156): freed pages go back at
 /// once (`purge_delay` 0, its default 10 ms kept 176 MB where musl kept 79 MB on the replay), and
 /// arenas commit only what they touch. Ids from mimalloc.h's `mi_option_e`. Not in a `dhat-heap`
-/// build: its allocator is dhat's and mimalloc is not linked.
+/// build: dhat replaces mimalloc there, so the symbol is not linked.
 #[cfg(all(target_os = "linux", not(feature = "dhat-heap")))]
 fn tune_allocator() {
     const MI_OPTION_ARENA_EAGER_COMMIT: std::ffi::c_int = 4;

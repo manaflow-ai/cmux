@@ -14,6 +14,9 @@
 //! shared fixtures run in Rust, Swift and Kotlin.
 //!
 //! [`ownership`] binds the `cmux.wire/1` stream mirror (object-sync phase 1).
+//!
+//! [`screen`] binds the screen stream's rules (`cmux-rd-screen`) as one JSON
+//! call, the same `screen_*` ops the Mac reaches over its C ABI.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -27,6 +30,7 @@ use cmux_mobile_core::sizing::{
 uniffi::setup_scaffolding!();
 
 pub mod ownership;
+pub mod screen;
 
 /// A terminal grid in cells.
 #[uniffi::remote(Record)]
@@ -300,47 +304,5 @@ pub fn terminal_sizing_state_to_json(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn mac(id: &str, cols: u16, rows: u16) -> TerminalSizingParticipant {
-        TerminalSizingParticipant {
-            viewport: Some(TerminalGridSize::new(cols, rows)),
-            ..TerminalSizingParticipant::new(id, TerminalDeviceKind::Mac)
-        }
-    }
-
-    #[test]
-    fn wire_helpers_match_the_contract() {
-        assert_eq!(
-            terminal_sizing_reason_wire(TerminalSizingReason::PriorityFallback),
-            "priority-fallback"
-        );
-        assert_eq!(terminal_sizing_reason_wire(TerminalSizingReason::Held), "held");
-        assert_eq!(terminal_device_kind_from_wire("quantum".into()), TerminalDeviceKind::Unknown);
-        assert_eq!(terminal_device_kind_wire(TerminalDeviceKind::Iphone), "iphone");
-        let policy = terminal_sizing_policy(
-            TerminalSizingMode::Fixed,
-            Vec::new(),
-            Some(TerminalGridSize::new(0, 0)),
-        );
-        assert_eq!(policy.fixed, Some(TerminalGridSize::new(2, 1)));
-        assert_eq!(
-            terminal_sizing_policy_from_json(
-                r#"{"mode":"fixed","fixed":{"cols":1,"rows":0}}"#.into()
-            ),
-            Ok(policy)
-        );
-        let engine = TerminalSizingEngine::new(
-            TerminalGridSize::new(80, 24),
-            TerminalSizingPolicy::default(),
-        );
-        engine.attach(mac("a", 100, 30));
-        let json = terminal_sizing_state_to_json(engine.state()).unwrap();
-        assert_eq!(terminal_sizing_state_from_json(json), Ok(engine.state()));
-        assert!(matches!(
-            terminal_sizing_state_from_json("{".into()),
-            Err(TerminalSizingWireError::Invalid { .. })
-        ));
-    }
-}
+#[path = "tests.rs"]
+mod tests;
