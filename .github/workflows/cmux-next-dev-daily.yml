@@ -216,8 +216,9 @@ jobs:
           test -f "$archive" || { echo "::error::source run $SOURCE_RUN_ID artifact has no app archive" >&2; exit 1; }
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      # Unconditional, as the claim after it: an owned route never skips the claim (a source with no app archive
+      # only spends this shallow checkout and the claim).
       - name: Checkout trusted signing and updater scripts
-        if: steps.source-artifact.outputs.archive != ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -226,7 +227,6 @@ jobs:
 
       # Before any secret: the same check again, and a signing keychain a killed job left is removed.
       - name: Claim the whole Mac for signing
-        if: steps.source-artifact.outputs.archive != ''
         run: ./scripts/ci/signing-runner-claim.sh
 
       - name: Select Xcode

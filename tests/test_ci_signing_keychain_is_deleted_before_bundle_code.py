@@ -85,10 +85,11 @@ DELETE = re.compile(
     r"signing-keychain\.sh\s+delete\b|\bsecurity\s+delete-keychain\b"
     # These scripts sign and then delete the keychain themselves (rule 5).
     r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-stapled-app-notarization\.sh"
+    r"|scripts/ci/nightly-steps/next-pkg\.sh"
 )
 # The scripts DELETE names that delete the keychain themselves.
 SELF_DELETING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-helper-notarization.sh",
-                         "scripts/ci/resume-stapled-app-notarization.sh")
+                         "scripts/ci/resume-stapled-app-notarization.sh", "scripts/ci/nightly-next-pkg.sh")
 
 
 def deletes_keychain(words: list[str]) -> bool:
@@ -134,10 +135,12 @@ INLINE_DEVELOPER_ID_KEYCHAINS: set[tuple[str, str]] = set()
 # Scripts that make the Developer ID keychain with signing-keychain.sh create
 # just before their signature: notarize-nightly-dmg.sh (the DMG around the
 # stapled app) and resume-stapled-app-notarization.sh (the same DMG in a
-# continuation, through its package tool). Rule 5 checks the order inside each.
+# continuation, through its package tool) and nightly-next-pkg.sh (nightly-next-pkg's installer
+# package, #54859). Rule 5 checks the order inside each.
 # A job that runs one of them needs no create of its own (script_made_keychain());
 # the jobs are read from the workflows, not listed.
-KEYCHAIN_MAKING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-stapled-app-notarization.sh")
+KEYCHAIN_MAKING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-stapled-app-notarization.sh",
+                           "scripts/ci/nightly-next-pkg.sh")
 # Rule 8's signer scripts. A job whose certificate step runs one of them signs
 # with the release signer (release_pool_signer()); the jobs are read from the
 # workflows, not listed. None does today: nightly.yml's signer-app, signer-dmg,
@@ -1128,6 +1131,22 @@ def check_scripts(failures: list[str]) -> None:
                 "scripts/ci/notarize-nightly-dmg.sh: delete the keychain it creates for the stapled-app DMG "
                 f"before the first smoke (create={create} delete={later_delete} smoke={first_smoke})"
             )
+
+    # next-pkg.sh signs only the installer package (productbuild through build-pkg.sh) and runs no bundle code: it
+    # makes the keychain, signs, then deletes it, and its RETURN trap deletes it on every early return.
+    pkg = read_lines("scripts/ci/nightly-next-pkg.sh", failures)
+    pkg_create = index_of(pkg, '"$KEYCHAIN_TOOL" create')
+    pkg_sign = index_of(pkg, '"$BUILD_PKG" ')
+    pkg_delete = next((number for number, line in enumerate(pkg)
+                       if number > pkg_sign >= 0 and '"$KEYCHAIN_TOOL" delete' in line
+                       and not line.lstrip().startswith("#")), -1)
+    pkg_trap = index_of(pkg, '[ "$keychain_made" = 1 ] && "$KEYCHAIN_TOOL" delete')
+    if not (0 <= pkg_create < pkg_sign < pkg_delete) or not (0 <= pkg_trap < pkg_create):
+        failures.append(
+            "scripts/ci/nightly-next-pkg.sh: make the keychain, sign the package, then delete it, with the "
+            f"RETURN trap deleting it on an early return (create={pkg_create} sign={pkg_sign} delete={pkg_delete} "
+            f"trap={pkg_trap})"
+        )
 
     stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
     # The package tool makes the keychain just before its signature

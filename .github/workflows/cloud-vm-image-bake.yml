@@ -130,6 +130,10 @@ on:
       FREESTYLE_API_KEY: { required: false }
       CMUX_UITEST_STACK_EMAIL: { required: false }
       CMUX_UITEST_STACK_PASSWORD: { required: false }
+      # The qcow2 export's R2 key (inputs.qcow2, a dispatch choice): a caller that exports passes them.
+      CF_R2_ACCESS_KEY_ID: { required: false }
+      CF_R2_SECRET_ACCESS_KEY: { required: false }
+      CF_R2_ACCOUNT_ID: { required: false }
     outputs:
       candidate:
         description: The kept image's record (channel-dev.json, one line of JSON); empty unless every gate passed

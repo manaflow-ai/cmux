@@ -438,6 +438,7 @@ jobs:
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC

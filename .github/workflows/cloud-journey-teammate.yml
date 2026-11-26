@@ -49,7 +49,8 @@ concurrency:
 
 jobs:
   walk:
-    runs-on: ubuntu-24.04
+    # The persistent Linux pool (push and dispatch only, so no fork branch); hosted Ubuntu only off manaflow-ai.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # --idle-pause default waits out staging's 1800 s policy plus 300 s, so that walk gets room past the 40 min one.
     timeout-minutes: ${{ inputs.idle_pause == 'default' && 75 || 40 }}
     steps:

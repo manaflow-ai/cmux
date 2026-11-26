@@ -3,7 +3,7 @@
 # pre-warms the installed copy (scripts/cmux-next/pkg; RFD 0134 Table 4 row 1, cuts row 2). An update is already
 # pre-warmed by the updater (cmux#43890); a first install had nothing, about 2 s of first-sight check before `main`.
 #
-#   next-pkg.sh DMG OUT_DIR
+#   nightly-next-pkg.sh DMG OUT_DIR
 #
 # Writes OUT_DIR/<DMG stem>.pkg, signed with the certificate's "Developer ID Installer" identity, notarized and
 # stapled, then uploads it beside the DMG (NIGHTLY_NEXT_R2_PREFIX<stem>.pkg) and as the channel's stable name
@@ -20,7 +20,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
 HDIUTIL="${HDIUTIL:-hdiutil}"
 SECURITY="${SECURITY:-security}"
 DITTO="${DITTO:-ditto}"

@@ -6949,10 +6949,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        # The script makes the signing keychain (signing-keychain.sh create) and deletes it after the signature.
         run: |
-          s=scripts/ci/nightly-steps/next-pkg.sh
-          [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
-          bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+          [ -f scripts/ci/nightly-next-pkg.sh ] || { echo "next-pkg: the build ref predates nightly-next-pkg.sh; no package"; exit 0; }
+          ./scripts/ci/nightly-next-pkg.sh "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
 
       - name: Cleanup keychain
         if: always()
@@ -7657,12 +7657,13 @@ jobs:
 
   # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
   sign-live-code-variant:
-    needs: [decide, nightly-next-one, build-live-code-variant]
+    needs: [decide, pick-nightly-next-signer, nightly-next-one, build-live-code-variant]
     if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    # nightly-next-one's route: the signer label, a literal, narrowed to the picked signer's runner on the pick's
+    # attempt. Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
     permissions:
       contents: read
