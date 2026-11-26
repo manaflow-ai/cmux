@@ -132,7 +132,7 @@ mod git_watch;
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
-mod github_owner;
+pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
@@ -1627,6 +1627,10 @@ pub struct Hub {
     /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
     /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
     pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// The running relay's heartbeat on demand, so a chat moved here is in the hub's address
+    /// book before its move answers (`transfer_pull.rs` `list_on_mesh_now`); dangling
+    /// once the relay's loops end.
+    pub(crate) mesh_beat: StdMutex<std::sync::Weak<crate::server::mesh_relay::Beat>>,
     /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
     /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
     /// reads the join's state on disk once it holds it, so none acts on what another changed.
@@ -2031,6 +2035,7 @@ impl Hub {
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
+            mesh_beat: Default::default(),
             join_transition: Default::default(),
             join_start: Default::default(),
             watches: Default::default(),
