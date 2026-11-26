@@ -49,6 +49,9 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
     /// The fade's erase coverage, none to whole, drawn with `destinationOut`.
     private static let eraseRamp = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray, locations: [0, 1]) // colour-allow: alpha-only erase coverage for the fade; this colour is never displayed
 
+    /// Lines the cells laid out to draw, all cells: tests count them.
+    static var lineLayouts: UInt64 = 0
+
     private let restStorage = NSTextStorage()
     private let restLayout = NSLayoutManager()
     private let restContainer = NSTextContainer()
@@ -115,6 +118,7 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
         let width = fade > 0 ? Self.unboundedWidth : max(0, box.maxX - origin.x)
         restContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         restStorage.setAttributedString(text)
+        Self.lineLayouts &+= 1
         let glyphs = restLayout.glyphRange(for: restContainer)
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
