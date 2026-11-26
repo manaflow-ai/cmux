@@ -768,6 +768,9 @@ pub mod method {
     /// A chat's review brief: what it set out to do, what it dropped, where it was unsure
     /// (`review_brief.rs`), kept beside its log; the local socket and the app only.
     pub const MUX_REVIEW_BRIEF: &str = "_acpmux/review_brief";
+    /// A paused machine's file tree and search from its replica and journal, with no wake
+    /// (`server/paused_files.rs`, RFD 0144); the person only.
+    pub const MUX_PAUSED_FILES: &str = "_acpmux/paused_files";
     /// A review verdict on a session's pull request, written to the audit trail
     /// (`hub/audit_entries.rs`); the person's local socket or app only.
     pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";

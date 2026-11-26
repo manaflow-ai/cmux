@@ -165,6 +165,7 @@ mod outbound_queue_tests;
 pub(crate) mod outbox;
 mod pairing;
 mod parked_waits;
+mod paused_files;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
