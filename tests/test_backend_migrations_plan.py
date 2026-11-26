@@ -283,7 +283,7 @@ class BaseCheckout(unittest.TestCase):
     def test_a_failed_fetch_is_retried_and_names_its_cause(self):
         code, _, log = self.checkout(NO_NETWORK)
         self.assertNotEqual(code, 0, log)
-        self.assertIn("failed on all 3 tries (75 s each)", log)
+        self.assertIn("failed on all 3 tries (240 s each)", log)
         self.assertEqual(log.count("failed on try"), 2, log)
         self.assertIn("runner r-test", log)
         self.assertIn("not the PR", log)
@@ -291,9 +291,10 @@ class BaseCheckout(unittest.TestCase):
     def test_the_base_checkout_is_bounded_and_retried(self):
         step = self.step()
         self.assertNotIn("continue-on-error", step)
-        self.assertLessEqual(step["timeout-minutes"], 6)
+        self.assertLessEqual(step["timeout-minutes"], 17)
+        self.assertGreaterEqual(step["timeout-minutes"] * 60, 3 * 240 + 5 + 15 + 180)
         run = step["run"]
-        for bound in ('git_retry "base fetch of $BASE_SHA from github.com" 75 ', "http.lowSpeedTime=30", "timeout 90 git",
+        for bound in ('git_retry "base fetch of $BASE_SHA from github.com" 240 ', "http.lowSpeedTime=60", "timeout 180 git",
                       "--filter=blob:none --depth=1", "sparse-checkout set --cone backend"):
             self.assertIn(bound, run)
         steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
@@ -355,7 +356,7 @@ class TransportRetry(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertEqual([c for c in calls if c.startswith("git")].__len__(), 2, calls)
         self.assertIn("failed on try 1 of 3, trying again", log)
-        self.assertIn("http.lowSpeedLimit=1000", calls[0])
+        self.assertIn("http.lowSpeedLimit=1 ", calls[0])
 
     def test_transport_failures_stop_after_three_tries_and_name_them(self):
         for err in ("error: RPC failed; curl 28 Operation too slow.",
@@ -405,10 +406,21 @@ class TransportRetry(unittest.TestCase):
 
     def test_the_job_deadline_fits_the_retried_path(self):
         plan = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]
-        # probe 3 x 60, checkout 3 x 75 plus its 90 s blob read, head fetch 3 x 90, blob read 3 x 90, backoff 4 x 20.
-        worst = 3 * 60 + (3 * 75 + 90) + 3 * 90 + 3 * 90 + 4 * 20
+        # probe 3 x 60, checkout 3 x 240 plus its 180 s blob read, head fetch 3 x 90, blob read 3 x 90, backoff 4 x 20.
+        worst = 3 * 60 + (3 * 240 + 180) + 3 * 90 + 3 * 90 + 4 * 20
         self.assertGreaterEqual(plan["timeout-minutes"] * 60, worst)
 
+
+    def test_no_low_speed_abort_above_one_byte_a_second(self):
+        # GitHub sends next to nothing while it builds a shallow, filtered pack of this repository, so a low-speed abort
+        # above 1 B/s cuts a healthy fetch mid-build. Jobs 139897638176, 139897631159, 139898168920, 139897472857 and
+        # 139898135049 (fsr, 2026-11-26) timed out on the base read; the wall clock is what bounds a real hang.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        limits = re.findall(r"http\.lowSpeedLimit[= ](\d+)", text)
+        self.assertTrue(limits, "every github.com read keeps a low-speed abort")
+        self.assertEqual({int(n) for n in limits}, {1}, limits)
+        for n in re.findall(r"http\.lowSpeedTime[= ](\d+)", text):
+            self.assertGreaterEqual(int(n), 60)
 
 if __name__ == "__main__":
     unittest.main()
