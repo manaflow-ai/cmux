@@ -285,6 +285,29 @@ impl Mux {
         self.emit(MuxEvent::AgentPresenceChanged { surface, presence });
     }
 
+    /// Every terminal's presence as `AgentPresenceChanged` events, a cleared one as `None`
+    /// (`agent-presence-replay-v1`). A client that reconnects to this daemon keeps the presence it
+    /// showed and takes these on its new subscription, so an agent that is still acting never
+    /// blinks off, and one that stopped while the link was down is cleared (hq#19373). A slot
+    /// stays until its terminal closes, and a closed terminal's tab leaves in the snapshot.
+    pub(crate) fn agent_presence_replay(&self) -> Vec<MuxEvent> {
+        let slots: Vec<(TerminalPublicId, Option<Arc<AgentPresence>>)> = self
+            .agent_presence
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(terminal, slot)| (terminal.clone(), slot.presence.clone().map(Arc::new)))
+            .collect();
+        // The surface lookup takes the state lock: never while holding the table.
+        slots
+            .into_iter()
+            .filter_map(|(terminal, presence)| {
+                let surface = self.agent_view_surface_for_terminal(&terminal)?;
+                Some(MuxEvent::AgentPresenceChanged { surface, presence })
+            })
+            .collect()
+    }
+
     /// Clear a terminal's presence when its agent record goes idle or done
     /// by any path, including a screen-detected exit or a socket report that
     /// sends no hook event (a Ctrl-C'd or crashed agent).
