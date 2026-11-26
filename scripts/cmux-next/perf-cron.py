@@ -238,8 +238,12 @@ PARTS = [
     # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
     # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
     # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    # goal: NOW's chat_memory_vs_empty_ratio (memory.app_agents.ratio_vs_empty, goal memory-per-chat) and ram-baseline,
+    # so once due it goes right after the build (part_order). Without it the part kept its PARTS place behind every
+    # stale Mac part: at tips 12aa19c228 and b767035490 (2026-11-23..25) the build was stored and the tip was given up
+    # for a newer one before memory-agents ran, so the row went without a reading from 2026-11-23 19:17Z on.
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "goal": "memory-per-chat",
      "run_seconds": 2700},  # 1800 s for the bench (with its settled samples), plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
@@ -342,9 +346,11 @@ PARTS = [
     {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
-    # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
+    # six benches take about 20 minutes. First the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
     # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
-    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
+    # goal: the rows behind goal god-chat-ratios in cmuxterm-hq's NOW (god_chat_replay_ratio_max reads
+    # webui.god_ratio.transcript_replay.long.*), so a due run of it goes first (part_order); they went 4 days unread.
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
     # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
@@ -1007,7 +1013,27 @@ def webui_rows(rows, prefix="webui."):
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        named = row_sources(r)
+        if named:
+            out[f"{prefix}{name}"]["sources"] = named
     return out
+
+
+def row_sources(row):
+    """A wakeup row's sources (perfRow.ts `sources`: what woke the page, busiest first), at most 8 strings of 200
+    characters; [] for any other row (pure). The issue names them beside the count (sources_note)."""
+    got = row.get("sources") if isinstance(row, dict) else None
+    return [str(x)[:200] for x in got if isinstance(x, str) and x.strip()][:8] if isinstance(got, list) else []
+
+
+def sources_note(entry, shown=3):
+    """'; woken by: A; B; C (+2 more)' for an issue table cell of a row that carries sources, else '' (pure): a
+    wakeup row that regresses is red by the timer that woke it, not only by its count (goal idle-cpu-wakeups)."""
+    named = row_sources(entry)
+    if not named:
+        return ""
+    more = f" (+{len(named) - shown} more)" if len(named) > shown else ""
+    return ("; woken by: " + "; ".join(named[:shown]) + more).replace("|", "\\|").replace("\n", " ")
 
 
 def median(values):
@@ -1306,10 +1332,13 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-god":
         only = ",".join([b for b in GOD_BENCHES if b not in GOD_SELF_PAIRED] + [f"{b}-god" for b in GOD_BENCHES])
         # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
-        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
-                "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
+        # It runs first: behind the suite (about 20 minutes) its deadline left room for one round, under the
+        # GOD_PAIRED_MIN_ROUNDS a paired row needs, and cmuxterm-hq's god_chat_replay_ratio_max read nothing after
+        # 2026-11-21.
+        return {"paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
                            os.path.join(root, "webviews"),
-                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"})}
+                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"}),
+                "suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
@@ -1413,7 +1442,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
             if over_target(name, row, refresh_ms):
                 out.append({"name": name, "p95": row["p95"], "base": None, "unit": row.get("unit", "ms"),
                             "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
-                            "why": NO_REFERENCE})
+                            "why": NO_REFERENCE, **({"sources": row["sources"]} if row_sources(row) else {})})
             continue
         crossed = (over_target(name, row, refresh_ms) and not over_target(name, base, base_refresh_ms)
                    and row["p95"] - base["p95"] > row_floor(name, row))
@@ -1422,7 +1451,8 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
             out.append({"name": name, "p95": row["p95"], "base": base["p95"], "unit": row.get("unit", "ms"),
                         "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
                         "floor": row_floor(name, row),
-                        "why": "worse than last good" if name in worse else "newly over target"})
+                        "why": "worse than last good" if name in worse else "newly over target",
+                        **({"sources": row["sources"]} if row_sources(row) else {})})
     return out
 
 
@@ -2829,14 +2859,18 @@ GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at
 GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$|^webui\.chat_open_paired\.)")
 # The web-ui-god part's paired transcript-replay rounds (transcript-replay.bench.ts PAIRED=1, cmux#43874): at least MIN
 # rounds, then more until each board row's (GOD_PAIRED_BOARD_RE, cmuxterm-hq god_chat_replay_ratio_max) median has a
-# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the part's benches have run under
-# DEADLINE_S with room for one more round as long as the longest so far (the Linux job's cap is 40 minutes with about
-# 5 of setup); each round is cut at ROUND_TIMEOUT_S.
+# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the rounds have run under DEADLINE_S
+# (counted from the first round, so the suite that runs after them takes none of it) with room for one more round as
+# long as the longest so far; each round is cut at ROUND_TIMEOUT_S. The rounds share one pane build (PANE_BUILD_S cap).
+# Sizes: one round played the god session for 440 s live (510 s with its own build) on a 16-core host at load 19, and
+# the old 600 s cut killed the first round of every run from 2026-11-21 (perf cron job log, 2026-11-25 22:30Z), so a
+# round gets ROUND_TIMEOUT_S and the deadline holds MIN rounds of that length.
 GOD_PAIRED_MIN_ROUNDS = 5
 GOD_PAIRED_MAX_ROUNDS = 12
 GOD_PAIRED_CI_WIDTH = 0.1
-GOD_PAIRED_DEADLINE_S = 1950
-GOD_PAIRED_ROUND_TIMEOUT_S = 600
+GOD_PAIRED_ROUND_TIMEOUT_S = 1200
+GOD_PAIRED_DEADLINE_S = 4500
+GOD_PAIRED_PANE_BUILD_S = 600
 GOD_PAIRED_BOARD_RE = re.compile(r"^webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)$")
 PERF_ROW_MARK = "PERF_ROW "
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
@@ -3066,7 +3100,7 @@ def issue_body(state, repo, now):
         for r in regs:
             change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r.get("base") else "new"
             rng = r.get("range") or {}
-            why = r.get("why", "") + (" (not measured again since)" if r.get("unmeasured_at") else "")
+            why = r.get("why", "") + sources_note(r) + (" (not measured again since)" if r.get("unmeasured_at") else "")
             if r.get("recovering"):
                 why += f" (within its threshold in {len(r['recovering'])} of the {RECOVER_RUNS} runs in a row that close it)"
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
@@ -3087,7 +3121,7 @@ def issue_body(state, repo, now):
         for u in unconfirmed[:20]:
             sha_link = f"[`{str(u.get('sha'))[:11]}`]({u.get('run_url')})" if u.get("sha") else "?"
             lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('top', u.get('max')))} | "
-                         f"{u.get('samples')} | {sha_link} | {u.get('why')} |")
+                         f"{u.get('samples')} | {sha_link} | {u.get('why')}{sources_note(u)} |")
     every = [x for x in state.get("baseline_restarts") or [] if isinstance(x, dict)]
     # Every restart not seen yet (each keeps the issue open), and the newest seen ones.
     restarts = [x for i, x in enumerate(every) if x.get("seen") is False or i >= len(every) - 5]
@@ -3549,7 +3583,8 @@ def confirm_regressions(state, regs, cur, run_url, t, regression):
         streak = [v for v in prior.get("values") or [] if isinstance(v, dict)][-(REF_RUNS - 1):] + [value]
         entry = {"name": name, "p95": r["p95"], "unit": r.get("unit"), "base": r.get("base"),
                  "top": spread_top(samples) if samples else None, "max": max(samples) if samples else None,
-                 "samples": len(samples), "sha": cur["sha"], "at": iso(t), "run_url": run_url, "held": len(streak)}
+                 "samples": len(samples), "sha": cur["sha"], "at": iso(t), "run_url": run_url, "held": len(streak),
+                 **({"sources": r["sources"]} if row_sources(r) else {})}
         if len(samples) < CONFIRM_SAMPLES:
             pending.pop(name, None)
             building.add(name)
@@ -3626,7 +3661,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # A row over target with no reference has no culprit range: it is listed, never a regression.
     regs = [r for r in found if r.get("base") is not None]
     no_ref = [{"name": r["name"], "p95": r["p95"], "unit": r.get("unit"), "base": None, "max": None, "samples": 0,
-               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "why": r["why"]} for r in found if r.get("base") is None]
+               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "why": r["why"],
+               **({"sources": r["sources"]} if row_sources(r) else {})} for r in found if r.get("base") is None]
     # The rows find_regressions could judge: a frame row on another display refresh than its reference (or an
     # unknown one), or a row on another macOS, was measured but not compared, so it neither clears a regression nor
     # counts as good.
@@ -3900,12 +3936,13 @@ def linux_run_seconds(part):
 def linux_job_minutes(part):
     """The timeout of a Linux part's job (pure): its setup and every bench's cap, so GitHub never kills a part that
     is still within them (a killed job leaves no result; infinite-items, a build and a suite of up to 30 minutes
-    each, outlived the old flat 40 minutes). The paired god rounds stop starting a round at GOD_PAIRED_DEADLINE_S
-    after the part's start, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more."""
+    each, outlived the old flat 40 minutes). The paired god rounds build the pane once (GOD_PAIRED_PANE_BUILD_S), stop
+    starting a round at GOD_PAIRED_DEADLINE_S after the first, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more;
+    the part's other runs follow them."""
     runs = linux_bench_runs("", part)
     benches = sum(linux_run_seconds(part) for name in runs if name != "paired")
     if "paired" in runs:
-        benches = max(benches, GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S)
+        benches += GOD_PAIRED_PANE_BUILD_S + GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S
     return LINUX_SETUP_MINUTES + -(-benches // 60)
 
 
@@ -4485,8 +4522,11 @@ def cmd_run_linux_part(o):
         env, tail = prepare_ghostty(ROOT, env)
     for name, (argv, cwd, extra) in runs.items():
         if name == "paired":
-            report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
-            tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
+            with tempfile.TemporaryDirectory() as pane:
+                shared, line = paired_pane_build(cwd, {**env, **extra}, pane)
+                print(f"perf-cron web-ui-god: {line}")
+                report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra, **shared}, time.monotonic())
+            tail += [line, f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
         stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
@@ -4543,9 +4583,24 @@ def perf_rows(text):
     return out
 
 
+def paired_pane_build(cwd, env, out, run=subprocess.run):
+    """The agent pane built once into OUT for every paired round (bench/support/prebuild.ts, as web-ui-suite.ts shares
+    it): ({CMUX_BENCH_PANE_DIR: OUT}, a line), or ({}, a line) when it failed and each round builds its own."""
+    at = time.monotonic()
+    try:
+        code = run(["bun", "bench/support/prebuild.ts", "pane", out], cwd=cwd, env=env, capture_output=True,
+                   text=True, timeout=GOD_PAIRED_PANE_BUILD_S).returncode
+    except subprocess.TimeoutExpired:
+        code = f"timeout ({GOD_PAIRED_PANE_BUILD_S} s)"
+    seconds = round(time.monotonic() - at)
+    if code == 0 and os.path.exists(os.path.join(out, ".shared-build-done")):
+        return {"CMUX_BENCH_PANE_DIR": out}, f"paired pane build: {seconds} s"
+    return {}, f"paired pane build: exit {code} after {seconds} s, each round builds its own"
+
+
 def run_paired_rounds(argv, cwd, env, started, clock=time.monotonic, run=subprocess.run):
     """The web-ui-god part's paired rounds (GOD_PAIRED_*), until settled, the deadline or MAX rounds:
-    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the part's start on CLOCK."""
+    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the first round's start on CLOCK."""
     rounds, longest, stopped = [], 0.0, "max rounds"
     for _ in range(GOD_PAIRED_MAX_ROUNDS):
         if paired_settled(rounds):
