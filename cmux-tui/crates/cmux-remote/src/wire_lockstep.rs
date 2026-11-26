@@ -252,14 +252,15 @@ async fn wire_lockstep_new_workspace_client_against_base_daemon() {
 }
 
 #[tokio::test]
-#[ignore = "WorkspaceClient sends list-processes to a daemon that omitted process-catalog-v1"]
 async fn wire_lockstep_client_honors_missing_process_catalog() {
     let (head, base) = manifests();
     let mut legacy = base.manifest().clone();
     legacy.capabilities.remove("process-catalog-v1");
     let old = OldPeer::new(legacy);
-    let (tap, _) = client_exchange(&head, &old, WorkspaceRequest::ListProcesses).await;
+    let (tap, result) = client_exchange(&head, &old, WorkspaceRequest::ListProcesses).await;
     tap.assert_lockstep(&head, &old);
+    assert_eq!(result.unwrap_err().code, "unsupported");
+    assert!(!tap.seen().contains(&(Dir::Sent, "method:list-processes".into())));
 }
 
 async fn old_client_rpc(

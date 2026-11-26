@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_remote_protocol::{
-    Lane, OperationId, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
-    ServiceControl, WorkspaceRequest, WorkspaceResponse,
+    Lane, OperationId, ProcessId, RemoteCapability, RequestId, RpcError, RpcEvent, RpcRequest,
+    RpcResponse, Service, ServiceControl, WorkspaceRequest, WorkspaceResponse,
 };
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -52,6 +52,11 @@ pub struct WorkspaceClient {
     cancellation: WorkspaceRpcChannel,
     bulk: WorkspaceRpcChannel,
     dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
+    /// The daemon's last `capabilities` answer, once this client has read one.
+    /// While it is `None` every request is sent, as before; once known, a
+    /// request whose capability the daemon did not list fails locally with
+    /// `unsupported` instead of reaching a peer that cannot parse it.
+    advertised: Mutex<Option<Vec<RemoteCapability>>>,
 }
 
 struct WorkspaceRpcChannel {
@@ -247,6 +252,7 @@ impl WorkspaceClient {
             cancellation,
             bulk,
             dropped_cancellations,
+            advertised: Mutex::new(None),
         }))
     }
 
@@ -255,7 +261,41 @@ impl WorkspaceClient {
     }
 
     pub async fn request(&self, request: WorkspaceRequest) -> Result<WorkspaceResponse, RpcError> {
-        self.begin_request(request).await?.receive().await
+        let response = self.begin_request(request).await?.receive().await;
+        self.remember_capabilities(&response);
+        response
+    }
+
+    /// The capabilities the daemon last advertised to this client, if any.
+    pub fn advertised_capabilities(&self) -> Option<Vec<RemoteCapability>> {
+        self.advertised.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn remember_capabilities(&self, response: &Result<WorkspaceResponse, RpcError>) {
+        if let Ok(WorkspaceResponse::Capabilities { capabilities }) = response {
+            *self.advertised.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(capabilities.clone());
+        }
+    }
+
+    fn refuse_unadvertised(&self, request: &WorkspaceRequest) -> Result<(), RpcError> {
+        let Some(required) = required_capability(request) else {
+            return Ok(());
+        };
+        let advertised = self.advertised.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match advertised.as_ref() {
+            Some(capabilities) if !capabilities.contains(&required) => Err(RpcError::new(
+                "unsupported",
+                format!(
+                    "the daemon did not advertise {}",
+                    serde_json::to_value(&required)
+                        .ok()
+                        .and_then(|value| value.as_str().map(str::to_owned))
+                        .unwrap_or_else(|| format!("{required:?}"))
+                ),
+            )),
+            _ => Ok(()),
+        }
     }
 
     /// Start an RPC without waiting for it. Concurrent requests may execute in
@@ -288,7 +328,9 @@ impl WorkspaceClient {
         request: WorkspaceRequest,
         timeout: Duration,
     ) -> Result<WorkspaceResponse, RpcError> {
-        self.begin_request_with_timeout(request, timeout).await?.receive().await
+        let response = self.begin_request_with_timeout(request, timeout).await?.receive().await;
+        self.remember_capabilities(&response);
+        response
     }
 
     /// Cancel an in-flight request. The daemon records the cancellation if
@@ -308,6 +350,7 @@ impl WorkspaceClient {
         request: WorkspaceRequest,
         timeout: Option<(u64, Duration)>,
     ) -> Result<PendingWorkspaceRequest, RpcError> {
+        self.refuse_unadvertised(&request)?;
         let channel = self.channel(rpc_traffic_class(&request));
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
         let deadline = timeout.map(|(_, duration)| tokio::time::Instant::now() + duration);
@@ -562,6 +605,39 @@ async fn connect_rpc_channel(
         }
     });
     Ok(channel)
+}
+
+/// The capability a daemon must advertise before this client sends `request`,
+/// from the `methods` lists in `cmux-tui/spec/wire/cmux-remote.json`.
+///
+/// `computer-use-v1` is left out on purpose: the manifest lists its methods,
+/// but the daemon negotiates computer use through `computer-use-capabilities`
+/// and never advertises `computer-use-v1`, so gating it would refuse a
+/// working daemon.
+pub(crate) fn required_capability(request: &WorkspaceRequest) -> Option<RemoteCapability> {
+    Some(match request {
+        WorkspaceRequest::ListProcesses => RemoteCapability::ProcessCatalogV1,
+        WorkspaceRequest::SpawnProcessWithHandle { .. } => RemoteCapability::ProcessHandlesV2,
+        WorkspaceRequest::CloseWorkspace { .. } | WorkspaceRequest::FinishOperation { .. } => {
+            RemoteCapability::ProcessLifecycleV2
+        }
+        WorkspaceRequest::ResizeProcess { .. } => RemoteCapability::ProcessPtyV1,
+        WorkspaceRequest::SnapshotProcessTerminal { .. } => {
+            RemoteCapability::ProcessTerminalSnapshotV1
+        }
+        WorkspaceRequest::CancelRequest { .. } => RemoteCapability::RequestControlV1,
+        WorkspaceRequest::ReplaceMachineSecrets { .. } => RemoteCapability::SecretsV1,
+        WorkspaceRequest::CreateRoute { .. } | WorkspaceRequest::CloseRoute { .. } => {
+            RemoteCapability::TcpRoutesV1
+        }
+        WorkspaceRequest::Diff { .. } | WorkspaceRequest::GitStatus { .. } => {
+            RemoteCapability::WorkspaceDiffV1
+        }
+        WorkspaceRequest::ApplyPatch { .. } => RemoteCapability::WorkspacePatchV1,
+        WorkspaceRequest::Search { .. } => RemoteCapability::WorkspaceSearchV1,
+        WorkspaceRequest::ComputerUseCapabilities => RemoteCapability::ComputerUseNegotiationV1,
+        _ => return None,
+    })
 }
 
 fn request_registry(
