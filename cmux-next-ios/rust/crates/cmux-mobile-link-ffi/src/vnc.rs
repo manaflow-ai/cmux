@@ -29,10 +29,7 @@ mod tests {
 
     #[test]
     fn answers_and_refuses_as_the_mac_does() {
-        assert_eq!(
-            vnc_json("vnc_keysym".into(), r#"{"hidUsage":4}"#.into()),
-            Ok(r#"{"keysym":97}"#.into())
-        );
+        assert_eq!(vnc_json("vnc_keysym".into(), r#"{"hidUsage":4}"#.into()), Ok(r#"{"keysym":97}"#.into()));
         assert!(matches!(
             vnc_json("vnc_nope".into(), "{}".into()),
             Err(VncJsonError::UnknownOperation { .. })

@@ -40,7 +40,9 @@ fn credentials_come_from_the_url_decoded() {
 
 #[test]
 fn rejects_what_swift_rejected() {
-    for raw in ["", "  ", "host:notaport", "host:70000", "::5", "[]:1", "[::1]:x", ":5", "me@", "vnc://"] {
+    for raw in
+        ["", "  ", "host:notaport", "host:70000", "::5", "[]:1", "[::1]:x", ":5", "me@", "vnc://"]
+    {
         assert_eq!(parse_address(raw), None, "{raw:?}");
     }
     // Multi-byte text where the scheme would be never splits a character.

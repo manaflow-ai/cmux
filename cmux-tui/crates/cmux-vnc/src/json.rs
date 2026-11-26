@@ -214,7 +214,15 @@ pub fn respond(operation: &str, request: &[u8]) -> Result<Value, JsonError> {
             let padding: [u8; 128] = padding
                 .try_into()
                 .map_err(|_| JsonError::Invalid("padding: not 128 bytes".into()))?;
-            match ard::response(r.generator, &prime, &server, &r.username, &r.password, &private_key, padding) {
+            match ard::response(
+                r.generator,
+                &prime,
+                &server,
+                &r.username,
+                &r.password,
+                &private_key,
+                padding,
+            ) {
                 Some(out) => json!({
                     "encryptedCredentials": STANDARD.encode(out.encrypted_credentials),
                     "clientPublicKey": STANDARD.encode(out.client_public_key),

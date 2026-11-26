@@ -4,7 +4,8 @@
 use super::*;
 
 fn ask(operation: &str, request: Value) -> Value {
-    respond(operation, request.to_string().as_bytes()).unwrap_or_else(|e| panic!("{operation}: {e}"))
+    respond(operation, request.to_string().as_bytes())
+        .unwrap_or_else(|e| panic!("{operation}: {e}"))
 }
 
 fn hex(text: &str) -> Vec<u8> {
@@ -53,12 +54,18 @@ fn keysyms_take_exactly_one_input() {
 #[test]
 fn security_choices_and_refusals() {
     let choose = |offered: &[u8], user: bool, pass: bool| {
-        ask("vnc_security_choose", json!({ "offered": offered, "hasUsername": user, "hasPassword": pass }))
+        ask(
+            "vnc_security_choose",
+            json!({ "offered": offered, "hasUsername": user, "hasPassword": pass }),
+        )
     };
     assert_eq!(choose(&[2, 30], true, true), json!({ "type": 30 }));
     assert_eq!(choose(&[2], true, true), json!({ "refusal": "passwordRequired" }));
     assert_eq!(choose(&[30], false, false), json!({ "refusal": "credentialsRequired" }));
-    assert_eq!(choose(&[5, 6], false, false), json!({ "refusal": "noSupportedSecurityType", "offered": [5, 6] }));
+    assert_eq!(
+        choose(&[5, 6], false, false),
+        json!({ "refusal": "noSupportedSecurityType", "offered": [5, 6] })
+    );
     assert_eq!(ask("vnc_security_server_chosen", json!({ "word": 2 })), json!({ "type": 2 }));
     assert_eq!(
         ask("vnc_security_server_chosen", json!({ "word": 258 })),
@@ -86,13 +93,19 @@ fn password_responses_match_swift_known_answers() {
         ("a🌍12345", "0e674da292a0e84a3c34f90b9dad0f9c"),
     ] {
         assert_eq!(
-            ask("vnc_password_response", json!({ "password": password, "challenge": b64(&challenge) })),
+            ask(
+                "vnc_password_response",
+                json!({ "password": password, "challenge": b64(&challenge) })
+            ),
             json!({ "response": b64(&hex(expected)) }),
             "{password:?}"
         );
     }
     assert!(matches!(
-        respond("vnc_password_response", json!({ "password": "", "challenge": b64(&[1]) }).to_string().as_bytes()),
+        respond(
+            "vnc_password_response",
+            json!({ "password": "", "challenge": b64(&[1]) }).to_string().as_bytes()
+        ),
         Err(JsonError::Invalid(_))
     ));
 }
@@ -125,7 +138,10 @@ fn apple_dh_matches_swift_known_answer() {
     );
     // A session's own key and padding are random but the shape holds.
     let random = ask("vnc_apple_dh", request(None, None));
-    assert_eq!(STANDARD.decode(random["encryptedCredentials"].as_str().unwrap()).unwrap().len(), 128);
+    assert_eq!(
+        STANDARD.decode(random["encryptedCredentials"].as_str().unwrap()).unwrap().len(),
+        128
+    );
     assert_eq!(STANDARD.decode(random["clientPublicKey"].as_str().unwrap()).unwrap().len(), 1);
     // A server key of the wrong length is no answer.
     let mut bad = request(Some(&[6]), Some(&padding));
