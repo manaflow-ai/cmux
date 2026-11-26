@@ -289,6 +289,13 @@ pub(crate) fn p_wake(coming: bool, delegating: bool, coordinator: bool) -> f64 {
     }
 }
 
+/// The context (tokens) under which a chat at `used` (tokens, window) no longer trips
+/// `threshold`: what surgery must reach to stand in for `/compact`.
+pub(crate) fn compact_line((_, size): (u64, u64), threshold: Threshold) -> u64 {
+    let share = (size > 0).then(|| (threshold.share * size as f64) as u64);
+    share.map_or(threshold.tokens, |share| share.min(threshold.tokens))
+}
+
 /// Whether a prompt's provenance is this timer's compaction.
 pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
@@ -456,13 +463,14 @@ impl Hub {
             last.and_then(|t| t.as_str().map(str::to_owned))
         };
         let Some(at_deadline) = last_turn() else { return };
-        let last = loop {
+        let (last, threshold) = loop {
             let Some(last) = last_turn().filter(|last| *last == at_deadline) else { return };
             // Read again: the setting may have been turned off or its threshold raised since the
             // timer was armed, and the cache must still be warm when the request goes.
-            if read_threshold().is_none_or(|threshold| !over(used, threshold)) {
+            let Some(threshold) = read_threshold().filter(|threshold| over(used, *threshold))
+            else {
                 return;
-            }
+            };
             let Some(left) = expires_ms.checked_sub(now_ms()).filter(|left| *left > 0) else {
                 return;
             };
@@ -475,7 +483,7 @@ impl Hub {
                 return;
             }
             match self.cache_compact_ready(session) {
-                Ready::Yes => break last,
+                Ready::Yes => break (last, threshold),
                 Ready::No => return,
                 Ready::Leased => {
                     let lease = session.turn_lock.lock();
@@ -485,6 +493,15 @@ impl Hub {
                 }
             }
         };
+        // Surgery first (`surgery.rs`, RFD 0149): it masks old tool output with no model call, so
+        // the chat lands under the threshold without a `/compact` turn; `/compact` when it says
+        // no or fails (counted in `harnessMagic.surgery.fallbacks`).
+        if self
+            .surgery_before_compact(session, compact_line(used, threshold), "cache_compact")
+            .await
+        {
+            return;
+        }
         let opts = PromptOptions {
             prompt_id: Some(format!("cache-compact-{}", uuid::Uuid::now_v7())),
             provenance: Some(json!({"kind": KIND})),

@@ -223,3 +223,14 @@ fn its_prompt_is_acpmuxs_own_not_the_persons() {
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)));
     assert!(super::super::inbox::persons_prompt(None, None));
 }
+
+/// What surgery must reach to stand in for the timer's `/compact`: under whichever of the token
+/// bar and the window's share trips first.
+#[test]
+fn compact_line_is_the_lower_bar() {
+    let t = Threshold { share: 0.3, tokens: 60_000 };
+    assert_eq!(compact_line((100_000, 1_000_000), t), 60_000);
+    assert_eq!(compact_line((100_000, 100_000), t), 30_000);
+    assert_eq!(compact_line((100_000, 0), t), 60_000);
+    assert_eq!(compact_line((100_000, 1_000_000), HALF), 500_000);
+}
