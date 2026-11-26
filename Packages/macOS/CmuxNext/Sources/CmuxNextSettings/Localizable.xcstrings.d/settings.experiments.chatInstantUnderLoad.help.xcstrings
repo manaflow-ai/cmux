@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.chatInstantUnderLoad.help" : {
+      "comment" : "Settings > Advanced > Experiments: the help line under the Prioritize Chat Input switch",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While you type or a reply streams, wait for a pause before saving the chat list new tabs show."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أثناء الكتابة أو بث رد، انتظر فترة توقف قبل حفظ قائمة الدردشات التي تعرضها علامات التبويب الجديدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dok kucate ili se odgovor prikazuje, sačekajte pauzu prije spremanja liste chatova koju prikazuju nove kartice."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mens du skriver, eller et svar streames, ventes der på en pause, før chatlisten til nye faner gemmes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Während du tippst oder eine Antwort gestreamt wird, auf eine Pause warten, bevor die Chatliste für neue Tabs gespeichert wird."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mientras escribes o llega una respuesta, espera una pausa antes de guardar la lista de chats que muestran las pestañas nuevas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pendant la saisie ou la diffusion d'une réponse, attendre une pause avant d'enregistrer la liste des chats affichée par les nouveaux onglets."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mentre scrivi o una risposta è in arrivo, attende una pausa prima di salvare l'elenco delle chat mostrato dalle nuove schede."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力中や返信のストリーミング中は、新しいタブに表示するチャット一覧の保存を一時停止まで待ちます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពេលអ្នកវាយ ឬការឆ្លើយតបកំពុងចាក់ផ្សាយ រង់ចាំការផ្អាកមុនពេលរក្សាទុកបញ្ជីជជែកដែលផ្ទាំងថ្មីបង្ហាញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "입력 중이거나 답변이 스트리밍되는 동안에는 잠시 멈출 때까지 기다렸다가 새 탭에 표시할 채팅 목록을 저장합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mens du skriver eller et svar strømmes, ventes det på en pause før chatlisten for nye faner lagres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podczas pisania lub strumieniowania odpowiedzi czeka na przerwę przed zapisaniem listy czatów pokazywanej w nowych kartach."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enquanto você digita ou uma resposta é transmitida, aguarda uma pausa antes de salvar a lista de chats exibida nas novas abas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока вы печатаете или приходит ответ, список чатов для новых вкладок сохраняется только после паузы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขณะที่คุณพิมพ์หรือคำตอบกำลังสตรีม จะรอให้หยุดชั่วครู่ก่อนบันทึกรายการแชทที่แท็บใหม่แสดง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Siz yazarken veya bir yanıt akarken, yeni sekmelerin gösterdiği sohbet listesini kaydetmeden önce bir duraklama beklenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поки ви друкуєте або надходить відповідь, список чатів для нових вкладок зберігається лише після паузи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khi bạn đang nhập hoặc một câu trả lời đang được truyền, chờ một khoảng dừng trước khi lưu danh sách trò chuyện mà tab mới hiển thị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在你输入或回复流式传输时，等到停顿后再保存新标签页显示的聊天列表。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在你輸入或回覆串流傳輸時，等到停頓後再儲存新分頁顯示的聊天列表。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
