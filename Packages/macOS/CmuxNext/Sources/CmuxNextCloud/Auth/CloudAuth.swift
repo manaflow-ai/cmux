@@ -308,7 +308,8 @@ public final class CloudAuth {
     static func tokenStore(configuration: CloudConfiguration, consentSession: ConsentSession? = nil,
                            autoLogin: Bool = false, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
-        let own = ownTokenStore(configuration: configuration)
+        let own = ownTokenStore(configuration: configuration, consentSession: consentSession, autoLogin: autoLogin,
+                                memoryOnly: memoryOnly)
         guard let shared = configuration.sharedSession.map({
             KeychainStackTokenStore(service: $0.keychainService, accessGroup: $0.accessGroup)
         }) else { return own }
@@ -317,7 +318,8 @@ public final class CloudAuth {
 
     /// This build's own Keychain store with its file fallback, adopting once from the namespaced store its
     /// update used.
-    static func ownTokenStore(configuration: CloudConfiguration) -> any StackAuthTokenStoreProtocol {
+    static func ownTokenStore(configuration: CloudConfiguration, consentSession: ConsentSession? = nil,
+                              autoLogin: Bool = false, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         let own = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
             fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
