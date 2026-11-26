@@ -79,6 +79,32 @@ fn a_team_signed_production_channel_names_the_shared_session_item() {
 }
 
 #[test]
+fn the_sign_in_screen_backend_label_answers_here() {
+    let (code, production) =
+        call(c"cloud_config_backend_label", &json!({"backend": {"kind": "production"}}));
+    assert_eq!(code, OK);
+    assert_eq!(production, json!({"kind": "production", "title": "cmux.com", "detail": null}));
+    let (_, development) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "development", "url": "https://dev-abc.cmux.dev"}}),
+    );
+    assert_eq!(
+        development,
+        json!({"kind": "development", "title": "Development backend", "detail": "dev-abc.cmux.dev"})
+    );
+    let (_, local) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "localOnly", "url": "http://localhost:3777"}}),
+    );
+    assert_eq!(
+        local,
+        json!({"kind": "local", "title": "Local backend", "detail": "localhost:3777"})
+    );
+    let (code, _) = call(c"cloud_config_backend_label", &json!({"backend": {"kind": "elsewhere"}}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn the_install_token_lease_answers_here() {
     let (code, renew) = call(
         c"cloud_auth_install_token_lease",
