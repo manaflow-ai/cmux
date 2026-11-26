@@ -55,8 +55,9 @@ class MintStep(unittest.TestCase):
 
     def test_the_warm_checkout_reads_only_the_minted_token(self) -> None:
         env = step("nightly-next-one", WARM_STEP)["env"]
-        self.assertEqual(env["FETCH_TOKEN"], "${{ steps.warm-fetch-token.outputs.token }}")
-        for value in map(str, env.values()):
+        # The release App's token; the job's own only where no step minted one, never anonymous.
+        self.assertEqual(env["FETCH_TOKEN"], "${{ steps.warm-fetch-token.outputs.token || github.token }}")
+        for key, value in ((k, str(v)) for k, v in env.items() if k != "FETCH_TOKEN"):
             self.assertNotIn("GITHUB_TOKEN", value)
             self.assertNotIn("github.token", value)
             self.assertNotIn("CMUX_BOT", value.upper())
@@ -111,7 +112,8 @@ class WarmCheckoutAppToken(unittest.TestCase):
         result = self.run_warm_step(sha=sha, FETCH_TOKEN="app-token-123")
         expected = base64.b64encode(b"x-access-token:app-token-123").decode()
         self.assertEqual(self.headers(), [f"origin-fetch: http.https://github.com/.extraheader AUTHORIZATION: basic {expected}"])
-        self.assertIn("::add-mask::app-token-123", result.stdout)
+        encoded = base64.b64encode(b"x-access-token:app-token-123").decode()
+        self.assertIn(f"::add-mask::{encoded}", result.stdout)
         self.assertIn(f"commit={sha} source=github", result.stdout)
 
     def test_without_a_token_the_step_refuses_github_instead_of_fetching_anonymously(self) -> None:
