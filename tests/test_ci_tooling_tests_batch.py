@@ -32,6 +32,10 @@ class ToolingTestsBatch(unittest.TestCase):
                 w["with"]["ref"] = "${{ inputs.sha || '' }}"
             if w.get("id") == "tt-test-registry":
                 w["run"] = w["run"].replace("${{ github.event_name == 'push' && '--warn-only' || '' }}", "--warn-only")
+                # The guards job passes it through env now (#56528's side-by-side run reads a step's env); the
+                # batch, at a merged tip, only warns.
+                if "WARN_ONLY" in w.get("env", {}):
+                    w["env"]["WARN_ONLY"] = "--warn-only"
             self.assertEqual(w, g, w.get("name"))
 
     def test_the_pull_request_scope_switch_is_wired(self) -> None:
