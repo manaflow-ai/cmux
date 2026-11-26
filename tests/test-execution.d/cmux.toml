@@ -42,6 +42,11 @@ lane = "manual"
 reason = "Checks scripts/ci/cmux_machine_channel_pr_head.py find (PR_HEAD_FAST_LANE): the merge takes its PR head's thin build only for a same-repo squash into feat-cmux-next with the same v2 tree key and both artifacts, waits a bounded time for a build still running, and otherwise builds; run python3 tests/test_cmux_machine_channel_pr_head.py yourself after changing it (no network)."
 
 [[test]]
+path = "tests/test_cmux_machine_channel_router_plan.py"
+lane = "manual"
+reason = "Checks that pr-router.yml's route job answers the machine channel's pull request plan (scripts/ci/cmux-machine-channel-pr-plan.sh) and cmux-machine-channel.yml takes it with no plan runner, and runs the plan and the finder's tree key on a fixture repo; run python3 tests/test_cmux_machine_channel_router_plan.py yourself after changing them (under 1 s, no network)."
+
+[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 
@@ -271,8 +276,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_merge_tree.py"
@@ -403,6 +407,10 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_channel_keeper.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -410,6 +418,10 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_election_budget.py"
 lane = "manual"
 reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed manual under the 2026-10-23 no-new-CI rule (since lifted), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
+path = "tests/test_cmux_tui_fallback_lost_leg.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_feat_latest_wins.py"
@@ -486,6 +498,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_key_verb.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_tree_key_verb.py"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_request_rerun.py"
