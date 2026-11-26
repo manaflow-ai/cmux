@@ -331,7 +331,7 @@ fn integration_tokens_use_the_bound_install_and_shared_minter() {
     assert_eq!(st.tokens_minted, 1, "policy refusal must not retry authentication");
     for (_, bearer, body) in requests {
         assert_eq!(bearer.as_deref(), Some("bearer-1"));
-        assert_eq!(*body, json!({"team": TEAM, "scopes": ["chat:write"], "label": "setup"}));
+        assert_eq!(*body, json!({"scopes": ["chat:write"], "label": "setup"}));
     }
 }
 
