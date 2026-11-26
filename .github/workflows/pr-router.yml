@@ -86,6 +86,9 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # 1: a ready-to-land head runs the full tier again; unset or 0: it runs the affected tier and the full tier
+          # runs hourly on feat-cmux-next (head_tier.py hourly full tier rule, cmux-next-hourly-full-tier.yml).
+          CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
           # A head that only merges the base into a PR idle 24 h starts nothing (head_tier.py); 0 turns that off.
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
           # Docs, plans, skills, copy or tests-only changes run the cheap tier (fast_track.py); 0 turns that off.
@@ -131,7 +134,7 @@ jobs:
           LAND_STATUS_RETRY_S: '20'
         run: |
           if [ "$STATE" = success ]; then
-            desc="The full tier runs on this head"
+            desc="The land's tier runs on this head (full, or affected with the full tier hourly on feat-cmux-next)"
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
