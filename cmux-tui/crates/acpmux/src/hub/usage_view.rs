@@ -326,6 +326,8 @@ impl Hub {
     /// each chat's metadata in place); only those are copied.
     async fn usage_sources(&self, sessions: &[Arc<Session>], now: u64) -> Vec<(String, Source)> {
         let mut sources = Vec::new();
+        // Read the policy once per pass. Launch paths and usage display share this value.
+        let claude_autocompact_window = crate::compaction_policy::claude_autocompact_window();
         for session in sessions {
             if !session.read_meta(|m| Self::reads_usage(m, now)) {
                 continue;
@@ -356,12 +358,14 @@ impl Hub {
                 env,
             };
             // The window acpmux started it with when the person set none (`harness_limits::lift_claude`).
+            // Use the same explicit setting and fleet fallback as launch paths so usage display
+            // agrees with the window Claude actually received.
             if claude_stdio
-                && crate::compaction_policy::fleet()
+                && let Some(window) = claude_autocompact_window.as_ref()
                 && crate::usage_stats::claude_autocompact_unset(&source)
             {
-                let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
-                source.env.insert(key.into(), value.into());
+                let (key, _) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+                source.env.insert(key.into(), window.clone());
             }
             sources.push((m.id.clone(), source));
         }

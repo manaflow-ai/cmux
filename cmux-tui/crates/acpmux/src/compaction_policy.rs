@@ -21,6 +21,9 @@ use serde_json::Value;
 pub const ENV_FLEET: &str = "ACPMUX_FLEET_COMPACTION";
 /// The settings-file key for the fleet policy (default `false`).
 pub const SETTING_FLEET: &str = "agents.compaction.fleet";
+/// The explicit Claude Code autocompact window used by the personal fleet.
+pub const SETTING_CLAUDE_AUTOCOMPACT_WINDOW: &str = "agents.claudeAutocompactWindow";
+const DEFAULT_CLAUDE_AUTOCOMPACT_WINDOW: &str = "400000";
 
 /// An on/off value: `1|true|on|yes` or `0|false|off|no`; anything else says nothing.
 pub fn flag(value: Option<&str>) -> Option<bool> {
@@ -58,6 +61,39 @@ pub fn fleet_env(env: impl Fn(&str) -> Option<String>) -> bool {
     }
 }
 
+/// The Claude Code autocompact window acpmux should add when Claude has no choice of its own.
+/// The explicit settings key carries the value, while the fleet policy keeps the historical
+/// 400K default for older fleet settings files.
+pub fn claude_autocompact_window_with(
+    doc: Option<&Value>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    if let Some(value) = doc
+        .and_then(|d| crate::user_settings::value(d, SETTING_CLAUDE_AUTOCOMPACT_WINDOW))
+        .and_then(|v| match v {
+            Value::Number(n) => n.as_u64(),
+            Value::String(s) => s.trim().parse().ok(),
+            _ => None,
+        })
+        .filter(|value| *value > 0)
+    {
+        return Some(value.to_string());
+    }
+    fleet_with(doc, env).then(|| DEFAULT_CLAUDE_AUTOCOMPACT_WINDOW.to_owned())
+}
+
+/// The autocompact window for this process's settings and environment.
+pub fn claude_autocompact_window() -> Option<String> {
+    let env = |var: &str| std::env::var(var).ok();
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => {
+            claude_autocompact_window_with(Some(&doc), env)
+        }
+        crate::user_settings::Settings::Missing => claude_autocompact_window_with(None, env),
+        crate::user_settings::Settings::Unreadable(_) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,5 +108,31 @@ mod tests {
         assert!(fleet_with(None, |v| (v == ENV_FLEET).then(|| "1".into())));
         // The environment wins both ways.
         assert!(!fleet_with(Some(&on), |v| (v == ENV_FLEET).then(|| "0".into())));
+    }
+
+    #[test]
+    fn the_explicit_autocompact_window_preserves_the_fleet_setting() {
+        let settings = json!({"agents": {"claudeAutocompactWindow": 400_000}});
+        assert_eq!(
+            claude_autocompact_window_with(Some(&settings), |_| None),
+            Some("400000".into())
+        );
+        let personal = json!({"agents": {"claudeAutocompactWindow": "157125"}});
+        assert_eq!(
+            claude_autocompact_window_with(Some(&personal), |_| None),
+            Some("157125".into())
+        );
+        assert_eq!(claude_autocompact_window_with(None, |_| None), None);
+        assert_eq!(
+            claude_autocompact_window_with(None, |v| (v == ENV_FLEET).then(|| "1".into())),
+            Some("400000".into())
+        );
+        // An explicit window is the person's choice, even when the fleet switch is off.
+        assert_eq!(
+            claude_autocompact_window_with(Some(&personal), |v| {
+                (v == ENV_FLEET).then(|| "0".into())
+            }),
+            Some("157125".into())
+        );
     }
 }

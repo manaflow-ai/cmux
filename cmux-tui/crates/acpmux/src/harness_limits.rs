@@ -84,17 +84,26 @@ pub fn terminal_claude_env(
     args: &[String],
     cwd: &std::path::Path,
     getenv: impl Fn(&str) -> Option<String>,
-) -> Vec<(&'static str, &'static str)> {
+) -> Vec<(&'static str, String)> {
     let retry_chosen = CLAUDE_RETRY_CHOICES.iter().any(|name| getenv(name).is_some());
     let terminal = if retry_chosen { &[][..] } else { CLAUDE_TERMINAL_ENV };
-    let mut lifted: Vec<(&'static str, &'static str)> = CLAUDE_ENV
+    let mut lifted: Vec<(&'static str, String)> = CLAUDE_ENV
         .iter()
         .chain(terminal)
         .copied()
         .filter(|(key, _)| getenv(key).is_none())
+        .map(|(key, value)| (key, value.to_owned()))
         .collect();
-    if crate::compaction_policy::fleet_env(&getenv) && claude_choice_unset(args, cwd, &getenv) {
-        lifted.push(CLAUDE_AUTOCOMPACT_WINDOW);
+    let settings = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => Some(doc),
+        crate::user_settings::Settings::Missing => None,
+        crate::user_settings::Settings::Unreadable(_) => None,
+    };
+    if let Some(window) =
+        crate::compaction_policy::claude_autocompact_window_with(settings.as_ref(), &getenv)
+        && claude_choice_unset(args, cwd, &getenv)
+    {
+        lifted.push((CLAUDE_AUTOCOMPACT_WINDOW.0, window));
     }
     lifted
 }
@@ -165,11 +174,11 @@ pub fn lift_claude(
             env: have.into_iter().collect(),
             ..Default::default()
         };
-        if crate::compaction_policy::fleet()
+        if let Some(window) = crate::compaction_policy::claude_autocompact_window()
             && crate::usage_stats::claude_autocompact_unset(&source)
         {
-            let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
-            cmd.env(key, value);
+            let (key, _) = CLAUDE_AUTOCOMPACT_WINDOW;
+            cmd.env(key, window);
         }
     }
 }
