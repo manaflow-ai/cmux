@@ -3763,8 +3763,14 @@ Above `[[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {` in `.github/workfl
 
 The dispatcher (main's cmux-next-dev-daily-dispatch.yml) asks for
 the feat-cmux-next tip it saw. A merge that lands before this run
-starts moves github.sha: fail without building, and the next tick
-asks for the new tip. No snapshot ref: creating a ref at a
+starts moves github.sha: the run is superseded, not broken. Path
+routing prints a notice, sets `superseded=true` and every tier false,
+and exits 0, so no job builds and the run ends green; a failed exit
+paged the incident desk as a feat-cmux-next base red (run
+45753471212). The dispatcher counts a run only at the SHA it asked
+for and publish needs an app-producer job to succeed, so a green
+superseded run neither blocks nor stands in for the new tip, and the
+next tick asks for it. No snapshot ref: creating a ref at a
 feat-cmux-next commit needs the workflows permission (HTTP 403).
 
 ## note-392
@@ -5224,7 +5230,7 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
 - Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
-  (2026-11-25-fleet-fallback.md). DEV Release (`dev_daily`) compiles are unchanged.
+  (2026-11-25-fleet-fallback.md); unset is null and null != '0' is false, so the `if` reads `(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'`. DEV Release (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read
 
