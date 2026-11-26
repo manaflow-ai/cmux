@@ -15,8 +15,8 @@
 //!   `path`, or `{}`.
 //! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`].
 
-pub mod custom;
 pub mod chrome_theme;
+pub mod custom;
 pub mod effective;
 pub mod jsonc;
 pub mod looks;
