@@ -50,7 +50,10 @@ async function ready(page, url, tryMs, boundMs) {
       return;
     } catch (error) {
       if (error?.final) throw error;
-      // A timeout or a navigation vite's reload cut short: reload and wait again, inside the bound.
+      // A timeout, or a navigation vite's restart cut short (ERR_CONNECTION_RESET while
+      // the server comes back): pause so a down server is not hammered, then reload and
+      // wait again, inside the bound.
+      await new Promise((resolve) => setTimeout(resolve, Math.min(500, Math.max(0, deadline - Date.now()))));
     }
   }
 }
