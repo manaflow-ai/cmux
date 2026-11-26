@@ -75,6 +75,9 @@ fn an_https_forward_exposes_the_selected_loopback_preview_url() {
     assert_eq!(answer["scheme"], "https");
     assert_eq!(answer["url"], format!("https://127.0.0.1:{local}/"));
     assert_eq!(rig.server.handle(&https_forward(8443, "https-2")).unwrap()["url"], answer["url"]);
+    let reused = rig.server.handle(&forward(8443, "http-reuse")).unwrap();
+    assert_eq!(reused["scheme"], "https", "a live forward retains its original scheme");
+    assert_eq!(reused["url"], answer["url"]);
 }
 
 /// This host's non-loopback IPv4 addresses (from the routing choice for an
