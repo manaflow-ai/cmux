@@ -244,6 +244,11 @@ final class CEFOffscreenPages {
         return min(100, max(0, value))
     }()
 
+    /// The window fences a resize joins: the runtime's (``CEFRuntime/resizeFences``); a test hands its own, with ports
+    /// it can count.
+    var resizeFences: CEFResizeFences { fencesForTesting ?? CEFRuntime.shared.resizeFences }
+    var fencesForTesting: CEFResizeFences?
+
     // `debug.cef` `offscreen`.
     private(set) var stats = Stats()
     struct Stats {
@@ -336,7 +341,7 @@ final class CEFOffscreenPages {
         if externalBeginFrames { beginFrame(page.browser) }
         guard resizeWaitMs > 0, let window = page.window, let layer = page.layer else { return }
         let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
-        let joined = CEFRuntime.shared.resizeFences.join(window: window, layer: layer, timeoutMs: Int32(resizeWaitMs.rounded()),
+        let joined = resizeFences.join(window: window, layer: layer, timeoutMs: Int32(resizeWaitMs.rounded()),
                                                          refreshMs: refreshMs) { [weak page] _, done in
             guard let page else { return false }
             page.holdFence(done)
