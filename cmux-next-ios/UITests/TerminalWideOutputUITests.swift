@@ -99,9 +99,7 @@ final class TerminalWideOutputUITests: XCTestCase {
     /// The gallery's other variants, as screenshots: (b) Wide View, the
     /// dedicated view (the page menu's Wide View: Wide on, the key row and
     /// composer away), at its left edge and panned to the right end; (c) the
-    /// same turned to landscape. Rotation itself belongs to the landscape
-    /// work (`lane/ios-first-frame-landscape`): this only records what the
-    /// build shows, and asserts only the portrait steps.
+    /// same turned to landscape, retaining the wide grid and hidden key row.
     @MainActor
     func testWideViewGallery() throws {
         XCUIDevice.shared.orientation = .portrait
@@ -134,8 +132,11 @@ final class TerminalWideOutputUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(Self.values(demo)["lastCol"] ?? 0, 178, "Wide View pans to the right end: \(demo)")
 
         XCUIDevice.shared.orientation = .landscapeLeft
-        _ = wait(probe, timeout: 2) { _ in false }
+        demo = wait(probe, timeout: 10) { _ in window.frame.width > window.frame.height }
         attach(app, "gallery-c-wide-view-landscape")
+        XCTAssertGreaterThan(window.frame.width, window.frame.height, "the dedicated Wide View turns landscape")
+        XCTAssertGreaterThanOrEqual(Self.values(demo)["cols"] ?? 0, 180, "Wide View stays wide after rotation: \(demo)")
+        XCTAssertFalse(app.buttons["terminal.key.wide"].isHittable, "Wide View still hides the key row after rotation")
     }
 
     /// Turns on Wide from the key row. The row shows only over the soft
