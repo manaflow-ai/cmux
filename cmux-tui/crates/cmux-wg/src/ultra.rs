@@ -877,11 +877,13 @@ impl UltraUnderlay {
     /// (handshakes, the tunnel's own) keep the mode's repair too.
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
-            Some(Priority::Screen) => {
+            // Remote desktop media keeps its repair at any loss: its loss behaviour under
+            // the 1 % rule has not been measured (RFD 0164 B6).
+            None | Some(Priority::Media) => true,
+            Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
-            }
-            _ => true,
+            }),
         }
     }
 
