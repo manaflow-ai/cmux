@@ -701,7 +701,7 @@ fn the_names_of_an_agent_links_path_are_never_said_to_be_ignored() {
 #[test]
 fn a_link_with_nothing_stray_ignores_nothing() {
     let text = format!(
-        "cmux://agent/codex/s1?host=big-red&name=Rivetmoss&message=msg_1&machine={MACHINE}"
+        "cmux://agent/codex/s1?host=studio-2&name=Rivetmoss&message=msg_1&machine={MACHINE}"
     );
     assert_eq!(read(&text, "cmux").unwrap().ignored, Vec::<String>::new());
 }
