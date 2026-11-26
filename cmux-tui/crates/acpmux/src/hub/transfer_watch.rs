@@ -132,6 +132,19 @@ pub(super) fn fully_read(dir: &Path) -> Option<bool> {
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
 }
 
+/// A client read a page of the move in `dir`: from then on it may be copying, and a restart
+/// leaves the copy to go on from its offset (`watch_transfer_after_restart`).
+pub(super) fn note_page(dir: &Path) {
+    if !dir.join("paged").exists() {
+        let _ = crate::home_fs::write(dir.join("paged"), "");
+    }
+}
+
+/// Whether any page of the move in `dir` was read.
+pub(super) fn any_page_read(dir: &Path) -> bool {
+    dir.join("paged").exists()
+}
+
 /// How long ago the move last heard from its driver. A missing or malformed stamp is
 /// deliberately unknown: a takeover must never guess that a move is dead.
 pub(super) fn idle_for(dir: &Path) -> Option<std::time::Duration> {
@@ -288,11 +301,11 @@ impl Hub {
     }
 
     /// Watches the move `transfer_id` of `session`, which this daemon found at start, until it
-    /// ends, unless another holds its watch. A move whose bundle was not
-    /// read to its end cannot have landed anywhere, and its client's connection did not survive
-    /// the restart, so it ends now (the chat runs here again) rather than after a lease the chat
-    /// spends frozen (RFD 0063, "Nothing lives only on the VM"). A client still reading it gets
-    /// `transfer.unknown` and starts the move anew. A move read to its end waits for its lease.
+    /// ends, unless another holds its watch. A move nobody read a page of cannot have landed
+    /// anywhere and has no copy to go on, so it ends now (the chat runs here again) rather than
+    /// after a lease the chat spends frozen (RFD 0063, "Nothing lives only on the VM"). A move
+    /// a client was copying stays whole: a take-over mid-copy (2026-11-22) goes on from the offset
+    /// it reached against the new daemon, and the lease ends it if its client is gone.
     pub(super) fn watch_transfer_after_restart(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -307,6 +320,7 @@ impl Hub {
             let dir = transfers_dir().join(&watch.transfer_id);
             if dir.is_dir()
                 && fully_read(&dir) == Some(false)
+                && !any_page_read(&dir)
                 && hub.end_stalled_move(&session, &watch.transfer_id, &dir).await
             {
                 return;

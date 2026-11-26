@@ -153,7 +153,17 @@ async fn a_fork_whose_agent_a_restart_cut_off_resumes_its_chat_and_a_retry_finds
     assert_eq!(retried["sessionId"], fid.as_str());
     assert_eq!(open_forks(&hub, &id), vec![fid.clone()], "{:?}", names(&hub));
     // Its agent resumed the chat's conversation: it knows the codeword.
-    let held = conversation(&hub, &mut c, &fid).await;
+    // The restarted fork's agent starts with no conversation id of its own, so acpmux primes it
+    // with one turn (`hub/lifecycle.rs`), as `fork_through` leaves out too.
+    let held: Vec<Value> = conversation(&hub, &mut c, &fid)
+        .await
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| *p != "This session was just forked. Reply with exactly: ready")
+        .cloned()
+        .collect();
+    let held = Value::Array(held);
     assert_eq!(
         held,
         json!(["Remember this codeword: PERIWINKLE-4471", "say BANANA 2"]),

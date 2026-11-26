@@ -1589,7 +1589,11 @@ fn every_tool_schema_fits_its_byte_budget() {
     const PER_TOOL: usize = 3 * 1024;
     let mut over = Vec::new();
     for (server, list, budget) in [
-        ("acpmux", tools(), 28 * 1024),
+        // 28 KiB at #55308 (2026-11-24); the tools since are features a chat calls (machine_read,
+        // machine_edit, machine_exec, machine_request, settings_ask, look, watch time wakes, race,
+        // new/fork/wait/cancel), each within PER_TOOL. Claude loads only ALWAYS_LOADED up front, so
+        // the whole list is Codex's per-turn cost: shorten a schema before raising this again.
+        ("acpmux", tools(), 34 * 1024),
         ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
     ] {
         let mut total = 0;
