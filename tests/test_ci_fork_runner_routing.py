@@ -1068,11 +1068,49 @@ def outsider_triggered_workflows() -> list[Path]:
     ]
 
 
+# One persistent-pool line an outsider-triggered workflow may hold: backend-migrations.yml's gate-no-change, the
+# required `backend migrations applied` once an ephemeral plan job found no migration change. Admitted only for a job
+# that can hold nothing a persistent machine could leak or a PR could steer (inert_job): permissions {}, no
+# environment, no container or services, and steps that are each a literal `run` with no expression. 2026-11-25
+# 21:22-21:50Z: 96 of 127 queued one-job gate jobs were this echo and gate jobs waited about 14 min for a VM.
+INERT_POOL_RUNNER = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                     "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+INERT_POOL_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(INERT_POOL_RUNNER) + r"\s*(?:#.*)?$")
+
+
+def inert_job(job: object) -> bool:
+    """A job with no token, no secrets, no environment and only literal shell steps."""
+    if not isinstance(job, dict) or job.get("permissions") != {}:
+        return False
+    if any(key in job for key in ("environment", "container", "services", "uses", "secrets", "env", "defaults")):
+        return False
+    steps = job.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return False
+    for step in steps:
+        if not isinstance(step, dict) or set(step) - {"name", "run"} or "run" not in step:
+            return False
+        if "${{" in str(step.get("run")) or "${{" in str(step.get("name", "")):
+            return False
+    return True
+
+
+def inert_pool_lines(text: str) -> set[int]:
+    """Line numbers of INERT_POOL_RUNNER runs-on lines whose job is inert_job (every such job must be)."""
+    lines = [n for n, line in enumerate(text.splitlines(), start=1) if INERT_POOL_RUNNER_LINE.match(line)]
+    if not lines:
+        return set()
+    jobs = (yaml.safe_load(text) or {}).get("jobs") or {}
+    users = [job for job in jobs.values() if isinstance(job, dict) and job.get("runs-on") == INERT_POOL_RUNNER]
+    return set(lines) if len(users) == len(lines) and all(inert_job(job) for job in users) else set()
+
+
 def outsider_runner_errors(name: str, text: str) -> list[str]:
     """Every runner must be a hosted literal or the trusted ephemeral selector."""
     errors: list[str] = []
+    inert = inert_pool_lines(text)
     for number, line in enumerate(text.splitlines(), start=1):
-        if line.lstrip().startswith("#"):
+        if line.lstrip().startswith("#") or number in inert:
             continue
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
@@ -1584,6 +1622,19 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
         self.assertGreater(saw_linux, 0)
         self.assertGreater(saw_macos, 0)
+
+    def test_the_inert_pool_line_needs_an_inert_job(self) -> None:
+        inert = ("jobs:\n  a:\n    permissions: {}\n    runs-on: " + INERT_POOL_RUNNER
+                 + "\n    steps:\n      - name: ok\n        run: echo ok\n")
+        self.assertEqual(outsider_runner_errors("x.yml", inert), [])
+        for bad in (inert.replace("permissions: {}", "permissions:\n      contents: read"),
+                    inert.replace("    permissions: {}\n", ""),
+                    inert.replace("run: echo ok", "run: echo ${{ github.event.pull_request.title }}"),
+                    inert.replace("      - name: ok\n        run: echo ok", "      - uses: actions/checkout@v6"),
+                    inert.replace("    permissions: {}\n", "    permissions: {}\n    environment: prod\n"),
+                    inert.replace("    permissions: {}\n", "    permissions: {}\n    env:\n      X: ${{ secrets.X }}\n")):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(outsider_runner_errors("x.yml", bad), [])
 
     def test_outsider_triggered_workflows_pin_a_hosted_runner(self) -> None:
         """pull_request_target and comment events run fork-started jobs with trusted tokens."""

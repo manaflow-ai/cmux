@@ -302,8 +302,8 @@ class NightlyRunnerVariable(unittest.TestCase):
 
 class NightlySlotVariable(unittest.TestCase):
     def test_only_a_nightly_slot_label_is_allowed(self) -> None:
-        # nightly.yml's decide and the scheduled nightly-next canary and launch smoke take
-        # CI_NIGHTLY_NEXT_BUILD_RUNNER whole as runs-on, with write tokens in their failure jobs.
+        # nightly.yml's decide and the scheduled nightly-next canary and launch smoke's Mac jobs take
+        # CI_NIGHTLY_NEXT_BUILD_RUNNER whole as runs-on.
         self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}), [])
         self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}), [])
         for label in ("self-hosted-nightly-prod", "glaeda-nightly-", "glaeda-nightly-only-m4pro", "glaeda-std-xcode-26.6",
@@ -320,7 +320,9 @@ class NightlySlotVariable(unittest.TestCase):
             text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
             reads = [line for line in text.splitlines()
                      if "runs-on:" in line and "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER" in line]
-            self.assertEqual(len(reads), 4, workflow)
+            # Only the Mac job (the canary, the smoke) reads it: pick and the Linux tail jobs take the one-job
+            # cmux-gcp-nightly-jit-x64 VM on a schedule, off the nightly minis.
+            self.assertEqual(len(reads), 1, workflow)
             for line in reads:
                 self.assertEqual(line.count("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"), 2, line)
                 self.assertIn("github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, "
