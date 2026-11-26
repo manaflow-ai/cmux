@@ -75,6 +75,7 @@ fn a_test_line_is_never_an_event_and_home_is_scrubbed() {
     assert_eq!(event_for("not json", &Source::OWNER, None), None);
     let event = event_for(
         r#"{"message":"open /home/maya/x failed","location":"a.rs:1","version":"0.13.5","os":"linux","backtrace":"at /home/maya/src"}"#,
+        &Source::OWNER,
         Some("/home/maya"),
     )
     .unwrap();
