@@ -285,10 +285,13 @@ closed with 4001 `moved`.
     from peers that never send relay frames and confirm routes with an
     in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
     sender can join the session's WebSocket relay ("WebSocket relay"
-    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
-    has no other path: no plain UDP and no TURN allocation, so the peer
-    joins at once too); absent from older peers, which never join, and
-    then neither does this side. A roam's endpoint announcement
+    below): `"ready"` (when nothing else reaches the peer), `"first"`
+    (relay first: it joins as its dial starts, beside the direct
+    race, and so does a peer that said `"first"` too; a peer that reads
+    it as `"ready"` keeps the older rule) or `"now"` (it has no other
+    path: no plain UDP and no TURN allocation, so the peer joins at once
+    too); absent from older peers, which never join, and then neither
+    does this side. A roam's endpoint announcement
     (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
@@ -650,7 +653,13 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   client's `ping` is answered `pong` without waking the object.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  path (`relay: "now"`); as the dial starts when both said `"first"` (the
+  Mac on the phone's `wg-init`, the phone as its tunnel starts on the
+  Mac's `wg-resp`, beside the direct race and TURN; the phone's pending
+  handshake initiation goes through the relay as it joins, the same
+  message, so a direct answer in flight still completes it; neither asks
+  the other with `wg-relay`, and a join that finds the peer already heard
+  is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
   heard nothing for 16 s in the foreground, when its relay socket dies while

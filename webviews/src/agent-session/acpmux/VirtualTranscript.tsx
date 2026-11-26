@@ -48,7 +48,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -1859,6 +1858,24 @@ function TranscriptView({
     // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
     // A glide of their own on top would trail the stack's edge by a fold.
     const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
+    // The running tray, too, moves the stack on its own clock: it grows in from 0 frame by frame
+    // (subagents.css `--acpmux-tray-enter`), its fold opens and closes on useFold, and on a chat's
+    // load it comes with its whole height in the first frame that draws it. The rows rest REST_GAP
+    // over it on every one of those frames (agent-pane-composer-rest-gap); a glide on top left them
+    // trailing the tray's top edge, the gap 22px for two frames on load and down to 38px as it
+    // entered. So a change in the tray's own height takes the room at once and plays no glide.
+    // The queue above the composer is the same: its fold opens and closes the list on the structural
+    // motion (ComposerQueue), and a queued row leaving shrinks it at once. The latest row rests on
+    // the stack on every frame of it (agent-pane-queue-scroll-bottom: a glide on top floated the last
+    // row a card's height over the stack, then slid it down).
+    const queue = () => dock.querySelector(".acpmux-composer-queue")?.getBoundingClientRect().height ?? 0;
+    let ownClockDrawn = [tray(over()), queue()];
+    const ownClockMoved = () => {
+      const now = [tray(over()), queue()];
+      const moved = now.some((height, part) => Math.abs(height - ownClockDrawn[part]!) >= 0.5);
+      ownClockDrawn = now;
+      return moved;
+    };
     // A typed edit's growth starts in the field's own observer (fieldGrowth.ts, deferred): told first
     // in that round, the dock already holds the field at its natural height. Taken here, the rows
     // glided on the fold's curve and led the field by 5 to 7 px (transcript-composer-grow-anchor).
@@ -1875,7 +1892,8 @@ function TranscriptView({
         return;
       }
       const rows = thread.current;
-      if (!rows || growth || asksFolding()) {
+      const ownClock = ownClockMoved();
+      if (!rows || growth || asksFolding() || ownClock) {
         take();
         return;
       }
