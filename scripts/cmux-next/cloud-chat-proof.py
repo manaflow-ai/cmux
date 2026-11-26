@@ -155,7 +155,8 @@ def claude_chat(agent: str) -> bool:
 
 
 # A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
-START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
+# `cmux cloud start-chat` has no --login any more (run 45643863592: unexpected argument "--login"); none is passed.
+START_LOGIN = ()
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
@@ -736,8 +737,11 @@ if SHIPPED_APP:
     # A shipped build refuses `cmux app call` (app.call_debug_only), so its sign-in is read the way a person sees
     # it: `cloud list-machines` answers `loaded: true` only for a signed-in Cloud account. A shipped NIGHTLY talks
     # to production by construction (its bundle id, checked by the workflow), so its origin is the expected one.
-    wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
-             lambda value: value.get("loaded") is True)
+    # Its `account` ({signed_in, user_id, team_id}: CloudHandlers.listAccount, the app's own sign-in) names the
+    # user and team the login cache below is scoped to, as `auth.status` does on a dev build.
+    listing = wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
+                       lambda value: value.get("loaded") is True)
+    actual = listing.get("account") if isinstance(listing.get("account"), dict) else {}
     evidence["api_origin"] = args.expected_api_origin if args.cloud_backend == "prod" else None
 else:
     actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
@@ -932,7 +936,7 @@ if args.cache_claude_login:
     # The entries the start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
     entries = claude_login_cache.names(actual)
     if not entries:
-        record("cache claude login", 1, "", "auth.status names no user")
+        record("cache claude login", 1, "", "the sign-in (list-machines account or auth.status) names no user")
         finish("fail: cache claude login")
     for entry in entries:
         CACHED_LOGINS.append(entry)
