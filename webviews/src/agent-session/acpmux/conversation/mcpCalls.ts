@@ -16,6 +16,8 @@ import {
   toolResult,
 } from "./toolResult";
 import { stripAnsi } from "./toolOutputModel";
+import { experimentArm } from "../../../experiments/experiment";
+import { toolRowWords } from "./toolRowWords.experiment";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -24,6 +26,8 @@ export type McpCall = {
   tool: string;
   /// The tool's arguments, as the harness passed them.
   args: unknown;
+  /// The description retained on a normalized activity, including sparse updates.
+  description?: string;
 };
 
 /// Claude Code's MCP tool name: `mcp__<server>__<tool>`.
@@ -34,7 +38,8 @@ const CLAUDE_NAME = /^mcp__(.+?)__(.+)$/;
 /// `{server, tool, arguments}`.
 export function mcpCall(tool: Tool): McpCall | undefined {
   const name = CLAUDE_NAME.exec(tool.title.trim());
-  if (name) return { server: name[1]!, tool: name[2]!, args: parseJSON(tool.inputSummary) };
+  if (name)
+    return { server: name[1]!, tool: name[2]!, args: parseJSON(tool.inputSummary), description: tool.description };
   const input = parseJSON(tool.inputSummary);
   if (
     isRecord(input) &&
@@ -43,7 +48,12 @@ export function mcpCall(tool: Tool): McpCall | undefined {
     "arguments" in input &&
     !tool.command
   )
-    return { server: input.server, tool: input.tool, args: input.arguments };
+    return { server: input.server, tool: input.tool, args: input.arguments, description: tool.description };
+  // Older adopted Codex calls kept just the arguments and named the pair in their title.
+  if (tool.kind === "other" && !tool.provenance && isRecord(input)) {
+    const legacy = /^([\w.-]+): ([\w.-]+)$/.exec(tool.title);
+    if (legacy) return { server: legacy[1]!, tool: legacy[2]!, args: input, description: tool.description };
+  }
   return undefined;
 }
 
@@ -149,7 +159,20 @@ export function mcpIsObservational(call: McpCall): boolean {
 }
 
 /// Arguments that name what a call acts on, in the order they are tried.
-const NAME_KEYS = ["title", "name", "subject", "path", "file_path", "filePath", "url", "query", "q", "to", "recipient"];
+const NAME_KEYS = [
+  "title",
+  "name",
+  "subject",
+  "path",
+  "file_path",
+  "filePath",
+  "url",
+  "query",
+  "q",
+  "pattern",
+  "to",
+  "recipient",
+];
 /// A message is named by whom it went to, never by its subject or body.
 const MESSAGE_KEYS = ["to", "recipient", "title", "name"];
 /// Arguments holding an id the run's other calls may name (`id`, `chat_id`, `threadId`), not words
@@ -253,9 +276,77 @@ function toolNoun(call: McpCall): string {
   return rest.join(" ") || call.tool;
 }
 
+/// Verbs of tool names that are no English verb `VERBS` knows (`repo_grep`, `rg`), for the plain arm.
+const PLAIN_VERBS: Record<string, McpAction> = { ...VERBS, grep: "search", rg: "search", ls: "list", cat: "read" };
+/// Arguments that hold what a search looked for.
+const QUERY_KEYS = ["query", "q", "pattern", "regex", "search", "text"];
+
+/// A call's tool words without the server's name it repeats (`repo` + `repo_grep` reads "grep"),
+/// and what those words do (`PLAIN_VERBS`).
+function plainWords(call: McpCall): { words: string[]; action: McpAction } {
+  const server = new Set(words(call.server));
+  const all = words(call.tool);
+  let at = 0;
+  while (at < all.length - 1 && server.has(all[at]!)) at += 1;
+  const rest = all.slice(at);
+  return { words: rest, action: PLAIN_VERBS[rest[0] ?? ""] ?? "call" };
+}
+
+/// The plain arm of tool-row-words: a verb and what it acted on, the server named once: "Searched
+/// repo for “retry”", "Used repo: blame", "Used Linear". Undefined where today's line already reads
+/// plainly (any call whose tool starts with a verb, or a message), which then keeps it.
+function plainLabel(t: Translate, calls: readonly McpCall[], names: McpNames): string | undefined {
+  const first = calls[0]!;
+  if (mcpAction(first) !== "call") return undefined;
+  const { words: rest, action } = plainWords(first);
+  // A message keeps today's line: its words name whom it went to.
+  if (action === "message") return undefined;
+  const server = serverWords(first.server);
+  const n = calls.length;
+  const times = (line: string) => (n > 1 ? `${line} ×${n}` : line);
+  if (action === "search") {
+    const queries = new Set(
+      calls.map((call) => {
+        const callArgs = isRecord(call.args) ? call.args : {};
+        const key = QUERY_KEYS.find(
+          (name) => typeof callArgs[name] === "string" && String(callArgs[name]).trim() !== "",
+        );
+        return key ? String(callArgs[key]).replace(/\s+/g, " ").trim() : undefined;
+      }),
+    );
+    const query = queries.size === 1 ? [...queries][0] : undefined;
+    if (query && query.length <= 120) return times(t("tools.mcp.searchedFor", { server, query }));
+    return times(t("tools.mcp.search", { target: server }));
+  }
+  if (action !== "call") {
+    const target = mcpTarget(first, names);
+    const noun = rest.slice(1).join(" ");
+    const object = target ?? (noun ? `${server} ${noun}` : server);
+    return times(t(`tools.mcp.${action}`, { target: object }));
+  }
+  const target = mcpTarget(first, names);
+  const tool = rest.join(" ");
+  if (!tool || tool === server)
+    return times(target ? t("tools.mcp.used", { server, tool: target }) : t("tools.mcp.usedServer", { server }));
+  return times(t("tools.mcp.used", { server, tool: target ? `${tool} ${target}` : tool }));
+}
+
+/// A finished call's line in tool-row-words' plain arm, or undefined on today's arm, for a call in
+/// flight (it keeps its words), or where today's line already reads plainly.
+export function mcpPlainLine(
+  t: Translate,
+  calls: readonly McpCall[],
+  names: McpNames,
+  running = false,
+): string | undefined {
+  return !running && experimentArm(toolRowWords) === "plain" ? plainLabel(t, calls, names) : undefined;
+}
+
 /// One line for a run of calls to one MCP tool.
 export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpNames, running = false): string {
   const first = calls[0]!;
+  const plain = mcpPlainLine(t, calls, names, running);
+  if (plain) return plain;
   const targets = new Set(calls.map((call) => mcpTarget(call, names)));
   const target = targets.size === 1 ? [...targets][0] : undefined;
   const n = calls.length;
@@ -269,7 +360,10 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
   const object = target ? (action === "start" && noun !== first.tool ? `${noun} ${target}` : target) : noun;
   const line =
     action === "call"
-      ? t(running ? "tools.mcp.using" : "tools.mcp.used", { server: serverWords(first.server), tool: noun })
+      ? t(running ? "tools.mcp.using" : "tools.mcp.used", {
+          server: serverWords(first.server),
+          tool: target ? `${noun} ${target}` : noun,
+        })
       : t(`tools.mcp.${action}`, { target: object });
   return n > 1 ? `${line} ×${n}` : line;
 }
@@ -281,7 +375,7 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
 /// them seem kinda good? we should bea bel to do that AND have condensed tools that are callable in
 /// acpmux/cmux-next").
 export function mcpDescription(call: McpCall): string | undefined {
-  const value = isRecord(call.args) ? call.args.description : undefined;
+  const value = call.description?.trim() || (isRecord(call.args) ? call.args.description : undefined);
   if (typeof value !== "string") return undefined;
   const line = value.replace(/\s+/g, " ").trim();
   return line || undefined;

@@ -1,0 +1,83 @@
+{
+  "title": "Wallpaper lighting: the wallpaper lights the glass rims, tint and composer (opt-in appearance.wallpaperLighting)",
+  "settings": {
+    "appearance": {
+      "background": "hokusai-great-wave",
+      "theme": "Clay Orange",
+      "backgroundBlur": "glass"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch over art, lighting off (the default)",
+      "wait": 4
+    },
+    {
+      "title": "Split right",
+      "cmux": [
+        "action",
+        "run",
+        "splitRight"
+      ],
+      "wait": 1,
+      "optional": "the launch pane may be an agent chat, which can't be split"
+    },
+    {
+      "title": "Agent chat beside the terminal",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 4,
+      "optional": "agent chat views are not ported yet"
+    },
+    {
+      "title": "Lighting off: plain glass",
+      "wait": 2
+    },
+    {
+      "title": "Turn on Wallpaper Lighting",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.wallpaperLighting",
+        "true"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "Lighting on: rims, tint and composer catch the art's light",
+      "wait": 3
+    },
+    {
+      "title": "Other art: the light follows the picture",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.background",
+        "laurence-mckinley"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "Light theme with lighting on",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Clay Orange Light"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "Turn it off again",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.wallpaperLighting",
+        "false"
+      ],
+      "wait": 3
+    }
+  ]
+}

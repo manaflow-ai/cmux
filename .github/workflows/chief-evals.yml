@@ -7,24 +7,12 @@
 # and are reported in the job summary. When the model route is down they are
 # skipped with a warning, so a subrouter outage never reads as a Chief failure.
 #
-# A pull request into feat-cmux-next that touches Chief code runs it too, as an advisory check: no ruleset requires
-# it, and on a pull request the job is named "evals (advisory)", so land-judge and next-autoland neither wait on nor
-# refuse for it. A red there is a follow-up (ci-oops soft class), not a merge block. A pull request run whose tailnet
-# join is refused skips the model cases with the warning above; the deterministic cases still run.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 name: chief-evals
 on:
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - "Native/OptChat/**"
-      - "cmux-tui/crates/cmux-chief/**"
-      - "cmux-tui/crates/cmux-conversation/**"
-      - ".github/workflows/chief-evals.yml"
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "Native/OptChat/**"
@@ -49,14 +37,21 @@ permissions: {}
 concurrency:
   group: chief-evals-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   evals:
     name: evals${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
+    outputs:
+      # fleet-ab runs the model cases on the fleet when this join is refused.
+      tailnet: ${{ steps.tailnet.outcome }}
     permissions:
       # gh run download of the baseline run's chief-evals artifact.
       actions: read
@@ -73,6 +68,12 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('Native/OptChat/optchat-chief/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           workspaces: Native/OptChat/optchat-chief
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
@@ -86,6 +87,12 @@ jobs:
             eval_tests+=(--test "${name%.rs}")
           done
           cargo test --locked --no-run "${eval_tests[@]}"
+      - name: Runner unit tests (scoring and baseline diff)
+        working-directory: Native/OptChat/optchat-chief
+        # The runner's own tests (case_counts, infra runs, baseline_diff,
+        # `chief_eval diff`): no other job runs an example's tests, and they
+        # went uncompiled once already.
+        run: cargo test --locked --example chief_eval
       - name: Deterministic cases (no model call)
         working-directory: Native/OptChat/optchat-chief
         run: evals/run.sh --no-model
@@ -159,3 +166,52 @@ jobs:
           # A later run diffs against it; the baseline is report-only, so a run
           # more than 3 days after the last one just shows no diff.
           retention-days: 3
+
+  # The model cases when this runner cannot join the tailnet (refused with a token-exchange 403 on every run from
+  # at least 2026-10-30 to 2026-11-23, so no push scored a model case or diffed against a baseline). A fleet
+  # worker reaches the model route directly: scripts/measure/chief-evals.sh builds the eval runner at the
+  # previous head and at this push, runs the same cases on both on one worker, and lists the cases this push
+  # regressed (good Chief behavior lost) or improved. A report, never a gate. A thin cmux-ci client on the
+  # build-fleet gateway runner (vars.CI_EVAL_STEP_GATEWAY), as cmux-next-ios-keyboard-motion.yml is; with the
+  # variable unset nothing runs.
+  fleet-ab:
+    name: model cases A/B on the fleet
+    needs: evals
+    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 120
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Before and after on one worker
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          BASE_URL: ${{ vars.CHIEF_EVAL_BASE_URL || 'http://100.120.48.119:4016' }}
+        run: |
+          set +e
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::warning title=Chief evals A/B::$client is not installed on runner $RUNNER_NAME; no run"
+            exit 0
+          fi
+          log="${RUNNER_TEMP:?}/chief-evals-ab.log"
+          "$client" run --class exclusive --measurement --os linux --label measure --script scripts/measure/chief-evals.sh \
+            --ref "$AFTER" --arg "base_url=$BASE_URL" --arg "before=$BEFORE" --arg "after=$AFTER" \
+            --timeout 5400 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          {
+            echo "## Chief evals A/B on the fleet"; echo
+            echo "Before \`${BEFORE:0:12}\` (the previous head), after \`${AFTER:0:12}\`: the same cases on one worker."; echo
+            if grep -q '^CHIEF-EVALS-DIFF ' "$log"; then
+              sed -n '/^CHIEF-EVALS-DIFF /,$p' "$log" | tail -n +2
+            else
+              echo "No diff (exit $status): \`cmux-ci log\` of the step has the run."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$status" != 0 ]]; then
+            echo "::warning title=Chief evals A/B::the fleet run exited $status"
+          fi
+          exit 0

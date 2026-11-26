@@ -8,60 +8,68 @@ import Foundation
 extension AgentPaneModel {
     /// Tab strip title of an agent tab before the page reports a session title.
     public static var tabTitle: String {
-        String(localized: "agentPane.tab.title", defaultValue: "Agent", bundle: .module)
+        String(localized: "agentPane.tab.title", defaultValue: "Agent", bundle: .localizedModule)
     }
 
     /// The page's file.open was refused or failed.
     static var openFileFailedMessage: String {
-        String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
+        String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .localizedModule)
     }
 
     /// The page's browser.open (a turn's local web page) was refused or failed.
     static var openPreviewFailedMessage: String {
-        String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
+        String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .localizedModule)
     }
 
     /// The system screen capture could not start, or ended with an error and wrote no image.
     static var captureFailedMessage: String {
-        String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .module)
+        String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .localizedModule)
+    }
+
+    /// A folder the person picked for a chat that no longer exists (a reboot wiped a temporary
+    /// folder, a worktree was removed): which one, and the way out.
+    static func folderMissingMessage(_ path: String) -> String {
+        String(format: String(localized: "agentPane.error.folderMissing",
+                              defaultValue: "The folder %@ no longer exists. Pick another folder.", bundle: .localizedModule),
+               path)
     }
 
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
-        String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .module)
+        String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .localizedModule)
     }
 
     /// A git read of the changes view failed or has no session host.
     static var gitFailedMessage: String {
-        String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
+        String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .localizedModule)
     }
 
     /// A commit or push of the changes view failed or has no session host.
     static var gitWriteFailedMessage: String {
-        String(localized: "agentPane.error.gitWrite", defaultValue: "The git command could not be completed.", bundle: .module)
+        String(localized: "agentPane.error.gitWrite", defaultValue: "The git command could not be completed.", bundle: .localizedModule)
     }
 
     /// Shell mode's `shell.run` came without a key press or click in the pane.
     static var shellGestureMessage: String {
-        String(localized: "agentPane.shell.gestureRequired", defaultValue: "Not run", bundle: .module)
+        String(localized: "agentPane.shell.gestureRequired", defaultValue: "Not run", bundle: .localizedModule)
     }
 
     /// Why shell mode's command did not run, or was lost.
     /// `shell.complete` ran past its deadline (`shell.timed_out`).
     static var shellCompletionTimedOutMessage: String {
-        String(localized: "agentPane.shell.completionTimedOut", defaultValue: "Completion timed out", bundle: .module)
+        String(localized: "agentPane.shell.completionTimedOut", defaultValue: "Completion timed out", bundle: .localizedModule)
     }
 
     static func shellFailureMessage(_ error: any Error) -> String {
         switch error as? AgentPaneShell.Failure {
         case .tooMany:
-            String(localized: "agentPane.shell.tooMany", defaultValue: "Too many commands running", bundle: .module)
+            String(localized: "agentPane.shell.tooMany", defaultValue: "Too many commands running", bundle: .localizedModule)
         case .folderMissing:
-            String(localized: "agentPane.shell.folderMissing", defaultValue: "Folder not found", bundle: .module)
+            String(localized: "agentPane.shell.folderMissing", defaultValue: "Folder not found", bundle: .localizedModule)
         case .unknownRun:
-            String(localized: "agentPane.shell.unknownRun", defaultValue: "Output unavailable", bundle: .module)
+            String(localized: "agentPane.shell.unknownRun", defaultValue: "Output unavailable", bundle: .localizedModule)
         case .spawnFailed, nil:
-            String(localized: "agentPane.shell.spawnFailed", defaultValue: "Could not start", bundle: .module)
+            String(localized: "agentPane.shell.spawnFailed", defaultValue: "Could not start", bundle: .localizedModule)
         }
     }
 }
@@ -69,159 +77,159 @@ extension AgentPaneModel {
 extension AgentPaneView {
     /// The sheet that confirms a mode in which the agent acts without asking first.
     static var confirmModeTitle: String {
-        String(localized: "agentPane.confirmMode.title", defaultValue: "Let the agent act without asking?", bundle: .module)
+        String(localized: "agentPane.confirmMode.title", defaultValue: "Let the agent act without asking?", bundle: .localizedModule)
     }
 
     /// The sheet for a config option that is not a mode. `%1$@` is the option's display name and `%2$@` its display value.
     static var confirmOptionMessage: String {
         String(localized: "agentPane.confirmOption.message",
-               defaultValue: "Change %1$@ to %2$@? Paired devices could then run actions without asking.", bundle: .module)
+               defaultValue: "Change %1$@ to %2$@? Paired devices could then run actions without asking.", bundle: .localizedModule)
     }
 
     /// The display name for the non-mode setting that controls paired-device actions.
     static var confirmFastModeName: String {
-        String(localized: "agentPane.confirmOption.fastMode", defaultValue: "Fast mode", bundle: .module)
+        String(localized: "agentPane.confirmOption.fastMode", defaultValue: "Fast mode", bundle: .localizedModule)
     }
 
     static var confirmOptionOn: String {
-        String(localized: "agentPane.confirmOption.on", defaultValue: "On", bundle: .module)
+        String(localized: "agentPane.confirmOption.on", defaultValue: "On", bundle: .localizedModule)
     }
 
     static var confirmOptionOff: String {
-        String(localized: "agentPane.confirmOption.off", defaultValue: "Off", bundle: .module)
+        String(localized: "agentPane.confirmOption.off", defaultValue: "Off", bundle: .localizedModule)
     }
 
     static var confirmModeButton: String {
-        String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .module)
+        String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .localizedModule)
     }
 
     /// Shown when the pane's page crashed (it never reloads by itself; the notice offers Reload).
     static var crashedMessage: String {
-        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed.", bundle: .module)
+        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed.", bundle: .localizedModule)
     }
 
     /// Shown when automation would open the inspector without an explicit focus request.
     static var inspectorNeedsFocus: String {
-        String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
+        String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .localizedModule)
     }
 
     /// Shown when automation would open Session Info without an explicit focus request.
     static var sessionInfoNeedsFocus: String {
-        String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .module)
+        String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .localizedModule)
     }
 
     /// Why a page command's palette row (``AgentPageCommand``, its title) is greyed out: the focused
     /// chat does not offer it now.
     static func pageCommandUnavailable(_ title: String) -> String {
         String(format: String(localized: "agentPane.pageCommand.unavailable", defaultValue: "%@ isn't available in this chat.",
-                              bundle: .module), title)
+                              bundle: .localizedModule), title)
     }
 
     /// A greyed palette row's subtitle for a page command the focused chat does not offer now: the
     /// row already shows its title, so the subtitle does not repeat it.
     static var pageCommandUnavailableHere: String {
-        String(localized: "agentPane.pageCommand.unavailableHere", defaultValue: "Not available in this chat.", bundle: .module)
+        String(localized: "agentPane.pageCommand.unavailableHere", defaultValue: "Not available in this chat.", bundle: .localizedModule)
     }
 
     /// Shown when automation would run a page command (its title) without an explicit focus request.
     static func pageCommandNeedsFocus(_ title: String) -> String {
-        String(format: String(localized: "agentPane.pageCommand.needsFocus", defaultValue: "%@ requires focus.", bundle: .module), title)
+        String(format: String(localized: "agentPane.pageCommand.needsFocus", defaultValue: "%@ requires focus.", bundle: .localizedModule), title)
     }
 
     /// Shown when Toggle Session Info runs with Session Info turned off in Settings.
     static var sessionInfoOff: String {
-        String(localized: "agentPane.sessionInfo.off", defaultValue: "Session Info is turned off in Settings.", bundle: .module)
+        String(localized: "agentPane.sessionInfo.off", defaultValue: "Session Info is turned off in Settings.", bundle: .localizedModule)
     }
 
     /// cx-0q7o: an allow went to an agent daemon on another machine that holds no key of this
     /// app for that run (not started by this app, or restarted since), so it refuses the allow.
     static func remoteApprovalsOffTitle(_ machine: String) -> String {
         String(format: String(localized: "agentPane.remoteApprovals.off.title", defaultValue: "Remote approvals are off on %@",
-                              bundle: .module), machine)
+                              bundle: .localizedModule), machine)
     }
 
     static func remoteApprovalsOffDetail(_ machine: String) -> String {
         String(format: String(localized: "agentPane.remoteApprovals.off.detail",
                               defaultValue: "Approvals from cmux are off for the agent daemon on %@. Restart turns them on.",
-                              bundle: .module), machine)
+                              bundle: .localizedModule), machine)
     }
 
     static var remoteApprovalsRestart: String {
-        String(localized: "agentPane.remoteApprovals.restart", defaultValue: "Restart with approvals", bundle: .module)
+        String(localized: "agentPane.remoteApprovals.restart", defaultValue: "Restart with approvals", bundle: .localizedModule)
     }
 
     /// The machine's name when the chat's route names none (a peer of this Mac's agent daemon).
     static var remoteApprovalsThisMachine: String {
-        String(localized: "agentPane.remoteApprovals.thisMachine", defaultValue: "the other machine", bundle: .module)
+        String(localized: "agentPane.remoteApprovals.thisMachine", defaultValue: "the other machine", bundle: .localizedModule)
     }
 
     /// Peer-route approvals: a peer of this Mac's agent daemon has not enrolled this Mac, so it
     /// refused this Mac's signed one-time allow.
     static func peerApprovalsOffTitle(_ peer: String) -> String {
         String(format: String(localized: "agentPane.peerApprovals.off.title", defaultValue: "Enroll this Mac on %@ to allow from here",
-                              bundle: .module), peer)
+                              bundle: .localizedModule), peer)
     }
 
     static var peerApprovalsOffDetail: String {
         String(localized: "agentPane.peerApprovals.off.detail",
                defaultValue: "That machine counts this Mac's one-time Allow only after this Mac is enrolled there. The key never leaves this Mac.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     static var peerApprovalsEnroll: String {
-        String(localized: "agentPane.peerApprovals.enroll", defaultValue: "Enroll this Mac", bundle: .module)
+        String(localized: "agentPane.peerApprovals.enroll", defaultValue: "Enroll this Mac", bundle: .localizedModule)
     }
 
     /// The person's answer for a peer's prompt waits while this Mac enrolls there.
     static func peerApprovalsEnrollingTitle(_ peer: String) -> String {
         String(format: String(localized: "agentPane.peerApprovals.enrolling.title", defaultValue: "Enrolling this Mac on %@…",
-                              bundle: .module), peer)
+                              bundle: .localizedModule), peer)
     }
 
     static var peerApprovalsEnrollingDetail: String {
         String(localized: "agentPane.peerApprovals.enrolling.detail",
-               defaultValue: "Your answer goes as soon as it's done.", bundle: .module)
+               defaultValue: "Your answer goes as soon as it's done.", bundle: .localizedModule)
     }
 
     static func peerApprovalsEnrollFailed(_ peer: String, _ reason: String) -> String {
         String(format: String(localized: "agentPane.peerApprovals.enrollFailed", defaultValue: "Could not enroll this Mac on %@: %@",
-                              bundle: .module), peer, reason)
+                              bundle: .localizedModule), peer, reason)
     }
 
     /// An Always allow for a peer's prompt: only a one-time allow counts from this Mac.
     static var peerApprovalsOnceOnly: String {
         String(localized: "agentPane.peerApprovals.alwaysOff.title",
-               defaultValue: "Always allow isn't available from this Mac; Allow once and Deny work.", bundle: .module)
+               defaultValue: "Always allow isn't available from this Mac; Allow once and Deny work.", bundle: .localizedModule)
     }
 
     /// An answer with notes for a peer's prompt: this Mac signs none.
     static var peerApprovalsNotes: String {
         String(localized: "agentPane.peerApprovals.notes.title",
-               defaultValue: "Answers with notes aren't available from this Mac; Allow once and Deny work.", bundle: .module)
+               defaultValue: "Answers with notes aren't available from this Mac; Allow once and Deny work.", bundle: .localizedModule)
     }
 
     /// An Allow once for a peer's prompt that did not come from a click (a key).
     static var peerApprovalsNotClicked: String {
         String(localized: "agentPane.peerApprovals.notClicked.title",
-               defaultValue: "Click Allow once to answer this from this Mac.", bundle: .module)
+               defaultValue: "Click Allow once to answer this from this Mac.", bundle: .localizedModule)
     }
 
     /// This Mac's approver key could not sign a peer's Allow once.
     static var peerApprovalsNoKeyTitle: String {
         String(localized: "agentPane.peerApprovals.noKey.title", defaultValue: "This Mac couldn't sign that Allow once",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     static var peerApprovalsNoKeyDetail: String {
         String(localized: "agentPane.peerApprovals.noKey.detail",
                defaultValue: "Its approval key isn't available. Enroll this Mac on the other machine, then choose Allow once again.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     /// A peer's prompt this Mac had no record of when the person answered: the ask is still open.
     static var peerApprovalsNotRecorded: String {
         String(localized: "agentPane.peerApprovals.notRecorded.title",
-               defaultValue: "This Mac hadn't received that request yet. Choose Allow once again.", bundle: .module)
+               defaultValue: "This Mac hadn't received that request yet. Choose Allow once again.", bundle: .localizedModule)
     }
 
     static func remoteApprovalsRestartFailed(_ machine: String, _ failure: AgentPaneRemoteApprovals.Failure) -> String {
@@ -229,28 +237,28 @@ extension AgentPaneView {
         switch failure {
         case .noRandomness:
             reason = String(localized: "agentPane.remoteApprovals.failure.noRandomness", defaultValue: "this Mac could not make a key",
-                            bundle: .module)
+                            bundle: .localizedModule)
         case .daemonTookNoKey(let line):
             reason = line ?? String(localized: "agentPane.remoteApprovals.failure.noKey",
-                                    defaultValue: "the new agent daemon did not take the key", bundle: .module)
+                                    defaultValue: "the new agent daemon did not take the key", bundle: .localizedModule)
         case .keyNotHeld:
             reason = String(localized: "agentPane.remoteApprovals.failure.notHeld",
-                            defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .module)
+                            defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .localizedModule)
         case .daemonTooOld:
             reason = String(localized: "agentPane.remoteApprovals.failure.tooOld",
                             defaultValue: "the agent daemon there is too old for approvals from cmux. Update the machine, then try again",
-                            bundle: .module)
+                            bundle: .localizedModule)
         case .machineNotRunning:
             reason = String(localized: "agentPane.remoteApprovals.failure.notRunning",
-                            defaultValue: "the machine is not running", bundle: .module)
+                            defaultValue: "the machine is not running", bundle: .localizedModule)
         case .notSingleOwner:
             reason = String(localized: "agentPane.remoteApprovals.failure.notOwner",
-                            defaultValue: "approvals from cmux work only on a Cloud machine that you alone own", bundle: .module)
+                            defaultValue: "approvals from cmux work only on a Cloud machine that you alone own", bundle: .localizedModule)
         case .failed(let message):
             reason = message
         }
         return String(format: String(localized: "agentPane.remoteApprovals.restartFailed",
-                                     defaultValue: "Could not restart the agent daemon on %@: %@", bundle: .module), machine, reason)
+                                     defaultValue: "Could not restart the agent daemon on %@: %@", bundle: .localizedModule), machine, reason)
     }
 
     /// Shown when the pane runs on another cmux install's acpmux (NIGHTLY and Release share
@@ -258,19 +266,11 @@ extension AgentPaneView {
     static var otherInstallMessage: String {
         String(localized: "agentPane.otherInstall.message",
                defaultValue: "This chat runs on another cmux install's agent service. Approve its requests in that app.",
-               bundle: .module)
-    }
-
-    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
-    /// types would reach the agent as an unverified sender's until the identity reconnects.
-    static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     static var reloadTitle: String {
-        String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .module)
+        String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .localizedModule)
     }
 }
 
@@ -283,28 +283,28 @@ extension AgentPaneHostError {
         return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
             // The folders it looked in go to the app log (AgentPaneHost `endpoint`), not this line.
-            String(localized: "agentPane.error.notInstalled", defaultValue: "cmux couldn't find its agent service. Reinstall cmux to fix this.", bundle: .module)
+            String(localized: "agentPane.error.notInstalled", defaultValue: "cmux couldn't find its agent service. Reinstall cmux to fix this.", bundle: .localizedModule)
         // The daemon's log path is for a bug report, not the chat's line: it stays in the failure log.
         case .daemonFailed(_, let cause):
             if let because = cause.userText {
-                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux couldn't start its agent service: %@.", bundle: .module), because)
+                String(format: String(localized: "agentPane.error.daemonFailedBecause", defaultValue: "cmux couldn't start its agent service: %@.", bundle: .localizedModule), because)
             } else {
-                String(localized: "agentPane.error.daemonFailed", defaultValue: "cmux couldn't start its agent service.", bundle: .module)
+                String(localized: "agentPane.error.daemonFailed", defaultValue: "cmux couldn't start its agent service.", bundle: .localizedModule)
             }
         case .daemonRestarting:
-            String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .module)
+            String(localized: "agentPane.error.daemonRestarting", defaultValue: "The agent service is restarting after an update. This chat connects when it's back.", bundle: .localizedModule)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .module)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .localizedModule)
         case .chiefStopped:
-            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .module)
+            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .localizedModule)
         case .chiefStarting:
-            String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .module)
+            String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .localizedModule)
         case .daemonRefused(let holder?, _, _, _, _):
-            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .module), holder)
+            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .localizedModule), holder)
         case .daemonRefused(_, _, _, _, _):
-            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .module)
+            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .localizedModule)
         case .timedOut, nil:
-            String(localized: "agentPane.error.timedOut", defaultValue: "The agent service didn't answer in time.", bundle: .module)
+            String(localized: "agentPane.error.timedOut", defaultValue: "The agent service didn't answer in time.", bundle: .localizedModule)
         }
     }
 }
@@ -313,26 +313,26 @@ extension AgentPaneDictation {
     static func deniedMessage(_ permission: DictationPermission) -> String {
         switch permission {
         case .microphone:
-            String(localized: "agentPane.dictation.microphoneDenied", defaultValue: "Dictation needs microphone access. Turn it on for cmux in System Settings.", bundle: .module)
+            String(localized: "agentPane.dictation.microphoneDenied", defaultValue: "Dictation needs microphone access. Turn it on for cmux in System Settings.", bundle: .localizedModule)
         case .speechRecognition:
-            String(localized: "agentPane.dictation.speechDenied", defaultValue: "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings.", bundle: .module)
+            String(localized: "agentPane.dictation.speechDenied", defaultValue: "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings.", bundle: .localizedModule)
         }
     }
 
     static var openSettingsTitle: String {
-        String(localized: "agentPane.dictation.openSettings", defaultValue: "Open System Settings", bundle: .module)
+        String(localized: "agentPane.dictation.openSettings", defaultValue: "Open System Settings", bundle: .localizedModule)
     }
 
     static func failureMessage(_ failure: DictationFailure) -> String {
         switch failure {
         case .onDeviceRecognitionUnavailable:
-            String(localized: "agentPane.dictation.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .module)
+            String(localized: "agentPane.dictation.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .localizedModule)
         case .modelDownloadFailed:
-            String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .module)
+            String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
-            String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .module)
+            String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
         case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
-            String(localized: "agentPane.dictation.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .module)
+            String(localized: "agentPane.dictation.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .localizedModule)
         }
     }
 }
@@ -340,77 +340,101 @@ extension AgentPaneDictation {
 extension AgentPaneLoadingView {
     /// The pane's loading state, read by VoiceOver while the page loads and acpmux starts.
     static var label: String {
-        String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .module)
+        String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .localizedModule)
     }
 }
 
 extension AgentPaneModel {
     /// `github.repos.list` for a team with no cmux GitHub App installation (`github.not_connected`).
     static var gitHubNotConnectedMessage: String {
-        String(localized: "agentPane.github.notConnected", defaultValue: "Connect GitHub to see your repositories.", bundle: .module)
+        String(localized: "agentPane.github.notConnected", defaultValue: "Connect GitHub to see your repositories.", bundle: .localizedModule)
     }
 
     /// A GitHub method that could not be answered (signed out, offline, or no App here).
     static var gitHubUnavailableMessage: String {
-        String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .module)
+        String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .localizedModule)
     }
 
     /// Connect GitHub while a connection it can't resume is pending (started in Settings or in another launch).
     static var gitHubConnectPendingMessage: String {
-        String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .module)
+        String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .localizedModule)
     }
 
     /// The folder menu's Connect GitHub for a team whose installation was suspended or uninstalled (`needs_reauth`).
     static var gitHubReauthMessage: String {
-        String(localized: "agentPane.github.reauth", defaultValue: "GitHub access was suspended or removed. Connect GitHub again.", bundle: .module)
+        String(localized: "agentPane.github.reauth", defaultValue: "GitHub access was suspended or removed. Connect GitHub again.", bundle: .localizedModule)
     }
 
     /// The folder menu's Connect GitHub for a connection the server marked `error`.
     static var gitHubConnectionErrorMessage: String {
-        String(localized: "agentPane.github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", bundle: .module)
+        String(localized: "agentPane.github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", bundle: .localizedModule)
     }
 
     /// The folder menu's Connect GitHub after the API refused the link the person came back with (an expired state).
     static var gitHubLinkExpiredMessage: String {
-        String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .module)
+        String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .localizedModule)
+    }
+
+    /// The folder menu after the person asked an organization's owners to install the App (GitHub's `setup_action=request`).
+    static func gitHubRequestedMessage(owner: String?) -> String {
+        guard let owner else {
+            return String(localized: "agentPane.github.requested", defaultValue: "Asked the organization's owners to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+        }
+        return String(localized: "agentPane.github.requestedOwner", defaultValue: "Asked the owners of \(owner) to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
     }
 
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
     static var gitHubSignedOutMessage: String {
-        String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .module)
+        String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .localizedModule)
     }
 
     /// Connect GitHub where this Cloud service has no cmux GitHub App (`github.not_configured`).
     static var gitHubNotConfiguredMessage: String {
-        String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .module)
+        String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLInvalidMessage: String {
+        String(localized: "agentPane.repo.invalidURL", defaultValue: "Enter an HTTPS repository URL.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLCredentialsMessage: String {
+        String(localized: "agentPane.repo.credentials", defaultValue: "Use a URL without credentials, query parameters, or a fragment.", bundle: .localizedModule)
+    }
+
+    static var repositoryDestinationTakenMessage: String {
+        String(localized: "agentPane.repo.destinationTaken", defaultValue: "Another folder already uses this clone location.", bundle: .localizedModule)
+    }
+
+    static var repositoryCloneFailedMessage: String {
+        String(localized: "agentPane.repo.cloneFailed", defaultValue: "Couldn’t clone the repository. Check the URL and your Git access, then try again.", bundle: .localizedModule)
     }
 
     /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
     static func gitHubCloneFailedMessage(_ repo: String) -> String {
         String(format: String(localized: "agentPane.github.localCloneFailed",
-                              defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .module), repo)
+                              defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .localizedModule), repo)
     }
 
     /// `github.repos.checkout` found every clone folder for `repo` taken by something else (`github.clone_no_folder`).
     static func gitHubCloneNoFolderMessage(_ repo: String) -> String {
         String(format: String(localized: "agentPane.github.localCloneNoFolder",
-                              defaultValue: "Couldn't find a free folder for %@ in ~/cmux/repos.", bundle: .module), repo)
+                              defaultValue: "Couldn't find a free folder for %@ in ~/cmux/repos.", bundle: .localizedModule), repo)
     }
 
     /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
     static var gitHubFolderCloudOnlyMessage: String {
-        String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)
+        String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .localizedModule)
     }
 }
 
 extension AgentPaneCloudRepositoryRefusal {
     /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
     nonisolated static func needsAccessMessage(_ repository: String) -> String {
-        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .module), repository)
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .localizedModule), repository)
     }
 
     /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.
     nonisolated static func failedMessage(_ repository: String) -> String {
-        String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .module), repository)
+        String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .localizedModule), repository)
     }
 }

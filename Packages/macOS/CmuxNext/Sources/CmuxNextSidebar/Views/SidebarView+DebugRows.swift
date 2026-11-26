@@ -209,6 +209,16 @@ extension SidebarViewComponents {
     /// The drag's last drop probe (debug): nil while nothing is dragged.
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
 
+    /// The relaunch bench's layout film (relaunch_restore_check.py --layout-film, hq#18554 ask 2): in a bench-hooks
+    /// build started with CMUX_BENCH_LAUNCH_MOTION=1, each sidebar samples every display frame from before its first on
+    /// screen, so a row that moves after it shows is seen. `debug.sidebar_rows {motion: "stop"}` ends the first window's.
+    func startLaunchFilmIfAsked() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard ProcessInfo.processInfo.environment["CMUX_BENCH_LAUNCH_MOTION"] == "1" else { return }
+        list.motionProbe.start()
+        #endif
+    }
+
     /// Starts (`start` true) or stops the per-display-frame motion samples; stop returns them.
     public func debugMotion(start: Bool) -> [SidebarMotionFrame] {
         guard start else { return list.motionProbe.stop() }

@@ -360,8 +360,10 @@ impl Hub {
         // A digest its drain asked to steer still goes into the person's own turn (`turns.rs`
         // `persons_held`), but never ahead of the person's waiting prompt.
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
-        // A sub-session family message still goes into the person's own turn (`turns.rs`).
-        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+        // A sub-session family message, and a report of the chat's own lane, still go into the
+        // person's own turn (`turns.rs`).
+        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            || self.own_lane_report(session, opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
         // Another agent's message (an inbox notice too) never goes into a turn a Stop is ending:
@@ -410,6 +412,11 @@ impl Hub {
                 self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
+                }
+                // A blocker that sits unread behind a step that never ends stops the step
+                // (`urgent_steer.rs`).
+                if inbox_notice && super::urgent_steer::carries_blocker(opts.provenance.as_ref()) {
+                    self.watch_urgent_steer(session, &prompt_id, turn_id);
                 }
             },
         );
@@ -503,10 +510,13 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
-                    // Logged above, it never went: the log says so (a notice whose turn ended, a
-                    // steer-only one the person's prompt queued ahead of meanwhile).
+                    // Logged above, it never went: the log says so (the turn cap's notice or an
+                    // inbox notice whose turn ended or that a waiting prompt held, a steer-only
+                    // one the person's prompt queued ahead of meanwhile). An inbox notice's
+                    // messages go in with the next notice (`inbox.rs` `notice_done`): unmarked,
+                    // the chat showed them twice, and the log said they went in twice.
                     let waits = prompt_held.load(std::sync::atomic::Ordering::SeqCst);
-                    if bound || waits {
+                    if bound || waits || inbox_notice {
                         let msg = json!({"promptId": prompt_id, "turnId": turn_id});
                         self.append(session, "mux", "steer_withdrawn", msg);
                     }

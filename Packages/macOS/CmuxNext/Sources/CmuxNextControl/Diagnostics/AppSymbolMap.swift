@@ -61,7 +61,9 @@ public struct AppSymbolMap: Sendable {
     ///   - uuid: The executable's `LC_UUID`.
     public init?(data: Data, uuid: UUID) {
         var file = Reader(bytes: [UInt8](data))
-        guard file.take(8) == Array("CMXSYM1\0".utf8), let count = file.uint32() else { return nil }
+        guard let magic = file.take(8), let count = file.uint32() else { return nil }
+        let sharesPrefixes = magic == Array("CMXSYM2\0".utf8)
+        guard sharesPrefixes || magic == Array("CMXSYM1\0".utf8) else { return nil }
         let wanted = withUnsafeBytes(of: uuid.uuid) { Array($0) }
         for _ in 0..<count {
             guard let slice = file.take(16), let size = file.uint32(),
@@ -69,7 +71,7 @@ public struct AppSymbolMap: Sendable {
             else { return nil }
             guard slice == wanted else { continue }
             guard let inflated = try? (Data(payload) as NSData).decompressed(using: .zlib),
-                  let table = Self.table(Reader(bytes: [UInt8](inflated as Data)))
+                  let table = Self.table(Reader(bytes: [UInt8](inflated as Data)), sharesPrefixes: sharesPrefixes)
             else { return nil }
             offsets = table.offsets
             nameBytes = table.nameBytes
@@ -118,8 +120,10 @@ public struct AppSymbolMap: Sendable {
         return nil
     }
 
-    /// Decodes a slice payload: u32 count, LEB128 offset deltas, NUL-joined names.
-    private static func table(_ payload: Reader) -> (offsets: [UInt], nameBytes: [UInt8], nameStarts: [UInt32])? {
+    /// Decodes a slice payload: u32 count, LEB128 offset deltas, then the names: NUL-joined
+    /// (`CMXSYM1`), or per name the length of the prefix it shares with the one before and then
+    /// each rest and a NUL (`CMXSYM2`, which stores a Rust legacy `17h<hash>E` tail as 0x01).
+    private static func table(_ payload: Reader, sharesPrefixes: Bool) -> (offsets: [UInt], nameBytes: [UInt8], nameStarts: [UInt32])? {
         var payload = payload
         guard let count = payload.uint32() else { return nil }
         var offsets: [UInt] = []
@@ -130,7 +134,8 @@ public struct AppSymbolMap: Sendable {
             offset = offset.addingReportingOverflow(delta).partialValue
             offsets.append(offset)
         }
-        let nameBytes = Array(payload.rest)
+        let nameBytes = sharesPrefixes ? Self.expand(Array(payload.rest), count: Int(truncatingIfNeeded: count)) : Array(payload.rest)
+        guard let nameBytes else { return nil }
         var nameStarts: [UInt32] = [0]
         nameStarts.reserveCapacity(offsets.count)
         for (index, byte) in nameBytes.enumerated() where byte == 0 {
@@ -139,6 +144,32 @@ public struct AppSymbolMap: Sendable {
         }
         guard nameStarts.count == offsets.count else { return nil }
         return (offsets, nameBytes, nameStarts)
+    }
+
+    /// The names of a `CMXSYM2` block as `CMXSYM1` held them: whole, joined by NUL. A hash
+    /// mark reads back as `17h0000000000000000E`, which the demangler never prints.
+    private static func expand(_ block: [UInt8], count: Int) -> [UInt8]? {
+        guard count >= 0, block.count >= count else { return nil }
+        let noHash = Array("17h0000000000000000E".utf8)
+        var rests = block.dropFirst(count).split(separator: 0, omittingEmptySubsequences: false).makeIterator()
+        var names: [UInt8] = []
+        names.reserveCapacity(block.count * 3)
+        var previous: [UInt8] = []
+        var first = true
+        for shared in block.prefix(count) {
+            guard let rest = rests.next(), previous.count >= Int(truncatingIfNeeded: shared) else { return nil }
+            previous.removeSubrange(Int(truncatingIfNeeded: shared)...)
+            previous.append(contentsOf: rest)
+            if !first { names.append(0) }
+            first = false
+            if previous.last == 1 {
+                names.append(contentsOf: previous.dropLast())
+                names.append(contentsOf: noHash)
+            } else {
+                names.append(contentsOf: previous)
+            }
+        }
+        return names
     }
 
     /// Reads little-endian fields from a byte array; a read past the end is nil.

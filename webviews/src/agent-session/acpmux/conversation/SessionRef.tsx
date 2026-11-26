@@ -62,7 +62,6 @@ export function SessionRefCode({
           {...hover}
           type="button"
           className="acpmux-started-chip cv-session-ref"
-          title={carded ? undefined : title}
           aria-label={title}
           data-session-ref=""
           // The click opens it as a sender (`openSender`) where the page has one; the menu asks the same way.
@@ -85,7 +84,6 @@ export function SessionRefCode({
         className="cv-link cv-session-ref"
         href={agentRef.href}
         rel="noreferrer"
-        title={carded ? undefined : title}
         aria-label={carded ? title : undefined}
         {...hover}
         {...link}

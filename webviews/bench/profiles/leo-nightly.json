@@ -1,0 +1,37 @@
+{
+  "schema": "cmux-app-profile/v1",
+  "host": "cosmic-gray",
+  "at": "2026-11-26T00:37:32Z",
+  "build": "4572038238101",
+  "pages": {
+    "agent_total": 3,
+    "agent_visible": 1,
+    "browser_tabs": 2
+  },
+  "sessions": {
+    "listed_sessions": 4299,
+    "local_sessions": 687,
+    "running_sessions": 193,
+    "sessions_changed_per_min": 14.01
+  },
+  "processes": {
+    "renderer_rss_mb": 1600,
+    "renderer_cpu_pct": 84.8,
+    "agent_renderer_count": 1,
+    "agent_pane_rss_mb": 1523
+  },
+  "metrics": {
+    "frame_p95_ms": 9.2,
+    "frame_p99_ms": 9.3,
+    "frames_over_50ms": 0,
+    "frame_count": 1181,
+    "keydown_to_frame_p95_ms": null,
+    "long_task_blocking_ms_per_s": 0.0
+  },
+  "transcript_events": [1644841],
+  "load": {
+    "load_1m": 20.08,
+    "cores": 15
+  },
+  "source": "perf-tap app_profile of Leo NIGHTLY on cosmic-gray (leo-workspace tools/perf_sensor.py), as HQ NOW published it in perf_sensor.leo_nightly; sampled 2026-11-26T00:21:41Z, census 2026-11-26T00:37:32Z"
+}

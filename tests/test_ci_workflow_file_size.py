@@ -9,8 +9,9 @@ the CI guard group, a different workflow, so it still runs when the one that gre
 it fails a margin before the limit so the next author learns while the workflow still starts.
 
 A failure names the file, its size, the limit and what to do: move long comments to
-docs/ci/<workflow>-workflow-notes.md (cmux-next.yml keeps a `# Why: ...#note-N` line), or move a
-job or a long script out of the file.
+docs/ci/<workflow>-workflow-notes/<date>-<slug>.md, one file per note so two pull requests never
+add to one line (scripts/ci/entry_logs.py), and leave a `# Why: docs/ci/<workflow>-workflow-notes/<file>`
+line; or move a job or a long script out of the file.
 """
 from __future__ import annotations
 
@@ -38,8 +39,8 @@ def oversized(paths: list[Path], limit: int = LIMIT, margin: int = MARGIN) -> li
                      if size > limit else f"within {margin:,} bytes of the limit")
             findings.append(
                 f"{rel}: {size:,} bytes, {state} ({limit:,} bytes, GitHub's 500 KB workflow file limit). "
-                f"Bring it under {limit - margin:,} bytes: move long comments to "
-                f"docs/ci/{path.stem}-workflow-notes.md and leave a `# Why: ...#note-N` line, "
+                f"Bring it under {limit - margin:,} bytes: move each long comment to its own file under "
+                f"docs/ci/{path.stem}-workflow-notes/ and leave a `# Why: docs/ci/{path.stem}-workflow-notes/<file>` line, "
                 f"or move a long script to scripts/ci/ or a job to its own workflow.")
     return findings
 
@@ -64,7 +65,7 @@ class WorkflowFileSize(unittest.TestCase):
         self.assertEqual(len(findings), 2, findings)
         self.assertIn("near.yml: 480,001 bytes, within 32,000 bytes of the limit", findings[0])
         self.assertIn("over.yml: 512,001 bytes, over the limit", findings[1])
-        self.assertIn("docs/ci/over-workflow-notes.md", findings[1])
+        self.assertIn("docs/ci/over-workflow-notes/", findings[1])
 
 
 if __name__ == "__main__":

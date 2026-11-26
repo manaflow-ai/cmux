@@ -14,7 +14,10 @@ import {
 
 // The model catalog the app host delivers (`models.catalog`: request and host event), held once per
 // page. Until the host answers, the snapshot bundled with the page stands in (`provisional`); a host
-// that does not know the method (an older app) leaves the bundled one in place.
+// that does not know the method (an older app) leaves the bundled one in place. The host's last
+// answer is kept in localStorage and stands in first: the model chip's name and effort come from
+// the catalog, so a relaunched chat drew them from the bundled one and widened when the host
+// answered (143 to 154 px, ask-66b7d014c3). It stays provisional, so the host is still asked.
 
 /** The host's answer: the cached server catalog (null when the app has none yet), how it got it, and
  *  cmux.json `agentPane.models`. */
@@ -22,7 +25,28 @@ export type ModelCatalogDelivery = { catalog?: unknown; delivery?: unknown; user
 
 type State = { catalog: ModelCatalog; user: unknown; provisional: boolean };
 
-let state: State = { catalog: BUNDLED_MODEL_CATALOG, user: undefined, provisional: true };
+const STORAGE_KEY = "cmux.acpmux.modelCatalog";
+
+function remembered(): State {
+  try {
+    const kept = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "null") as ModelCatalogDelivery | null;
+    const catalog = kept && readModelCatalog(kept.catalog);
+    if (catalog) return { catalog, user: kept.user ?? undefined, provisional: true };
+  } catch {
+    // An unreadable entry: the bundled catalog, as on a first launch.
+  }
+  return { catalog: BUNDLED_MODEL_CATALOG, user: undefined, provisional: true };
+}
+
+function remember(delivery: ModelCatalogDelivery): void {
+  try {
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify({ catalog: delivery.catalog, user: delivery.user }));
+  } catch {
+    // Storage full or off: the next launch starts on the bundled catalog.
+  }
+}
+
+let state: State = remembered();
 const listeners = new Set<() => void>();
 let pending: Promise<void> | undefined;
 let reload: Promise<void> | undefined;
@@ -40,6 +64,7 @@ export function receiveModelCatalog(value: unknown): void {
     user: delivery.user ?? undefined,
     provisional: false,
   };
+  if (catalog) remember(delivery);
   for (const listener of listeners) listener();
 }
 
@@ -52,6 +77,7 @@ const ACPMUX_REFRESH_WAIT_MS = 45_000;
 function withinTime<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
+    // l10n-allow: a rejection the catalog loader handles, never drawn
     timer = setTimeout(() => reject(new Error(`no model catalog from acpmux in ${ms / 1000} s`)), ms);
   });
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
@@ -107,12 +133,13 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** The catalog a render reads now. */
+export function modelCatalogState(): State {
+  return state;
+}
+
 export function useModelCatalogState(): State {
-  return useSyncExternalStore(
-    subscribe,
-    () => state,
-    () => state,
-  );
+  return useSyncExternalStore(subscribe, modelCatalogState, modelCatalogState);
 }
 
 /** Test seam: the catalog the page holds now. */
@@ -120,9 +147,11 @@ export function modelCatalogStateForTests(): State {
   return state;
 }
 
-/** Test seam: back to the bundled catalog. */
-export function resetModelCatalogForTests(): void {
-  state = { catalog: BUNDLED_MODEL_CATALOG, user: undefined, provisional: true };
+/** Test seam: back to the bundled catalog, or with `relaunch` to what a new page starts on (the
+ *  remembered answer). */
+export function resetModelCatalogForTests(relaunch = false): void {
+  if (!relaunch) globalThis.localStorage?.removeItem(STORAGE_KEY);
+  state = remembered();
   pending = undefined;
   reload = undefined;
 }

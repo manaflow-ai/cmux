@@ -54,7 +54,26 @@ if [ "$TRACK" = nightly-next ]; then
   verdict="$(python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" webview-verdict --source "$SOURCE" \
     --result "${WEBVIEW_CHECK:-}" --checked-sha "${WEBVIEW_CHECK_SHA:-}" --build-sha "$BUILD_SHA" \
     --run-id "${RECOVERED_RUN_ID:-}" --repo "$GITHUB_REPOSITORY")" || status=$?
+  # Leo, 2026-11-25: "are we able to decouple". A red webview check no longer holds the publish: the build
+  # ships with a "Nightly stale part" warning NOW shows. NIGHTLY_COMPONENT_GATES=block restores the hold.
+  if [ "$status" != 0 ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+    note="${verdict:-the webview check verdict is unreadable}"
+    note="${note//[$'\r\n']/ }"
+    echo "::warning title=Nightly stale part::webview-checks: $note; published anyway (NIGHTLY_COMPONENT_GATES is not block)"
+    echo "- stale part, webview-checks: $note" >> "$GITHUB_STEP_SUMMARY"
+    status=0
+  fi
   [ "$status" = 0 ] || refuse "${verdict:-the webview check verdict is unreadable}"
+  echo "$verdict"
+  # No nightly whose App Store shelf is broken (check-nightly-app-store-shelf, beside the build: every Discover
+  # listing installs and shows something). Leo, 2026-11-16: "if i click install it means it works". The one-job
+  # publisher reads the job in this run (SHELF_SOURCE=run, SHELF_RUN_ID), waiting for it to finish.
+  status=0
+  verdict="$(python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" shelf-verdict --source "${SHELF_SOURCE:-$SOURCE}" \
+    --result "${SHELF_CHECK:-}" --checked-sha "${SHELF_CHECK_SHA:-}" --build-sha "$BUILD_SHA" \
+    --run-id "${SHELF_RUN_ID:-${RECOVERED_RUN_ID:-}}" --repo "$GITHUB_REPOSITORY" \
+    --wait-seconds "${SHELF_WAIT_SECONDS:-1800}")" || status=$?
+  [ "$status" = 0 ] || refuse "${verdict:-the App Store shelf verdict is unreadable}"
   echo "$verdict"
   # A listed bad commit without its fix (.github/nightly-known-bad.json, read live): held, not a failure.
   python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" known-bad --repo "$GITHUB_REPOSITORY" --sha "$BUILD_SHA" \
