@@ -2515,6 +2515,10 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .map(|v| v.to_string())
         .unwrap_or_else(|e| e.to_string());
     eprintln!("PROBE-PERF {label} restart {}", snap.chars().take(30000).collect::<String>());
+    let again = send_first_token(&mut rpc, &id, &format!("size {label} restarted again"));
+    std::thread::sleep(Duration::from_secs(3));
+    let idle = send_first_token(&mut rpc, &id, &format!("size {label} restarted idle"));
+    eprintln!("PROBE-SENDS {label} first={restart_send:?} again={again:?} idle={idle:?}");
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
     // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
