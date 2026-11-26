@@ -55,6 +55,8 @@
 
 #[path = "support/chat_size_seed.rs"]
 mod chat_size_seed;
+#[path = "god_daemon/cold_home.rs"]
+mod cold_home;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // The prompt goes to tests/fake_agent.py; the sizes and the profile switch hold no credential.
@@ -1999,6 +2001,9 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
 /// The sizes, as `ACPMUX_CHAT_SIZES` names them (`1M,100M,1G,4G`, binary units).
 const CHAT_SIZES: &str = "1M,100M,1G,4G";
 
+/// Cold opens per size; the sweep reports their median (cold_home.rs).
+const COLD_SAMPLES: usize = 3;
+
 /// How long the first load of a chat's log may take (it parses a log with no kind copies whole).
 const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 
@@ -2336,17 +2341,49 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
     // view exists. The open is the pane's attach, as soon as the socket answers. With
     // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    // One cold open moves by tens of ms between runs, so the first `COLD_SAMPLES - 1` opens are
+    // taken on daemons stopped right after their attach, with the home put back after each
+    // (cold_home.rs); the last is the run's own daemon. The fields hold the median.
     let profile = std::env::var("ACPMUX_GOD_DHAT")
         .is_ok_and(|v| v == "1")
         .then(|| scratch.join("dhat-heap.json"));
+    let (mut cold_ms_samples, mut cold_us_samples) = (vec![], vec![]);
+    let mut cold_samples_error = Value::Null;
+    let before_cold = cold_home::HomeSnapshot::take(&home);
+    for _ in 1..COLD_SAMPLES {
+        let mut probe = Daemon::start(&scratch, &home, None);
+        let mut rpc = Rpc::connect(&probe.socket);
+        rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+            .unwrap();
+        let asked = Instant::now();
+        let reply = rpc.call("_acpmux/attach", app_attach(&id));
+        let (us, at_ms) = (micros(asked), ms(probe.spawned));
+        drop(rpc);
+        probe.stop();
+        if let Err(e) = reply {
+            cold_samples_error = json!({"attach": e});
+        } else {
+            cold_us_samples.push(us);
+            cold_ms_samples.push(at_ms);
+        }
+        if let Err(e) = before_cold.restore() {
+            // The home is no longer cold: the run's own daemon below would not be either.
+            panic!("cold sample left the home changed: {e}");
+        }
+        if !cold_samples_error.is_null() {
+            break;
+        }
+    }
     let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
     let asked = Instant::now();
     let cold = rpc.call("_acpmux/attach", app_attach(&id));
-    let cold_attach_us = micros(asked);
-    let cold_attach_ms = ms(daemon.spawned);
+    cold_us_samples.push(micros(asked));
+    cold_ms_samples.push(ms(daemon.spawned));
+    let cold_attach_us = median(&cold_us_samples);
+    let cold_attach_ms = median(&cold_ms_samples);
     let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
     rpc.notes.clear();
     let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
@@ -2501,6 +2538,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
         "largestToolOutput": w.largest_output, "writeMs": write_ms,
         "coldAttachMs": cold_attach_ms, "coldAttachUs": cold_attach_us,
+        "coldAttachSamples": {"ms": cold_ms_samples, "us": cold_us_samples,
+                              "error": cold_samples_error},
         "coldAttachRecords": cold_records, "coldAttachError": cold.as_ref().err(),
         "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
         "rssAfterLoad": rss_after_load,
