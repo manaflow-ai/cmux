@@ -221,6 +221,13 @@ jobs:
   # left no Linux acpmux tree for an hour). A whole cancelled run marks too (always()): the queued-run supersede
   # cancels the window's claiming run (04:26Z run 45546778077, #55756), and an unmarked cancel held that window with
   # no tree. A hand cancel costs at most one more build in its window.
+  # A run whose publish-tree succeeded marks its window held instead (held: base-coalesce's held marker, which also
+  # keeps the next push off the REST fallback that would find this red run): the window has its tree, and a red only
+  # in the daemon tests or the Windows leg is not fixed by building the tree again (the next window's run tests the
+  # key again, tree-preflight daemon_tested). On 2026-11-26 the 01:00Z window's runs 45733047134, 45737327859,
+  # 45738040164 and 45739215246 each published and then failed only cmux-next-daemon-tests, so each marked and the
+  # next push rebuilt the whole tree: four full builds on the nightly pool, the window's retries spent on trees
+  # already on files.cmux.com (tests/test_cmux_tui_feat_publish_order.py).
   coalesce-failed:
     needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
     if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
@@ -230,6 +237,7 @@ jobs:
     with:
       key: cmux-tui-artifacts
       mark_failed: true
+      held: ${{ needs.publish-tree.result == 'success' }}
       runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
       window: ${{ needs.coalesce.outputs.window }}
       round: ${{ needs.coalesce.outputs.round }}
@@ -404,7 +412,47 @@ jobs:
       # 2026-11-23). Tree keys come from tree objects, which blob:none keeps; cmux_tui_tree_key.py
       # reads cmux-tui-tree-inputs.txt with lazy fetch off, so its blob must be in the sparse set.
       # Any file a step here starts reading is added to this list.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: blob:none
+          # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
+          sparse-checkout: |
+            scripts/ci/api_call_log/
+            scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/ci_pool_tokens.py
+            scripts/ci/cmux-tui-darwin-builder
+            scripts/cmux-next/cmux-tui-build-profiles.json
+            scripts/ci/cmux_tui_tree_key.py
+            scripts/cmux-next/cmux-tui-tree-inputs.txt
+            scripts/ci/cmux-tui-tree-claim.sh
+            scripts/ci/cmux_tui_publisher_testing.py
+            scripts/ci/nightly_tree_source.py
+            scripts/ci/job_input_fingerprint.py
+            scripts/ci/job_reuse.py
+            scripts/ci/cmux_next_route.py
+            scripts/ci/select_package_tests.py
+            scripts/ci/gh_expressions.py
+            .github/workflows/cmux-tui-artifacts.yml
+          sparse-checkout-cone-mode: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -5494,7 +5542,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 95  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper
+    timeout-minutes: 100  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper, 5 for the Linux nightly channel
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -5599,6 +5647,23 @@ jobs:
                  scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
+
+      # The Linux nightly channel (cmux-tui/channels/linux-nightly.json, `install.sh --channel nightly`): the
+      # signed Linux build of the commit the NEXT NIGHTLY ships, read from its appcast, re-signed for the
+      # channel. A GitHub schedule fires only on main, and this job runs on every feat-cmux-next push with
+      # the signing key already, so the channel follows a new NIGHTLY (or its rollback) at the next push.
+      # Delivery, not a gate: a failure is a warning.
+      - name: Point the Linux nightly channel at the NIGHTLY's commit
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          LINUX_RELEASE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_RELEASE_SIGNING_KEY }}
+        run: scripts/ci/cmux-linux-nightly-follow.sh "$RUNNER_TEMP/linux-nightly"
 
       # The signed apt and yum archive (cmuxterm-hq docs/design/linux-signed-packages.md phase 4): the .deb
       # and .rpm the Linux release file above names (built before it was signed), and repositories signed with the
