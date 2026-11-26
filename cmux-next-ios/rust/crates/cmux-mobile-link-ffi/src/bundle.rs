@@ -374,7 +374,6 @@ pub async fn open_plain(link: &Link, path: &str, dest: &Path) -> Result<FileTran
     })
 }
 
-#[uniffi::export]
 impl LinkHandle {
     /// Try the bundle-v1 path for the attachment engine. `None` means the service or the file
     /// is unsupported and the caller should use the resumable `upload` protocol.
@@ -399,7 +398,10 @@ impl LinkHandle {
             }
         }
     }
+}
 
+#[uniffi::export]
+impl LinkHandle {
     /// Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
     /// folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
     /// holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's

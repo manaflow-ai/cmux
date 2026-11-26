@@ -157,6 +157,10 @@ fn spec(rig: &UploadRig, name: &str) -> UploadSpec {
     }
 }
 
+fn spec_for_mac(rig: &UploadRig, mac_id: String, name: &str) -> UploadSpec {
+    UploadSpec { upload_id: None, mac_id, name: name.into(), cwd: Some(rig.root.to_str().unwrap().into()) }
+}
+
 fn engine(timings: Timings) -> (Arc<AttachmentUploads>, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
     (AttachmentUploads::with_timings(recorder.clone(), timings), recorder)
@@ -253,6 +257,62 @@ async fn a_replaced_link_resumes_the_upload() {
     // Needs hostd's resumable `upload_id` protocol (cmux-mobile-host services.rs): without it
     // the second attempt restarts at byte 0 and this fails.
     assert!(last.sent_bytes * 2 < size * 3, "sent {} of {size}: it did not resume", last.sent_bytes);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_one_shot_link_disappearance_fails_promptly() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("one-shot.bin");
+    patterned_file(&source, 100 * MIB);
+    let one_shot_mac = format!("link-{}", uuid::Uuid::new_v4());
+    let timings = Timings { backoff_start: Duration::from_millis(10), ..Timings::default() };
+    let (uploads, _recorder) = engine(timings);
+    uploads.set_link(one_shot_mac.clone(), Some(rig.handle.clone()));
+    let id = uploads
+        .start(spec_for_mac(&rig, one_shot_mac.clone(), "one-shot.bin"), source.to_str().unwrap().into());
+    until("one-shot bytes to move", || uploads.progress(id.clone()).is_some_and(|p| p.sent_bytes > MIB))
+        .await;
+    uploads.set_link(one_shot_mac, None);
+
+    let result = tokio::time::timeout(Duration::from_secs(2), uploads.wait(id.clone()))
+        .await
+        .expect("one-shot link failure is bounded")
+        .expect_err("one-shot upload must fail when its link disappears");
+    assert!(
+        matches!(result, CmuxMobileError::Refused { ref code, .. } if code == "link_unavailable"),
+        "{result:?}"
+    );
+    let progress = uploads.progress(id).unwrap();
+    assert_eq!(progress.stage, UploadStage::Failed);
+    assert_eq!(progress.error_code.as_deref(), Some("link_unavailable"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn attachment_engine_uses_bundle_and_reuses_the_mac_cache() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("cached.bin");
+    let size = 3 * MIB + 17;
+    patterned_file(&source, size);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+
+    let first_id = uploads.start(spec(&rig, "cached.bin"), source.to_str().unwrap().into());
+    let first_path = uploads.wait(first_id.clone()).await.expect("first bundle upload");
+    assert_eq!(sha256(Path::new(&first_path)), sha256(&source));
+    let first = uploads.progress(first_id).unwrap();
+    assert!(first.sent_bytes > MIB, "the first bundle upload did not carry the file: {first:?}");
+
+    let second_id = uploads.start(spec(&rig, "cached-again.bin"), source.to_str().unwrap().into());
+    let second_path = uploads.wait(second_id.clone()).await.expect("cached bundle upload");
+    assert_eq!(sha256(Path::new(&second_path)), sha256(&source));
+    let second = uploads.progress(second_id).unwrap();
+    assert!(
+        second.sent_bytes < 4096,
+        "the cached bundle upload sent {} bytes: {second:?}",
+        second.sent_bytes
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -369,4 +429,9 @@ fn video_plan_sends_small_or_modest_originals_and_reencodes_the_rest() {
     // The 25 MiB edge.
     assert!(!plan(3840, 2160, 10, 25 * MIB).reencode);
     assert!(plan(3840, 2160, 10, 25 * MIB + 1).reencode);
+}
+
+#[test]
+fn production_ack_stall_is_thirty_seconds() {
+    assert_eq!(Timings::default().ack_stall, Duration::from_secs(30));
 }
