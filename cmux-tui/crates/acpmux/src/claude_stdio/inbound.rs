@@ -132,7 +132,7 @@ impl Translator {
                 // commands are sent again, tagged, when that changes the list.
                 if let Some(skills) = line.get("skills").and_then(Value::as_array) {
                     *self.skills.lock().await =
-                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                        Some(skills.iter().filter_map(Value::as_str).map(str::to_owned).collect());
                     if let Some(u) = self.commands_update(false).await {
                         out.push(upd(u));
                     }
@@ -271,22 +271,6 @@ impl Translator {
                         // A call of the chat's own that blocks its turn (`foreground_work.rs`).
                         if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
                             self.foreground_call(name, id, &input).await;
-                        }
-                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
-                        // draw it as a checklist.
-                        if name == "TodoWrite"
-                            && let Some(plan) = todo_plan(&input)
-                        {
-                            out.push(upd(plan));
-                        }
-                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
-                        // instead: each call lands on its result (`task_plan.rs`). The
-                        // list is the main session's; a subagent's tasks stay its own.
-                        if main_line
-                            && super::task_plan::TaskPlan::follows(name)
-                            && let Some(id) = c.get("id").and_then(Value::as_str)
-                        {
-                            self.task_plan.lock().await.call(name, id, &input);
                         }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84). A Monitor runs its
@@ -523,14 +507,6 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
-                        // A task call's result redraws the task list (`task_plan.rs`).
-                        if let Some(plan) = self.task_plan.lock().await.result(
-                            tool,
-                            is_err,
-                            line.get("tool_use_result"),
-                        ) {
-                            out.push(upd(plan));
-                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
@@ -1292,27 +1268,6 @@ impl Translator {
         }
         update
     }
-}
-
-/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
-/// (pending, in_progress or completed, as ACP names them). Nil for input
-/// that is not a todo list.
-fn todo_plan(input: &Value) -> Option<Value> {
-    let entries: Vec<Value> = input
-        .get("todos")?
-        .as_array()?
-        .iter()
-        .filter_map(|todo| {
-            let content = todo.get("content").and_then(Value::as_str)?;
-            let status = todo
-                .get("status")
-                .and_then(Value::as_str)
-                .filter(|status| matches!(*status, "in_progress" | "completed"))
-                .unwrap_or("pending");
-            Some(json!({"content": content, "status": status, "priority": "medium"}))
-        })
-        .collect();
-    Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
 
 /// A `compaction` update: a compaction of the chat's context `state`
