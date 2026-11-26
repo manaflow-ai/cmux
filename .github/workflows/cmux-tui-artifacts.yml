@@ -72,7 +72,9 @@ on:
   # 25.8 per merged PR, 11-22 21Z..11-23 21Z): a dispatch of this workflow on
   # the branch (the hot verify rust look sends one), a cmux-next dispatch, or
   # the Cmux-Daemon-Tests: run trailer asks for it, so a same-repository branch
-  # can still repair its own tree without a hand-pushed cmux-tui-pin-* ref.
+  # can still repair its own tree without a hand-pushed cmux-tui-pin-* ref. A
+  # dispatch on any branch, lane/ included, publishes what a push would: the
+  # commit manifest, the tree and the commit's mac-live.json (`cmux app try PR`).
   # vars.CMUX_TUI_BRANCH_ON_REQUEST=0 restores "any open pull request head"
   # (cx-r2is). tree-preflight's superseded step skips the rest before any build
   # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
@@ -435,9 +437,11 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
@@ -473,6 +477,7 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml
@@ -505,6 +510,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -1829,6 +1835,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -2272,6 +2279,33 @@ jobs:
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # This job's own disk need, before the caches land. A pool runner's start hook cleans in line only under
+      # one job's need (17 GiB, CMUX_DISK_JOB_BYTES); this job's build is more: job 139544478509 (warm) had a
+      # 17 GiB cmux-tui/target after dropping incremental state and its strip removed 18.4 GiB of workspace
+      # output, and every cold run on 2026-11-26 (jobs 139822655314 139828684050 139840540957 139842323699
+      # 139853990320 139880904479) lost its runner "No space left on device" 10-17 min into cargo test. So the
+      # pool's own clean runs again here at 24 GiB (that target, the registry, the save archive), within its
+      # own 120 s bound; it keeps this job's checkout, refuses nothing, and is absent off the pool. It runs before
+      # the disk floor below, which frees only this workspace's target: the other runners' leftovers go first.
+      - name: Free this job's build need on a pool runner
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          if [ -x /opt/cmux-disk-floor.sh ]; then
+            CMUX_DISK_JOB_BYTES=$((24 << 30)) /opt/cmux-disk-floor.sh started || true
+          fi
+          df -h "$GITHUB_WORKSPACE" || true
+
+      # A disk floor before any cache lands: a reused pool workspace ran out of disk 14 min into
+      # the build (No space left on device, an ld Bus error; run 45737327859), which left 35
+      # feat-cmux-next commits with no published tree. Frees this workspace's leftover target,
+      # else fails in seconds so the retry runs elsewhere (scripts/ci/cmux-tui-test-target.sh floor).
+      - name: Make room for the cargo build (disk floor)
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        timeout-minutes: 5
+        run: scripts/ci/cmux-tui-test-target.sh floor
+
       - name: Cache cargo build
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -2421,11 +2455,11 @@ jobs:
           overwrite: true
 
   publish-ref-notice:
-    # A dispatch from a branch outside main / feat-cmux-next / cmux-tui-pin-*
-    # stays build-only, so its publish jobs are skipped, not failed. Pushes
-    # to any branch publish.
+    # A push or dispatch on any branch publishes what it built (a dispatch is how a PR head's tree is built on
+    # request, and its cmux-tui/<sha>/mac-live.json is what `cmux app try PR` takes live). Only a cmux-tui-pin-*
+    # ref stays build-only (reject-untrusted-pin-ref refuses it before the build, so this rarely runs).
     name: publish skipped (branch not allowed)
-    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 2
@@ -2501,7 +2535,7 @@ jobs:
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: ${{ !cancelled() && needs.build-linux.result == 'success' && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && needs.build-linux.result == 'success' && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: [build-linux, build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
@@ -3754,7 +3788,7 @@ jobs:
     # macOS targets are off (a published tree), or another run owns the key.
     # main always builds; a superseded push publishes nothing on purpose.
     if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' &&
-      github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
       (needs.tree-preflight.outputs.run_macos != 'true' ||
       (needs.tree-preflight.outputs.owns_key != 'true' && needs.tree-owner-wait.outputs.takeover != 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -4040,6 +4074,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -4375,7 +4410,7 @@ jobs:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish tree-addressed cmux-tui
-    if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     # Independent of the daemon tests on every ref (chief 2026-10-13, hq-11;
     # cx-y0nf2): their macOS runner queues up to ~1 h, and every dev build
     # waited for the tree. A published tree does not mean the daemon tests
@@ -5465,6 +5500,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -5680,13 +5716,14 @@ jobs:
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file
   # as a landing push. The payload maker re-downloads and hashes every Mac binary.
-  # A PR head (every non-main, non-lane/ branch push whose commit manifest published, cx-r2is) gets its own
-  # cmux-tui/<sha>/mac-live.json too, so `cmux app try PR` goes live for a daemon-only PR; only
-  # feat-cmux-next moves cmux-tui/channels/mac-live.json (--commit-only below).
+  # A PR head gets its own cmux-tui/<sha>/mac-live.json too, so `cmux app try PR` goes live for a daemon-only PR:
+  # every non-main, non-lane/ branch push whose commit manifest published (cx-r2is), and every branch dispatch
+  # (lane/ included), the on-request build of a PR head's tree since ci-min-per-pr-30. Only feat-cmux-next moves
+  # cmux-tui/channels/mac-live.json (--commit-only below).
   point-mac-live-channel:
     name: publish the Mac live update
     needs: [publish, verify-publish, adopt-commit-manifest]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && !startsWith(github.ref, 'refs/heads/lane/'))) && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/feat-cmux-next' || (github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (github.event_name == 'workflow_dispatch' || !startsWith(github.ref, 'refs/heads/lane/')))) && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     environment:
       name: artifacts
       deployment: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
@@ -5933,7 +5970,7 @@ jobs:
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build-linux, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
@@ -5972,6 +6009,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
