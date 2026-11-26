@@ -913,7 +913,38 @@ jobs:
       generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && 'generated-files' || github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && 'generated-files' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(steps.route.outputs.labels, ',full-ci,')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
       # Why: note-469
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Why: note-94
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /scripts/
+            /tests/
+            /cmux-tui/
+            /Packages/macOS/CmuxNext/
+            /Packages/*/*/Package.swift
+            /vendor/stack-auth-swift-sdk-prerelease/Package.swift
+            /cmux.xcodeproj/project.pbxproj
+            /AGENTS.md
+            /.gitmodules
+            /first-party-apps/cloud/
+            /workers/cmux-vm/cli/
+            !/Packages/macOS/CmuxNext/**/*.xcstrings
+            !/Packages/macOS/CmuxNext/**/*.avif
+            !/Packages/macOS/CmuxNext/**/*.png
+      # Why: note-561
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # Why: note-94
@@ -5139,6 +5170,31 @@ jobs:
       - name: Install checkout tools
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /plans/cmux-next/
+            /schemas/
+            /docs/mdm/
+            /cmux-tui/
+            /Packages/macOS/CmuxNext/
+            /web/data/next-docs/
+            /.github/actions/setup-cmux-tui-rust/
+            /.github/actions/runner-cargo-home/
+      # Why: note-561
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false

@@ -7,6 +7,11 @@ not retry, so one network timeout failed the Release compile ("could not
 fetch <sha> from promisor remote", run 37887570270). Each such checkout keeps
 going on failure, drops the workspace repository, and checks out once more;
 a second failure fails the job.
+
+path routing and generated files check out blob-filtered on a reused cmux-linux
+workspace too; one promisor blob fetch timed out there after 63 s
+(cmux#55016) and left the PR with no verdict. Every blob-filtered checkout in
+the workflow retries the same way.
 """
 from pathlib import Path
 import unittest
@@ -20,12 +25,18 @@ CHECKOUT = "actions/checkout@"
 FAILED = "steps.checkout.outcome == 'failure'"
 
 
+def blob_filtered(step) -> bool:
+    return CHECKOUT in str(step.get("uses", "")) and (step.get("with") or {}).get("filter") == "blob:none"
+
+
 class CmuxNextCheckoutRetryTests(unittest.TestCase):
     def test_every_reused_workspace_checkout_retries_once_from_a_fresh_repository(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         reused = {name: job["steps"] for name, job in jobs.items()
-                  if any(step.get("name") == REUSED for step in job.get("steps", []))}
+                  if any(step.get("name") == REUSED or blob_filtered(step) for step in job.get("steps", []))}
         self.assertTrue(reused)
+        self.assertIn("path_route", reused)
+        self.assertIn("generated-files-linux", reused)
         for name, steps in reused.items():
             with self.subTest(job=name):
                 checkouts = [i for i, step in enumerate(steps) if CHECKOUT in str(step.get("uses", ""))]
