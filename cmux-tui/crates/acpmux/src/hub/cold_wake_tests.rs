@@ -146,9 +146,12 @@ fn surgery_applied_sends_no_compact() {
 
 #[test]
 fn surgery_refused_or_failed_compacts_as_before() {
-    for reason in
-        ["mid-turn", "not a stored Claude conversation", "nothing to mask", "no transcript"]
-    {
+    for reason in [
+        "mid-turn",
+        "not a stored Claude or Codex conversation",
+        "nothing to mask",
+        "no transcript",
+    ] {
         let refused = Ok(json!({"applied": false, "reason": reason}));
         assert!(!surgery_suffices(&refused, LINE), "{reason}: no dry run answer");
         assert!(!surgery_applied(&refused), "{reason}: /compact");
