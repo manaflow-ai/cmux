@@ -43,6 +43,9 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
         self.prewarmed = prewarmed
         let recorder = self
         listen { recorder.heard($0, marks: marks) }
+        // The frame may have committed after the front chat painted and connected.
+        // Subscribe first so a mark arriving during this check is covered too.
+        recorder.heard(LaunchPriorChat.frontMark, marks: marks)
     }
 
     /// Writes the record of this launch with `marks` (milliseconds since ``processStart``) on a files lane: appends
@@ -242,18 +245,19 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// outside a harness's marks pipe too (startup-tti, 2026-11-21).
     public static let phaseMarks = [
         "premain.first_initializer", "main.setup_done", "main.warmup_started",
-        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
+        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.launch_shell_made", "main.delegate.fields", "main.control.fields", "main.delegate.first_frame_gate", "main.delegate.main_work", "main.delegate.control", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
         "cloud_env.start", "cloud_env.cli_exited", "cloud_env.awaited",
         "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.bind", "dfl.settings", "dfl.menu",
         "daemon.prepare_start", "daemon.binary_resolved", "daemon.spawned", "daemon.reused", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
         "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
-        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.init_done", "window.ordered_front",
+        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.sidebar_made", "window.root_made", "window.shell_made", "window.content_installed", "window.backdrop_applied",
+        "window.init_done", "window.configured", "window.workspace_shown", "window.ordered_front",
         "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
         "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
         "sidebar_rows_shown", "first_window_flushed", "pages.deferred_until_frame", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",
-        "pages.created", "cef.ready", "first_page.navigation_start", "first_page.dom_content_loaded", "first_page.first_contentful_paint", "agent_pane.view_created", "agent_pane.transport_open",
+        "pages.created", "cef.ready", "first_page.navigation_start", "first_page.dom_content_loaded", "first_page.first_contentful_paint", "agent_pane.view_created", "agent_pane.transport_open", "browser_pane.first_paint", "browser_pane.input_ready",
         "first_key_down", "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
     ]
 }
@@ -281,6 +285,8 @@ public nonisolated struct LaunchStages {
         ("first_page_dom_content_loaded", ["first_page.dom_content_loaded"]),
         ("first_page_contentful_paint", ["first_page.first_contentful_paint"]),
         ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+        // The front Chromium tab a person opened presented its first frame (CEFLaunchMarks, CmuxNextBrowser).
+        ("first_browser_paint", ["browser_pane.first_paint"]),
         // A terminal echoed a typed key, a chat composer drew one, or Home's composer has the keyboard in the key window.
         ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
     ]
