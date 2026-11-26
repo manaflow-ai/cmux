@@ -55,7 +55,7 @@ CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-c
                    'published-build', 'check-nightly-app-store-shelf',
                    'build-nightly-inputs', 'build-nightly-remote-daemon', 'check-nightly-webviews', 'early-nightly-webviews', 'republish-nightly-next', 'visual-gate-nightly-verdict')
 # Portable credentialed jobs use one-job owned Linux VMs, including write-token controls.
-EPHEMERAL_CONTROL_JOBS = ('runner-preflight', 'decide', 'await-release-surface-ack', 'pick-nightly-build-runner', 'attest-nightly-remote-daemon', 'pick-nightly-sign-runner', 'find-nightly-next-recovery', 'route-visual-gate-nightly', 'report-visual-gate-nightly', 'report-nightly-fix-forward', 'pick-nightly-next-signer', 'wake-nightly-next-tick', 'dispatch-published-in', 'published-in', 'retry-nightly-next', 'fixit-handoff', 'report-nightly-failure', 'close-nightly-failure-issue')
+EPHEMERAL_CONTROL_JOBS = ('runner-preflight', 'decide', 'await-release-surface-ack', 'pick-nightly-build-runner', 'attest-nightly-remote-daemon', 'pick-nightly-sign-runner', 'find-nightly-next-recovery', 'route-visual-gate-nightly', 'report-visual-gate-nightly', 'report-nightly-fix-forward', 'pick-nightly-next-signer', 'published-in', 'retry-nightly-next', 'fixit-handoff', 'report-nightly-failure', 'close-nightly-failure-issue')
 EPHEMERAL_PUBLISHER_JOBS = ('promote-nightly-next', 'promote-nightly-next-acked', 'publish-nightly', 'keep-published-dsyms', 'republish-nightly-deltas')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
@@ -375,8 +375,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotIn('core.exportVariable', script)
 
     def test_decide_bootstraps_on_the_nightly_only_pool_without_phantom_fleet(self):
-        # No preceding job can give decide a live runner receipt, so it takes the plain nightly-only pool on
-        # every attempt, never hosted Ubuntu or Blacksmith, whatever LINUX_RUNNER holds.
+        # decide compiles nothing: it takes the owned one-job JIT VM on every attempt (its App key stays off the
+        # shared pool), never hosted Ubuntu or Blacksmith, whatever LINUX_RUNNER holds.
         route = runs_on_text(DOC['jobs']['decide'], 'decide').removeprefix('${{').removesuffix('}}')
         for attempt in (1, 2, 3):
             for configured in ('', 'unregistered-fleet', 'blacksmith-16vcpu-ubuntu-2404'):
@@ -384,7 +384,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                            'vars.CI_CONTROL_RUNNER': 'unregistered-fleet',
                            'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'unregistered-mini',
                            'vars.LINUX_RUNNER': configured}
-                self.assertEqual(evaluate(parse_expression(route), context), NIGHTLY_ONLY)
+                self.assertEqual(evaluate(parse_expression(route), context), JIT_LABEL)
                 self.assertEqual(evaluate(parse_expression(route), {**context, 'github.repository_owner': 'fork'}),
                                  'ubuntu-24.04')
         self.assertEqual(workflow_jobs.resolve(DOC['jobs']['decide']).environment,
@@ -434,7 +434,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses) but ends on the
         # nightly slot's label as a literal, and its retired (if: false) acked twin shares it
         # (test_no_signing_job_reads_an_owned_runner_variable).
-        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs', 'verify-final-dmg-nightly',
+        # build-nightly-inputs (web bundles, notices) runs on cmux-linux and reads no Mac variable.
+        self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
@@ -981,39 +982,36 @@ class DaemonBesideTheApp(unittest.TestCase):
         self.assertIn('nightly_version.py marketing --track "$TRACK"', build['run'])
         self.assertIn('--next-base "$(python3 scripts/ci/nightly_version.py next-base)"', build['run'])
 
-    def test_the_daemon_takes_the_helper_pick_else_the_owned_nightly_pool(self):
-        # Nightlies never run on Blacksmith (user, Oct 30): run 41683652930 built the daemon on
-        # blacksmith-32vcpu-ubuntu-2404 because the helper pick was empty. With no helper, NEXT's first
-        # attempt takes the all-nightly reservation, and every other case our nightly-only pool.
+    def test_the_daemon_builds_on_cmux_linux_on_every_attempt(self):
+        # The SSH daemon assets are CGO-free Go cross-builds: no Mac (Leo, 2026-11-25: "freeing up the Mac's from
+        # doing things that don't need Mac's asap"). Nightlies never run on Blacksmith (user, Oct 30): run
+        # 41683652930 built the daemon on blacksmith-32vcpu-ubuntu-2404; whatever LINUX_RUNNER or a helper pick
+        # holds, the route is our own cmux-linux pool.
         source = runs_on_text(DOC['jobs']['build-nightly-remote-daemon'], 'build-nightly-remote-daemon').removeprefix('${{').removesuffix('}}')
-        mini = 'glaeda-side-std-xcode-26.6'
         base = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                 'needs.decide.outputs.track': 'nightly-next',
                 'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
                 'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro',
-                'needs.pick-nightly-build-runner.outputs.attempt': '1',
-                'needs.pick-nightly-build-runner.outputs.helper': mini,
-                'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-nightly-dedicated'}
-        self.assertEqual(evaluate(parse_expression(source), base), mini)
-        for changes in ({'needs.pick-nightly-build-runner.outputs.helper': ''},
-                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini},
-                        {'github.run_attempt': 2},
-                        {'github.ref': 'refs/heads/main', 'needs.decide.outputs.track': 'nightly'},
-                        {'needs.pick-nightly-build-runner.outputs.helper': '', 'vars.CI_NIGHTLY_ONLY_RUNNER': ''}):
+                'needs.pick-nightly-build-runner.outputs.helper': 'glaeda-side-std-xcode-26.6'}
+        for changes in ({}, {'github.run_attempt': 2},
+                        {'github.ref': 'refs/heads/main', 'needs.decide.outputs.track': 'nightly'}):
             with self.subTest(changes=changes):
-                self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'glaeda-nightly-only-m4pro')
+                self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'cmux-linux')
         self.assertNotIn('RUNNER_POOLS', source)
         self.assertNotIn('blacksmith', source)
+        self.assertNotIn('glaeda', source)
         self.assertEqual(evaluate(parse_expression(source), {**base, 'github.repository_owner': 'fork'}), 'ubuntu-24.04')
 
-    def test_the_daemon_attestation_takes_the_owned_nightly_pool_first(self):
+    def test_the_daemon_attestation_takes_the_one_job_linux_vm(self):
         job = DOC['jobs']['attest-nightly-remote-daemon']
         source = runs_on_text(job, 'attest-nightly-remote-daemon').removeprefix('${{').removesuffix('}}')
         context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                    'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                    'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro'}
-        self.assertEqual(evaluate(parse_expression(source), context), 'glaeda-nightly-only-m4pro')
+        # It attests through the API and compiles nothing (Leo, 2026-11-25: "freeing up the Mac's from doing things
+        # that don't need Mac's asap"); its id-token and attestations: write token stay on the one-job JIT VM.
+        self.assertEqual(evaluate(parse_expression(source), context), JIT_LABEL)
         self.assertEqual(evaluate(parse_expression(source), {'github.repository_owner': 'fork'}), 'ubuntu-24.04')
         self.assertEqual(job['permissions'], {'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
 
