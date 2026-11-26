@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45889123871",
+  "recorded_at": "2026-11-26T20:27:33Z",
+  "reason": "image inputs changed in 2209f9461340f92b6d6c025019789efed5158da7..e007a514baf501706ed1dd1d9afa502eb2e183af",
+  "dry_run": false,
+  "cmux_tui": "114e97c49774c3840cc1cd094914679e918755fd",
+  "fixes": [
+    {
+      "sha": "e007a514baf501706ed1dd1d9afa502eb2e183af",
+      "mergedAt": "2026-11-26T20:10:44Z",
+      "subject": "devbox bake: the websocket smoke names the check that failed (#59322)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-26T20:27:33Z",
+    "snapshot_id": "sh-d1fcfc83b0504eca889e97dd5633e8c5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45889123871): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0fbd8e943da0f29a5484f50304c30708dab2f493",
+    "image": "cloud-native-auto-114e97c4-45889123871-1",
+    "revision": "ci-45889123871-1",
+    "at": "2026-11-26T20:27:33Z"
+  },
+  "rolled_back": false
+}
