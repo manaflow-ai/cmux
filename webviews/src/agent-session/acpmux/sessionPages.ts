@@ -120,10 +120,35 @@ export function onWantAllSessions(want: () => void): () => void {
 /** A row a follow names gone: this daemon's own (no `peer`) or a peer's copy. */
 const goneKey = (sessionId: string, peer: unknown) => `${sessionId}\u0000${typeof peer === "string" ? peer : ""}`;
 
+/** The rows' `modes` and `configOptions` this page holds, one copy for every row that names the same
+ *  ones. Most of a daemon's chats share their harness's modes and options, and each row read off
+ *  the wire is its own copy: 3,000 listed chats held about 0.7 MB of identical copies in every
+ *  chat's page (bench/sim-ladder.bench.ts, chats heap). Bounded: a list of many shapes keeps the
+ *  first ones only. The rows are never changed in place (a change is a new row), so sharing is safe. */
+const SHARED_SHAPES = 64;
+const sharedShapes = new Map<string, unknown>();
+
+function shared(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  const key = JSON.stringify(value);
+  const held = sharedShapes.get(key);
+  if (held !== undefined) return held;
+  if (sharedShapes.size < SHARED_SHAPES) sharedShapes.set(key, value);
+  return value;
+}
+
+/** `session` with its `modes` and `configOptions` the page's shared copies (`shared`). */
+export function withSharedShapes<S extends Summary>(session: S): S {
+  if (session.modes !== undefined) session.modes = shared(session.modes);
+  if (session.configOptions !== undefined) session.configOptions = shared(session.configOptions);
+  return session;
+}
+
 function pageOf<S extends Summary>(reply: any): SessionPage<S> {
   const sessions = (Array.isArray(reply?.sessions) ? reply.sessions : []).filter(
     (session: any): session is S => typeof session?.sessionId === "string" && session.sessionId !== "",
   );
+  for (const session of sessions) withSharedShapes(session);
   // A page may contain no usable rows yet still have a continuation. The cursor
   // belongs to the daemon's page, independently of what the client can display.
   const next = typeof reply?.nextCursor === "string" ? reply.nextCursor : undefined;
@@ -376,6 +401,9 @@ export class SessionPager<S extends Summary> {
       this.listedFrom(reply, asked);
       const at = cursorOf(reply);
       if (reply.more !== true || at === undefined) break;
+      // A reply that says more but leaves the cursor where it was asked would be asked again
+      // forever; what it held is laid over the list, and the next lag or reconnect reads on.
+      if (at.seq <= asked) break;
       asked = at.seq;
       reply = await this.request("_acpmux/watch", {
         enabled: true,

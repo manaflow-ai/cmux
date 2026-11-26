@@ -299,7 +299,7 @@ def have_commit(repo: Path, sha: str) -> bool:
                               capture_output=True).returncode == 0
     if present():
         return True
-    fetch(repo, "origin", sha)
+    git_fetch(repo, "origin", sha)
     return present()
 
 
@@ -460,8 +460,9 @@ FETCH_SECONDS = 120  # a Mac fleet worker reaches GitHub only through a slow pro
 BUNDLE_COMMIT_FILES = ("cmux-tui.version", "acpmux.version")
 
 
-def fetch(repo: Path, *args: str) -> bool:
-    """`git fetch -q ARGS` in REPO, bounded by FETCH_SECONDS: False when it failed or hung."""
+def git_fetch(repo: Path, *args: str) -> bool:
+    """`git fetch -q ARGS` in REPO, bounded by FETCH_SECONDS: False when it failed or hung. Not `fetch`: that name is
+    the HTTP read fetch_kept uses, and a second def of it replaced the first (tests/test_hot_apply_fetch_names.py)."""
     try:
         return subprocess.run(["git", "-C", str(repo), "fetch", "-q", *args], capture_output=True,
                               timeout=FETCH_SECONDS).returncode == 0
@@ -508,7 +509,7 @@ def resolve_app_commit(app: Path, repo: Path = ROOT, may_fetch: bool = True) -> 
     # A short sha cannot be fetched by itself: the branch the nightly was cut from can. A nightly is at most a
     # day of merges behind it (LIVE_FROM_MAX), so a shallow checkout deepens by that much, not --unshallow.
     shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
-    fetched = may_fetch and fetch(repo, *([f"--depth={LIVE_FROM_MAX}"] if shallow else []), "origin", "feat-cmux-next")
+    fetched = may_fetch and git_fetch(repo, *([f"--depth={LIVE_FROM_MAX}"] if shallow else []), "origin", "feat-cmux-next")
     full = resolve()
     if SHA.fullmatch(full):
         return {"commit": full, "resolved": True, "via": "fetch"}

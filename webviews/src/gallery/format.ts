@@ -46,10 +46,10 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  HubState,
-  AutocloudState,
   DoctorReport,
+  HubState,
   ConnectionsState,
+  AutocloudState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -328,6 +328,8 @@ export type MarkdownPageVariant = VariantBase & {
   files?: Record<string, string>;
   /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
   find?: string;
+  /** The link to cmux stays down: every config read fails as the bridge does. */
+  disconnected?: boolean;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -516,6 +518,9 @@ export type ComponentVariant<P> = VariantBase & {
   props: P;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads. */
+  experiments?: Record<string, string>;
 };
 
 /**

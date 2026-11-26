@@ -355,6 +355,8 @@ export type IPhoneHostState = {
   status: string;
   /** The Sign In button's title while the status says to sign in; null (or absent from an older host) otherwise. */
   sign_in?: string | null;
+  /** With `sign_in`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  sign_in_backend?: string | null;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
   account_title: string;
@@ -540,6 +542,8 @@ export type AccountsCmux = {
   buttons: AccountsButton[];
   note: string | null;
   error: string | null;
+  /** Signed out: what Sign In signs in to ("Signs in to cmux.com"), the line under the buttons. */
+  signInBackend?: string | null;
 };
 
 /** An inline team name form (New Team, Rename Team); the field starts at `value`. */
@@ -643,6 +647,11 @@ export type GitHubConnectionState = {
   }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
+  /** The optional personal GitHub CLI login shown below the App connection. */
+  cliSignIn?: string;
+  cliSignInDetail?: string;
+  /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  signInBackend?: string | null;
 };
 
 /** One agent's team key as the host draws it: never the key, only whether one is set and its summary. */
@@ -669,6 +678,8 @@ export type TeamAgentKeysState = {
   /** Signed out, personal team, or read-only member copy; null otherwise. */
   note: string | null;
   signIn: string | null;
+  /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  signInBackend?: string | null;
   busy: boolean;
   canManage: boolean;
   error: string | null;
@@ -2761,6 +2772,9 @@ export type SettingsStreams = {
   "cmux.settings.models.changed": ModelsState;
   /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
   "cmux.settings.keys.changed": { revision: number };
+  /** An extension was installed, removed, hidden or reloaded after a save: Settings > Extensions reads
+   * `cmux.settings.extensions.list` again (the event has no values). */
+  "cmux.settings.extensions.changed": null;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */

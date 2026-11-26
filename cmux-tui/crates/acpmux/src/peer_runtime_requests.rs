@@ -344,6 +344,7 @@ impl Peer {
             let mut progressed = false;
             if let Some(events) = page.get("events").and_then(Value::as_array) {
                 for event in events {
+                    self.received.add_replay(serde_json::to_string(event).map_or(0, |t| t.len()));
                     if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
                         progressed |= seq > after;
                         after = after.max(seq);

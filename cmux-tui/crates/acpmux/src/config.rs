@@ -1741,6 +1741,10 @@ pub struct Config {
     /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
+    /// `autoCloudEnroll`: this machine's AutoCloud enrollment as `_acpmux/autocloud_enroll` last
+    /// set it (`autocloud_enroll.rs`); absent, the settings key `cloud.autoCloudEnroll` decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_cloud_enroll: Option<serde_json::Value>,
     /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,

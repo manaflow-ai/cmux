@@ -4320,6 +4320,7 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+      "nextApiVersions": "API versions",
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
@@ -7408,7 +7409,9 @@
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
-    "errorGeneric": "Something went wrong. Try again."
+    "errorGeneric": "Something went wrong. Try again.",
+    "errorRedirectNotAllowed": "This build's sign-in address isn't allowed on {backend}.",
+    "backendDevelopment": "the development backend"
   },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
@@ -7733,6 +7736,55 @@
       "burst": "for {machines} machines asked for at once to all be ready",
       "chatMove": "to move a chat to another machine and get its answer there, one run",
       "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
+    }
+  },
+  "nextCloudPlans": {
+    "metaTitle": "cmux Cloud plans",
+    "metaDescription": "cmux Cloud plans: hours of your machine every month, and one price for each hour after.",
+    "previewBadge": "Preview",
+    "previewNote": "This page is not linked from the site yet.",
+    "title": "cmux Cloud plans",
+    "headline": "Close your laptop. Your agents keep working.",
+    "subhead": "With the Claude or ChatGPT plan you already have.",
+    "lede": "Every plan includes hours of your machine each month. Your machine has {vcpus} vCPUs and {memory} GB of memory, and it counts hours only while it is awake.",
+    "perMonth": "/mo",
+    "hours": "{hours} hours of your machine a month",
+    "machine": "{vcpus} vCPUs, {memory} GB memory",
+    "after": "Then {price} an hour",
+    "metering": "Billed by the second, shown by the minute",
+    "paused": "A paused machine uses no hours",
+    "models": "Model usage is not included.",
+    "cta": "Download cmux",
+    "table": {
+      "title": "Agents kept running and hours",
+      "note": "Each plan keeps this many agents running at once, on the hours it includes. Every hour after is {price}.",
+      "plan": "Plan",
+      "price": "Price",
+      "keptRunning": "Agents kept running at once",
+      "hours": "Hours of your machine a month"
+    },
+    "compare": {
+      "title": "How it compares",
+      "note": "A row appears here only once we have measured it.",
+      "columns": {
+        "server": "Your own server",
+        "planTab": "The cloud tab of your plan",
+        "cmux": "cmux Cloud"
+      },
+      "rows": {
+        "agentsAtOnce": {
+          "label": "Agents at once",
+          "server": "About four on a 2-core, 4 GB server",
+          "planTab": "Limits not published",
+          "cmux": "{machines} started together, all ready within {seconds} seconds"
+        },
+        "unusedMonth": {
+          "label": "Cost in a month you do not use it",
+          "server": "Its full price, even when switched off",
+          "planTab": "Included in the plan you pay for",
+          "cmux": "The plan's price; a paused agent uses none of its hours"
+        }
+      }
     }
   },
   "connected": {
