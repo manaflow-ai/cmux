@@ -362,7 +362,10 @@ def mid_compaction(page, marker):
     page.enter()
     if not wait(lambda: page.running(), 1.5, step=0.05):
         page.enter()
-    running = wait(lambda: page.js("document.querySelector('.cv-compaction[data-state=running]') !== null"), 5, step=0.03)
+    # A running compaction draws as the turn's live line ("Compacting conversation…", Thinking.tsx data-compacting),
+    # a note only once a steer or reply comes after it.
+    running = wait(lambda: page.js("document.querySelector('[data-compacting], .cv-compaction[data-state=running]') !== null"),
+                   5, step=0.03)
     page.focus_end()
     page.type(marker)
     page.js("window.__snappyProbe.watchArm('mid-compaction')")
