@@ -82,6 +82,15 @@ static NSInteger screenIndex(CGDirectDisplayID display, NSScreen **found) {
   return -1;
 }
 
+// Says why on stderr and, when side-instance.sh waits on a ready file, there too ("failed REASON"), so the launch
+// falls back at once instead of waiting out its whole ready bound (15 s per try on a Mac where it fails).
+static int failed(NSString *readyFile, NSString *why) {
+  fprintf(stderr, "park-display: %s\n", why.UTF8String);
+  if (readyFile) [[NSString stringWithFormat:@"failed %@\n", why] writeToFile:readyFile atomically:YES
+                                                                     encoding:NSUTF8StringEncoding error:nil];
+  return 1;
+}
+
 static BOOL pidFileSaysGone(NSString *path, BOOL *seen) {
   if (!path) return NO;
   NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
@@ -127,11 +136,11 @@ int main(int argc, char **argv) {
     descriptor.bluePrimary = CGPointMake(0.15, 0.06);
     descriptor.whitePoint = CGPointMake(0.3127, 0.3290);
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
-    if (!display || display.displayID == 0) { fprintf(stderr, "park-display: no virtual display\n"); return 1; }
+    if (!display || display.displayID == 0) return failed(readyFile, @"no virtual display");
     CGVirtualDisplaySettings *settings = [CGVirtualDisplaySettings new];
     settings.hiDPI = 1;
     settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:60]];
-    if (![display applySettings:settings]) { fprintf(stderr, "park-display: the display took no mode\n"); return 1; }
+    if (![display applySettings:settings]) return failed(readyFile, @"the display took no mode");
 
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:10];
     NSScreen *screen = nil;
@@ -141,7 +150,7 @@ int main(int argc, char **argv) {
       [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
       if (!parked && CGDisplayIsActive(display.displayID)) {
         CGError error = park(display.displayID);
-        if (error != kCGErrorSuccess) { fprintf(stderr, "park-display: arranging the display failed (%d)\n", error); return 1; }
+        if (error != kCGErrorSuccess) return failed(readyFile, [NSString stringWithFormat:@"arranging the display failed (%d)", error]);
         parked = YES;
       }
       // AppKit lists the display before it hears of the new arrangement; wait until its frame is the parked one.
@@ -149,7 +158,7 @@ int main(int argc, char **argv) {
           (int)NSMinX(screen.frame) == (int)CGDisplayBounds(display.displayID).origin.x) break;
       index = -1;
     }
-    if (index < 0) { fprintf(stderr, "park-display: AppKit never listed the display where it was parked\n"); return 1; }
+    if (index < 0) return failed(readyFile, @"AppKit never listed the display where it was parked");
     CGRect b = CGDisplayBounds(display.displayID);
     NSMutableString *ready = [NSMutableString stringWithFormat:@"ready display=%u screen=%ld frame=%d,%d,%d,%d\n",
         display.displayID, (long)index, (int)b.origin.x, (int)b.origin.y, (int)b.size.width, (int)b.size.height];

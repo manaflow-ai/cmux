@@ -659,12 +659,14 @@ class Side:
             raise Usage("--side takes lower case letters, digits and dashes")
         self.name = name
         self.script = HERE / "side-instance.sh"
+        self.said = ""
 
     def run(self, *args: str, timeout: float = 300) -> str:
         done = subprocess.run([str(self.script), args[0], self.name, *args[1:]], capture_output=True, text=True,
                               errors="replace", timeout=timeout)
         if done.returncode != 0:
             raise LookError(f"side-instance.sh {args[0]} {self.name}: {why_failed(done.stderr or done.stdout, 300)}")
+        self.said = done.stderr.strip()  # a step that went on says why on stderr (a launch that fell back to shown)
         return done.stdout.strip()
 
     def exists(self) -> bool:
@@ -2374,13 +2376,18 @@ def command_run(args) -> int:
                           # A copy of a built app never passes for a clone of the golden one (reusable_copy).
                           try_app=app_info(the_app) if built_app is None else {"built": planned["head"]},
                           try_label=label, try_layers=layers)
-            launched = side.run("launch", timeout=launch_seconds())
+            # Their own phases (exclusive: "side" keeps the rest, the stop and any remake), so a receipt names the
+            # slow step: the 11-25 re-tries' 17.35 s side phase was a park display waited out for 15 s.
+            with phases("launch"):
+                launched = side.run("launch", timeout=launch_seconds())
+            result["launch"] = {"said": launched[-200:], "note": getattr(side, "said", "")[-300:] or None}
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
             pid = int(found.group(1))
             named = side.socket()
-            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+            with phases("socket"):
+                sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
         result.update(copy=str(side.app()), socket=sock, pid=pid)
         try:
             handed = time.monotonic()

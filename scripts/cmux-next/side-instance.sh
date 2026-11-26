@@ -216,18 +216,53 @@ PLIST
   echo "$out"
 }
 # Starts the park display for $name; prints its NSScreen index. Its pid goes to $dir/park.pid.
+# A park display that cannot be made says so at once: it writes "failed REASON" into the ready file, and one that
+# died without a word is seen gone, so the launch falls back to --shown in a moment, not after the 15 s ready
+# bound (every try on the fleet's cmux24 runner paid that bound: the team-dev-build-swap probe's re-try side phase
+# went 0.77 s on 11-23 to 17.35 s once parked launches landed). The failure is remembered for this boot
+# ($root/.park-display-unavailable) for SIDE_INSTANCE_PARK_RETRY_S (900 s), so a re-try does not ask again.
+park_unavailable="$root/.park-display-unavailable"
+boot_id() { sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p'; }
 park_start() {
-  local park ready="$dir/park.ready" pid=""
+  local park ready="$dir/park.ready" pid="" why="" boot now at said
+  boot="$(boot_id)" now="$(date +%s)"
+  if [[ -f "$park_unavailable" ]]; then
+    at="$(sed -n 's/^at=//p' "$park_unavailable")" said="$(sed -n 's/^why=//p' "$park_unavailable")"
+    if [[ "$(sed -n 's/^boot=//p' "$park_unavailable")" == "$boot" && "$at" =~ ^[0-9]+$ \
+          && $((now - at)) -lt ${SIDE_INSTANCE_PARK_RETRY_S:-900} ]]; then
+      echo "side-instance: the park display could not be made $((now - at)) s ago ($said); not asked again until ${SIDE_INSTANCE_PARK_RETRY_S:-900} s pass" >&2
+      return 1
+    fi
+  fi
   park="$(park_app)" || return 1
   rm -f "$ready" "$dir/park.log"
   open -g -n --stderr "$dir/park.log" "$park" --args --pid-file "$dir/pid" --ready-file "$ready" \
     || { echo "side-instance: open $park failed" >&2; return 1; }
-  for _ in $(seq 1 150); do [[ -s "$ready" ]] && break; /bin/sleep 0.1; done
-  if [[ ! -s "$ready" ]]; then
-    echo "side-instance: the park display was not ready in 15 s: $(tail -c 300 "$dir/park.log" 2>/dev/null)" >&2
+  # `open` returns once the process runs; one that is gone two polls apart (0.5 s each) will write nothing.
+  local gone=0
+  for i in $(seq 1 150); do
+    [[ -s "$ready" ]] && break
+    if (( i % 5 == 0 )); then
+      if pgrep -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" >/dev/null 2>&1; then gone=0
+      else gone=$((gone + 1)); (( gone >= 2 )) && break; fi
+    fi
+    /bin/sleep 0.1
+  done
+  if [[ -s "$ready" ]] && ! grep -q '^ready ' "$ready"; then
+    why="$(sed -n 's/^failed //p' "$ready" | head -1)"; why="${why:-$(head -c 200 "$ready")}"
+  elif [[ ! -s "$ready" ]]; then
+    if (( gone >= 2 )); then why="it exited without a word: $(tail -c 300 "$dir/park.log" 2>/dev/null)"
+    else why="it was not ready in 15 s: $(tail -c 300 "$dir/park.log" 2>/dev/null)"; fi
+  fi
+  if [[ -n "$why" ]]; then
+    why="$(printf '%s' "$why" | tr '\n' ' ')"
+    echo "side-instance: the park display failed: $why" >&2
     pkill -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" 2>/dev/null || true
+    rm -f "$ready"
+    printf 'boot=%s\nat=%s\nwhy=%s\n' "$boot" "$now" "$why" >"$park_unavailable" 2>/dev/null || true
     return 1
   fi
+  rm -f "$park_unavailable"
   pid="$(pgrep -n -f "$park/Contents/MacOS/park-display --pid-file $dir/pid" || true)"
   [[ -n "$pid" ]] && echo "$pid" >"$dir/park.pid"
   sed -n 's/^ready .*screen=\([0-9][0-9]*\).*/\1/p' "$ready"
