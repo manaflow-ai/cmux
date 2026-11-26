@@ -208,6 +208,13 @@ public final class DesignSettings {
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
     /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
     public var liveWallpaperFrameRate = 30
+    /// `appearance.agentSignature`: sidebar agent rows and the agent pane's running line draw
+    /// each agent's dot glyph (acpmux `session/signature`). Off until the setting reaches it
+    /// (``SettingsApplier``); off, no glyph draws and no request goes out. A change repaints, so open
+    /// agent pages get it with the theme (`AgentPaneTheme`) and the sidebar rows redraw (`SidebarTunablesWatch`).
+    public var agentSignature = false {
+        didSet { if agentSignature != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
