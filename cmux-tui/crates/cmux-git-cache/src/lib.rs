@@ -44,6 +44,7 @@ pub mod credential;
 pub mod gitconfig;
 pub mod mirror;
 pub mod pkt;
+pub mod room;
 pub mod route;
 pub mod server;
 pub mod switch;
