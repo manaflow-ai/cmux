@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Route and key .github/workflows/classic-nightly-pr-build.yml.
+"""Route and key .github/workflows/classic-pr-build.yml.
 
 The classic NIGHTLY (.github/workflows/nightly.yml) compiles the app in Release
 for arm64 and builds the cmux-tui client in release. A pull request
@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ".github/workflows/classic-nightly-pr-build.yml"
+WORKFLOW = ".github/workflows/classic-pr-build.yml"
 COMPILE_SCRIPT = "scripts/ci/classic-nightly-release-compile.sh"
 ARCHS = ("arm64",)
 

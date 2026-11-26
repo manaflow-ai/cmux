@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The classic NIGHTLY's Release compile runs on the pull request path.
 
-classic-nightly-pr-build.yml must compile what nightly.yml compiles, for each
+classic-pr-build.yml must compile what nightly.yml compiles, for each
 architecture it ships, route Swift the way ci.yml's release_build area does,
 and stay advisory.
 """
@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import classic_nightly_pr_build as build  # noqa: E402
 
-WORKFLOW = (ROOT / ".github/workflows/classic-nightly-pr-build.yml").read_text()
+WORKFLOW = (ROOT / ".github/workflows/classic-pr-build.yml").read_text()
 SCRIPT = (ROOT / "scripts/ci/classic-nightly-release-compile.sh").read_text()
 NIGHTLY = (ROOT / ".github/workflows/nightly.yml").read_text()
 
