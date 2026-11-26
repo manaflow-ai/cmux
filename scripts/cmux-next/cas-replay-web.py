@@ -9,14 +9,22 @@ the Range-GET bytes of the chunks the client lacks.
 
 Usage: cas-replay-web.py CAS_REPLAY_BIN WORKDIR [N]   (needs gh with GH_TOKEN, actions: read)
 """
-import io, json, os, statistics, subprocess, sys, tarfile, zipfile
+import io, json, os, statistics, subprocess, sys, tarfile, time, zipfile
 
 REPO = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
 
 
 def gh(path, raw=False):
-    out = subprocess.run(["gh", "api", path], capture_output=True, check=True).stdout
-    return out if raw else json.loads(out)
+    # Three tries: a GitHub 5xx or secondary rate limit on one page should not fail the row.
+    # On the last failure, print gh's stderr so the job log names the cause.
+    for attempt in range(3):
+        proc = subprocess.run(["gh", "api", path], capture_output=True)
+        if proc.returncode == 0:
+            return proc.stdout if raw else json.loads(proc.stdout)
+        err = proc.stderr.decode(errors="replace").strip()
+        print(f"gh api {path}: exit {proc.returncode} (try {attempt + 1}/3): {err}", file=sys.stderr)
+        time.sleep(5 * (attempt + 1))
+    sys.exit(f"gh api {path} failed 3 times; last error above")
 
 
 def main():
