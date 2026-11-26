@@ -79,7 +79,14 @@ fn conflict_name(path: &str, taken: impl Fn(&str) -> bool) -> String {
     if !taken(&first) {
         return first;
     }
-    (2..).map(|n| format!("{first}-{n}")).find(|name| !taken(name)).expect("an unused name")
+    let mut n: u64 = 2;
+    loop {
+        let name = format!("{first}-{n}");
+        if !taken(&name) {
+            return name;
+        }
+        n += 1;
+    }
 }
 
 /// One sync round over the three trees.
@@ -130,33 +137,32 @@ pub fn round(synced: &Tree, local: &Tree, remote: &Tree, content: &mut impl Cont
                     }
                     _ => false,
                 };
-                let mut resolution = three_tree::resolve(synced.get(path), conflict, text);
-                if let Resolution::ThreeWay { base, local: l, remote: r } = &resolution {
-                    match content.merge(base.as_deref(), l, r) {
-                        Some(merged) => {
-                            put(&mut out, local, remote, path, &merged);
-                            out.merged.push(path.clone());
-                            continue;
-                        }
-                        None => {
-                            resolution =
-                                Resolution::ConflictFile { keep: r.clone(), aside: l.clone() };
+                // A conflict file: `keep` at the path, `aside` under the first unused conflict name.
+                let conflict_file = |out: &mut Round, keep: &str, aside: &str| {
+                    put(out, local, remote, path, keep);
+                    let name = conflict_name(path, |name| {
+                        local.contains_key(name)
+                            || remote.contains_key(name)
+                            || out.synced.contains_key(name)
+                            || decisions.contains_key(name)
+                    });
+                    put(out, local, remote, &name, aside);
+                };
+                match three_tree::resolve(synced.get(path), conflict, text) {
+                    Resolution::ThreeWay { base, local: l, remote: r } => {
+                        match content.merge(base.as_deref(), &l, &r) {
+                            Some(merged) => {
+                                put(&mut out, local, remote, path, &merged);
+                                out.merged.push(path.clone());
+                                continue;
+                            }
+                            None => conflict_file(&mut out, &r, &l),
                         }
                     }
-                }
-                match resolution {
                     Resolution::ConflictFile { keep, aside } => {
-                        put(&mut out, local, remote, path, &keep);
-                        let name = conflict_name(path, |name| {
-                            local.contains_key(name)
-                                || remote.contains_key(name)
-                                || out.synced.contains_key(name)
-                                || decisions.contains_key(name)
-                        });
-                        put(&mut out, local, remote, &name, &aside);
+                        conflict_file(&mut out, &keep, &aside)
                     }
                     Resolution::KeepEdit(hash) => put(&mut out, local, remote, path, &hash),
-                    Resolution::ThreeWay { .. } => unreachable!("settled above"),
                 }
                 out.conflicts.push(path.clone());
             }
