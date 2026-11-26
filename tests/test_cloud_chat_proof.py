@@ -123,7 +123,9 @@ class CloudChatProofTests(unittest.TestCase):
                     signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
                     self.fail("the cut-off handler must end the proof")
                 elif words == ["cloud", "list-machines", "--json"]:
-                    value = {"loaded": True, "machines": [
+                    value = {"loaded": True,
+                             "account": {"signed_in": True, "user_id": "stack-user-1", "team_id": "team-1"},
+                             "machines": [
                         {"machine_id": "machine-proof", "title": "proof-test"},
                         {"machine_id": "machine-other", "title": "another-run"}]}
                 elif words[:2] == ["cloud", "start-chat"]:
@@ -289,6 +291,17 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertNotIn(FAKE_TOKEN, json.dumps(evidence))
                 self.assertEqual(sum(words[:3] == ["cloud", "connections", "--remove"] for words in calls), 1,
                                  "the run's connection and its Keychain item go at the end")
+
+    def test_a_shipped_nightly_caches_the_login_under_its_listed_account(self):
+        # Proof run 45793080880: a shipped NIGHTLY has no auth.status read, so the cache named an unset `actual`
+        # (NameError). Its machine list names the account instead.
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True, grant=True, login="pass", cache=True)
+        self.assertEqual(code, 0, evidence)
+        self.assertTrue(evidence["claude_login"]["cached"])
+        self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]],
+                         [claude_login_cache.name("stack-user-1", "team-1"),
+                          claude_login_cache.name("stack-user-1", None)])
+        self.assertFalse(any(words[:2] == ["app", "call"] for words in calls))
 
     def test_a_failed_cache_fails_before_any_machine_and_still_removes_it(self):
         code, evidence, calls = self.run_proof(grant=True, login="pass", cache=True, secret_exit=1)
