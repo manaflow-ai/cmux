@@ -585,6 +585,10 @@ path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_pipeline_linux_batch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_ran_line.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_pr_ran_line.py"

@@ -68,7 +68,17 @@ jobs:
           fi
       - name: Run the routed linux steps (ci/steps.toml)
         id: run
-        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." --pr-scope runs the steps
+        # the change reaches through an input that names their files; a step it reaches only through a whole-directory
+        # input (`web/**`, `cmux-tui/**`) or the pipeline's own files runs in the post-merge batch, every linux step at
+        # the merged tip (cmux-next-pr-pipeline-linux-batch.yml, whose judge bisects a new red).
+        # vars.CI_PR_PIPELINE_LINUX_PR_SCOPE=0 runs the whole route on the pull request again.
+        env:
+          CI_PR_PIPELINE_LINUX_PR_SCOPE: ${{ github.event_name == 'pull_request' && (vars.CI_PR_PIPELINE_LINUX_PR_SCOPE || '1') || '0' }}
+        run: |
+          scope=(--pr-scope)
+          [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-1}" = 0 ] && scope=()
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${scope[@]}"
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a

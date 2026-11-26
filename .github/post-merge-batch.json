@@ -164,6 +164,11 @@
       "paths": [],
       "jobs": {"tooling-tests": "tooling-tests"}
     },
+    "pr-pipeline-linux": {
+      "workflow": "cmux-next-pr-pipeline-linux-batch.yml",
+      "paths": [],
+      "jobs": {"linux": "linux"}
+    },
     "tip-test-compile": {
       "workflow": "cmux-next-tip-test-compile.yml",
       "paths": [

@@ -1,0 +1,122 @@
+name: cmux-next pr pipeline linux batch
+
+# Every step of pr-pipeline.yml's `linux` job (ci/steps.toml) at one feat-cmux-next commit, in the post-merge batch
+# (cmux-next-post-merge.yml, suite pr-pipeline-linux).
+#
+# Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." `pr pipeline / linux` was 4.67
+# runner-min a merged pull request (938 runs a day, 2026-11-25), most of it steps a change reaches only through a
+# whole-directory input (`web/**`, `cmux-tui/**`, `Packages/**`). A pull request now runs the steps its changed files
+# reach by name (`ci/run run --job linux --pr-scope`); every linux step still runs here, once a batch window, at the
+# merged tip, where the batch's judge bisects a new red to its commit. A step whose inputs this tree already passed
+# is reused from the step-result store (cmux-next-base-linux.yml posts the tip's passes), so a quiet window costs
+# little. `vars.CI_PR_PIPELINE_LINUX_PR_SCOPE` set to `0` runs the whole route on the pull request again. The steps
+# below are the job's own, copied whole (the checkout takes `inputs.sha`; with no merge commit there every step
+# runs); tests/test_ci_pr_pipeline_linux_batch.py keeps the two in step (change both). A dispatch runs this by hand.
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to test (the post-merge batch's tip or a bisect probe's commit). Empty: the event's own."
+        type: string
+        default: ""
+      only:
+        description: "The one job id to run (a bisect probe): linux. Empty: every job."
+        type: string
+        default: ""
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-pr-pipeline-linux-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: linux
+    if: ${{ (inputs.only == '' || inputs.only == 'linux') && github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # pr-pipeline.yml's bound for the same job: every linux step runs here.
+    timeout-minutes: 325
+    permissions:
+      contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the changed paths
+        # Every path the merge commit changes against the base tip, both sides of a rename (what the
+        # router read). With no merge commit there is no list, and ci/run then runs every step.
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every linux step runs."
+          fi
+      - name: Run the routed linux steps (ci/steps.toml)
+        id: run
+        # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." --pr-scope runs the steps
+        # the change reaches through an input that names their files; a step it reaches only through a whole-directory
+        # input (`web/**`, `cmux-tui/**`) or the pipeline's own files runs in the post-merge batch, every linux step at
+        # the merged tip (cmux-next-pr-pipeline-linux-batch.yml, whose judge bisects a new red).
+        # vars.CI_PR_PIPELINE_LINUX_PR_SCOPE=0 runs the whole route on the pull request again.
+        env:
+          CI_PR_PIPELINE_LINUX_PR_SCOPE: ${{ github.event_name == 'pull_request' && (vars.CI_PR_PIPELINE_LINUX_PR_SCOPE || '1') || '0' }}
+        run: |
+          scope=(--pr-scope)
+          [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-1}" = 0 ] && scope=()
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${scope[@]}"
+      # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
+      # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
+      # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
+      # lane/* branch as a fixup commit (ci-oops 0a). No patch, no artifact.
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3
+      # A failed web test shard's JUnit report (the `web-tests-N` steps keep it only on failure), under the name
+      # ci-web.yml's `Web tests (N/4)` job used, which scripts/ci/web_test_failure_census.py reads. No report, no artifact.
+      - name: Upload the web test JUnit report (shard 1)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard1-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard1/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 2)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard2-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard2/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 3)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard3-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard3/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the web test JUnit report (shard 4)
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-test-junit-shard4-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-test-junit/shard4/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7

@@ -299,6 +299,9 @@ exit "$rc"
 [step.cache-receipts]
 job = "linux"
 timeout = 300
+# A pull request runs it on every workflow change (--pr-scope keeps its whole route): the read-only guard says no
+# pull request job holds the cache-writer credentials, and a poisoned cache found after landing is already written.
+pr_scope = false
 title = "CI cache receipt contract"
 about = "cache restore receipts classify a restore, and their test is deterministic"
 inputs = [
@@ -1024,6 +1027,9 @@ bun run vercel-build
 [step.security-holes]
 job = "linux"
 timeout = 300
+# A pull request runs it on every change (not left to the post-merge batch, --pr-scope): a secret or a workflow hole
+# found after landing is already out.
+pr_scope = false
 title = "Workflow security holes and secrets"
 about = "the ratchet's tests pass, the change adds no workflow security hole (zizmor) and no secret (gitleaks), and no job is pinned to one runner size"
 inputs = ["**"]
