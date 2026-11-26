@@ -25,6 +25,7 @@ import { LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
+import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
   type PlacedLayout,
@@ -572,14 +573,6 @@ const WARM_VIEWPORTS = 1;
 /// by OLDER_AHEAD_VIEWPORTS. Above the view, so a followed view's end anchors them: their heights
 /// land in the offset in the frame they are measured and no visible row moves.
 const HISTORY_VIEWPORTS = 4;
-
-/// Viewports of history mounted above a followed view (the reader at the latest row, a reply
-/// streaming in). Each mounted row is painted and composited again in every frame the reply grows:
-/// chat-100k-flat's long_x1 streaming profile spent 1000-1480 ms of a 10 s round in Paint and the
-/// compositor update with HISTORY_VIEWPORTS above the view, 250-330 ms in an empty chat. Scrolling
-/// up deepens it to HISTORY_VIEWPORTS in a deferred render (`historyDepth`), so the rows to scroll
-/// into (Leo, 2026-11-12) are built between frames, not in the frame the scroll starts.
-const FOLLOW_HISTORY_VIEWPORTS = 1;
 
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
@@ -4229,13 +4222,12 @@ function TranscriptView({
     };
   }, [deferHistory, sessionKey]);
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
-  const historyDepth = useDeferredValue(renderFollowing ? FOLLOW_HISTORY_VIEWPORTS : HISTORY_VIEWPORTS);
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
   // frames as the rest of them are.
   const warm = visibleLayoutRange(
     layout,
-    warmTop - height * historyDepth - warmStep / 2,
-    height * (1 + historyDepth + WARM_VIEWPORTS) + warmStep,
+    warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
+    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
   );
   // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
   // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
@@ -4244,7 +4236,7 @@ function TranscriptView({
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
   const history =
     renderFollowing && !deferHistory
-      ? visibleLayoutRange(layout, shownTop - height * historyDepth, height * historyDepth, 0)
+      ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
       : undefined;
   const scrolledRanges = mergeRowRanges([
     ...(deferHistory || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
@@ -7337,6 +7329,8 @@ function TranscriptView({
     // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
     viewTop: shownTop,
     viewHeight: renderFollowing ? 0 : height,
+    // A followed view shelves the rows far above it (conversation/shelvedRows.ts); scrolled up, none.
+    shelfAbove: shelfLine(renderFollowing && !sessionSwitched, shownTop, height),
     frameKey,
     registry,
     setSizeRef,

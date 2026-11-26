@@ -504,6 +504,28 @@ try {
               document.head.append(st);
             });
           }, process.env.INJECT_CSS);
+        if (process.env.PARK_ABOVE)
+          await page.addInitScript((viewports) => {
+            const park = () => {
+              const scroll = document.querySelector<HTMLElement>(".acpmux-scroll");
+              if (scroll) {
+                const top = scroll.getBoundingClientRect().top - scroll.clientHeight * viewports;
+                for (const row of document.querySelectorAll<HTMLElement>(".acpmux-row")) {
+                  const box = row.getBoundingClientRect();
+                  const parked = row.style.contentVisibility === "hidden";
+                  if (!parked && box.bottom < top) {
+                    row.style.containIntrinsicBlockSize = `${box.height}px`;
+                    row.style.contentVisibility = "hidden";
+                  } else if (parked && box.bottom >= top) {
+                    row.style.contentVisibility = "";
+                    row.style.containIntrinsicBlockSize = "";
+                  }
+                }
+              }
+              setTimeout(park, 250);
+            };
+            setTimeout(park, 250);
+          }, Number(process.env.PARK_ABOVE));
         await page.goto(urlFor(index));
         await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
           timeout: 180_000,
