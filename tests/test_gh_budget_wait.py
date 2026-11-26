@@ -366,13 +366,29 @@ class AutoResumeTests(unittest.TestCase):
         doc = yaml.safe_load(AUTO_RESUME.read_text(encoding="utf-8"))
         for name in ("publish", "republish-deltas"):
             job = doc["jobs"][name]
-            self.assertEqual(job["env"]["CMUX_RELEASE_RATE_LIMIT_SECONDS"], "1800", name)
+            # A whole core window: a 1800 s cap gave up 40 s before the reset (11-25, run 45690985851).
+            self.assertEqual(job["env"]["CMUX_RELEASE_RATE_LIMIT_SECONDS"], "3600", name)
             steps = job["steps"]
             runs = [step.get("run", "") for step in steps]
             install = runs.index("bash scripts/ci/gh_budget_wait.sh --install")
-            self.assertTrue(steps[install - 1].get("uses", "").startswith("actions/checkout@"), name)
+            # The release App wrapper goes on PATH first (the budget wait wraps it), right after the
+            # App token is minted, right after the checkout that brings both scripts.
+            self.assertEqual(runs[install - 1], "bash scripts/ci/gh_app_token.sh --install", name)
+            app_env = steps[install - 1]["env"]
+            self.assertEqual(app_env["GH_APP_TOKEN"], "${{ steps.gh-app-token.outputs.token }}", name)
+            self.assertEqual(app_env["GH_FALLBACK_TOKEN"], "${{ github.token }}", name)
+            mint = steps[install - 2]
+            self.assertEqual(mint.get("id"), "gh-app-token", name)
+            self.assertTrue(mint.get("uses", "").startswith("actions/create-github-app-token@"), name)
+            self.assertTrue(mint.get("continue-on-error"), name)  # a failed mint falls back to github.token
+            self.assertTrue(steps[install - 3].get("uses", "").startswith("actions/checkout@"), name)
             publisher = next(i for i, run in enumerate(runs) if "publish-release-assets.py" in run)
             self.assertLess(install, publisher, name)
+            # Every publisher call spends the release App's quota first, not the shared github.token's.
+            for step in steps:
+                if "publish-release-assets.py" in step.get("run", ""):
+                    self.assertEqual(step["env"].get("GH_APP_TOKEN"), "${{ steps.gh-app-token.outputs.token }}",
+                                     f"{name}: {step.get('name')}")
             # No step timeout shorter than the publisher's 30 minutes plus the wrapper's hour.
             self.assertGreaterEqual(int(steps[publisher].get("timeout-minutes", 360)), 30, name)
             self.assertGreaterEqual(int(job.get("timeout-minutes", 360)), 120, name)
