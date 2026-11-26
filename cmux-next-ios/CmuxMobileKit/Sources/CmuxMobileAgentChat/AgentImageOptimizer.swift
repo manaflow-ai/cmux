@@ -20,11 +20,26 @@ enum AgentImageOptimizer {
         }.value
     }
 
+    /// Returns a smaller or format-normalized copy of a picked image. A nil
+    /// result keeps the picked URL as a streamable source.
+    static func optimizeAsync(fileURL: URL, byteCount: Int?) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            optimize(fileURL: fileURL, byteCount: byteCount)
+        }.value
+    }
+
     /// Returns a smaller, orientation-correct image when ImageIO can decode it.
     /// The original bytes are retained when optimization would not save space.
     static func optimize(_ data: Data) -> Data {
         let needsAcceptedFormat = AgentAttachment(kind: .image, name: "image", data: data).imageMIMEType == nil
         return AttachmentImageEncoder.encode(data, allowLargerCopy: needsAcceptedFormat)?.data ?? data
+    }
+
+    static func optimize(fileURL: URL, byteCount: Int?) -> Data? {
+        let ext = URL(fileURLWithPath: fileURL.lastPathComponent).pathExtension.lowercased()
+        let needsAcceptedFormat = !["jpg", "jpeg", "png", "gif", "webp"].contains(ext)
+        return AttachmentImageEncoder.encode(fileURL: fileURL, byteCount: byteCount,
+                                             allowLargerCopy: needsAcceptedFormat)?.data
     }
 
     static func filename(_ name: String, for data: Data) -> String {

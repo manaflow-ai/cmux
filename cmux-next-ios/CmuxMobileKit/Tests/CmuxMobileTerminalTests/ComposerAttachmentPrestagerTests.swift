@@ -47,6 +47,27 @@ import UIKit
         #expect(max(resized.size.width * resized.scale, resized.size.height * resized.scale) <= 2048)
     }
 
+    @Test func fileURLImagesUseA2048PixelTransferCopy() async throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 4096, height: 2048), format: format).image { context in
+            UIColor.systemPurple.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4096, height: 2048))
+        }
+        let original = try #require(source.jpegData(compressionQuality: 0.9))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("composer-image-\(UUID().uuidString).jpg")
+        try original.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let attachment = ComposerAttachment(kind: .image, name: "photo.jpg", byteCount: original.count, fileURL: url)
+        let transfer = try await attachment.transferPayload()
+        guard case .data(let data) = transfer.payload else { Issue.record("image transfer was not data"); return }
+        let resized = try #require(UIImage(data: data))
+        #expect(transfer.name == "photo.jpg")
+        #expect(max(resized.size.width * resized.scale, resized.size.height * resized.scale) <= 2048)
+    }
+
     @Test func undecodableImageKeepsItsOriginalBytes() async throws {
         let original = Data("not an image".utf8)
         let attachment = ComposerAttachment(kind: .image, name: "photo.bin", data: original)
@@ -109,6 +130,19 @@ import UIKit
         prestager.sync([], upload: { _, name in try await probe.upload(name) })
         #expect(prestager.entries.isEmpty)
         #expect(task.isCancelled)
+    }
+
+    @Test func changingDirectoryRestartsTheEarlyUpload() async throws {
+        let probe = UploadProbe()
+        let prestager = ComposerAttachmentPrestager()
+        let file = attachment()
+        prestager.sync([file], directory: "/workspace/a", upload: { _, name in try await probe.upload(name) })
+        await probe.waitForStart()
+        let first = try #require(prestager.entries[file.id]?.task)
+
+        prestager.sync([file], directory: "/workspace/b", upload: { _, name in try await probe.upload(name) })
+        #expect(first.isCancelled)
+        #expect(prestager.entries[file.id]?.directory == "/workspace/b")
     }
 
     @Test func cancellingSendKeepsTheDraftAndTiles() async throws {

@@ -322,7 +322,7 @@ struct TerminalComposer: View {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Cancel sending" : failed ? "Send failed" : "Send")
+        .accessibilityLabel(model.isUploading ? CmuxMobileTerminalAccessibility.cancelSending : failed ? "Send failed" : "Send")
         .accessibilityIdentifier("terminal.composer.send")
     }
 
