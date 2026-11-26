@@ -104,7 +104,7 @@ import Testing
         defer { pins.harness.close() }
         let view = try pins.harness.item(tile.id)
         #expect(Self.buttons(labelled: CmuxNextSidebar.Strings.unpinWorkspace, in: view).isEmpty, "a tile draws Unpin at rest")
-        PinnedNoHoverCloseTests.hover(view, in: pins.harness)
+        PinnedLikeRegularTests.hover(view, in: pins.harness)
         defer { PointerHover.setDebugPointer(nil, in: pins.harness.window) }
         let unpin = try #require(Self.buttons(labelled: CmuxNextSidebar.Strings.unpinWorkspace, in: view).first,
                                  "a hovered pinned tile offers no Unpin")

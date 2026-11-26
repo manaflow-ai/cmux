@@ -387,7 +387,7 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     let sid = new.unwrap()["sessionId"].as_str().unwrap().to_owned();
     // The start is over (as `ensure_child` ends it).
     agent.set_run_class(CpuClass::Background);
-    assert!(agent.enter_run_class().await, "the running harness was not lowered");
+    assert!(agent.enter_run_class(false).await, "the running harness was not lowered");
     let running = class_priority(harness);
     let out = dir.join("tool.json");
     let text = format!("class-probe: {}", out.display());
@@ -600,5 +600,96 @@ fn cpu_class_a_hosted_harness_and_its_tools_run_as_in_a_terminal_by_default() {
     assert!(tool_pri > BACKGROUND_PRI, "a tool its turn started runs at background class");
     assert_eq!(harness_nice, own.max(0), "the harness was reniced");
     assert_eq!(tool_nice, own.max(0), "its tool was reniced");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+use acpmux::cpu_class::pressure::{DEMOTE_AFTER, PROMOTE_AFTER, Sample};
+
+/// A contended Mac: every core busy, the interactive thread 6 ms late.
+const HOT: Sample = Sample { busy: 1.0, late_ms: 6.0 };
+/// Lucas's Mac once his CPU fell to 80%.
+const EIGHTY: Sample = Sample { busy: 0.8, late_ms: 1.0 };
+
+/// An opt-in dynamic session yields with its existing tools during measured contention and gets
+/// its normal class back after clear samples, including the 80% case Lucas reported.
+#[tokio::test]
+async fn cpu_class_a_demoted_session_is_promoted_when_pressure_clears_with_its_existing_tools() {
+    let dir = scratch("dy");
+    let (hub, mut c) = daemon(logged(&dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let id = c.new_session(&dir, "dyn").await.unwrap();
+    let [(harness, _)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
+    let tool = c.probe_tool(&id, &dir).await;
+    let calm = (class_priority(harness), class_priority(tool));
+    for _ in 0..DEMOTE_AFTER {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+    }
+    let contended = (class_priority(harness), class_priority(tool));
+    let demoted = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    for _ in 0..PROMOTE_AFTER {
+        hub.cpu_pressure_tick(Some(EIGHTY)).await;
+    }
+    let cleared = (class_priority(harness), class_priority(tool));
+    let promoted = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    kill(tool);
+    assert!(calm.0 > BACKGROUND_PRI && calm.1 > BACKGROUND_PRI, "a calm host demoted: {calm:?}");
+    assert_eq!(contended, (BACKGROUND_PRI, BACKGROUND_PRI), "harness and its running tool");
+    assert_eq!(demoted["cpuClass"]["class"], "dynamic", "{}", demoted["cpuClass"]);
+    assert_eq!(demoted["cpuClass"]["now"], "background", "{}", demoted["cpuClass"]);
+    assert_eq!(demoted["cpuClass"]["host"]["yielding"], true, "{}", demoted["cpuClass"]);
+    assert!(cleared.0 > BACKGROUND_PRI, "the harness stayed demoted: {cleared:?}");
+    assert!(cleared.1 > BACKGROUND_PRI, "its tool stayed demoted: {cleared:?}");
+    assert_eq!(promoted["cpuClass"]["now"], "normal", "{}", promoted["cpuClass"]);
+    assert_eq!(promoted["cpuClass"]["demotions"], 1, "{}", promoted["cpuClass"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A person-attended turn remains normal while it waits for its first message. Once that first
+/// token arrives, the same pressure pass can demote it, and the turn's completion does not reset
+/// the measured dynamic policy.
+#[tokio::test]
+async fn cpu_class_a_waited_on_turn_is_never_demoted_before_its_first_token() {
+    let dir = scratch("dw");
+    let (hub, mut c) = daemon(logged(&dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let id = c.new_session(&dir, "waited").await.unwrap();
+    c.request(method::MUX_ATTACH, json!({"sessionId": id})).await.unwrap();
+    let [(harness, _)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
+    let out = dir.join("wait.json");
+    let gate = dir.join("wait.json.gate");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let text = format!("class-wait: {}", out.display());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    c.tx.send(Message::request(9_999, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !out.exists() {
+        assert!(std::time::Instant::now() < deadline, "the turn never started its tool");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
+    for _ in 0..DEMOTE_AFTER * 2 {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+    }
+    let waiting = (class_priority(harness), class_priority(tool));
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let open =
+        |gate: PathBuf| tokio::task::spawn_blocking(move || std::fs::write(gate, b"go\n").unwrap());
+    tokio::time::timeout(Duration::from_secs(20), open(gate.clone())).await.unwrap().unwrap();
+    let mut answered = waiting;
+    for _ in 0..100 {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+        answered = (class_priority(harness), class_priority(tool));
+        if answered == (BACKGROUND_PRI, BACKGROUND_PRI) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::timeout(Duration::from_secs(20), open(gate)).await.unwrap().unwrap();
+    kill(tool);
+    assert!(waiting.0 > BACKGROUND_PRI, "the waited-on harness was demoted: {waiting:?}");
+    assert!(waiting.1 > BACKGROUND_PRI, "the waited-on turn's tool was demoted: {waiting:?}");
+    assert_eq!(info["cpuClass"]["waitedOn"], true, "{}", info["cpuClass"]);
+    assert_eq!(info["cpuClass"]["host"]["yielding"], true, "{}", info["cpuClass"]);
+    assert_eq!(answered, (BACKGROUND_PRI, BACKGROUND_PRI), "not demoted after its first token");
     let _ = std::fs::remove_dir_all(&dir);
 }

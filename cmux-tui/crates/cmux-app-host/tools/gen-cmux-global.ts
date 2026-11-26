@@ -65,12 +65,16 @@ const CLOUD_API_CALLS = [
   "cloud.machine.share_chat",
   "cloud.machine.chief_start",
   "cloud.machine.chief_resize",
+  "cloud.machine.setup_desktop",
   "cloud.machine.fork",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
   "cloud.owner.github_app",
   "cloud.owner.github_connect",
+  "cloud.owner.github_complete",
+  "cloud.owner.github_list",
+  "cloud.owner.github_clone_token",
   "cloud.owner.github_repos",
   "cloud.owner.handoff_begin_turn",
   "cloud.owner.handoff_open",
@@ -337,6 +341,8 @@ export function generate(): Record<string, string> {
     // app's pane, so no grant. The tab itself opens through action.run app.open, which needs a gesture.
     "app.pane.open": { scope: "none", class: "runtime" },
     "app.pane.close": { scope: "none", class: "runtime" },
+    // A view's kept state (ctx.keep, cmux-tui-core apps/view_state.rs): only the caller's own mounts, in memory.
+    "app.view.state": { scope: "none", class: "runtime" },
     // Extension signal sources (cmux.signal.source/1, cmux-tui-core apps/signal_sources.rs). Scope `none` here:
     // the daemon decides each call per source (only the declaring app publishes; a reader needs the source's
     // `<app namespace>:read` scope).
@@ -431,7 +437,8 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 // App action ids are not enumerated here: the registry changes daily. List them at runtime with cmux.actions.list().
 type CmuxActionId = string
 
-interface CmuxAppContext { readonly [key: string]: unknown }
+/** A view's mount context (a section, a pane, a widget). \`keep(name, initial)\` is a signal ([read, write]) whose value cmux keeps with the mount: a hot reload (\`cmux ext dev\`), a host restart or a Reload renders it again; closing the view forgets it. \`state\` is every kept value this mount got back (at most 64 KiB as JSON; values must be JSON). */
+interface CmuxAppContext { readonly [key: string]: unknown; readonly state: Readonly<Record<string, unknown>>; keep<T>(name: string, initial: T): [() => T, (next: T | ((prev: T) => T)) => void] }
 /** What \`cmux.app.openPane\` resolves with: the pane's \`ctx.close(result)\` value, or \`dismissed\` when the person closed the pane first or a newer open replaced this one. */
 interface CmuxPaneResult<T = unknown> { result: T | null; dismissed: boolean }
 /** A \`cmux.pane/1\` mount's context: \`args\` are the open's arguments (\`cmux.app.openPane\`), null when the person opened the pane themselves. \`close(result)\` answers the opener (the tab stays open: closing it is the person's); \`onOpen(fn)\` runs after the render with the arguments of an open; \`onClose(fn)\` runs when this mount ends (the tab closed, a newer open, a reload). */

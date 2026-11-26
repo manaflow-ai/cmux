@@ -12,6 +12,8 @@ import { useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Switch } from "../../ui/Switch";
 import { percent } from "./model";
+import { poolOf, spendLimitEnabled } from "./pool";
+import { PoolPanel } from "./PoolPanel";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { clockTime, usd } from "./spendCap";
@@ -160,6 +162,8 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
   // The team's spend against its spending cap this period (cloud.plan.get `spend_cap`, absent without the cap).
   const capSpent = finite(plan?.spend_cap?.spent_usd);
   const capLimit = finite(plan?.spend_cap?.cap_usd);
+  // The plan's hours and the spend limit past them (RFD 0081), behind the default-off switch (pool.ts).
+  const pool = spendLimitEnabled() ? poolOf(plan) : undefined;
   return (
     <aside className="cloud-account" aria-label={t(L.plan)}>
       <div className="cloud-account-row">
@@ -232,6 +236,7 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
             )}
           </div>
           <MonthUsage store={store} state={state} strings={strings} />
+          {pool && <PoolPanel store={store} state={state} pool={pool} strings={strings} />}
           {plan.retention && !unavailable.includes(CloudOps.retentionSet) && (
             <CleanupSettings store={store} state={state} retention={plan.retention} strings={strings} />
           )}

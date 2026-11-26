@@ -37,6 +37,8 @@ pub const HISTORY_FRAMES: usize = 16;
 /// and an earlier, faster route cannot constrain a slower route forever.
 const ACK_RTT_WINDOW_US: u64 = 1_000_000;
 const ACK_RTT_SAMPLES: usize = 64;
+/// The ACK round trip the send window covers, as a percentile of that history.
+const ACK_RTT_WINDOW_PERCENTILE: usize = 90;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
@@ -580,13 +582,17 @@ impl MediaEngine {
     /// Adapts the host's send window to its carrier RTT, or recent frame ACKs
     /// while the carrier has no RTT measurement. The caller supplies its current
     /// route's measurement each time, or None after falling back to a socket.
+    ///
+    /// The window covers the long round trips, not the shortest: on a jittery path the
+    /// shortest is the floor, and a window sized from it closes on every longer one, so
+    /// frames wait on the host for an ACK. The congestion controller still gets the floor.
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
         self.path_rtt_us = path_rtt_us;
-        if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
-            self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
-            // A measured LAN round trip starts the target high (until the first overuse).
-            self.cc.on_rtt(rtt_us);
-        }
+        let Some(floor_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) else { return };
+        let window_rtt_us = floor_us.max(self.ack_rtt_high_us().unwrap_or(0));
+        self.set_frames_in_flight(frames_in_flight_for(window_rtt_us, self.cfg.max_fps).max(2));
+        // A measured LAN round trip starts the target high (until the first overuse).
+        self.cc.on_rtt(floor_us);
     }
 
     /// A paced datagram from `encoded` really left now: the controller times it from
@@ -1353,6 +1359,18 @@ impl MediaEngine {
 
     pub fn ack_rtt_us(&self) -> Option<u64> {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
+    }
+
+    /// The long round trips of the same recent cumulative frame-ack history: its
+    /// [`ACK_RTT_WINDOW_PERCENTILE`] (nearest rank), so one outlier does not set the window.
+    pub fn ack_rtt_high_us(&self) -> Option<u64> {
+        let mut rtts: Vec<u64> = self.ack_rtts.iter().map(|(_, rtt)| *rtt).collect();
+        if rtts.is_empty() {
+            return None;
+        }
+        rtts.sort_unstable();
+        let rank = (rtts.len() * ACK_RTT_WINDOW_PERCENTILE).div_ceil(100);
+        Some(rtts[rank.clamp(1, rtts.len()) - 1])
     }
 
     /// The round trip the viewer-input (upstream) NACK wait is sized from: the

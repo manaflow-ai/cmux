@@ -111,29 +111,53 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
 
 /// Find the repository containing `directory` and read its HEAD without
 /// running git. A `.git` file (worktrees, submodules) names the git dir.
+#[cfg(test)]
 pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    read_git_head_at(directory).0
+}
+
+/// [`read_git_head`], with the directory whose change can change the answer: the git dir that
+/// holds the HEAD file, else the directory where a new `.git` would make a repository (the one
+/// whose `.git` could not be read, else `directory` itself). The HEAD cache watches it
+/// (git_heads.rs). The directory is its real path: a file watch names a changed file below the
+/// real path (FSEvents resolves `/var` to `/private/var` and each link), and the cache finds the
+/// directory by it.
+pub(crate) fn read_git_head_at(directory: &Path) -> (Option<GitHead>, std::path::PathBuf) {
     #[cfg(test)]
     git_head_probe::on_read(directory);
+    let (head, at) = find_and_read_git_head(directory);
+    let at = std::fs::canonicalize(&at).unwrap_or(at);
+    (head, at)
+}
+
+fn find_and_read_git_head(directory: &Path) -> (Option<GitHead>, std::path::PathBuf) {
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
         match std::fs::metadata(&dot_git) {
-            Ok(metadata) if metadata.is_dir() => return read_git_head_file(&dot_git),
+            Ok(metadata) if metadata.is_dir() => {
+                let head = read_git_head_file(&dot_git);
+                return (head, dot_git);
+            }
             Ok(metadata) if metadata.is_file() => {
-                let pointer = read_small_file(&dot_git)?;
-                let git_dir = pointer.lines().find_map(|line| line.strip_prefix("gitdir:"))?.trim();
-                let git_dir = Path::new(git_dir);
-                let git_dir = if git_dir.is_absolute() {
-                    git_dir.to_path_buf()
-                } else {
-                    candidate.join(git_dir)
+                let git_dir = read_small_file(&dot_git).and_then(|pointer| {
+                    let git_dir = pointer.lines().find_map(|line| line.strip_prefix("gitdir:"))?;
+                    let git_dir = Path::new(git_dir.trim());
+                    Some(if git_dir.is_absolute() {
+                        git_dir.to_path_buf()
+                    } else {
+                        candidate.join(git_dir)
+                    })
+                });
+                return match git_dir {
+                    Some(git_dir) => (read_git_head_file(&git_dir), git_dir),
+                    None => (None, candidate.to_path_buf()),
                 };
-                return read_git_head_file(&git_dir);
             }
             _ => current = candidate.parent(),
         }
     }
-    None
+    (None, directory.to_path_buf())
 }
 
 impl Deref for TreeDecorations {
