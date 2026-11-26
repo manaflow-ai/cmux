@@ -135,6 +135,7 @@ jobs:
             /scripts/
             /.github/
             /tests/
+            /.gitmodules
       - name: "Pool mirror: checkout the merge commit's router"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
         env:
@@ -241,6 +242,7 @@ jobs:
             /scripts/
             /tests/
             /.github/
+            /.gitmodules
 
       - name: Discard the half-written checkout before the retry
         if: steps.checkout.outcome == 'failure'
