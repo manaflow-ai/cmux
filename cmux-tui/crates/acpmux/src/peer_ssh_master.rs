@@ -109,6 +109,8 @@ fn private_dir(dir: &Path) -> std::io::Result<()> {
     }
 }
 
+// test-hook-allow: keyed by peer name and never cleared: each test registers its own peer
+// names (peer_ssh_master_tests.rs), so no test can replace or clear another's entry
 #[cfg(test)]
 static OVERRIDES: std::sync::Mutex<Option<std::collections::HashMap<String, SshMux>>> =
     std::sync::Mutex::new(None);
