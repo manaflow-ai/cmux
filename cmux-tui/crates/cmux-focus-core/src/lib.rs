@@ -24,6 +24,9 @@
 //! - [`child_window`]: what a window does when a child window becomes key.
 //! - [`agent_cursor_visibility::resolve`]: where an agent cursor for a
 //!   target tab draws (its page, an anchor in its window, or nowhere).
+//! - [`ui`]: the macOS focus UI's decisions (the no-activate keyboard
+//!   guard, the shortcut hint hold, the pane hint chips, the keyboard
+//!   guards), over the layout reducer's `focus_ui_*` ops.
 //! - [`input::InputRouter`]: the one input router: every window's focus and
 //!   every key's route, decided in the key's own call and fixed for the
 //!   key's life (handoff/rewrites/R-INPUT/DESIGN.md).
@@ -46,5 +49,6 @@ pub mod reducer;
 pub mod state;
 pub mod topology;
 pub mod type_ahead;
+pub mod ui;
 pub mod window;
 pub mod wire;
