@@ -145,6 +145,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsCommands': models.ServerStatsCommands,
     'types/ServerStatsConnections': models.ServerStatsConnections,
     'types/ServerStatsDisk': models.ServerStatsDisk,
+    'types/ServerStatsDiskCheckpoints': models.ServerStatsDiskCheckpoints,
     'types/ServerStatsDiskFile': models.ServerStatsDiskFile,
     'types/ServerStatsDiskJournal': models.ServerStatsDiskJournal,
     'types/ServerStatsDiskJournalKind': models.ServerStatsDiskJournalKind,
