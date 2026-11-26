@@ -7,7 +7,7 @@
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use cmux_cloud_handlers::{Said, answers, args, decide, fields, wake_hint};
+use cmux_cloud_handlers::{Said, answers, args, calls, decide, fields, wake_hint};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
@@ -228,6 +228,17 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
     let answer = match operation {
         // One argument check (`check`): `{"value"}` or `{"refusal"}`.
         b"cloud_handler_arg" => arg(&read(request)?)?,
+        // `cloud resize-machine`'s machine API call, from its checked arguments (`calls.rs`).
+        b"cloud_handler_resize_call" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                args: args::Args,
+                machine: String,
+            }
+            let request: Request = read(request)?;
+            checked(calls::resize_call(&request.args, &request.machine))?
+        }
         b"cloud_handler_machine_pick" => {
             let lookup: decide::Lookup = read(request)?;
             match decide::machine(&lookup) {
