@@ -15,7 +15,7 @@ on:
       service:
         description: "Worker to read"
         type: choice
-        options: [cmux-platform-production, cmux-platform-staging, cmux-vm-production, cmux-vm-staging]
+        options: [cmux-platform-production, cmux-platform-staging, cmux-platform-development, cmux-vm-production, cmux-vm-staging]
         default: cmux-platform-production
       id:
         description: "One exact machine (vm_...) or team (team_...) id, or `window` (the only id for cmux-vm-*) for the whole window's id-free counts by minute, outcome, route, status and msg. Missing or conflicting identities are never kept."

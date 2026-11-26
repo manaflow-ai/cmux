@@ -308,6 +308,10 @@ jobs:
 
       - name: Archive
         working-directory: ${{ steps.kept.outputs.directory || steps.source.outputs.remote }}
+        # 6-8 min on Blacksmith (runs 45871646299, 45866160671); fleet Macs sat 66-70+ min here and held every
+        # later dispatch. testflight-build.sh bounds its xcframework build at 20 min; this bounds the rest
+        # (20 + Swift package backoff 9 + archive ~3, plus headroom). Live only after rc/cnx-ios-builder moves.
+        timeout-minutes: 40
         env:
           CMUX_INTERNAL_SPARSE_ARCHIVE: '1'
           MARKETING: ${{ steps.stamp.outputs.marketing }}
