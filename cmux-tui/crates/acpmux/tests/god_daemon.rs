@@ -2406,11 +2406,20 @@ fn size_run(label: &str, bytes: u64) -> Value {
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, deep_before)
         });
-    // The rail's prompt index (direct.ts `readPromptIndex`).
+    // The rail's prompt index (direct.ts `readPromptIndex`): its first bounded page, reported.
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
                    "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
+        });
+    // The same index read for a fixed number of prompts, the one compared across sizes. The page
+    // above holds every prompt up to 256 KB: 5 rows in the 1 MB chat (220 us) against 492 in
+    // 100 MB and 538 in 1 GB (2.0 to 2.2 ms, about 4 us a row at every size), a 10x that was the
+    // reply's row count, not the chat's size (the scroll depths' full page, `full_page_before`).
+    let (prompt_page_us, prompt_page_rows, prompt_page_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
+                   "kinds": ["user_message"], "limit": PROMPT_PAGE_ROWS, "maxBytes": 256 << 10})
         });
     // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
     let (forward_us, _, forward_error) =
@@ -2504,6 +2513,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
+        "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
+        "promptPageError": prompt_page_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,
         "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
         "rssIdleMaps": rss_idle_maps,
@@ -2587,6 +2598,9 @@ fn size_failure(result: &Value) -> Option<String> {
     None
 }
 
+/// Prompts in the size sweep's fixed prompt-index page: as many as the 1 MB fixture holds.
+const PROMPT_PAGE_ROWS: u64 = 5;
+
 /// What each size costs against the first (1 MB): the numbers of the goal (open, scroll,
 /// typing, memory), and the startup loads beside them, which are not in the max.
 const SIZE_RATIO_KEYS: [&str; 16] = [
@@ -2597,7 +2611,7 @@ const SIZE_RATIO_KEYS: [&str; 16] = [
     "/scrollRecentUs/p50",
     "/scrollMidUs/p50",
     "/scrollDeepUs/p50",
-    "/promptIndexUs/p50",
+    "/promptPageUs/p50",
     "/forwardPageUs/p50",
     "/sendFirstTokenUs/p50",
     "/sendFirstTokenUs/p95",
@@ -2713,7 +2727,7 @@ fn incomplete_chat_sizes_cannot_be_reported_as_success() {
     let complete = json!({"size": "4G", "coldAttachMs": 10,
         "attachUs": {"p50": 20, "p95": 30}, "newestPageUs": {"p50": 20},
         "scrollRecentUs": {"p50": 20}, "scrollMidUs": {"p50": 20},
-        "scrollDeepUs": {"p50": 20}, "promptIndexUs": {"p50": 20},
+        "scrollDeepUs": {"p50": 20}, "promptPageUs": {"p50": 20},
         "forwardPageUs": {"p50": 20}, "sendFirstTokenUs": {"p50": 20, "p95": 30},
         "restartAttachMs": 10, "restartSendFirstTokenUs": 20,
         "rssIdle": 100, "peakRss": 200, "restartPeakRss": 200});
