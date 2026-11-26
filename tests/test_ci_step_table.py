@@ -2001,6 +2001,68 @@ class CrateResults(unittest.TestCase):
             crate_results.main(["plan", "/dev/null", "--", "-p", "a"])
         self.assertEqual(out.getvalue().strip(), crate_results.REUSED_ALL)
 
+    def plan_change(self, paths, store=None, root=None, gone=()):
+        """plan() for a change of `paths` (CI_PATHS_FILE, as ci_steps hands a step), `gone` deleted from the tree."""
+        root = root or self.repo()
+        for path in gone:
+            subprocess.run(["git", "rm", "-q", path], cwd=root, check=True)
+        listed = root / "changed-paths.txt"
+        listed.write_text("".join(f"{p}\n" for p in paths))
+        out = io.StringIO()
+        runs = crate_results.plan(root / "state.json", list(self.ARGS), {"CI_PATHS_FILE": str(listed)}, root=root,
+                                  store=CrateStore() if store is None else store, out=out)
+        return runs, out.getvalue()
+
+    def test_a_crate_no_changed_path_reaches_does_not_run(self):
+        runs, out = self.plan_change(["cmux-tui/crates/c/src/lib.rs"])
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"], "only b reaches c")
+        self.assertIn("a not reached", out)
+        runs, _ = self.plan_change(["shared/x.txt"])
+        self.assertEqual(runs, ["-p", "a", "--lib", "--test", "ta"], "a's include_str! names shared/x.txt")
+        runs, out = self.plan_change(["other/y.txt", "cmux-next-ios/App.swift"])
+        self.assertEqual(runs, [], "a change no crate reads runs none: the step prints REUSED_ALL")
+        self.assertIn("2 of 2 crates not reached", out)
+
+    def test_a_deleted_path_still_reaches_the_crate_that_named_it(self):
+        runs, _ = self.plan_change(["shared/x.txt"], gone=["shared/x.txt"])
+        self.assertEqual(runs, ["-p", "a", "--lib", "--test", "ta"])
+        runs, _ = self.plan_change(["cmux-tui/crates/c/src/old.rs"])
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"], "a file c no longer has is still c's")
+
+    def test_what_it_cannot_place_reaches_every_crate(self):
+        for paths in (["cmux-tui/Cargo.lock"], ["ci/steps.toml"], ["schemas/settings/x.json"],
+                      ["scripts/ci/crate_results.py"], ["ghostty-next"]):
+            self.assertEqual(self.plan_change(paths)[0], self.ARGS, paths)
+        root = self.repo()
+        runs = crate_results.plan(root / "state.json", list(self.ARGS), {}, root=root, store=CrateStore(),
+                                  out=io.StringIO())
+        self.assertEqual(runs, self.ARGS, "no CI_PATHS_FILE: the change is unknown, every crate runs")
+
+    def test_a_crate_not_reached_is_one_whose_key_the_change_leaves(self):
+        # The narrowing is never weaker than the key: a crate it drops is one whose stored pass would have hit.
+        base = self.keys()
+        for changes in ({"cmux-tui/crates/c/src/lib.rs": "pub fn c() { 2; }\n"}, {"shared/x.txt": "y\n"},
+                        {"other/y.txt": "w\n"}, {"cmux-tui/crates/b/src/lib.rs": "pub fn b() { 3; }\n"}):
+            root = self.repo(changes)
+            ws = crate_results.Workspace(crate_results.tree_files(root), crate_results.disk_reader(root))
+            planned = crate_results.crates(ws, self.ARGS)
+            moved = self.keys(changes)
+            skipped = crate_results.unreached(ws, planned, list(changes), io.StringIO())
+            self.assertTrue(skipped, changes)
+            for name in skipped:
+                self.assertEqual(moved[name], base[name], (changes, name))
+
+    def test_no_store_still_skips_what_the_change_does_not_reach(self):
+        with mock.patch.object(crate_results.ci_steps.StepResults, "from_env", return_value=None):
+            root = self.repo()
+            listed = root / "changed-paths.txt"
+            listed.write_text("cmux-tui/crates/c/src/lib.rs\n")
+            out = io.StringIO()
+            runs = crate_results.plan(root / "state.json", list(self.ARGS), {"CI_PATHS_FILE": str(listed)},
+                                      root=root, out=out)
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"])
+        self.assertIn("no store", out.getvalue())
+
     def test_the_step_plans_by_crate_and_posts_only_after_a_pass(self):
         run = ci_steps.load().steps[crate_results.STEP].run
         self.assertIn("crate_results.py plan", run)
