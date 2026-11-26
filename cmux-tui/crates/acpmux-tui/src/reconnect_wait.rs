@@ -102,6 +102,26 @@ impl BoundedMachine for Reconnect {
     }
 }
 
+/// How long a lost daemon connection stays quiet: no error row and no "reconnecting…" before
+/// it (the GUI chat's Reconnecting waits the same 10 s, cmux#43290, #43291, #43349).
+pub(super) const QUIET: Duration = cmux_bounded::CONNECTION_QUIET;
+
+/// `work`'s result. Only if it is still running after `quiet` does `loud` run, once (it says the
+/// connection is down); a `work` that ends within `quiet` says nothing.
+pub(super) async fn quietly<T>(
+    work: impl Future<Output = Result<T>>,
+    quiet: Duration,
+    loud: impl FnOnce() -> Result<()>,
+) -> Result<T> {
+    tokio::pin!(work);
+    tokio::select! {
+        done = &mut work => return done,
+        () = tokio::time::sleep(quiet) => {}
+    }
+    loud()?;
+    work.await
+}
+
 /// Dial with `dial` until one attempt answers whole within [`ATTEMPT`], pausing between
 /// attempts, for at most [`BUDGET`].
 pub(super) async fn redial<T, F, Fut>(mut dial: F) -> Result<T>
@@ -228,5 +248,59 @@ mod tests {
             .expect_err("no daemon")
             .to_string();
         assert!(err.contains("within 60s: no socket"), "{err}");
+    }
+
+    /// Before: a daemon restart drew "daemon connection closed; reconnecting…" and an error row
+    /// at once, even when it was back in a second. After: nothing within 10 s.
+    #[tokio::test(start_paused = true)]
+    async fn a_reconnect_back_within_ten_seconds_says_nothing() {
+        let mut said = false;
+        let back = quietly(
+            async {
+                tokio::time::sleep(Duration::from_secs(9)).await;
+                Ok(7)
+            },
+            QUIET,
+            || {
+                said = true;
+                Ok(())
+            },
+        )
+        .await
+        .expect("back");
+        assert_eq!(back, 7);
+        assert!(!said, "a reconnect back within 10 s said the connection was down");
+    }
+
+    /// A reconnect still running at 10 s says so once, then still waits for the daemon.
+    #[tokio::test(start_paused = true)]
+    async fn a_reconnect_past_ten_seconds_says_so_once_and_keeps_waiting() {
+        let started = Instant::now();
+        let mut said = Vec::new();
+        let back = quietly(
+            async {
+                tokio::time::sleep(Duration::from_secs(25)).await;
+                Ok("back")
+            },
+            QUIET,
+            || {
+                said.push(started.elapsed());
+                Ok(())
+            },
+        )
+        .await
+        .expect("back");
+        assert_eq!(back, "back");
+        assert_eq!(said, vec![QUIET]);
+        assert_eq!(started.elapsed(), Duration::from_secs(25));
+    }
+
+    /// A give-up within the quiet still reaches the caller with its reason.
+    #[tokio::test(start_paused = true)]
+    async fn a_failure_within_the_quiet_is_still_returned() {
+        let err = quietly(async { Err::<(), _>(anyhow::anyhow!("no socket")) }, QUIET, || Ok(()))
+            .await
+            .expect_err("failed");
+        assert_eq!(err.to_string(), "no socket");
     }
 }

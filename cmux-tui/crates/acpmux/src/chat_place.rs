@@ -10,9 +10,13 @@
 //!
 //! | place | `autoSession` row | set |
 //! | --- | --- | --- |
-//! | local | `auto: false` | `{auto: false}` |
-//! | auto (AutoCloud) | `auto: true, keepInCloud: false` | `{auto: true, keepInCloud: false}` |
-//! | cloud | `auto: true, keepInCloud: true` | `{auto: true, keepInCloud: true}` |
+//! | local | `auto: false` | `{mode: "local"}` |
+//! | auto (AutoCloud) | `auto: true, keepInCloud: false` | `{mode: "auto"}` |
+//! | cloud | `auto: true, keepInCloud: true` | `{mode: "cloud"}` |
+//!
+//! The set is by `mode` (`auto_session/surface.rs`), which also moves the chat: `cloud` takes
+//! it to the Cloud machine now, and `local` brings a chat the Cloud has home before Auto goes
+//! off. The set's `auto` and `keepInCloud` are the row the chat ends in.
 //!
 //! Who may ask ([`consent`]):
 //!
@@ -64,8 +68,14 @@ impl Place {
         }
     }
 
-    /// The place a chat's `autoSession` row says it is in (`AutoRecord::row`).
+    /// The place a chat's `autoSession` row says it is in (`AutoRecord::row`): its `mode`, which
+    /// reads `local` from the moment a chat is asked home; for a row with no `mode`, the two
+    /// fields a mode stands for.
     pub fn of_row(row: &Value) -> Self {
+        let mode = row["mode"].as_str();
+        if let Some(place) = Self::ALL.into_iter().find(|place| Some(place.as_str()) == mode) {
+            return place;
+        }
         match (row["auto"].as_bool(), row["keepInCloud"].as_bool()) {
             (Some(true), Some(true)) => Self::Cloud,
             (Some(true), _) => Self::Auto,
@@ -73,13 +83,15 @@ impl Place {
         }
     }
 
-    /// The `_acpmux/auto_session/set` params that put a chat here.
+    /// The `_acpmux/auto_session/set` params that put a chat here: its `mode`, which the set
+    /// reads alone, and the row's two fields the mode stands for.
     pub fn set_params(self, session: &str) -> Value {
-        match self {
-            Self::Local => json!({"sessionId": session, "auto": false}),
-            Self::Cloud => json!({"sessionId": session, "auto": true, "keepInCloud": true}),
-            Self::Auto => json!({"sessionId": session, "auto": true, "keepInCloud": false}),
-        }
+        let (auto, keep) = match self {
+            Self::Local => (false, false),
+            Self::Cloud => (true, true),
+            Self::Auto => (true, false),
+        };
+        json!({"sessionId": session, "mode": self.as_str(), "auto": auto, "keepInCloud": keep})
     }
 }
 
