@@ -389,6 +389,9 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 package.themes.join(", "),
                 package.art.images.len()
             );
+            if !package.art.applied.is_empty() {
+                human.push_str(&format!("\n  applied: {}", package.art.applied.join(", ")));
+            }
             if !package.fonts.files.is_empty() {
                 human.push_str(&format!(
                     "; {} font files ({})",
@@ -408,6 +411,7 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 "id": package.id,
                 "themes": package.themes,
                 "images": package.art.images,
+                "applied": package.art.applied,
                 "fonts": package.fonts.files,
                 "fontLicense": package.fonts.license,
                 "pending": package.art.pending,
@@ -632,6 +636,9 @@ fn install(
         if !package.art.images.is_empty() {
             human.push_str(&format!("; {} images", package.art.images.len()));
         }
+        if !package.art.applied.is_empty() {
+            human.push_str(&format!("\n  applied: {}", package.art.applied.join(", ")));
+        }
         if !package.fonts.files.is_empty() {
             human.push_str(&format!("; {} font files", package.fonts.files.len()));
         }
@@ -655,6 +662,7 @@ fn install(
         "receipt": receipt,
         "themes": package.themes,
         "images": package.art.images.len(),
+        "applied": package.art.applied,
         "fonts": package.fonts.files.len(),
         "pending": package.art.pending,
         "change": change,

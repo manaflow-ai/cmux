@@ -39,6 +39,9 @@ mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
+#[cfg(test)]
+#[path = "requests/sub_session_start_tests.rs"]
+mod sub_session_start_tests;
 mod successor;
 mod time_breakdown_gate;
 pub(super) use time_breakdown_gate::without as without_time_breakdown;
@@ -980,6 +983,17 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     Ok(())
 }
 
+/// Whether a `session/new` starts a sub-session: it names a parent, or omits one
+/// and comes from an agent's own session (`ParentAsk::Caller` resolves to it).
+fn starts_sub_session(ask: Option<crate::hub::lineage::ParentAsk>, agent_caller: bool) -> bool {
+    use crate::hub::lineage::ParentAsk;
+    match ask {
+        Some(ParentAsk::Named(_)) => true,
+        Some(ParentAsk::Caller) => agent_caller,
+        Some(ParentAsk::Root) | None => false,
+    }
+}
+
 /// `session/new` on the peer `peer_name` (`_meta.acpmux.peer`), for a caller's
 /// own `peer` and for a create admission placed there (`hub/admission_redirect.rs`).
 async fn new_on_peer(
@@ -1023,10 +1037,12 @@ async fn new_on_peer(
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
     // A provisioned VM holds one parent session (`hub/agent_vm.rs`): a second
-    // parent-less start there is refused; a sub-session start names its parent.
-    let asks_parent = mux_meta(params)
-        .and_then(|m| m.get(crate::hub::lineage::PARENT_FIELD))
-        .is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()));
+    // parent-less start there is refused. A sub-session start names its parent,
+    // or omits it and an agent caller's own session is its parent (`lineage.rs`).
+    let asks_parent = starts_sub_session(
+        crate::hub::lineage::parent_ask(mux_meta(params)).ok(),
+        conn.caller().filter(|_| !conn.is_person()).is_some(),
+    );
     if let Some(refusal) = hub.one_parent_check(&peer, asks_parent) {
         return Err(refusal);
     }
@@ -1447,15 +1463,14 @@ async fn dispatch_request_with_identity(
             let peer = hub
                 .peer_by_name(name)
                 .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-            if !peer.ready() {
-                return Err(peer.unreachable_error());
-            }
-            let mut answer =
-                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
-                    .await
-                    .map_err(|_| {
-                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
-                    })??;
+            let mut answer = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                super::peer_targeted::request(&peer, m, json!({})),
+            )
+            .await
+            .map_err(|_| {
+                RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+            })??;
             answer
                 .as_object_mut()
                 .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
@@ -1997,6 +2012,8 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                placed_by: pick("placedBy")
+                    .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2124,10 +2141,17 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
+            // Take ownership only after the lookup finishes in time. A retry after a timeout
+            // can still name these uploads even if the background lookup finishes later.
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await
+                .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2532,7 +2556,8 @@ async fn dispatch_request_with_identity(
                         supersede_set,
                         flag("steerOnly") == Some(true),
                         given_provenance,
-                    ),
+                    )
+                    && !crate::hub::inbox::watch_wake(&params),
             };
             // An unverified prompt names no other sender: its activity is counted as an
             // unnamed prompt's was (`prompt_provenance::is_unverified`).
@@ -2984,6 +3009,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::autocloud_enroll::METHOD => {
+            super::autocloud_enroll::handle(hub, conn, &params).await
+        }
         super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
@@ -3437,6 +3465,9 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
+        }
+        method::MUX_HARNESS_DISABLE => {
+            super::harness_enable::disable(hub, conn.origin, &params).await
         }
         name if super::agent_login::METHODS.contains(&name) => {
             super::agent_login::handle(hub, conn, name, &params).await
@@ -3921,6 +3952,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(done)
         }
+        method::MUX_ROOMS => view::rooms(hub, conn, &params),
+        method::MUX_FOLLOW => view::follow(hub, conn, &params),
         method::MUX_TYPING => {
             let done = view::typing(hub, conn, &params)?;
             // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).

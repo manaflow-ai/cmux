@@ -15,8 +15,9 @@ name: cas/1 replay (RFD 0166)
 # scripts/cas/derived_data_replay.py finds main's newest seeds on the public CI cache (one key
 # prefix, read from the newest seed-derived-data.yml run's log), streams each tar.zst into a tree
 # and replays them with the same `cas-replay`. Seeds land on main, not here; each run takes
-# main's newest (a schedule fires only from main's copy of a workflow, so none here). Row U2
-# (Mac 20 behind) joins as its input gets a fetch path.
+# main's newest (a schedule fires only from main's copy of a workflow, so none here).
+# Row U2 (a Mac 20 NIGHTLYs behind) is the `u2` job: scripts/cas/mac_update_replay.py fetches published
+# nightly-next DMGs from the feed, unpacks the .app with 7-Zip and replays N-20, N-1 and N.
 #
 # Every web merge reruns it (the push paths include webviews/), so the row moves with each publish.
 
@@ -33,13 +34,16 @@ on:
       - ".github/workflows/cas-replay.yml"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
+      - "tests/test_cas_mac_update_replay.py"
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
       - "scripts/cas/**"
+      - "scripts/cmux-next/web-bundle-archive.py"
       - ".github/workflows/cas-replay.yml"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
+      - "tests/test_cas_mac_update_replay.py"
   workflow_dispatch:
     inputs:
       count:
@@ -48,6 +52,9 @@ on:
       seeds:
         description: "B1: consecutive DerivedData seeds to replay (each up to 12 GiB unpacked)"
         default: "2"
+      behind:
+        description: "U2: how many published NIGHTLYs behind the oldest client is"
+        default: "20"
 
 permissions: {}
 
@@ -167,5 +174,113 @@ jobs:
           path: |
             ${{ runner.temp }}/cas-replay-b1/rows.jsonl
             ${{ runner.temp }}/b1.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  u2:
+    name: cas/1 replay, row U2 (Mac update bytes, 20 NIGHTLYs behind)
+    # U2's input is the published NIGHTLYs, not this repo's paths. A schedule would run only from the
+    # default branch (main), so every feat-cmux-next push that runs W1 also asks the feed for its
+    # newest NIGHTLY. A push replays only when that build has no replay yet (a cache marker keyed
+    # by the build), so a web merge costs one appcast read, not 750 MB of DMGs. PRs and dispatch
+    # always replay.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Three ~250 MB DMGs to fetch and about 10 s each to unpack to a ~750 MB tree; cas-replay
+    # compresses every distinct chunk at zstd 19 on one core (the trees, then the DMGs), which is
+    # the long part. About 3.5 GB of disk in RUNNER_TEMP.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # The nightly.yml runs list, which names the published builds.
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Newest published NIGHTLY
+        id: newest
+        run: |
+          set -euo pipefail
+          build=$(curl -fsSL --retry 3 https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+            | python3 -c 'import re,sys; print(re.search(r"<sparkle:version>(\d+)</sparkle:version>", sys.stdin.read()).group(1))')
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Newest NIGHTLY on the feed: $build"
+
+      - name: Has this NIGHTLY been replayed?
+        id: seen
+        if: github.event_name == 'push'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/u2-marker
+          key: cas-replay-u2-${{ steps.newest.outputs.build }}
+          lookup-only: true
+
+      - name: Test the replay driver
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tests/test_cas_mac_update_replay.py
+
+      # 7-Zip 24.09, pinned by hash. Ubuntu 24.04's 7zip package (23.01+dfsg) cannot read the
+      # DMG's XZ blocks ("Unsupported Method"); 24.09 reads the DMG and its APFS volume in one pass.
+      - name: Install 7-Zip
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/7zip"
+          mkdir -p "$d"
+          curl -fsSL --retry 3 -o "$d/7z.tar.xz" https://github.com/ip7z/7zip/releases/download/24.09/7z2409-linux-x64.tar.xz
+          echo "914c7e20ad5ef8e4d3cf08620ff8894b28fe11b7eb99809d6930870fbe48a281  $d/7z.tar.xz" | sha256sum -c -
+          tar -xJf "$d/7z.tar.xz" -C "$d" 7zz
+          echo "$d" >> "$GITHUB_PATH"
+
+      - name: Set up pinned Rust
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: steps.seen.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: false
+
+      - name: Build cas-replay
+        if: steps.seen.outputs.cache-hit != 'true'
+        working-directory: cmux-tui
+        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+
+      - name: Replay N-20, N-1 and N (U2)
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEHIND: ${{ inputs.behind || '20' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cas/mac_update_replay.py --cas-replay cmux-tui/target/release/cas-replay \
+            --behind "$BEHIND" --work "$RUNNER_TEMP/cas-replay-u2" | tee "$RUNNER_TEMP/u2.json"
+
+      - name: Mark this NIGHTLY replayed
+        if: github.event_name == 'push' && steps.seen.outputs.cache-hit != 'true'
+        run: mkdir -p "$RUNNER_TEMP/u2-marker" && cp "$RUNNER_TEMP/u2.json" "$RUNNER_TEMP/u2-marker/"
+
+      - name: Save the marker
+        if: github.event_name == 'push' && steps.seen.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/u2-marker
+          key: cas-replay-u2-${{ steps.newest.outputs.build }}
+
+      - name: Keep the rows
+        if: always() && steps.seen.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cas-replay-u2
+          path: |
+            ${{ runner.temp }}/cas-replay-u2/rows.jsonl
+            ${{ runner.temp }}/u2.json
           if-no-files-found: ignore
           retention-days: 14
