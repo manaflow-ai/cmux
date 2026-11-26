@@ -23,8 +23,8 @@ public struct CloudAppOpRunner: Sendable {
                                          origin: origin == .user && allowed ? .user : .script)
             do {
                 return try await connection.request(request, timeout: Self.timeout).value
-            } catch DaemonError.command(_, let message, let code, let details, _) {
-                throw CloudAppOpFailure(code: code ?? "", message: message, details: details)
+            } catch DaemonError.command(_, let message, let code, let details, let retryable) {
+                throw CloudAppOpFailure(code: code ?? "", message: message, details: details, retryable: retryable ?? false)
             }
         }
     }
