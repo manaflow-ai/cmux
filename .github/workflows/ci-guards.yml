@@ -224,6 +224,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
           python3 tests/test_ci_step_table.py
+          python3 tests/test_ci_ios_fast_verdict.py
           python3 tests/test_indexnow_notification.py
 
       - name: Validate CDN readers name their client
@@ -1423,6 +1424,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate no workflow repeats a key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflows_have_no_repeated_keys.py
+
       - name: Validate every push- or PR-started workflow has a concurrency group
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_concurrency.py
@@ -2551,7 +2556,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
@@ -2587,6 +2594,7 @@ jobs:
           echo "Package policy base: $base"
 
       - name: Set up Python 3.9
+        timeout-minutes: 5
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
