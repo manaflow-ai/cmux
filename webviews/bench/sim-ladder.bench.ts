@@ -122,6 +122,20 @@ const JSON_OUT = flag("--json");
 // --hogs N: CPU-bound processes beside the scene while it is measured (the app's machine load). Default: the
 // profile's load per core over this machine's cores, at most one per core.
 const HOGS = flag("--hogs");
+// --frame-hz N: the display refresh the pages draw at. The app's frame_p95_ms is chatPerfCapture.ts's rAF frame-interval
+// p95 on Leo's display (the 11-26 00:21Z profile: 9.2 ms, 1181 frames in its 10 s capture, a 120 Hz display), and headless
+// Chrome draws at a locked 60 Hz (rAF every 16.7 ms whatever the page costs), so at 60 Hz the sim read 16.7 against the
+// app's 9.2 and that pair measured the two displays, not the two renderers. Chrome 157 --headless=new has no other
+// refresh rate: --screen-info takes none, HeadlessExperimental.beginFrame "wasn't found" (only chrome-headless-shell has
+// it, and the shell draws hidden tabs), and Xvfb's RandR adds no 120 Hz mode. So at any rate but 60 Chrome runs
+// --disable-frame-rate-limit (a begin frame as soon as the last one is drawn) and each page's requestAnimationFrame is
+// held to an N Hz grid (installFrameClock): the page's callbacks run in the first native frame at or after the grid's next
+// tick, with that frame's own timestamp, so a frame whose work overruns a tick shows as a longer interval, as a missed
+// vsync does. Default: the profile's display_hz in the fidelity mode, else 60 (the ladder, whose frame ratio floors at
+// 16.7 ms, keeps Chrome's own clock).
+const FRAME_HZ = Number(flag("--frame-hz") ?? fromProfile("display_hz") ?? 60);
+// --frame-slack MS: how late after a tick the page's first native frame may come and still take that tick.
+const FRAME_SLACK_MS = Number(flag("--frame-slack") ?? 1);
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const VERSION = 4;
@@ -283,6 +297,8 @@ async function launchChrome(): Promise<{
       // cron, run 45408142192). The bench loads only its own local pages; every Playwright launch the other benches
       // use passes the same flag. (#54319 added it; a conflict resolution in #52348/#54537 dropped it.)
       "--no-sandbox",
+      // A refresh other than Chrome's 60 Hz: uncapped begin frames, which installFrameClock holds to FRAME_HZ.
+      ...(FRAME_HZ !== 60 ? ["--disable-frame-rate-limit"] : []),
       ...CHROME_ARGS,
       "about:blank",
     ],
@@ -315,6 +331,80 @@ async function launchChrome(): Promise<{
       await proc.exited;
       fs.rmSync(profile, { recursive: true, force: true });
     },
+  };
+}
+
+/// An `hz` display's frame clock for a page of a Chrome run with --disable-frame-rate-limit (FRAME_HZ above): every
+/// requestAnimationFrame callback waits for the first native frame at or after the grid's next tick (ticks every 1000/hz
+/// ms from the page's first frame), and runs there with that frame's timestamp, all of a frame's callbacks together as
+/// Chrome's own rAF runs them. Between ticks it sleeps on a timer to about 1 ms before the tick, then takes native frames
+/// until one lands on it, so the uncapped compositor draws the page about hz times a second, not thousands. A hidden page
+/// gets no native frame, so it draws nothing, as with Chrome's own clock.
+function installFrameClock([hz, slack]: [number, number]) {
+  const period = 1000 / hz;
+  const nativeFrame = window.requestAnimationFrame.bind(window);
+  const setTimer = window.setTimeout.bind(window);
+  let callbacks = new Map<number, FrameRequestCallback>();
+  let lastId = 0;
+  let armed = false;
+  let tick = -1;
+  // Uncapped Chrome draws back to back only while frames have damage: a frame that changes nothing on screen makes it
+  // fall back to a ~17 ms timer (rAF with no change read 17.4 ms apart under --disable-frame-rate-limit, with a change
+  // 0.1 ms). A display's vsync ticks whether or not the page changed, so each native frame here changes one pixel's
+  // colour (a fixed 1x1 box, alpha 1-2%, under every click): the page's own frames then come at the clock's ticks.
+  let pixel: HTMLElement | undefined;
+  let shade = false;
+  const damage = () => {
+    if (!pixel) {
+      pixel = document.createElement("div");
+      pixel.setAttribute("aria-hidden", "true");
+      pixel.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;pointer-events:none;z-index:2147483647";
+      document.documentElement.append(pixel);
+    }
+    shade = !shade;
+    pixel.style.backgroundColor = shade ? "rgba(0,0,0,0.02)" : "rgba(0,0,0,0.01)";
+  };
+  // The clock reads the time a native frame runs (performance.now()), not its timestamp: after a sleep, a frame's
+  // timestamp is the begin frame's, which can be from before the sleep (a frame run at 24.1 ms was stamped 18.0).
+  const frame = (now: number) => {
+    damage();
+    const at = performance.now();
+    if (tick >= 0 && at < tick) {
+      const wait = tick - at - 1;
+      if (wait > 1) setTimer(() => nativeFrame(frame), wait);
+      else nativeFrame(frame);
+      return;
+    }
+    // A frame the page was too busy to take at its tick (its first native frame ran more than `slack` ms after it)
+    // waits for the next tick, as a display's vsync does: a page busy for 10 ms each frame draws every other tick.
+    if (tick >= 0 && at > tick + slack) {
+      tick += period * Math.ceil((at - tick) / period);
+      frame(now);
+      return;
+    }
+    armed = false;
+    tick = (tick < 0 ? at : tick) + period;
+    const due = callbacks;
+    callbacks = new Map();
+    for (const callback of due.values()) {
+      try {
+        callback(now);
+      } catch (error) {
+        reportError(error);
+      }
+    }
+  };
+  window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    lastId += 1;
+    callbacks.set(lastId, callback);
+    if (!armed) {
+      armed = true;
+      nativeFrame(frame);
+    }
+    return lastId;
+  };
+  window.cancelAnimationFrame = (id: number) => {
+    callbacks.delete(id);
   };
 }
 
@@ -481,6 +571,10 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     return w.__slFrames as number[];
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
+  const sorted = [...frames].sort((a, b) => a - b);
+  console.log(
+    `SIM-LADDER   frames ${frames.length} at ${FRAME_HZ} Hz in ${secs.toFixed(1)} s | interval p50 ${sorted[Math.floor((sorted.length - 1) / 2)]?.toFixed(1)} p95 ${p95(frames).toFixed(1)} max ${sorted.at(-1)?.toFixed(1)} ms`,
+  );
   if (ALLOC_PROFILE) printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, secs);
   const windowMsPerS = (((mark - ticks0) / ticksPerSecond) * 1000) / ((markAt - t0) / 1000);
   console.log(`SIM-LADDER   cpu thirds ms/s ${thirds.map(Math.round).join(", ")} | window ${Math.round(windowMsPerS)}`);
@@ -606,6 +700,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       },
       [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
     );
+    if (FRAME_HZ !== 60) await context.addInitScript(installFrameClock, [FRAME_HZ, FRAME_SLACK_MS] as [number, number]);
     if (TIMER_CENSUS)
       await context.addInitScript(() => {
         const counts: Record<string, number> = ((globalThis as any).__slTimers = {});
@@ -843,6 +938,7 @@ async function runProfile() {
     transcript_events: TRANSCRIPT_EVENTS,
     rate: RATE,
     hogs,
+    frame_hz: FRAME_HZ,
   };
   console.log(`SIM-FIDELITY scene ${JSON.stringify(report.profile)}`);
   const scene = (await runAxis("chats", { chats, visible, tabs, hogs, streamMs }))!;
