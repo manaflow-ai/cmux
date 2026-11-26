@@ -2405,8 +2405,11 @@ jobs:
           cached=.webviews-test-history-cache/history.json
           if python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read; then
             :
-          elif [ -s "$cached" ]; then
-            cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"
+          # A cache seeded during an outage stays cache-only across pushes until the artifact reads again.
+          elif [ -s "$cached" ] && fresh="$(jq -er 'select(.runs | type == "array") | (.cache_only == true | tostring)' "$cached")"; then
+            cp "$cached" "$history"
+            echo "fresh=$fresh" >> "$GITHUB_OUTPUT"
+            echo "webview test history: the Actions cache's copy"
           else
             mkdir -p "$(dirname "$history")" && echo '{"runs":[]}' > "$history"
             echo "webview test history: neither the artifact nor the cache read; a fresh history, cache only"
@@ -2449,7 +2452,17 @@ jobs:
         id: history-stage
         if: ${{ steps.history-record.outcome == 'success' }}
         continue-on-error: true
-        run: mkdir -p .webviews-test-history-cache && cp "$RUNNER_TEMP/webviews-test-history/history.json" .webviews-test-history-cache/history.json
+        env:
+          CACHE_ONLY: ${{ steps.history-restore.outputs.fresh }}
+        run: |
+          history="$RUNNER_TEMP/webviews-test-history/history.json"
+          cached=.webviews-test-history-cache/history.json
+          mkdir -p "$(dirname "$cached")"
+          if [ "$CACHE_ONLY" = true ]; then
+            jq -c '.cache_only = true' "$history" > "$cached"
+          else
+            cp "$history" "$cached"
+          fi
 
       - name: Save the history to the cache
         if: ${{ steps.history-stage.outcome == 'success' }}

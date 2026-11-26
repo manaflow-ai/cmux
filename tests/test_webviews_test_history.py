@@ -1053,6 +1053,45 @@ class Workflow(unittest.TestCase):
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
 
+    def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
+        import yaml
+        steps = {s["name"]: s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["webviews-test-history"]["steps"]}
+        restore = steps["Restore the history"]["run"]
+        stage = steps["Stage the history for the cache"]
+        self.assertIn("steps.history-restore.outputs.fresh", stage["env"]["CACHE_ONLY"])
+        self.assertIn("steps.history-restore.outputs.fresh != 'true'", steps["Save the history"]["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            history_file = root / "webviews-test-history/history.json"
+            cached = root / ".webviews-test-history-cache/history.json"
+            env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                                               "BRANCH": "base", "GITHUB_REPOSITORY": "o/r"})
+            # The fourth push restores the complete, unmarked cache saved after the artifact recovered.
+            pushes = [
+                ("cold cache", [], True),
+                ("cache after bootstrap", [0], True),
+                ("artifact recovered", ["canonical"], False),
+                ("complete cache", ["canonical", 2], False),
+            ]
+            for push, (source, expected_runs, cache_only) in enumerate(pushes):
+                with self.subTest(source=source):
+                    output.write_text("")
+                    fetch = "return 1"
+                    if source == "artifact recovered":
+                        fetch = """printf '%s' '{"runs":["canonical"]}' > "$3" """
+                    subprocess.run(["bash", "-eu", "-c", "python3() { " + fetch + "; }\n" + restore],
+                                   cwd=root, env=env, check=True)
+                    fresh = output.read_text().strip() == "fresh=true"
+                    self.assertEqual(fresh, cache_only)
+                    runs = json.loads(history_file.read_text())["runs"]
+                    self.assertEqual(runs, expected_runs)
+                    # The record command serializes the runs, dropping any cache metadata.
+                    history_file.write_text(json.dumps({"runs": runs + [push]}))
+                    subprocess.run(["bash", "-eu", "-c", stage["run"]], cwd=root,
+                                   env={**env, "CACHE_ONLY": str(fresh).lower()}, check=True)
+                    self.assertEqual(json.loads(cached.read_text()).get("cache_only", False), fresh)
+
     def test_pushes_save_the_history_and_pull_requests_only_read_it(self):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)

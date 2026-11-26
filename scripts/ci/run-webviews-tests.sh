@@ -650,7 +650,7 @@ retry_deadline="${CMUX_WEB_TEST_RETRY_DEADLINE:-}"
 retry_wall="${CMUX_WEB_TEST_RETRY_WALL:-}"
 [[ "$retry_wall" =~ ^[0-9]+$ ]] || retry_wall=""
 if [ -n "$retry_wall" ]; then
-  wall_end=$((SECONDS + retry_wall))
+  wall_end=$((SECONDS + 10#$retry_wall))
   if [ -z "$retry_deadline" ] || [ "$wall_end" -lt "$retry_deadline" ]; then retry_deadline=$wall_end; fi
 fi
 # deadline_left: seconds until the retry deadline (a large number when none is set).

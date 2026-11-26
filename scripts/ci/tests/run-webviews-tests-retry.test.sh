@@ -61,10 +61,15 @@ run env CMUX_WEB_TEST_RETRY_WALL=0 CMUX_WEB_TEST_RETRY_DEADLINE=999999 > "$WORK/
 grep -q "retry budget exhausted: keeping FAIL test/broken.test.ts" "$WORK/out" || fail "the wall must stop broken's retry: $(grep -E 'RETRY|retry' "$WORK/out")"
 [ "$(grep -c 'broken' "$WORK/state/calls")" -eq 1 ] || fail "past the wall broken must run once: $(cat "$WORK/state/calls")"
 [ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 1 ] || fail "past the wall flaky must run once: $(cat "$WORK/state/calls")"
-# A wall later than the job deadline changes nothing: both reds get their retry.
+# A positive wall allows retries. A zero-padded decimal setting still means seconds.
 rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
-run env CMUX_WEB_TEST_RETRY_WALL=600 > "$WORK/out" 2>&1 || true
+run env CMUX_WEB_TEST_RETRY_WALL=0099 > "$WORK/out" 2>&1 || true
 [ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 2 ] || fail "inside the wall flaky must run twice: $(cat "$WORK/state/calls")"
+
+# An earlier job deadline still wins over the retry wall.
+rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
+run env CMUX_WEB_TEST_RETRY_WALL=600 CMUX_WEB_TEST_RETRY_DEADLINE=0 > "$WORK/out" 2>&1 || true
+[ "$(grep -c 'flaky' "$WORK/state/calls")" -eq 1 ] || fail "a wall must not extend the job deadline"
 
 # With broken gone, the flaky file alone decides nothing: the lane passes.
 git -C "$repo" rm -qf webviews/test/broken.test.ts # staged, never committed: rm needs -f
