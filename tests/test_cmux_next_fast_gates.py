@@ -482,6 +482,15 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         self.assertEqual(checkout["with"]["sparse-checkout"].split(), ["/scripts/ci/ci_receipt.py", "/scripts/ci/deadline_http.py", "/scripts/ci/cmux_next_fast_gates.py", "/.gitmodules"])
+        # A pool VM checks the same base files out from its mirror (70 s of actions/checkout on the verdict's path).
+        self.assertIn(NOT_POOL, checkout["if"])
+        pool = receipt["steps"][1]
+        self.assertEqual(pool["name"], "Pool mirror: check out the trusted receipt verifier")
+        self.assertIn(NOT_POOL[1:], pool["if"])
+        self.assertNotIn(NOT_POOL, pool["if"])
+        self.assertEqual(pool["env"]["SHA"], "${{ github.event.pull_request.base.sha }}")
+        self.assertEqual(pool["env"]["SPARSE"], checkout["with"]["sparse-checkout"])
+        self.assertEqual(pool["run"], step_named(job(doc, "resolve")["steps"], "Pool mirror: checkout the merge ref")["run"])
         verify = step_named(receipt["steps"], "Verify the local test receipt")
         self.assertIn("ci_receipt.py verify fast-gates", verify["run"])
         # The body reaches the verifier through the environment, never spliced into the script.
