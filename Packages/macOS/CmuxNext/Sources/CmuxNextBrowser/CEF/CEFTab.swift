@@ -762,12 +762,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func setFocused(_ focused: Bool) {
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
+        runtime.focusTrace.note(browserID, "tab.setFocused(\(focused)) shown=\(shown) has_area=\(pageWindowHostHasArea) appeared_this_turn=\(appearedThisTurn)",
+                                view: container)
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)
         if !focused { keyedPageWindow = nil }
         guard !focused || canTake, let browserID else { return }
-        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
+        if focused { grantFocus(browserID) } else { runtime.setPageFocus(browserID, false, by: "tab.setFocused(false)", view: container) }
     }
 
     /// Whether the page is on screen and may take focus: the pane shows it, the content lifecycle

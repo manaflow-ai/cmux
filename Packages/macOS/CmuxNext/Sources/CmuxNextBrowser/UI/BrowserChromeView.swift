@@ -227,7 +227,7 @@ public final class BrowserChromeView: NSView {
     }
 
     func returnFocusToPage() {
-        if let onReturnFocusToPage { onReturnFocusToPage() } else { tab.setFocused(true) }
+        if let onReturnFocusToPage { onReturnFocusToPage() } else { BrowserFocusCaller.with("chrome returns focus") { tab.setFocused(true) } }
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {

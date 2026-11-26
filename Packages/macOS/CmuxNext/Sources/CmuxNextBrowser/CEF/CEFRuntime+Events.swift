@@ -163,7 +163,14 @@ extension CEFRuntime {
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
             break
+        case .gotFocus(let browser):
+            focusTrace.note(browser, "on_got_focus", view: tabsByBrowser[browser]?.container)
         default:
+            switch event { // `debug.cef` `focus_log`: what can move a page's focus
+            case .loadStart(let browser, _, _): focusTrace.note(browser, "main_frame_commit", view: tabsByBrowser[browser]?.container)
+            case .takeFocus(let browser, let forward): focusTrace.note(browser, "on_take_focus next=\(forward)", view: tabsByBrowser[browser]?.container)
+            default: break
+            }
             // A page that becomes (or stops being) an agent chat, a spare page taken for one included.
             if case .address(let browser, let url) = event { drawOnInput.addressChanged(browser: browser, url: URL(string: url)) }
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
@@ -517,7 +524,7 @@ extension CEFShimEvent {
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
+             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _), .gotFocus(let b),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _), .authPrompt(let b, _, _, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _), .jsDialog(let b, _, _, _, _), .jsDialogDismissed(let b),

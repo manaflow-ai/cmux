@@ -311,6 +311,8 @@ public final class CEFEngine: BrowserEngine {
     /// (`CEFRuntime+FileDialogs`): the App's made-ahead panel.
     /// Page file choosers that reached the app (`debug.cef` `file_dialogs`).
     public var fileDialogReport: [String: String] { CEFRuntime.shared.fileDialogTrace.reportFields }
+    /// Every change to a page's focus, newest last (`debug.cef` `focus_log`; `CEFFocusTrace`).
+    public var focusLog: [String] { CEFRuntime.shared.focusTrace.lines }
 
     public var fileInput: (any WebFileInputAnswering)? {
         get { CEFRuntime.shared.fileInput }

@@ -33,8 +33,14 @@ extension CEFRuntime {
     /// Chromium asks to focus a page. Unknown browsers (a popup not adopted
     /// yet) are refused: only a tab cmux shows can be given focus.
     func focusRequested(browser: Int32, source: Int32) -> Bool {
-        guard let tab = tabsByBrowser[browser] else { return false }
-        return tab.chromiumRequestsFocus(CEFFocusSource(rawValue: source) ?? .system)
+        let named = (CEFFocusSource(rawValue: source) ?? .system).name
+        guard let tab = tabsByBrowser[browser] else {
+            focusTrace.note(browser, "on_set_focus source=\(named) -> refused (no tab)")
+            return false
+        }
+        let allowed = tab.chromiumRequestsFocus(CEFFocusSource(rawValue: source) ?? .system)
+        focusTrace.note(browser, "on_set_focus source=\(named) -> \(allowed ? "allowed" : "refused")", view: tab.container)
+        return allowed
     }
 }
 
@@ -116,7 +122,7 @@ extension CEFTab {
         // Off-screen pages (approach 5 prototype): the page view becomes the cmux window's first responder inside
         // cmux's grant, and Chromium focuses the page; no window is made key.
         if host.hostView.offscreen.page(of: browser) != nil {
-            host.hostView.offscreen.grantFocus(browser: browser) { runtime.shim?.setFocus(browser, 1) }
+            host.hostView.offscreen.grantFocus(browser: browser) { runtime.setPageFocus(browser, true, by: "grant(offscreen)", view: container) }
             return
         }
         // In-tree pages: the cmux window stays key; the page view becomes its first responder inside cmux's grant,
@@ -129,10 +135,10 @@ extension CEFTab {
             }
             // The fork never makes the page's headless window key (fork API 36, cef#48 one window): SetFocus makes the
             // page view the first responder of this window, which keeps the keys.
-            host.hostView.inTree.grantFocus { runtime.shim?.setFocus(browser, 1) }
+            host.hostView.inTree.grantFocus { runtime.setPageFocus(browser, true, by: "grant(in tree)", view: container) }
             return
         }
-        runtime.shim?.setFocus(browser, 1)
+        runtime.setPageFocus(browser, true, by: "grant(page window)", view: container)
         defer { keyedPageWindow = pageWindow.flatMap { keyWindows.keyWindow() === $0 ? $0 : nil } }
         // From the cmux window, or from another page window of it: Cmd-N typed in a page left that page's window key, and
         // the new page's held keys went to it, a page the switch hid (Lawrence 2026-11-19, "i did cmd n and started typing
@@ -161,6 +167,7 @@ extension CEFTab {
 
     /// `cmux app clicks`: the grant's outcome, on the newest press in the page's cmux window.
     private func traceGrant(_ outcome: String) {
+        runtime.focusTrace.note(browserID, "grant \(outcome)", view: container)
         guard let window = pageWindow?.parent ?? container.window else { return }
         WindowOverlayHost.existingHost(for: window)?.clickTrace.pageGrant(tab: "\(id)", outcome: outcome)
     }

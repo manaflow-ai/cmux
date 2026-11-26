@@ -210,6 +210,9 @@ typedef enum {
   // Chromium ended the browser's waiting JS_DIALOG questions itself (the
   // renderer ended, the page navigated or closed). Not sent after an answer.
   CMUX_SHIM_JS_DIALOG_DISMISSED = 54,
+  // Chromium gave the page focus (CefFocusHandler::OnGotFocus): diagnostics
+  // only, for debug.cef focus_log.
+  CMUX_SHIM_GOT_FOCUS = 55,
 } cmux_shim_event_kind_t;
 
 typedef enum {

@@ -223,6 +223,11 @@ class Client : public CefClient,
     return h.focus_request(h.ctx, browser->GetIdentifier(), source) == 0;
   }
 
+  // Chromium gave the page focus: the host's focus log (diagnostics only).
+  void OnGotFocus(CefRefPtr<CefBrowser> browser) override {
+    Emit(CMUX_SHIM_GOT_FOCUS, browser->GetIdentifier());
+  }
+
   // Tab past the last element or Shift-Tab past the first: the host moves
   // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {

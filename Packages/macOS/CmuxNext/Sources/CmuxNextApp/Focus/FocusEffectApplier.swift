@@ -21,7 +21,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                                                 keepAsk: { ($0 as? CEFTab)?.keepFocusAsk() }, dropAsk: { ($0 as? CEFTab)?.dropFocusAsk() }) { [weak self] page, focused in
         // Counted with in-tree pages on (`debug.focus` in_tree_guards): no page window should exist then.
         InTreeRetiredGuards.shared.fired(.childPageFocus)
-        if let page = page as? any BrowserTab { self?.setPageFocus(page, focused) }
+        if let page = page as? any BrowserTab { self?.setPageFocus(page, focused, why: "focus applier: child window page") }
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
@@ -198,14 +198,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
-            if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
+            if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true, why: "focus applier: in view") }
         case .inTree:
             // In-tree pages (InTreePages): the page's view is in this window, which stays key. No page window, no key
             // change: the grant makes the page view this window's first responder through its gate.
             blurDevTools()
             if let previous = inTreePage, previous !== page { dropInTreeFocusAsk() }
             inTreePage = page
-            if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
+            if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true, why: "focus applier: in tree") } else { BrowserFocusCaller.note("focus applier: in tree page \(page.id.rawValue) is the first responder already: no grant") }
         case .childWindow:
             // The page the person left for a creation keeps no keys while it is on its way: this window takes them now (P0 INVERSE-KEY).
             if controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return blurChildWindowPage() }
@@ -218,7 +218,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
             // Its own window being key ends it, so the ask runs once.
             if pageFocus.page === page {
-                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true, why: "focus applier: another page window is key") }
                 return
             }
             // One key change (#24913): the old page blurs without this window taking the keys
@@ -308,10 +308,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                                         thisWindowIsActive: controller.services.windows.active === controller)
     }
 
-    private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
-        page.setFocused(focused)
-        InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
-                                                                      engine: page.presentation == .inView ? "webkit" : "chromium"))
+    private func setPageFocus(_ page: any BrowserTab, _ focused: Bool, why: String) {
+        BrowserFocusCaller.with(why) { page.setFocused(focused) }
+        InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused, engine: page.presentation == .inView ? "webkit" : "chromium"))
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {
