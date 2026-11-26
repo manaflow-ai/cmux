@@ -12,8 +12,46 @@ fn facts(place: Place) -> MachineFacts {
         ram_bytes: Some(8_200_000_000),
         disk_free_bytes: Some(41_000_000_000),
         disk_total_bytes: Some(64_000_000_000),
+        gpus: Some(Vec::new()),
         tools: vec!["git".into(), "node".into(), "cargo".into()],
     }
+}
+
+/// Leo's "running a big build in memory it doesn't have": a Cloud card says what its RAM means
+/// for a big build and that it has no GPU; a local card says neither.
+#[test]
+fn a_cloud_card_says_what_its_ram_means_for_a_big_build_and_names_its_gpu() {
+    let cloud = facts(Place::AutoCloud).line();
+    assert!(cloud.contains("no GPU"), "{cloud}");
+    assert!(cloud.contains("needing more than 8.2 GB RAM gets killed here"), "{cloud}");
+    assert!(cloud.contains("`cmux vm resize`") && cloud.contains("-j4"), "{cloud}");
+    assert!(cloud.contains("With no GPU"), "{cloud}");
+    let with_gpu = MachineFacts { gpus: Some(vec!["NVIDIA L4".into()]), ..facts(Place::Cloud) };
+    let line = with_gpu.line();
+    assert!(line.contains("GPU: NVIDIA L4") && !line.contains("With no GPU"), "{line}");
+    let local = facts(Place::Local).line();
+    assert!(!local.contains("gets killed"), "{local}");
+    let mac = MachineFacts { gpus: None, ..facts(Place::Local) }.line();
+    assert!(!mac.contains("GPU"), "{mac}");
+}
+
+/// GPUs are read from the NVIDIA driver's directory, then `/dev`.
+#[test]
+fn gpus_are_read_from_the_driver_then_dev() {
+    let root = tempfile::tempdir().unwrap();
+    let nvidia = root.path().join("nvidia");
+    let dev = root.path().join("dev");
+    std::fs::create_dir_all(dev.join("dri")).unwrap();
+    assert!(gpus_in(&nvidia, &dev).is_empty());
+    std::fs::write(dev.join("dri/renderD128"), "").unwrap();
+    assert_eq!(gpus_in(&nvidia, &dev), vec!["GPU (render node)"]);
+    std::fs::write(dev.join("nvidia0"), "").unwrap();
+    std::fs::write(dev.join("nvidiactl"), "").unwrap();
+    assert_eq!(gpus_in(&nvidia, &dev), vec!["NVIDIA GPU"]);
+    std::fs::create_dir_all(nvidia.join("0000:00:04.0")).unwrap();
+    std::fs::write(nvidia.join("0000:00:04.0/information"), "Model: \t NVIDIA L4\nIRQ: 1\n")
+        .unwrap();
+    assert_eq!(gpus_in(&nvidia, &dev), vec!["NVIDIA L4"]);
 }
 
 fn servers(names: &[&str]) -> Vec<String> {

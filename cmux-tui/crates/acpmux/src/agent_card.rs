@@ -64,6 +64,9 @@ pub struct MachineFacts {
     pub ram_bytes: Option<u64>,
     pub disk_free_bytes: Option<u64>,
     pub disk_total_bytes: Option<u64>,
+    /// The GPUs found (`/proc/driver/nvidia/gpus`, `/dev/nvidia*`, `/dev/dri/renderD*`); empty
+    /// when there is none. Only read on Linux: elsewhere `None`, and the line says nothing.
+    pub gpus: Option<Vec<String>>,
     /// The tools of [`TOOLS`] found on `PATH`, in that order.
     pub tools: Vec<String>,
 }
@@ -84,6 +87,7 @@ impl MachineFacts {
             ram_bytes: ram_bytes(),
             disk_free_bytes: free,
             disk_total_bytes: total,
+            gpus: gpus(),
             tools: tools_on_path(std::env::var_os("PATH").as_deref()),
         }
     }
@@ -101,12 +105,98 @@ impl MachineFacts {
             (Some(free), None) => parts.push(format!("{} disk free", gb(free))),
             _ => {}
         }
+        match self.gpus.as_deref() {
+            Some([]) => parts.push("no GPU".to_owned()),
+            Some(gpus) => parts.push(format!("GPU: {}", gpus.join(", "))),
+            None => {}
+        }
         let mut line = format!("This machine now: {}.", parts.join(", "));
         if !self.tools.is_empty() {
             line.push_str(&format!(" Tools on PATH: {}.", self.tools.join(", ")));
         }
+        if let Some(limits) = self.limits() {
+            line.push(' ');
+            line.push_str(&limits);
+        }
         line
     }
+
+    /// What the numbers mean for a heavy job on a Cloud machine: a build needing more RAM than
+    /// it has gets killed, so size the job or the machine first.
+    fn limits(&self) -> Option<String> {
+        if self.place == Place::Local {
+            return None;
+        }
+        let ram = self.ram_bytes?;
+        let mut text = format!(
+            "A build or test run needing more than {} RAM gets killed here: before a big one, resize this machine (`cmux vm resize`) or cap its jobs (e.g. `cargo build -j{}`, `make -j{}`).",
+            gb(ram),
+            self.vcpus,
+            self.vcpus
+        );
+        if self.gpus.as_deref().is_some_and(<[String]>::is_empty) {
+            text.push_str(
+                " With no GPU, GPU work (CUDA, model training) runs on the CPU or not at all.",
+            );
+        }
+        Some(text)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn gpus() -> Option<Vec<String>> {
+    Some(gpus_in(Path::new("/proc/driver/nvidia/gpus"), Path::new("/dev")))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn gpus() -> Option<Vec<String>> {
+    None
+}
+
+/// The GPUs under `nvidia` (one dir per GPU, its `information` file naming the model) and
+/// `dev` (`nvidia0`…, else `renderD128`… for any other driver).
+fn gpus_in(nvidia: &Path, dev: &Path) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(nvidia)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|gpu| {
+            std::fs::read_to_string(gpu.path().join("information"))
+                .ok()
+                .and_then(|info| {
+                    info.lines().find_map(|l| l.strip_prefix("Model:")).map(|m| m.trim().to_owned())
+                })
+                .unwrap_or_else(|| "NVIDIA GPU".to_owned())
+        })
+        .collect();
+    if !found.is_empty() {
+        found.sort();
+        return found;
+    }
+    let names: Vec<String> = std::fs::read_dir(dev)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    let nvidia_devs = names
+        .iter()
+        .filter(|n| {
+            n.strip_prefix("nvidia")
+                .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .count();
+    if nvidia_devs > 0 {
+        return vec!["NVIDIA GPU".to_owned(); nvidia_devs];
+    }
+    let dri = dev.join("dri");
+    let render = std::fs::read_dir(dri)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+        .count();
+    vec!["GPU (render node)".to_owned(); render]
 }
 
 fn gb(bytes: u64) -> String {
