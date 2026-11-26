@@ -37,8 +37,11 @@ jobs:
   gaps:
     name: Find unfilled locales
     if: ${{ (vars.LOCALIZATION_FILL || 'on') != '0' && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 20
+    env:
+      # The wait gives up after 10 minutes; the next run fills what this one could not.
+      GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
       pull-requests: read
@@ -61,6 +64,19 @@ jobs:
       - name: Pin the head
         id: head
         run: echo "head=$(git -C main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this hourly pass sends
       # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
       - name: Read the GITHUB_TOKEN floor
@@ -135,7 +151,10 @@ jobs:
     name: Open the fill
     needs: [gaps, translate]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      # The wait gives up after 10 minutes; the next run fills what this one could not.
+      GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
     steps:
@@ -178,6 +197,19 @@ jobs:
           python3 -I trusted/scripts/localization_fill.py apply --repo-dir fresh --packet "$RUNNER_TEMP/packet/packet.json" \
             --answer "$RUNNER_TEMP/answer/answer.json" | tee -a "$GITHUB_OUTPUT"
           python3 -I trusted/scripts/localization_catalog.py check --root fresh
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       - name: Mint the pull request token
         id: app-token
         if: ${{ steps.apply.outputs.applied != '0' }}
