@@ -372,6 +372,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// timeline (navigation start, DOMContentLoaded, first contentful paint) is all in. ``onReadyForKeys`` is not that
     /// moment for a page made with no URL: it fires on the empty document at attach, before the page loads its own.
     @ObservationIgnored public var onRealDocumentLoaded: (@MainActor () -> Void)?
+    /// Takes this tab's launch marks (``CEFLaunchMarks``); the App points it at its launch-mark log.
+    @ObservationIgnored public var onLaunchMark: (@MainActor (String) -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
@@ -379,7 +381,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The current document presented its first frame, with or without content (Chromium's `firstPaint` or
     /// `firstContentfulPaint`, `CEFFirstPaintBridge`, or the page's own answer). Chromium drops input to a new document
     /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
-    @ObservationIgnored var documentPainted = false
+    /// The first such frame of a page a person sees is the launch mark `browser_pane.first_paint` (``CEFLaunchMarks``).
+    @ObservationIgnored var documentPainted = false {
+        didSet { if documentPainted, !oldValue { reportLaunchMark(CEFLaunchMarks.firstPaint) } }
+    }
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
     /// The current document is Chromium's error page for a failed load.
@@ -523,6 +528,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         hasDocument = true
         runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
+        reportLaunchMark(CEFLaunchMarks.inputReady)
         onReadyForKeys?()
     }
 
