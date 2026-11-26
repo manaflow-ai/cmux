@@ -262,7 +262,7 @@ jobs:
       # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
       # skipped workflows, the map, the router). A pull request that touches none skips the graph, its checkout
       # and the check (240 of the last 397 feat-cmux-next merges, 2026-11-24; about 50 s of this job's 63 s p50 went
-      # to them): every routed job reads `false`, and the feat-cmux-next push still runs them all. A push, a dispatch, the full-ci label or no base: needed.
+      # to them): every routed job reads `false`, and the feat-cmux-next push still runs them all. A push, a dispatch or no base: needed (full-ci follows the graph).
       - name: Does the change need the crate graph?
         id: gate
         env:
@@ -274,7 +274,7 @@ jobs:
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py gate --workflow .github/workflows/cmux-tui-spec.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --full-ci-follows-graph
 
       # The dirs the graph reads blobs under (the crate graph's manifests and sources, the map, the scripts).
       # `git sparse-checkout set` fetched their blobs in one batched request, about 32 s (2026-11-24), and stalled
@@ -315,7 +315,10 @@ jobs:
       # The heavy test jobs route by the crate graph, not by the paths above: each runs when the change
       # touches an input of a crate it tests (scripts/ci/affected-jobs.json; the crate, its path
       # dependencies and the files their sources name). A push, a dispatch, the full-ci label, a change to
-      # the router and a path it cannot place run every job. A failed router runs them all on a push (the jobs
+      # the router and a path it cannot place run every job. The full-ci label runs every job the change can
+      # affect (the pull request skips lifted), not the ones whose inputs match the base (--full-ci-follows-graph:
+      # 2026-11-26, about 33,000 of this workflow's 96,000 runner-minutes a day were full-ci heads that touched none
+      # of a heavy job's inputs). Unreadable labels or changes still run every job. A failed router runs them all on a push (the jobs
       # read `!= 'false'`) and none on a pull request, whose red router check is re-run instead (cmux#58001).
       - name: Which test jobs can the change affect (crate graph)
         id: graph
@@ -329,7 +332,7 @@ jobs:
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-spec.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --full-ci-follows-graph
 
       # acpmux tests run on a pull request only when the change touches acpmux's own crates or the job's own
       # inputs, not when it reaches them through a path dependency (CI 10x, 2026-11-21: 2.87% of pull request
@@ -479,7 +482,13 @@ jobs:
     # A pull request that changes acpmux runs it: while pull requests skipped it (pull_request_skip Tier A),
     # base went red on a stale IR four times on 2026-11-26 (#55935's taskList, transfer_end_stale at
     # a8aa49b3, rooms and transcript_offload), each a protocol change whose own run would have failed.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-protocol-ir') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
+    # Not on a pull request whose run also starts acpmux-tests (the conjunct after the land tier's): that job's
+    # `cargo test -p acpmux --lib` builds the same lib test target and runs every protocol:: test with the rest
+    # (none is in scripts/ci/acpmux-tests-pr-deferred.txt), so this job only built and ran them a second time. In
+    # 2026-11-26 13:30-14:45Z it started beside acpmux-tests on most pull request runs, about 10 min each, about
+    # 10.5k runner-min a day (Leo: "Okay, surely we don't need to do that many Linux builds, do we?"). The
+    # conjunct is acpmux-tests' own `if` for a pull request with a router that succeeded; any other run keeps this job.
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-protocol-ir') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') && !(github.event_name == 'pull_request' && inputs.only == '' && needs.changes.result == 'success' && needs.changes.outputs.acpmux_tests != 'false' && (needs.changes.outputs.acpmux_own != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || vars.ACPMUX_TESTS_ON_PULL_REQUESTS == 'on')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
@@ -1139,6 +1148,34 @@ jobs:
             exit 0
           fi
           exit "$rc"
+
+  # The browser client is a wasm32 crate but keeps native compilation for its protocol tests.
+  # Keep this check on the Linux path so a cmux-tui change cannot land with a wasm-only compile
+  # failure hidden behind the native package checks.
+  remote-web-wasm:
+    name: cmux remote web wasm
+    needs: changes
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
+
+      - name: Install the wasm compiler dependencies
+        run: bash scripts/ci/apt-ensure.sh clang
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build cmux-remote-web for wasm32
+        working-directory: cmux-tui
+        run: cargo build --locked --target wasm32-unknown-unknown -p cmux-remote-web
 
   # PR CI never runs cmux-tui.yml (dispatch only), whose workspace clippy is the only
   # `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only run tests.
