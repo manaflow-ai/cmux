@@ -10,6 +10,7 @@
 //! a name this registry lacks (`protocol/tests.rs`).
 
 pub mod auth;
+pub mod composer_status;
 pub mod events;
 pub mod here;
 pub mod inventory;
@@ -240,6 +241,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<sync::SyncPushParams, sync::SyncPushDone>(method::MUX_SYNC_PUSH),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
+        request::<events::PinParams, session::SessionSummary>(method::MUX_PIN),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
@@ -334,8 +336,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
         untyped(method::MUX_SURGERY, Request),
-        untyped(method::MUX_TASK_LIST_SET, Request),
-        untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
         untyped(method::MUX_PLAN_KEEP, Request),
@@ -348,6 +348,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_MOVE, Request),
         untyped(method::MUX_CHAT_MOVE, Request),
         untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
         untyped(method::MUX_AUTO_SESSION_WAKE, Request),
@@ -372,6 +373,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
+        untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
@@ -385,6 +387,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_INBOX, Request),
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
+        untyped(method::MUX_TEAM_LISTEN, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
@@ -571,12 +574,17 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONNECTIONS_SPREAD_SET, Request),
         untyped(method::MUX_CONNECTIONS_REMOVE, Request),
         untyped(method::MUX_CONNECTIONS_KEY_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_KEY_CHECK, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_BEGIN, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_WAIT, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_CANCEL, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_TOKEN, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_IMPORT, Request),
         untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL, Request),
         untyped(method::MUX_CONNECTIONS_CREDENTIAL, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
@@ -594,6 +602,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped("_acpmux/place_set", Request),
+        untyped("_acpmux/place_undo", Request),
+        untyped("_acpmux/place_get", Request),
         untyped("_acpmux/chat_place", Request),
         untyped("_acpmux/chat_place_set", Request),
         untyped(method::MUX_PLACE_CHAT, Request),

@@ -63,6 +63,7 @@ pub mod background;
 mod chat;
 pub mod chief_machine;
 pub mod chief_resize;
+pub mod chief_turn;
 mod fork_runs;
 mod http;
 mod machine;
@@ -145,7 +146,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
-        "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_start" => chief_machine::perform(request, &http, &tail).await,
         "machine.chief_resize" => chief_resize::perform(request, &http).await,
         "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
         "machine.fork" => machine_fork::fork_machine(request, args).await,

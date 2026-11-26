@@ -57,6 +57,8 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
             *title = summary_title(title);
         }
     }
+    // A census row's composer status: the whole one rides only with tools.
+    census_composer_status(&mut summary);
     summary
 }
 
@@ -244,7 +246,7 @@ impl Hub {
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
-/// a pasted secret. So are the running turn's `activity` and `planStep`
+/// a pasted secret. So is the running turn's `activity`
 /// (`hub/activity.rs`): a tool call's title is often a command with its
 /// arguments. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
@@ -387,6 +389,43 @@ pub fn decide(summary: &mut Value) {
     summary.set("indicator", indicator);
     let lane = lane(summary);
     summary.set("lane", lane);
+}
+
+/// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
+/// fixed set of key reads and at most a handful of items and nine facts, whatever the row holds.
+/// `whole` for a read with tools; else the census form (`composer_status::census`), and no
+/// member at all when it has nothing worth a census row.
+pub(crate) fn set_composer_status(summary: &mut Value, whole: bool) {
+    use crate::protocol::composer_status::{SessionFacts, census, composer_status};
+    if !summary.is_object() {
+        return;
+    }
+    let status = composer_status(&SessionFacts::from_summary(summary));
+    let status = if whole { Some(status) } else { census(status) };
+    put_composer_status(summary, status);
+}
+
+/// A census row's `composerStatus` (`composer_status::census`) from the whole one it carries.
+fn census_composer_status(row: &mut Value) {
+    use crate::protocol::composer_status::{ComposerStatus, census};
+    let Some(value) = row.get("composerStatus").filter(|v| !v.is_null()) else { return };
+    let status = <ComposerStatus as serde::Deserialize>::deserialize(value).ok().and_then(census);
+    put_composer_status(row, status);
+}
+
+fn put_composer_status(
+    summary: &mut Value,
+    status: Option<crate::protocol::composer_status::ComposerStatus>,
+) {
+    let Some(row) = summary.as_object_mut() else { return };
+    match status.and_then(|status| serde_json::to_value(status).ok()) {
+        Some(value) => {
+            row.insert("composerStatus".to_owned(), value);
+        }
+        None => {
+            row.remove("composerStatus");
+        }
+    }
 }
 
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
@@ -820,12 +859,11 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
-            // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
-            task_list: super::task_list::current_task_list(&m),
             approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
@@ -872,7 +910,6 @@ impl Hub {
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
                 activity: t.doing.activity,
-                plan_step: t.doing.plan_step,
             }),
             queue: session
                 .queue()
@@ -909,6 +946,10 @@ impl Hub {
                         .provenance
                         .clone()
                         .filter(|p| super::inbox::is_notice(Some(p))),
+                    origin: Some(super::queue_origin::of(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    )),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,
@@ -990,6 +1031,8 @@ impl Hub {
                     .unwrap_or_else(|e| e.into_inner())
                     .row_snapshot(crate::store::now_ms()),
             },
+            // Set from the row's own fields below (`set_composer_status`).
+            composer_status: None,
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -1084,6 +1127,7 @@ impl Hub {
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
+        set_composer_status(&mut summary, with_tools);
         summary
     }
 
@@ -1255,6 +1299,8 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // Its counters and gauges (`outbox_stats.rs`): `acpmux ls` ends with them.
+            "outboxStats": self.outbox.stats(),
             // The lock bridge (`hub/lock_bridge.rs`): this Mac's screen lock, whether
             // `sessions.keepAwakeWhenLocked` is on, and whether it holds idle sleep off now.
             "lockBridge": super::lock_bridge::state(),
@@ -1534,3 +1580,7 @@ mod time_breakdown_tests {
 #[cfg(test)]
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
+
+#[cfg(test)]
+#[path = "composer_status_cost_tests.rs"]
+mod composer_status_cost_tests;

@@ -73,6 +73,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "team_listen",
             "search",
             "github_status",
             "bg_start",
@@ -103,7 +104,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "cancel",
             "machine_read",
             "machine_edit",
-            "machine_exec"
+            "machine_exec",
+            "machine_request"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1202,6 +1204,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
         "from": {"teamAddress": "@member/coordinator"}, "state": "delivered",
         "startWork": "information"}]});
     let acknowledged = json!({"messageId": "msg_example", "state": "acked"});
+    let listening = json!({"messages": [], "next": 3});
     let cases = vec![
         (
             "team_send",
@@ -1224,6 +1227,13 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
             "_acpmux/team/ack",
             json!({"id": "msg_example"}),
             acknowledged,
+        ),
+        (
+            "team_listen",
+            json!({"op": "read", "to": "@member/agent", "before": 9, "body": "dropped"}),
+            "_acpmux/team/listen",
+            json!({"op": "read", "to": "@member/agent", "before": 9}),
+            listening,
         ),
     ];
     let expected = cases

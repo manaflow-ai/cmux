@@ -39,6 +39,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::New(..)
             | Command::Send { .. }
             | Command::Inbox(..)
+            | Command::Listen { .. }
             | Command::Deliver { .. }
             | Command::Chats(..)
             | Command::Board
@@ -1193,28 +1194,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     println!("team inbox is empty");
                 } else {
                     for message in messages.into_iter().flatten() {
-                        let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
-                        let from = message
-                            .pointer("/from/teamAddress")
-                            .and_then(Value::as_str)
-                            .or_else(|| message.pointer("/from/user").and_then(Value::as_str))
-                            .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
-                            .unwrap_or("teammate");
-                        let to = message
-                            .pointer("/to/teamAddress")
-                            .and_then(Value::as_str)
-                            .unwrap_or("?");
-                        let state =
-                            message.get("state").and_then(Value::as_str).unwrap_or("queued");
-                        let subject = message
-                            .get("subject")
-                            .and_then(Value::as_str)
-                            .or_else(|| message.get("body").and_then(Value::as_str))
-                            .unwrap_or("");
-                        println!(
-                            "{id}\t{from}\t{to}\t{state}\t{}",
-                            subject.lines().next().unwrap_or("")
-                        );
+                        print_team_message(message);
                     }
                 }
                 if let Some(next) = value.get("next").and_then(Value::as_u64) {
@@ -1229,6 +1209,57 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 );
             } else {
                 println!("ok");
+            }
+            Ok(())
+        }
+        Command::Listen { command } => {
+            use crate::cli::command::ListenCmd;
+            let client = connect(true).await?;
+            let params = match &command {
+                ListenCmd::Open { address, ttl } => {
+                    json!({"op": "open", "to": address, "ttlSeconds": ttl})
+                }
+                ListenCmd::Ls => json!({"op": "ls"}),
+                ListenCmd::Close { id } => json!({"op": "close", "id": id}),
+                ListenCmd::Read { address, before } => {
+                    json!({"op": "read", "to": address, "before": before})
+                }
+            };
+            let value = client.request(method::MUX_TEAM_LISTEN, params).await?;
+            if json_out {
+                print_json(&value);
+                return Ok(());
+            }
+            match command {
+                ListenCmd::Open { .. } => print_listen(&value),
+                ListenCmd::Ls | ListenCmd::Close { .. } => {
+                    let all = ["listening", "listeners"]
+                        .into_iter()
+                        .filter_map(|key| value.get(key).and_then(Value::as_array))
+                        .flatten()
+                        .collect::<Vec<_>>();
+                    if all.is_empty() {
+                        println!("no open listens");
+                    }
+                    for listen in all {
+                        print_listen(listen);
+                    }
+                }
+                ListenCmd::Read { address, .. } => {
+                    let messages = value.get("messages").and_then(Value::as_array);
+                    if messages.is_none_or(Vec::is_empty) {
+                        println!("no messages for {address}");
+                    }
+                    for message in messages.into_iter().flatten() {
+                        print_team_message(message);
+                    }
+                    if let Some(next) = value.get("next").and_then(Value::as_u64) {
+                        println!(
+                            "More: {} listen read {address} --before {next}",
+                            crate::cli::entry::program()
+                        );
+                    }
+                }
             }
             Ok(())
         }
@@ -1355,6 +1386,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map(|why| format!("  (respawn pending: {why})"))
                 .unwrap_or_default();
             println!("status:    {}{respawn}", g("status"));
+            // Its CPU class now and the time it spent demoted (`hub/cpu_pressure.rs`).
+            if let Some(line) = cpu_class_line(&v) {
+                println!("cpu:       {line}");
+            }
             if let Some(line) = crate::hub::views::other_build_host_line(&v) {
                 println!("{line}");
             }
@@ -1876,6 +1911,35 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
     Some(fields)
 }
 
+/// One team message as `acpmux inbox` lists it: id, from, to, state and its first line.
+fn print_team_message(message: &Value) {
+    let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
+    let from = message
+        .pointer("/from/teamAddress")
+        .and_then(Value::as_str)
+        .or_else(|| message.pointer("/from/user").and_then(Value::as_str))
+        .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
+        .unwrap_or("teammate");
+    let to = message.pointer("/to/teamAddress").and_then(Value::as_str).unwrap_or("?");
+    let state = message.get("state").and_then(Value::as_str).unwrap_or("queued");
+    let subject = message
+        .get("subject")
+        .and_then(Value::as_str)
+        .or_else(|| message.get("body").and_then(Value::as_str))
+        .unwrap_or("");
+    println!("{id}\t{from}\t{to}\t{state}\t{}", subject.lines().next().unwrap_or(""));
+}
+
+/// One listen as `acpmux listen ls` lists it: id, address, listener and how long it stays open.
+fn print_listen(listen: &Value) {
+    let field = |key: &str| listen.get(key).and_then(Value::as_str).unwrap_or("?");
+    let expires = listen
+        .get("expiresAt")
+        .and_then(Value::as_u64)
+        .map_or_else(|| "?".to_owned(), |at| crate::cli::ls_table::ago(at, crate::store::now_ms()));
+    println!("{}\t{}\t{}\t{expires}", field("id"), field("teamAddress"), field("listener"));
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -2029,4 +2093,26 @@ mod tests {
         assert!(!new_requires_tty(true, true, false, false, false));
         assert!(new_requires_tty(false, true, false, false, true));
     }
+}
+
+/// `session info`'s CPU line from its `cpuClass`: the class asked for, the one it runs at now,
+/// and the time it spent demoted. None when the chat has no live harness.
+pub(crate) fn cpu_class_line(v: &Value) -> Option<String> {
+    let c = v.get("cpuClass").filter(|c| c.is_object())?;
+    let ms = c.get("demotedMs").and_then(Value::as_u64).unwrap_or(0);
+    let spells = c.get("demotions").and_then(Value::as_u64).unwrap_or(0);
+    let mut line = format!(
+        "{}, now {} (demoted {:.0} s in {spells} spell{})",
+        c.get("class").and_then(Value::as_str).unwrap_or("-"),
+        c.get("now").and_then(Value::as_str).unwrap_or("-"),
+        ms as f64 / 1000.0,
+        if spells == 1 { "" } else { "s" },
+    );
+    if c.get("waitedOn").and_then(Value::as_bool) == Some(true) {
+        line.push_str("; the person waits on its turn");
+    }
+    if c.pointer("/host/yielding").and_then(Value::as_bool) == Some(true) {
+        line.push_str("; the host is contended");
+    }
+    Some(line)
 }

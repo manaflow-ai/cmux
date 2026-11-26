@@ -5,6 +5,13 @@
 //! card in place (Connect GitHub runs the app's own `accounts.githubConnect`, the same flow as
 //! Settings and the failed-call card) and is never sent into Settings to hunt for it.
 //!
+//! Any other setting comes back as its link (Leo, ask-073fa3e7ff: "agents need to be able to easily
+//! open these up say maybe in either your current focused pane or a nearby one right next to your
+//! tab. just give me the link for now"): `setting:terminal/fontSize` (or `cmux://settings/...`)
+//! returns `cmux://settings/terminal/fontSize`, which the agent writes in its answer; the chat draws
+//! it as a link and a click opens that exact setting in the window's Settings tab (DeepLink
+//! `settingsRoute`, whose shapes are its own).
+//!
 //! As `wrap_up` does, the tool only checks its input and says so: the call reaches the transcript
 //! with its typed input, and the cmux NEXT agent pane draws the card from it (webviews
 //! `conversation/settingsAsk.ts`). Nothing is sent and no daemon request is made, so it works the
@@ -18,21 +25,25 @@ pub(super) const NAME: &str = "settings_ask";
 pub(super) const STEER: &str = "When you need the person to connect GitHub (for a repository or an \
 org), call settings_ask with target connection:github, connection:github:ORG or \
 connection:github:OWNER/REPO: the chat shows a Connect card in place. Do not tell them to open \
-Settings.";
+Settings. For any other setting, call settings_ask with target setting:SECTION/KEY (for example \
+setting:terminal/fontSize) and put the cmux://settings link it returns in your answer: a click opens \
+that exact setting.";
 /// The longest `why` the card draws.
 const MAX_WHY: usize = 160;
 
 /// The targets the card draws, as the tool's description names them.
 const TARGETS: &str = "connection:github, connection:github:ORG or connection:github:OWNER/REPO";
+/// The other targets, which come back as a link.
+const LINKS: &str = "setting:SECTION or setting:SECTION/KEY (for example setting:terminal/fontSize), or a cmux://settings/... link";
 
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": format!("Ask the person for one connection: the chat shows a small card under your answer with that one control, working in place (no Settings hunt). Targets: {TARGETS}. Then end your turn; the person's click connects, and they come back to this chat."),
+        "description": format!("Ask the person for one connection: the chat shows a small card under your answer with that one control, working in place (no Settings hunt). Targets: {TARGETS}. Then end your turn; the person's click connects, and they come back to this chat. For any other setting, target {LINKS}: you get back its link to write in your answer, and a click opens that exact setting."),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "description": format!("What to ask for: {TARGETS}. \"github\" and \"github:ORG\" work too.")},
+                "target": {"type": "string", "description": format!("What to ask for: {TARGETS}, or {LINKS}. \"github\" and \"github:ORG\" work too.")},
                 "why": {"type": "string", "description": format!("One short line on why you need it, at most {MAX_WHY} characters.")}
             },
             "required": ["target"]
@@ -75,12 +86,21 @@ pub(super) fn check(args: &Value) -> Result<Value, String> {
             args.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty())
         })
     };
-    let target = field("target").ok_or(format!("target is required: {TARGETS}"))?;
+    let target = field("target").ok_or(format!("target is required: {TARGETS}, or {LINKS}"))?;
+    if let Some(link) = setting_link(target) {
+        let mut shown = serde_json::Map::new();
+        shown.insert("kind".into(), json!("link"));
+        shown.insert("link".into(), json!(link?));
+        if let Some(why) = field("why") {
+            shown.insert("why".into(), json!(why.chars().take(MAX_WHY).collect::<String>()));
+        }
+        return Ok(Value::Object(shown));
+    }
     let rest = target.strip_prefix("connection:").unwrap_or(target);
     let (provider, scope) = rest.split_once(':').unwrap_or((rest, ""));
     if !provider.eq_ignore_ascii_case("github") {
         return Err(format!(
-            "{target} is not one the card draws yet; it draws {TARGETS}. For another setting, name its exact place in Settings in your answer."
+            "{target} is not one the card draws; it draws {TARGETS}. For another setting, target {LINKS}."
         ));
     }
     let scope = scope.trim().trim_start_matches("https://github.com/").trim_end_matches('/');
@@ -104,8 +124,53 @@ pub(super) fn check(args: &Value) -> Result<Value, String> {
     Ok(Value::Object(shown))
 }
 
+/// The `cmux://settings` link a `setting:` target (or a settings link) names, an error for a malformed
+/// one, or nil for a connection target. Segments are letters, digits and `-._~`, as the app's
+/// settings links pass them on (DeepLink `settingsPassThrough`).
+fn setting_link(target: &str) -> Option<Result<String, String>> {
+    let lower = target.to_ascii_lowercase();
+    let path =
+        if let Some(rest) = lower.strip_prefix("setting:").or(lower.strip_prefix("settings:")) {
+            &target[target.len() - rest.len()..]
+        } else {
+            let rest = ["cmux://settings", "cmux-nightly://settings", "cmux-dev://settings"]
+                .iter()
+                .find_map(|p| lower.strip_prefix(p))?;
+            if !(rest.is_empty() || rest.starts_with('/')) {
+                return None;
+            }
+            &target[target.len() - rest.len()..]
+        };
+    let segments: Vec<&str> =
+        path.trim().split(['/', '>']).map(str::trim).filter(|s| !s.is_empty()).collect();
+    let ok = segments.iter().all(|s| {
+        s.len() <= 80
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'))
+    });
+    if !ok || segments.len() > 6 {
+        return Some(Err(format!(
+            "{target} is not a settings place; target is {TARGETS}, or {LINKS}"
+        )));
+    }
+    Some(Ok(if segments.is_empty() {
+        "cmux://settings".into()
+    } else {
+        format!("cmux://settings/{}", segments.join("/"))
+    }))
+}
+
 pub(super) fn call(args: &Value) -> Value {
     match check(args) {
+        Ok(shown) if shown["kind"] == "link" => {
+            let link = shown["link"].as_str().unwrap_or_default().to_owned();
+            ok(
+                format!(
+                    "Write this link in your answer: {link}. The chat draws it as a link, and the person's click opens that exact setting in Settings."
+                ),
+                shown,
+            )
+        }
         Ok(shown) => {
             let whom = shown["repo"]
                 .as_str()
@@ -148,13 +213,38 @@ mod tests {
     fn other_targets_and_bad_names_are_refused_with_the_way_on() {
         for bad in [
             json!({}),
-            json!({"target": "setting:app.theme"}),
+            json!({"target": "setting:app theme"}),
+            json!({"target": "ftp://settings/x"}),
             json!({"target": "connection:github:-bad-"}),
             json!({"target": "connection:github:a/.."}),
         ] {
             let e = check(&bad).unwrap_err();
             assert!(e.contains("connection:github"), "{bad}: {e}");
         }
+    }
+
+    #[test]
+    fn a_setting_comes_back_as_its_link() {
+        assert_eq!(
+            check(&json!({"target": "setting:terminal/terminal.fontSize", "why": "Bigger text"}))
+                .unwrap(),
+            json!({"kind": "link", "link": "cmux://settings/terminal/terminal.fontSize", "why": "Bigger text"})
+        );
+        assert_eq!(
+            check(&json!({"setting": "Settings: models > add"})).unwrap()["link"],
+            "cmux://settings/models/add"
+        );
+        assert_eq!(
+            check(&json!({"target": "cmux-nightly://settings/cloud/claude"})).unwrap()["link"],
+            "cmux://settings/cloud/claude"
+        );
+        assert_eq!(
+            check(&json!({"target": "cmux://settings"})).unwrap()["link"],
+            "cmux://settings"
+        );
+        let said = call(&json!({"target": "setting:accounts/machines"}));
+        assert_eq!(said["isError"], false);
+        assert!(said.to_string().contains("cmux://settings/accounts/machines"), "{said}");
     }
 
     #[test]
