@@ -371,6 +371,33 @@ class ProjectionTests(unittest.TestCase):
                                       "op": "start", "ms": 25001})
         self.assertNotIn("vm_cutoff", json.dumps(row))
 
+    def test_a_work_machine_line_keeps_its_size_policy_and_why(self):
+        # RFD agent-work-placement (cmux-platform#2099 start size, #2108 turn_end pause): worker-log-read.yml gets 403
+        # on production, so only this persisted read can count work VMs by size and pause policy before and after.
+        row = logs.line(event({"msg": "cloud.work_machine.started", "pause_policy": "turn_end", "team": TEAM,
+                               "machine": VM, "work": "vm_work1", "cpu": 8, "memory_mb": 16384, "ms": 2100}))
+        self.assertEqual(row["log"], {"msg": "cloud.work_machine.started", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "work": logs.base.tag("vm_work1"), "cpu": 8,
+                                      "memory_mb": 16384, "ms": 2100, "pause_policy": "turn_end"})
+        for why, kept in (("budget", "budget"), ("said hunter2 here", "other")):
+            with self.subTest(why=why):
+                row = logs.line(event({"msg": "cloud.work_machine.skipped", "team": TEAM, "why": why}))
+                self.assertEqual(row["log"]["why"], kept)
+        row = logs.line(event({"msg": "cloud.work_machine.started", "pause_policy": "made_up"}))
+        self.assertEqual(row["log"]["pause_policy"], "other")
+        for leak in (TEAM, VM, "vm_work1", "hunter2"):
+            self.assertNotIn(leak, json.dumps(row))
+
+    def test_a_window_counts_work_machines_with_no_id(self):
+        events = [event({"msg": "cloud.work_machine.started", "pause_policy": "turn_end", "team": TEAM,
+                         "machine": VM, "work": "vm_work1", "cpu": 8, "memory_mb": 16384})] * 2
+        head, rows = logs.window_totals(events, ["cloud.work_machine.started"])
+        self.assertEqual([r["log"] for r in rows], [{"msg": "cloud.work_machine.started", "cpu": 8,
+                                                     "memory_mb": 16384, "pause_policy": "turn_end"}])
+        self.assertEqual(rows[0]["n"], 2)
+        for leak in (TEAM, VM, "vm_work1", logs.base.tag("vm_work1")):
+            self.assertNotIn(leak, json.dumps(rows))
+
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)
         self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)
