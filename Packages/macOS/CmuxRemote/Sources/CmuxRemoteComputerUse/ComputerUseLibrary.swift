@@ -25,11 +25,14 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
                                         UnsafeMutablePointer<CmuxCuBuffer>?) -> UnsafeMutableRawPointer?
     /// `void cmux_cu_serve_stop(void *handle)`: stops serving and frees the handle.
     typealias ServeStopFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
-    /// `cmux_cu_engine_preview_frame(engine, window, len, jpeg, len)` and
-    /// `cmux_cu_engine_preview_closed(engine, window, len)`: the live preview's frames back to the
-    /// engine. Optional: an older library has neither, and then no preview streams start.
-    typealias PreviewFrameFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Void
+    /// Legacy v1 callbacks, retained for older hosts and libraries.
+    typealias PreviewFrameFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int,
+                                                UnsafePointer<UInt8>?, Int) -> Void
     typealias PreviewClosedFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> Void
+    /// Generation-fenced callbacks used by the current preview stream owner.
+    typealias PreviewFrameForGenerationFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UInt64,
+                                                            UnsafePointer<UInt8>?, Int) -> Void
+    typealias PreviewClosedForGenerationFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UInt64) -> Void
 
     enum LoadError: Error, CustomStringConvertible, Equatable {
         case open(String)
@@ -56,6 +59,8 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     let serveStop: ServeStopFn
     let previewFrame: PreviewFrameFn?
     let previewClosed: PreviewClosedFn?
+    let previewFrameForGeneration: PreviewFrameForGenerationFn?
+    let previewClosedForGeneration: PreviewClosedForGenerationFn?
 
     /// The library in this bundle's Frameworks (a plain dylib, never a nested .framework).
     static func bundledPath(bundle: Bundle = .main) -> String {
@@ -83,6 +88,8 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
         serveStop = try symbol("cmux_cu_serve_stop", ServeStopFn.self)
         previewFrame = try? symbol("cmux_cu_engine_preview_frame", PreviewFrameFn.self)
         previewClosed = try? symbol("cmux_cu_engine_preview_closed", PreviewClosedFn.self)
+        previewFrameForGeneration = try? symbol("cmux_cu_engine_preview_frame_for_generation", PreviewFrameForGenerationFn.self)
+        previewClosedForGeneration = try? symbol("cmux_cu_engine_preview_closed_for_generation", PreviewClosedForGenerationFn.self)
     }
 
     /// A library buffer as a string, freed.
@@ -177,21 +184,21 @@ final class ComputerUseEngine: @unchecked Sendable { // crash-allow: the handle 
         return ServerHandle(raw: handle)
     }
 
-    /// Whether the library takes preview frames (``previewFrame(window:jpeg:)``).
-    var takesPreview: Bool { library.previewFrame != nil && library.previewClosed != nil }
+    /// Whether the library takes generation-fenced preview frames.
+    var takesPreview: Bool { library.previewFrameForGeneration != nil && library.previewClosedForGeneration != nil }
 
     /// A new live preview frame of `window` (any thread).
-    func previewFrame(window: String, jpeg: Data) {
-        guard let send = library.previewFrame else { return }
+    func previewFrame(window: String, generation: UInt64, jpeg: Data) {
+        guard let send = library.previewFrameForGeneration else { return }
         Array(window.utf8).withUnsafeBufferPointer { id in
-            jpeg.withBytes { bytes in send(handle, id.baseAddress, id.count, bytes.baseAddress, bytes.count) }
+            jpeg.withBytes { bytes in send(handle, id.baseAddress, id.count, generation, bytes.baseAddress, bytes.count) }
         }
     }
 
     /// `window`'s preview stream ended because the window closed (any thread).
-    func previewClosed(window: String) {
-        guard let send = library.previewClosed else { return }
-        Array(window.utf8).withUnsafeBufferPointer { send(handle, $0.baseAddress, $0.count) }
+    func previewClosed(window: String, generation: UInt64) {
+        guard let send = library.previewClosedForGeneration else { return }
+        Array(window.utf8).withUnsafeBufferPointer { send(handle, $0.baseAddress, $0.count, generation) }
     }
 
     func stopServing(_ server: ServerHandle) {
