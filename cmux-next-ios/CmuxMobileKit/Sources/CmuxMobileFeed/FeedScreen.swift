@@ -13,6 +13,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let reconnect: @MainActor () async -> Void
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
+    /// Changes on each tap of the Feed tab while the Feed shows: the list scrolls to its top.
+    private let scrollToTop: Int
     /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
     @State private var list = FeedListControl()
     @State private var swipe = FeedSwipeCoordinator()
@@ -21,9 +23,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
-    /// The agents working right now (the strip above the chips). The screen reads only whether
-    /// the strip shows; the strip reads the agents.
-    @State private var working = FeedWorkingNow.shared
     /// Bounces the caught-up seal each time that state appears.
     @State private var caughtUpBounce = 0
     @Environment(AppStore.self) private var appStore
@@ -35,8 +34,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
-    public init(path: Binding<[AgentChatDestination]>, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    public init(path: Binding<[AgentChatDestination]>, scrollToTop: Int = 0, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
+        self.scrollToTop = scrollToTop
         self.reconnect = reconnect
         self.sidebarItem = sidebarItem()
         WebMarkdownRenderer.shared.prewarm(count: 2)
@@ -52,7 +52,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     FeedCollection(
                         items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
                         header: AnyView(header), headerSignature: AnyHashable(headerSignature),
-                        headerContent: AnyHashable(store.needsYouCount), headerAnimatedPart: AnyHashable(working.isShowing)
+                        headerContent: AnyHashable(store.needsYouCount)
                     )
                     .ignoresSafeArea(.container, edges: .vertical)
                 }
@@ -79,13 +79,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .onAppear {
             rowContext.open = { open($0) }
-            working.follow(appStore, feed: store)
-            rowContext.openFromPeek = { open($0, animated: false) }
-            rowContext.chat = { item in
-                guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
-                      workspace.tabs.contains(where: { $0.id == item.tabID }) else { return nil }
-                return AgentSessionDirectory.shared.existingStore(id: item.tabID, macID: workspace.macID)
-            }
             #if DEBUG
             FeedStressRig.shared.start(store: store)
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_EVENT=<event id> scrolls that event to the top.
@@ -98,6 +91,16 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                         try? await Task.sleep(for: .seconds(1))
                         DemoDirector.shared.post(.feedStack(event: stack, expanded: true))
                     }
+                }
+            }
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_ANSWER=<event id> allows that permission request
+            // (the ask leaves the pinned group for its place in time).
+            if let event = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_ANSWER"], !event.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    guard case .permission(let request) = store.item(id: event)?.kind,
+                          let option = request.options.first(where: \.isAllow) else { return }
+                    store.respond(event, option: option)
                 }
             }
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
@@ -127,13 +130,14 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 return .sent(chat)
             }
         }
+        // The tab tap's scroll: the pill's jump, so the "N new" count clears when it lands.
+        .onChange(of: scrollToTop) { list.scrollToTop() }
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
     }
 
-    /// `animated: false`: from the long-press preview, which has already grown to the screen.
-    private func open(_ item: FeedItem, animated: Bool = true) {
+    private func open(_ item: FeedItem) {
         store.markRead(item.id)
         // A Mac Feed request (a PR held for trial) opens its page.
         if let link = item.link {
@@ -145,48 +149,27 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             openTerminal(item)
             return
         }
-        let destination = AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID)
-        guard !animated else {
-            path.append(destination)
-            return
-        }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { path.append(destination) }
-    }
-
-    /// A working agent's capsule: its chat, or a terminal agent's terminal tab (as `open(_:)` routes events).
-    private func open(_ agent: WorkingAgent) {
-        if agent.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
-            openTerminal(FeedItem(id: "working-now", kind: .response, workspaceID: agent.workspaceID, tabID: agent.tabID,
-                                  agentName: agent.agentName, harness: agent.harness, workspaceTitle: agent.workspaceTitle,
-                                  markdown: "", quote: nil, createdAt: .now))
-            return
-        }
-        path.append(AgentChatDestination(workspaceID: agent.workspaceID, tabID: agent.tabID))
+        path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 
     /// What can change the list header's height: it is measured again only when this changes (a
     /// chip's count or the selected chip redraw in place; the header cell re-reads its view).
     private var headerSignature: [String] {
-        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue,
-         "\(working.isShowing)"]
+        [store.refreshError ?? "", "\(store.visibleItems.isEmpty)", "\(store.syncState)", "\(store.needsYouCount > 0)", store.filter.rawValue]
     }
 
-    /// The working-now strip, the filter chips, a refresh error and an empty or connecting state, above the events.
+    /// The filter chips, a refresh error and an empty or connecting state, above the events.
     private var header: some View {
         VStack(spacing: 0) {
-            FeedWorkingStrip(model: working) { open($0) }
             chips
             if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
             }
-            if store.visibleItems.isEmpty {
-                if store.syncState == .connecting {
-                    connectingState
-                } else {
-                    emptyState
-                }
+            switch FeedEmptyBody.resolve(isEmpty: store.visibleItems.isEmpty, sync: store.syncState,
+                                         filter: store.filter, known: store.hasKnownData) {
+            case .caughtUp: caughtUpState
+            case .noEvents: noEventsState
+            case nil: EmptyView()
             }
         }
         .frame(maxWidth: .infinity)
@@ -237,7 +220,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 32)
         .padding(.vertical, 2)
-        .sensoryFeedback(.selection, trigger: store.filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: store.filter)
     }
 
     private func refreshErrorRow(_ message: String) -> some View {
@@ -320,27 +303,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             if glyphs.count == 3 { break }
         }
         return glyphs
-    }
-
-    /// No events known yet and the Mac has not answered: not "Nothing yet".
-    private var connectingState: some View {
-        VStack(spacing: 10) {
-            CmuxSpinner()
-            Text("Connecting to your Mac…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.top, 160)
-        .accessibilityIdentifier("feed.connecting")
-    }
-
-    @ViewBuilder
-    private var emptyState: some View {
-        if store.filter == .needsYou {
-            caughtUpState
-        } else {
-            noEventsState
-        }
     }
 
     /// Needs you with nothing left: the point of the filter reached, said as such (an inbox's
@@ -514,3 +476,20 @@ private struct DoneUndoBar: View {
     }
 }
 #endif
+
+/// What an empty Feed shows under its chips. Before the Mac has answered (`.connecting`)
+/// nothing at all: no spinner and no "Connecting to your Mac…". The phone keeps connecting
+/// and the events fill in when they arrive (Leo, 2026-11-24: "all the connecting...
+/// indicators ... nah let's not do that. let's just keep optimistically connecting and
+/// reinforcing the connection"). "Nothing yet" only once the Mac has said so.
+enum FeedEmptyBody: Equatable {
+    case caughtUp, noEvents
+
+    /// `known`: the account's cached snapshot or a live result already said what the Feed holds,
+    /// so an empty Feed is truly empty even while the Mac reconnects.
+    static func resolve(isEmpty: Bool, sync: FeedStore.SyncState, filter: FeedFilter,
+                        known: Bool = false) -> FeedEmptyBody? {
+        guard isEmpty, sync == .live || known else { return nil }
+        return filter == .needsYou ? .caughtUp : .noEvents
+    }
+}

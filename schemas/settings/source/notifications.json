@@ -1261,6 +1261,32 @@
           ]
         },
         {
+          "key": "notifications.sounds.maxSeconds",
+          "title": {
+            "key": "settings.notifications.sounds.maxSeconds",
+            "text": "Sound Duration"
+          },
+          "help": {
+            "key": "settings.notifications.sounds.maxSeconds.help",
+            "text": "Sounds cmux plays itself stop after this long. 0 plays the whole sound."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 30,
+            "step": 0.5,
+            "unit": "seconds"
+          },
+          "default": 0,
+          "keywords": [
+            "sound",
+            "length",
+            "duration",
+            "seconds",
+            "stop"
+          ]
+        },
+        {
           "key": "notifications.sounds.when",
           "title": {
             "key": "settings.notifications.sounds.when",
@@ -1473,6 +1499,53 @@
           "swift_enum": {
             "name": "NotificationDeliveryLevel",
             "generated": false
+          }
+        },
+        {
+          "key": "notifications.delivery.blocked",
+          "name": "blockedDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.blocked",
+            "text": "Agent Blocked"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "banner",
+            "delivery",
+            "blocked",
+            "waiting"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          },
+          "help": {
+            "key": "settings.notifications.delivery.blocked.help",
+            "text": "When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it."
           }
         },
         {

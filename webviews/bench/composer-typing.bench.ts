@@ -31,7 +31,9 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream,reply] [--reply-words 2000,20000] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000] [--frames]
+// With --frames, a Chromium trace splits each key's keydown-to-paint by what it waited on (keyFrameTrace.ts;
+// `KEY-FRAMES` lines): the key's own task, work queued before its frame, the display tick, the frame's callbacks and rendering.
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
 // should neither render nor lay out.
 // `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
@@ -43,11 +45,12 @@ import { chromium, webkit } from "./browsers";
 import { runComposerLoad } from "./composer-load";
 import { composerTypingRows } from "./composerTypingRows";
 import { perfRow } from "./perfRow";
-import { requireProductionReact, installReactWatch } from "./support/benchPage";
+import { requireProductionReact, installReactWatch, waitForPageHook, watchPageErrors } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
 import { sourceMapper } from "./sourceMapper";
+import { FRAME_CATEGORIES, reportFrames, traceFrames } from "./keyFrameTrace";
 let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
@@ -82,15 +85,16 @@ const REPLY_WORDS = (flag("--reply-words") ?? "2000,20000").split(",").map(Numbe
 const REPLY_SETTLE_MS = 1500;
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
-if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
-  throw new Error(
-    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
-  );
+if (PROFILE && ENGINES.includes("webkit")) throw new Error("--profile reads Chromium's DevTools protocol");
 const DEV = argv.includes("--dev");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
 /// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
 const TRACE = argv.includes("--trace");
+/// With --frames: a Chromium trace over the typed keys read per key from keydown to paint: the key's own task, the
+/// work between it and its frame, the wait for the display tick, the frame callbacks ahead of the key's, that frame's
+/// rendering, and a breakdown of every main-thread task in the window (keyFrameTrace.ts; `KEY-FRAMES` lines).
+const FRAMES = argv.includes("--frames");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
@@ -98,7 +102,7 @@ const FLOOR = !argv.includes("--no-floor");
 const COLD = argv.includes("--cold");
 const ENGINE = flag("--engine") ?? (ENGINES.length === 1 ? ENGINES[0]! : "chromium");
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
-if (ENGINES.includes("webkit") && (PROFILE || TRACE))
+if (ENGINES.includes("webkit") && (PROFILE || TRACE || FRAMES))
   throw new Error("--profile and --trace read Chromium's DevTools protocol");
 /// Prompts waiting in the chat's queue while the keys are typed (0: none).
 const QUEUED = Number(flag("--queue") ?? 0);
@@ -119,6 +123,8 @@ const ARM_METRICS = [
   "to_frame_p95",
   "to_frame_max",
   "to_listener_p95",
+  "to_paint_p95",
+  "to_paint_p99",
   "to_work_p50",
   "to_work_p95",
   "script_ms",
@@ -139,10 +145,15 @@ const METRICS = [
 async function openChat(page: Page, port: number, turns: number) {
   // Before the page's own code (bench/support/benchPage.ts installReactWatch).
   await installReactWatch(page);
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const errors = watchPageErrors(page);
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A 404 body loads as a page, and the wait below would then be 60 s of nothing (composer-load.ts).
+  if (status !== undefined && status >= 400)
+    throw new Error(`openChat: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // `servePane` builds the pane unless `--dev`; the check reads which React the page loaded
   // (bench/support/benchPage.ts).
-  await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  await waitForPageHook(page, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   // After the pane is up: react-dom rides a lazy chunk the page fetches when it mounts, so asking
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
@@ -231,9 +242,9 @@ const releases: (() => unknown)[] = [];
 // arm's build maps over the first's: profile one tree at a time).
 const serveOptions = {
   dev: DEV,
-  unminified: PROFILE || TRACE,
-  sourcemap: PROFILE || TRACE,
-  built: PROFILE || TRACE ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
+  unminified: PROFILE || TRACE || FRAMES,
+  sourcemap: PROFILE || TRACE || FRAMES,
+  built: PROFILE || TRACE || FRAMES ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
@@ -286,6 +297,29 @@ async function measure(
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
+      const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
+      const profiled = cdp && {
+        start: async () => {
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+          await cdp.send("Profiler.start");
+        },
+        stop: async () => {
+          const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+          printProfile(length, profile);
+        },
+      };
+      // With --frames, the same per-key split as the legacy modes (keyFrameTrace.ts), over the typed keys under load.
+      const framed = FRAMES &&
+        engine === "chromium" && {
+          start: () => browser.startTracing(page, { categories: FRAME_CATEGORIES }),
+          stop: async () => {
+            const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: any[] }).traceEvents;
+            reportFrames(`${canonical}-typing ${length}rows`, events, mapUrl);
+          },
+        };
+      const typing = profiled || framed;
       try {
         return {
           engine,
@@ -297,6 +331,7 @@ async function measure(
             gap: GAP_MS,
             stream: STREAM,
             toolLines: TOOL_LINES,
+            typing: typing || undefined,
           })),
         };
       } finally {
@@ -323,7 +358,12 @@ async function measure(
     if (!COLD) {
       for (const key of "warm") await page.keyboard.press(key);
       await page.waitForTimeout(500);
-      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+      // Three of the four go: one letter stays, so the measured keys type into a prompt that already has
+      // words. The empty-to-typed step is a real change of the UI (Send takes Stop's slot, a suggestion goes)
+      // and renders once by design (composer/promptText.ts PromptFacts `blank`/`empty`); it is not what a key
+      // costs. Clearing the prompt here put that one render on the first measured key, hiding the per-key cost
+      // behind 1/60 of a transition (#45279, carried forward).
+      for (let i = 0; i < 3; i += 1) await page.keyboard.press("Backspace");
     }
     if (DRAFT > 0) {
       const line = "the quick brown fox jumps over the lazy dog and keeps on running past the old fence";
@@ -393,7 +433,12 @@ async function measure(
     };
     await page.evaluate(() => (window as any).__frameWork.start());
     const typedAt = performance.now();
-    const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
+    let frameEvents: Awaited<ReturnType<typeof traceFrames>> | undefined;
+    const typedEvents = TRACE
+      ? await traceWindow(browser, page, typeKeys)
+      : FRAMES
+        ? ((frameEvents = await traceFrames(browser, page, typeKeys)), undefined)
+        : (await typeKeys(), undefined);
     const typedMs = performance.now() - typedAt;
     const frameWork = (await page.evaluate(() => (window as any).__frameWork.stop())) as number[];
     await page.waitForTimeout(500);
@@ -420,6 +465,7 @@ async function measure(
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
+    if (frameEvents) reportFrames(`${mode}-typing ${rows}rows`, frameEvents, mapUrl);
     if (TRACE && mode === "stream") {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {

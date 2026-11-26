@@ -59,7 +59,7 @@ describe("auto-roll approve", () => {
     const prod = locate(text, "production").images;
     const staging = locate(text, "staging").images;
     expect(previousFirst).toBe(before.prod[0]!.id);
-    expect(prod[0]).toEqual({ ...entry("100"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(prod[0]).toEqual({ ...entry("100"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
     expect(prod.slice(1)).toEqual(before.prod);
     expect(staging.at(-1)).toEqual({ ...entry("100"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
     expect(staging.slice(0, -1)).toEqual(before.staging);
@@ -94,7 +94,7 @@ describe("auto-roll approve", () => {
     for (const env of ["staging", "production"] as const) {
       const images = locate(text, env).images;
       expect(images.filter((i) => i.id === FALLBACK.id)).toEqual([
-        { ...FALLBACK, services: env === "production" ? ["cloud-platform-production", "ci-product-smoke"] : ["cloud-platform-dev", "cloud-platform-staging"] },
+        { ...FALLBACK, services: env === "production" ? ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] : ["cloud-platform-dev", "cloud-platform-staging"] },
       ]);
       expect(bootedImage(text, env)).toBe(entry(String(600 + KEEP_AUTO + 2)).id);
     }
@@ -154,7 +154,7 @@ describe("auto-roll approve", () => {
   test("entries with and without inputs_sha256 share a list; a malformed one is refused", () => {
     const { text } = approve(approve(wrangler, entry("10")).text, keyed("11"));
     const prod = locate(text, "production").images;
-    expect(prod[0]).toEqual({ ...keyed("11"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(prod[0]).toEqual({ ...keyed("11"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
     expect(prod[1]).not.toHaveProperty("inputs_sha256");
     const bad = { ...keyed("12"), inputs_sha256: "A".repeat(64) };
     expect(() => replaceList(text, "production", [bad, ...prod])).toThrow(/bad inputs_sha256/);
@@ -188,7 +188,7 @@ describe("auto-roll approve", () => {
     const { text, large } = approve(wrangler, withLarge("20"));
     expect(large).toBe(true);
     expect(locate(text, "staging").images.at(-1)).toEqual({ ...withLarge("20"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
-    expect(locate(text, "production").images[0]).toEqual({ ...entry("20"), services: ["cloud-platform-production", "ci-product-smoke"] });
+    expect(locate(text, "production").images[0]).toEqual({ ...entry("20"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
     expect(locate(text, "production").images.some((i) => "large" in i)).toBe(false);
     expect(approve(wrangler, entry("21")).large).toBe(false);
   });
@@ -274,6 +274,31 @@ describe("auto-roll keeps cmux-platform's pinned image", () => {
       expect({ env, pinned: locate(text, env).images.filter((i) => i.id === pinned.id).length }).toEqual({ env, pinned: 1 });
       // The pin does not count toward KEEP_AUTO: the newest KEEP_AUTO rolls stay too.
       expect({ env, auto: locate(text, env).images.filter((i) => i.id.startsWith(AUTO_PREFIX)).length }).toEqual({ env, auto: KEEP_AUTO + 1 });
+    }
+  });
+  // Production, 2026-11-25 (roll 45625813906): with a pin plus KEEP_AUTO keyed rolls, the next roll's list came to
+  // 5,150 bytes and approve threw, so no roll could promote. A list keeps fewer rolls until it fits.
+  test("approve keeps fewer unpinned rolls when the pin and KEEP_AUTO rolls would pass MAX_BYTES", () => {
+    const pinned = keyed("700");
+    let text = approve(wrangler, pinned).text;
+    for (let run = 1; run <= KEEP_AUTO + 8; run++) text = approve(text, keyed(String(700 + run)), [pinned.id]).text;
+    const newest = keyed(String(700 + KEEP_AUTO + 8)).id;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+      expect({ env, pinned: images.some((i) => i.id === pinned.id), newest: images.some((i) => i.id === newest) }).toEqual({ env, pinned: true, newest: true });
+      expect(images.filter((i) => !i.id.startsWith(AUTO_PREFIX))).toEqual(locate(wrangler, env).images);
+    }
+    expect(bootedImage(text, "production")).toBe(newest);
+  });
+  test("approve on the 2026-11-25 production list (pin 45ed727f, six rolls) fits instead of throwing", () => {
+    const pin = "cloud-native-auto-45ed727f-45133798615-1";
+    if (!locate(checkedIn, "production").images.some((i) => i.id === pin)) return;
+    const { text } = approve(checkedIn, keyed("45629291168"), [pin]);
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+      expect(images.some((i) => i.id === pin)).toBe(true);
     }
   });
   test("rollback refuses to take out a pinned image", () => {
@@ -569,7 +594,10 @@ describe("auto-roll workflows", () => {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
       expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+      // report holds a contents: write token, so it reads only the ephemeral linux_4 pool, never linux_8 (whose first
+      // member is a persistent owned label): #51925, tests/test_ci_ephemeral_pool_readers.py.
+      if (job === "report") expect(runsOn).not.toContain("linux_8");
+      else expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
@@ -583,7 +611,8 @@ describe("auto-roll workflows", () => {
     expect(token.if).toContain("CMUX_VM_DEPLOY_ENABLED != '1'");
     expect(token.with).toMatchObject({ owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "write" });
     const checkout = promote.steps.find((step) => step.with?.path === "cmux-platform");
-    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "main" });
+    // A checkout names its branch as refs/heads/X, so it fetches one branch (#51926).
+    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "refs/heads/main" });
     expect(stepOf(promote, "push").env).toMatchObject({ PLATFORM_CHECKOUT: expect.stringContaining("cmux-platform") });
     expect(stepOf(promote, "push").run).toContain("--platform-checkout");
   });
@@ -875,12 +904,22 @@ describe("auto-roll scripts", () => {
     }
   });
 
-  test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
+  // Rolls 45180251986 and 45200355313 (2026-11-23): plan's checkout with fetch-depth 0 fetched every branch and
+  // tag, which stalled under 1000 B/s three times ("bad pack header"), so no roll got past plan. Like promote,
+  // plan checks out the tip shallow and fetches only feat-cmux-next's history without blobs, with retries.
+  test("the plan job fetches feat-cmux-next's full history alone, with retries, and fails on a pin it cannot fetch", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-    type Step = { id?: string; run?: string; with?: Record<string, unknown> };
+    type Step = { id?: string; name?: string; run?: string; with?: Record<string, unknown> };
     const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
     const steps = roll.jobs["plan"]!.steps as Array<Step & { uses?: string }>;
-    expect(steps.find((s) => s.uses?.startsWith("actions/checkout@"))!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+    const own = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(steps[own]!.with?.["fetch-depth"]).toBeUndefined();
+    const fetch = steps.findIndex((s) => s.run?.includes("--filter=blob:none") && s.run.includes("+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"));
+    expect(fetch).toBeGreaterThan(own);
+    expect(fetch).toBeLessThan(steps.findIndex((s) => s.id === "plan"));
+    expect(steps[fetch]!.run).toContain("--no-tags");
+    expect(steps[fetch]!.run).toContain("for try in 1 2 3");
+    expect(steps[fetch]!.run).not.toContain("refs/heads/*");
     const run = steps.find((s) => s.id === "plan")!.run!;
     expect(run).toContain('git fetch -q --filter=blob:none origin "$pinned"; fi');
     expect(run).not.toMatch(/--depth 1/);

@@ -73,6 +73,7 @@
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
     case CMUX_SHIM_STATUS_MESSAGE:
+    case CMUX_SHIM_AUTH_PROMPT:
       return true;
   }
   return false;
@@ -275,6 +276,22 @@ class Client : public CefClient,
       return false;
     }
     Emit(CMUX_SHIM_CHROME_COMMAND, browser->GetIdentifier(), command_id);
+    return true;
+  }
+
+  // A server's 401 (basic, digest, NTLM): the host asks the person in the tab's own prompt, as for WebKit
+  // (BrowserHTTPAuth), and answers with cmux_shim_auth_continue. Chromium's own dialog needs a toolbar cmux
+  // never shows, so without this the challenge never ended and the page stayed blank. A proxy's challenge keeps
+  // Chromium's default.
+  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser, const CefString& origin_url, bool is_proxy,
+                          const CefString& host, int port, const CefString& realm, const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override {
+    if (is_proxy || !browser) return false;
+    const int token = AddAuthPrompt(callback);
+    std::string shown = host.ToString();
+    const bool secure = origin_url.ToString().rfind("https:", 0) == 0;
+    if (port != 0 && port != (secure ? 443 : 80)) shown += ":" + std::to_string(port);
+    Emit(CMUX_SHIM_AUTH_PROMPT, browser->GetIdentifier(), token, secure ? 1 : 0, 0, shown, realm.ToString());
     return true;
   }
 
