@@ -248,6 +248,9 @@ fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
 
 /// [`wait_all_logs`] for at most `limit` (a 4 GB chat's first load may take longer than
 /// [`ALL_LOGS`]).
+/// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
+const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
+
 fn wait_all_logs_within(rpc: &mut Rpc, limit: Duration) -> Result<u64, Value> {
     let deadline = Instant::now() + limit;
     let mut last = Value::Null;
@@ -2396,6 +2399,15 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
+    // Its host up, the chat's adoption checkpoint is folded in the background
+    // (`hosts/checkpoint.rs` `prime_adoption_checkpoint`): how long after the sends it is there.
+    // A restart before it reads the whole log at adoption, as every first restart did.
+    let checkpoint = home.join("sessions").join(&id).join("adoption-checkpoint.json");
+    let checkpoint_wait = Instant::now();
+    while !checkpoint.exists() && checkpoint_wait.elapsed() < ADOPTION_CHECKPOINT_WITHIN {
+        std::thread::sleep(ALL_LOGS_POLL);
+    }
+    let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
@@ -2472,7 +2484,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
-        "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
+        "adoptionCheckpointMs": adoption_checkpoint_ms, "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),

@@ -4,7 +4,7 @@
 //! [`SubagentTree`], [`WorkFold`]), stepped one head at a time, so an adoption resumes them from
 //! the chat's adoption checkpoint (`checkpoint.rs`) and reads only the records after it.
 
-use super::checkpoint::{Checkpoint, FoldInputs, Folds};
+use super::checkpoint::{Checkpoint, FoldInputs, Folds, UNSTARTED};
 use super::*;
 use crate::store::RecordHead;
 use crate::subagents::SubagentTree;
@@ -206,30 +206,41 @@ impl Hub {
             .then(|| self.adoption_checkpoint(session, incarnation, &inputs))
             .flatten()
             .filter(|c| c.seq <= turn_bound);
-        let ((from, next), mut folds) = match resumed {
-            Some(c) => ((c.seq + 1, c.next), c.folds),
-            None => ((0, None), Folds::new(&inputs)),
+        // Beside them, while saving a checkpoint, the folds of an incarnation not started yet,
+        // which the next host's first adoption resumes from (`checkpoint.rs` `unstarted`).
+        let unstarted_too = resume && settled.is_some() && incarnation != UNSTARTED;
+        let ((from, next), mut folds, mut unstarted) = match resumed {
+            Some(c) => {
+                let unstarted = c.unstarted.filter(|_| unstarted_too);
+                // Saved before this fold kept them: read from the start.
+                if unstarted_too && unstarted.is_none() {
+                    ((0, None), Folds::new(&inputs), Some(Folds::new(&inputs)))
+                } else {
+                    ((c.seq + 1, c.next), c.folds, unstarted)
+                }
+            }
+            None => ((0, None), Folds::new(&inputs), unstarted_too.then(|| Folds::new(&inputs))),
         };
         // The last record a checkpoint may hold.
         let bound = settled.map(|settled| settled.min(turn_bound));
         let mut folded = from.saturating_sub(1);
-        let mut kept: Option<(u64, Option<crate::store::LinePos>, Folds)> = None;
+        let mut kept: Option<(u64, Option<crate::store::LinePos>, Folds, Option<Folds>)> = None;
         let scanned = self.store.scan_heads_from(&session.id, from, next, &mut |head, at| {
             if let Some(bound) = bound
                 && kept.is_none()
                 && head.seq > bound
             {
-                kept = Some((folded, at, folds.clone()));
+                kept = Some((folded, at, folds.clone(), unstarted.clone()));
             }
-            folds.env.step(head, incarnation);
-            folds.host_seq.step(head, incarnation);
-            seed_step(&mut folds.subagents, head);
-            folds.work.step(head, incarnation, &inputs, reads, last_turn);
+            folds.step(head, incarnation, &inputs, reads, last_turn);
+            if let Some(unstarted) = unstarted.as_mut() {
+                unstarted.step(head, UNSTARTED, &inputs, reads, last_turn);
+            }
             folded = folded.max(head.seq);
             true
         });
         if bound.is_some() && kept.is_none() {
-            kept = Some((folded, None, folds.clone()));
+            kept = Some((folded, None, folds.clone(), unstarted.clone()));
         }
         let (work, host_seq_at) = folds.work.finish(scanned.is_err());
         // A line cut short showed it: the whole records decide, as before.
@@ -241,10 +252,50 @@ impl Hub {
         // None when the log could not be read to its end, or when it is the one resumed from.
         let checkpoint = kept
             .filter(|(seq, ..)| *seq > 0 && *seq >= from && scanned.is_ok())
-            .and_then(|(seq, next, folds)| {
-                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, stamp?))
+            .and_then(|(seq, next, folds, unstarted)| {
+                // An unstarted fold's own checkpoint is its own unstarted one too.
+                let unstarted =
+                    if incarnation == UNSTARTED { Some(folds.clone()) } else { unstarted };
+                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, unstarted, stamp?))
             });
         (work, checkpoint)
+    }
+}
+
+impl Hub {
+    /// `incarnation`'s checkpoint through `settled` (the log's last seq while no append ran),
+    /// with the folds of an incarnation not started yet beside it: what
+    /// `prime_adoption_checkpoint` saves.
+    pub(super) fn fold_checkpoint(
+        &self,
+        session: &Session,
+        incarnation: &str,
+        settled: u64,
+    ) -> Option<Checkpoint> {
+        self.fold_open_work(session, incarnation, Fold::Resume { settled: Some(settled) }).1
+    }
+
+    /// The checkpoint of an incarnation not started yet through `settled`.
+    #[cfg(test)]
+    pub(super) fn fold_unstarted(&self, session: &Session, settled: u64) -> Option<Checkpoint> {
+        self.fold_checkpoint(session, UNSTARTED, settled)
+    }
+}
+
+impl Folds {
+    /// Every fold steps `head`, as adopting `incarnation` reads it.
+    fn step(
+        &mut self,
+        head: &RecordHead<'_>,
+        incarnation: &str,
+        inputs: &FoldInputs,
+        reads: Reads,
+        last_turn: u64,
+    ) {
+        self.env.step(head, incarnation);
+        self.host_seq.step(head, incarnation);
+        seed_step(&mut self.subagents, head);
+        self.work.step(head, incarnation, inputs, reads, last_turn);
     }
 }
 

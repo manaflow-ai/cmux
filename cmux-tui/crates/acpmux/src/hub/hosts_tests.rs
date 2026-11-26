@@ -768,6 +768,78 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
     }
 }
 
+/// A host's first adoption resumes from a checkpoint another host's adoption saved, or the one
+/// folded in the background when it started (`prime_adoption_checkpoint`), through the folds of
+/// an incarnation not started yet, and recovers what a fold of the whole log recovers. One whose
+/// own start is in the checkpoint's records does not use it (cmux#51494).
+#[tokio::test]
+async fn a_new_hosts_adoption_resumed_from_the_unstarted_folds_matches_a_whole_read() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    let saving = ["inc", "old", "gone", "next", super::checkpoint::UNSTARTED];
+    let mut transferred = 0;
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            let file = hub.store.session_dir("chat0").unwrap().join("adoption-checkpoint.json");
+            let mut saved = Vec::new();
+            for saver in saving {
+                let _ = std::fs::remove_file(&file);
+                if saver == super::checkpoint::UNSTARTED {
+                    hub.catch_up(&session);
+                    let settled = hub.settled_seq(&session);
+                    if let Some(point) = hub.fold_unstarted(&session, settled) {
+                        hub.save_adoption_checkpoint(&session, point);
+                    }
+                } else {
+                    hub.recovery_work(&session, saver, 0);
+                }
+                saved.push((saver, hub.store.adoption_checkpoint("chat0")));
+            }
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for (saver, bytes) in &saved {
+                let Some(bytes) = bytes else { continue };
+                for (incarnation, whole) in incarnations.iter().zip(&whole) {
+                    if incarnation == saver {
+                        continue;
+                    }
+                    let _ = std::fs::remove_file(&file);
+                    hub.store.save_adoption_checkpoint("chat0", bytes).unwrap();
+                    let inputs = hub.fold_inputs(&session);
+                    let used = hub.adoption_checkpoint(&session, incarnation, &inputs).is_some();
+                    // Its own start among the records folded: never resumed from.
+                    let started_before = log.records[..split].iter().any(|r| {
+                        r.kind == "host_started"
+                            && r.msg.get("incarnation").and_then(Value::as_str)
+                                == Some(*incarnation)
+                    });
+                    assert!(
+                        !(used && started_before),
+                        "log {n} split {split} {saver}->{incarnation}"
+                    );
+                    transferred += usize::from(used);
+                    let state = adoption_state(&hub, &session, incarnation);
+                    assert_eq!(&state, whole, "log {n} split {split} {saver}->{incarnation}");
+                }
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(transferred > 0, "no adoption resumed from another host's checkpoint");
+}
+
 /// A new hub must use the durable checkpoint, and changing the log must invalidate it even
 /// when its final record keeps the same sequence, timestamp and kind.
 #[tokio::test]
