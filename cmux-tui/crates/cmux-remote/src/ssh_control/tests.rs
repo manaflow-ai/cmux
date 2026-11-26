@@ -22,12 +22,18 @@ use crate::ssh_bootstrap::{BootstrapOutcome, SshBootstrapConfig, SshBootstrapper
 #[derive(Clone, Copy)]
 enum Mode {
     /// Authenticates after `delay_ms` and serves clients.
-    Serve { delay_ms: u64 },
+    Serve {
+        delay_ms: u64,
+    },
     /// Like `Serve`, but keeps stdout open after the ready line, as OpenSSH
     /// before 7.7 does.
     ServeKeepingStdout,
+    AwaitRelease,
+    NoSocketOnce,
     /// Fails authentication after `delay_ms` (wrong password three times).
-    Fail { delay_ms: u64 },
+    Fail {
+        delay_ms: u64,
+    },
 }
 
 struct FakeSsh {
@@ -43,7 +49,7 @@ impl FakeSsh {
         let log = directory.path().join("ssh.log");
         let (fail, delay_ms, keep_stdout) = match mode {
             Mode::Serve { delay_ms } => (false, delay_ms, false),
-            Mode::ServeKeepingStdout => (false, 0, true),
+            Mode::ServeKeepingStdout | Mode::AwaitRelease | Mode::NoSocketOnce => (false, 0, true),
             Mode::Fail { delay_ms } => (true, delay_ms, false),
         };
         let probe = serde_json::json!({
@@ -61,6 +67,8 @@ LOG = {log:?}
 FAIL = {fail}
 DELAY = {delay}
 KEEP_STDOUT = {keep_stdout}
+AWAIT_RELEASE = {await_release}
+NO_SOCKET_ONCE = {no_socket_once}
 PROBE = {probe:?}
 args = sys.argv[1:]
 def option(name):
@@ -79,6 +87,14 @@ if master == "yes":
     log("auth master")
     with open(LOG + ".pid", "w") as handle:
         handle.write(str(os.getpid()))
+    if AWAIT_RELEASE:
+        while not os.path.exists(LOG + ".release"):
+            time.sleep(0.01)
+    if NO_SOCKET_ONCE and not os.path.exists(LOG + ".failed"):
+        open(LOG + ".failed", "w").close()
+        print("cmux-ssh-master-ready", flush=True)
+        while True:
+            signal.pause()
     time.sleep(DELAY / 1000)
     if FAIL:
         sys.exit(255)
@@ -109,6 +125,8 @@ if "remote-probe" in command:
             fail = if fail { "True" } else { "False" },
             keep_stdout = if keep_stdout { "True" } else { "False" },
             delay = delay_ms,
+            await_release = if matches!(mode, Mode::AwaitRelease) { "True" } else { "False" },
+            no_socket_once = if matches!(mode, Mode::NoSocketOnce) { "True" } else { "False" },
             probe = probe.to_string(),
         );
         write_executable(&binary, script.as_bytes());
@@ -396,4 +414,50 @@ async fn wait_until(mut condition: impl FnMut() -> bool) {
         assert!(Instant::now() < deadline, "condition not reached within 10s");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+/// A prompt at one host cannot block reuse or opening at another host.
+#[tokio::test]
+async fn pending_authentication_does_not_lock_other_targets() {
+    let blocked = FakeSsh::new(Mode::AwaitRelease);
+    let ready = FakeSsh::new(Mode::Serve { delay_ms: 0 });
+    let fresh = FakeSsh::new(Mode::Serve { delay_ms: 0 });
+    let share = SshConnectionShare::new();
+    let ready_args = share.client_arguments(&ready.target()).await.unwrap();
+    let target = blocked.target();
+    let mut pending = Box::pin(share.client_arguments(&target));
+    tokio::select! {
+        result = &mut pending => panic!("authentication must wait: {result:?}"),
+        () = wait_until(|| blocked.master_pid().is_some()) => {}
+    }
+    tokio::time::timeout(Duration::from_secs(10), async {
+        assert_eq!(share.client_arguments(&ready.target()).await.unwrap(), ready_args);
+        assert!(!share.client_arguments(&fresh.target()).await.unwrap().is_empty());
+    })
+    .await
+    .expect("another target must not wait for the blocked password prompt");
+    std::fs::write(blocked.log.with_extension("log.release"), "ready").unwrap();
+    assert!(!pending.await.unwrap().is_empty());
+    assert_eq!(ready.authentications(), 1);
+}
+
+#[tokio::test]
+async fn unavailable_socket_is_retried_once_on_reconnect() {
+    let fake = FakeSsh::new(Mode::NoSocketOnce);
+    let live = FakeSsh::new(Mode::Serve { delay_ms: 0 });
+    let share = SshConnectionShare::new();
+    let live_args = share.client_arguments(&live.target()).await.unwrap();
+    let target = fake.target();
+    assert!(share.client_arguments(&target).await.unwrap().is_empty());
+    assert!(share.client_arguments(&target).await.unwrap().is_empty());
+    assert_eq!(fake.authentications(), 1, "no repeated prompts within one connect");
+    share.retry_unavailable();
+    let (first, second) =
+        tokio::join!(share.client_arguments(&target), share.client_arguments(&target));
+    let first = first.unwrap();
+    assert!(!first.is_empty());
+    assert_eq!(first, second.unwrap());
+    assert_eq!(fake.authentications(), 2);
+    assert_eq!(share.client_arguments(&live.target()).await.unwrap(), live_args);
+    assert_eq!(live.authentications(), 1, "reconnect preserves a live master");
 }
