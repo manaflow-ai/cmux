@@ -77,6 +77,7 @@ final class CloudMachineSession {
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
     @ObservationIgnored var resumer: (@MainActor (String, CloudLinkOrigin) async throws -> Void)?
+    @ObservationIgnored var waking: (@MainActor @Sendable (Bool) -> Void)? // a start card's "Waking machine" while its settle waits (CloudStartChat, ask-259986a6c4)
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a

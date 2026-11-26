@@ -6,6 +6,7 @@ import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment"
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
+import { chiefPlans } from "../pages/home-channels/chiefPlans.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
@@ -13,6 +14,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { forumCallLook } from "../agent-session/acpmux/conversation/forumCall.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
@@ -42,7 +44,6 @@ import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/heigh
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
-import { threadMinimapCutover } from "../agent-session/acpmux/threadMinimap/cutover.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
@@ -60,6 +61,7 @@ import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
+import { waitingMessagesOrder } from "../agent-session/acpmux/conversation/waitingMessagesOrder.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
 import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
 import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
@@ -133,7 +135,6 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
-import { earlierPlanHat } from "../agent-session/acpmux/subagents/earlierPlanHat.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
@@ -154,6 +155,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   steerQueueExperiment,
   statusIslandExperiment,
   chiefDock,
+  chiefPlans,
   hoverActions,
   startedSessionCards,
   agentDotGrid,
@@ -167,6 +169,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  waitingMessagesOrder,
   workedLine,
   toolRowWords,
   sinceLook,
@@ -181,7 +184,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
-  threadMinimapCutover,
   threadMinimapWave,
   threadMinimapIncoming,
   threadMinimapReplies,
@@ -201,6 +203,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
+  forumCallLook,
   tableActionsPlace,
   expandRowLook,
   backgroundReactionLook,
@@ -282,7 +285,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApproveDuration,
   jumpLatestPlace,
   hatPillPlace,
-  earlierPlanHat,
   dockBand,
   draftFoot,
   outcomeAsk,

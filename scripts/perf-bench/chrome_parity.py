@@ -602,7 +602,7 @@ class CmuxArm(Arm):
         config = os.path.join(profile, "cmux.json")
         if not os.path.exists(config):
             with open(config, "w") as f:
-                json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, f)
+                json.dump({"updates": {"automatic": "off"}}, f)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
                "CMUX_NEXT_CONFIG_FILE": config, "CMUX_MOCK_KEYCHAIN": "1"}

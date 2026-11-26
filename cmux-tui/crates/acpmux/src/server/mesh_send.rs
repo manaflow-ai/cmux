@@ -103,7 +103,11 @@ pub(super) async fn relay(
         Some(_) if !hub.mesh.gate().may_try() => return Some(Err(backing_off(false))),
         Some(post) => post.clone(),
         None => {
-            let to = down_peer_recipient(hub, &delivery.target)?;
+            // A peer that is down, or a machine only the hub reaches (a chat that moved there
+            // over the hub, followed to `HOST/ID`: `Hub::mesh_only_host`).
+            let to = down_peer_recipient(hub, &delivery.target).or_else(|| {
+                hub.mesh_only_host(&delivery.target).then(|| recipient_in(hub, &delivery.target))
+            })?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
             // A class or supersede key goes to the peer itself once it is back, where the
             // receiver reads it as one, rather than as a line of the text (or dropped) now.

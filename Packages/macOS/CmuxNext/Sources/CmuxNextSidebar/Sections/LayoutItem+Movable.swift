@@ -16,3 +16,12 @@ extension LayoutItem {
     /// Whether a press on this item may drag it: a client-only item (What's New) and Home never move.
     var isMovable: Bool { !id.isTransient && ref.isMovable }
 }
+
+extension LayoutItem {
+    /// Whether a release beside the sidebar takes this item off it, as Remove from Sidebar does: every item that moves
+    /// (an app, a built-in, a link, a room) except a workspace or tab, which a drag out of the sidebar carries elsewhere.
+    /// The item menu keeps one remove row; the drag is the other way (Leo 2026-11-22: "just move it yourself").
+    public var comesOffOnDragOut: Bool {
+        isMovable && ref.kind != LayoutItemRef.workspaceKind && ref.kind != LayoutItemRef.tabKind
+    }
+}

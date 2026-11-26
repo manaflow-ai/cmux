@@ -127,3 +127,31 @@ async fn a_chat_already_on_sonnet_stays_on_it() {
     assert_eq!(model_now(&hub, &id).as_deref(), Some(SONNET));
     assert_eq!(hub.resolve(&id).unwrap().meta().capacity_fallback, None);
 }
+
+/// cmux#57784: chats started on Opus 5.5 were left on Sonnet 5.5. The gateway's own 503s cut
+/// every turn, so no turn ended well on the fallback to put Opus back, and the picker showed
+/// Sonnet for good. Off by default now; a chat a past switch left there goes back to its own
+/// model before its next capacity attempt.
+#[tokio::test]
+async fn a_chat_left_on_its_fallback_goes_back_when_switching_is_off() {
+    let (hub, mut c, id) = chat_on(SONNET, 0).await;
+    let session = hub.resolve(&id).unwrap();
+    session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
+        from: OPUS.to_owned(),
+        to: SONNET.to_owned(),
+    });
+    overload(&hub, &mut c, &id).await;
+
+    assert!(records(&hub, &id, "capacity_failover").is_empty());
+    let restored = records(&hub, &id, "capacity_restored");
+    assert_eq!(restored.len(), 1, "{restored:?}");
+    assert_eq!(restored[0].msg["from"], SONNET);
+    assert_eq!(restored[0].msg["to"], OPUS);
+    // Back before the first attempt went out: every retry ran on Opus.
+    let prompts = records(&hub, &id, "user_message");
+    assert!(restored[0].seq > prompts[0].seq && restored[0].seq < prompts[1].seq, "{restored:?}");
+    let to_opus = switches(&hub, &id).into_iter().rfind(|(_, m)| m == OPUS).expect("a switch");
+    assert!(to_opus.0 < prompts[1].seq, "{to_opus:?}");
+    assert_eq!(model_now(&hub, &id).as_deref(), Some(OPUS));
+    assert_eq!(hub.resolve(&id).unwrap().meta().capacity_fallback, None);
+}

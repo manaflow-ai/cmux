@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      paused_reads:
+        description: Also time paused reads (listing, open, whole-tree search) through the files routes, n=30/30/5, no resume (RFD 0144 piece 2)
+        required: false
+        default: false
+        type: boolean
       egress_allowlist:
         description: Also run the egress allowlist red team (an allowlisted VM reaches api.anthropic.com, cannot POST to an outside host or raw IP)
         required: false
@@ -54,7 +59,7 @@ jobs:
   # no repository secret. Its binary crosses into the journey only after a
   # separate no-secret job verifies its published digest and provenance.
   public-installer-smoke:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -86,7 +91,7 @@ jobs:
   # artifact before its digest and source provenance pass.
   installer:
     needs: public-installer-smoke
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       attestations: read
@@ -98,11 +103,16 @@ jobs:
           name: cloud-vm-dogfood-public-cmux
           path: ${{ runner.temp }}/public-cmux
 
-      - name: Checkout trusted main history
+      # Only the protected feat-cmux-next tip's scripts/ci, for the attestation helper (#48350 put it there and
+      # main never got it; run 45620842266 failed on a pool runner's apt gh 2.45 without it). A full-history
+      # fetch outran the job's 10 minutes on pool runners (runs 45596156615, 45596705573): ancestry against
+      # main is asked of GitHub below.
+      - name: Checkout the trusted CI helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
-          fetch-depth: 0
+          ref: refs/heads/feat-cmux-next
+          fetch-depth: 1
+          sparse-checkout: scripts/ci
           persist-credentials: false
 
       - name: Verify the public-installed cmux-tui binary
@@ -113,8 +123,8 @@ jobs:
           public="$RUNNER_TEMP/public-cmux/cmux"
           test -f "$public" && test ! -L "$public"
           attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
-          # A pool VM's apt gh (2.45) has no `gh attestation`; this checkout is main, which has the helper once it lands there.
-          if [[ -f scripts/ci/ensure-gh-attestation.sh ]]; then source scripts/ci/ensure-gh-attestation.sh; fi
+          # A pool VM's apt gh (2.45) has no `gh attestation`; the helper installs a pinned gh that has it.
+          source scripts/ci/ensure-gh-attestation.sh
           gh attestation verify "$public" \
             --repo manaflow-ai/cmux \
             --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
@@ -126,8 +136,9 @@ jobs:
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           [ "$workflow" = .github/workflows/cmux-tui-artifacts.yml ]
           [ "$ref" = refs/heads/main ]
-          git cat-file -e "$commit^{commit}"
-          git merge-base --is-ancestor "$commit" HEAD
+          # The attested commit is main itself or behind it (an ancestor of main's tip).
+          relation="$(gh api "repos/$GITHUB_REPOSITORY/compare/$commit...main" --jq .status)"
+          [[ "$relation" = ahead || "$relation" = identical ]]
           digest="$(sha256sum "$public" | awk '{print $1}')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           install_ms="$(cat "$RUNNER_TEMP/public-cmux/install-ms")"
@@ -149,7 +160,7 @@ jobs:
 
   journey:
     needs: installer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ inputs.lifecycle && 80 || 45 }}
     # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys).
     environment: cmux-vm-${{ inputs.target }}
@@ -224,6 +235,7 @@ jobs:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
           LIFECYCLE: ${{ inputs.lifecycle }}
           EGRESS_ALLOWLIST: ${{ inputs.egress_allowlist }}
+          PAUSED_READS: ${{ inputs.paused_reads }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
@@ -233,6 +245,7 @@ jobs:
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
           if [ "$EGRESS_ALLOWLIST" = "true" ]; then args+=(--egress-allowlist); fi
+          if [ "$PAUSED_READS" = "true" ]; then args+=(--paused-reads); fi
           if [ "$LIFECYCLE" = "true" ]; then
             args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
             # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
@@ -266,6 +279,7 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)"] | join(", ")) else empty end' "$result"
             jq -r 'if has("memoryKept") then "Memory kept across pause: \(.memoryKept)" else empty end' "$result"
+            jq -r 'if .pausedReads.listing then "Paused reads (ms, no resume; stayed paused: \(.pausedReads.stayedPaused), 429s: \(.pausedReads.rateLimited)): " + ([("listing", "open", "search") as $k | .pausedReads[$k] | "\($k) n=\(.n) p50=\(.p50) p95=\(.p95)"] | join("; ")) else empty end' "$result"
             jq -r '(.lifecycleApi, .lifecycleCli, .lifecycleCleanup) // empty | to_entries[] | "- \(.key): \(.value)"' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"

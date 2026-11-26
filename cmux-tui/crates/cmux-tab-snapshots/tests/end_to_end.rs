@@ -10,6 +10,7 @@ use cmux_tab_snapshots::{
 fn browser(id: &str, favicon: &[u8], thumb: &[u8]) -> Observation {
     Observation {
         tab_id: id.to_owned(),
+        tab_key: String::new(),
         title: format!("Page {id}"),
         kind: Kind::Browser,
         favicon: Some(FaviconInput { mime: Mime::Png, bytes: favicon.to_vec() }),
@@ -28,6 +29,7 @@ fn browser(id: &str, favicon: &[u8], thumb: &[u8]) -> Observation {
 fn terminal(id: &str, text: &str) -> Observation {
     Observation {
         tab_id: id.to_owned(),
+        tab_key: String::new(),
         title: format!("zsh {id}"),
         kind: Kind::Terminal,
         favicon: None,
