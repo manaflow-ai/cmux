@@ -406,14 +406,20 @@ impl fmt::Debug for RelayCredential {
     }
 }
 
-/// The TLS trust a relay's `wss` and `relay+do` connections use. The default
-/// trusts the platform's roots (and `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every
-/// relay connection did before; [`RelayTls::with_root_certificates`] trusts
-/// only the given roots, so a caller (a test's own CA) needs no process-wide
-/// environment.
+/// How a relay's `wss` and `relay+do` connections leave this machine: their
+/// TLS trust and their proxy. The default trusts the platform's roots (and
+/// `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every relay connection did before, and
+/// follows the system's proxy for the relay's URL (`provider::proxied`: PAC on
+/// macOS, `https_proxy` elsewhere; direct when the system says direct);
+/// [`RelayTls::with_root_certificates`] trusts only the given roots and
+/// [`RelayTls::with_proxy`] names the proxy, so a caller (a test's own CA and
+/// proxy) needs no process-wide environment.
 #[derive(Clone, Default)]
 pub struct RelayTls {
     client_config: Option<Arc<rustls::ClientConfig>>,
+    proxy: cmux_proxy::ProxyConfig,
+    /// The last connection's outer path, for the transport snapshot.
+    outer: super::proxied::OuterPath,
 }
 
 impl RelayTls {
@@ -436,7 +442,23 @@ impl RelayTls {
         .map_err(|error| ProviderError::Configuration(format!("relay TLS: {error}")))?
         .with_root_certificates(roots)
         .with_no_client_auth();
-        Ok(Self { client_config: Some(Arc::new(config)) })
+        Ok(Self { client_config: Some(Arc::new(config)), ..Self::default() })
+    }
+
+    /// Go out through `proxy` instead of the system's proxy settings
+    /// (`ProxyConfig::Direct` never proxies; `Fixed` always does, loopback too).
+    /// The result records its own outer path, apart from the trust it came from.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: cmux_proxy::ProxyConfig) -> Self {
+        self.proxy = proxy;
+        self.outer = super::proxied::OuterPath::default();
+        self
+    }
+
+    /// How the last relay connection made with this trust (or a clone of it)
+    /// went out: through which proxy, and whether its TLS was inspected.
+    pub fn outer_path(&self) -> Option<crate::observability::OuterPathSnapshot> {
+        self.outer.snapshot()
     }
 
     fn connector(&self) -> Option<Connector> {
@@ -449,6 +471,7 @@ impl fmt::Debug for RelayTls {
         formatter
             .debug_struct("RelayTls")
             .field("custom_roots", &self.client_config.is_some())
+            .field("proxy", &self.proxy)
             .finish()
     }
 }
@@ -1109,6 +1132,7 @@ impl LinkGroup for RelayLinkGroup {
                 kind: TransportPathKind::Relay,
                 remote: self.endpoint.host_str().map(str::to_owned),
                 rtt_micros: None,
+                outer: self.tls.outer_path(),
             }),
         }
     }
@@ -2038,8 +2062,13 @@ async fn open_relay_socket(
     let opened = tokio::time::timeout(RELAY_CONNECT_TIMEOUT, async {
         // The TCP connect is hedged (`hedge`): a relay host's black-holed SYN gets a new socket
         // in 400 ms instead of this whole budget. TLS and the upgrade run on the winner.
-        let socket = connect_relay_tcp(endpoint).await?;
-        client_async_tls_with_config(request, socket, Some(config), tls.connector()).await
+        let (socket, via) = connect_relay_tcp(endpoint, &tls.proxy).await?;
+        let opened =
+            client_async_tls_with_config(request, socket, Some(config), tls.connector()).await;
+        if let Ok((socket, _)) = &opened {
+            tls.outer.record(endpoint.host_str().unwrap_or(""), &via, socket);
+        }
+        opened
     })
     .await
     .map_err(|_| {
@@ -2059,21 +2088,28 @@ async fn open_relay_socket(
     }
 }
 
-/// The relay endpoint's TCP stream, hedged over its addresses ([`super::hedge`]), Nagle off.
-async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> {
+/// The relay endpoint's TCP stream, Nagle off: through the proxy `proxy` names for the relay's
+/// URL ([`super::proxied`]), else hedged over its addresses ([`super::hedge`]).
+async fn connect_relay_tcp(
+    endpoint: &Url,
+    proxy: &cmux_proxy::ProxyConfig,
+) -> Result<(TcpStream, cmux_proxy::Via), WebSocketError> {
     let host = endpoint.host_str().ok_or(WebSocketError::Url(UrlError::NoHostName))?;
     let port = endpoint
         .port_or_known_default()
         .ok_or(WebSocketError::Url(UrlError::UnsupportedUrlScheme))?;
-    let addresses = super::dial::resolve_dial_target(host, port)
-        .await
-        .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
-    let socket =
-        super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+    let direct = async {
+        let addresses = super::dial::resolve_dial_target(host, port)
             .await
-            .map_err(WebSocketError::Io)?;
-    let _ = socket.set_nodelay(true);
-    Ok(socket)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let socket =
+            super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+                .await?;
+        let _ = socket.set_nodelay(true);
+        Ok(socket)
+    };
+    super::proxied::connect(host, port, endpoint.scheme() == "wss", proxy, direct)
+        .map_err(WebSocketError::Io)
 }
 
 fn relay_connect_error(error: WebSocketError) -> ProviderError {

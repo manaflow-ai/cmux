@@ -245,6 +245,7 @@ plist = "1.10"
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
+cmux-proxy.workspace = true
 cmux-remote.workspace = true
 cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
