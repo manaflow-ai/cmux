@@ -91,7 +91,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
   outline: none;
 }
 
@@ -120,7 +120,7 @@
   align-items: center;
   gap: var(--ds-space-fixed-1);
   min-width: 0;
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
   border-radius: 6px;
 }
 

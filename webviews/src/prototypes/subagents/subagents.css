@@ -1190,7 +1190,7 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-fixed-1);
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
 }
 .sa-inline-tree-row .sa-disclosure {
   width: 20px;
@@ -1313,7 +1313,7 @@
   min-width: 0;
 }
 .sa-think-inline {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
   border-inline-start: 1px solid var(--sa-line);
 }
 .sa-think-card {

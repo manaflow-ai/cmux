@@ -359,10 +359,10 @@ button.cv-subagent > :last-child {
   padding-inline-start: var(--ds-space-5);
 }
 .acpmux-agents-list__row[data-depth="2"] {
-  padding-inline-start: 40px;
+  padding-inline-start: var(--ds-space-fixed-40);
 }
 .acpmux-agents-list__row[data-depth="3"] {
-  padding-inline-start: 56px;
+  padding-inline-start: var(--ds-space-fixed-56);
 }
 .acpmux-agents-list__row:hover {
   background: var(--agent-control-hover);

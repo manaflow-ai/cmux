@@ -33,7 +33,7 @@ html[data-cmux-page="files"] body { overflow: hidden; }
   align-items: center;
   gap: 6px;
   height: 26px;
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
   border-radius: 6px;
   white-space: nowrap;
   cursor: default;
