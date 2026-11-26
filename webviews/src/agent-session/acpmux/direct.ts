@@ -7512,8 +7512,35 @@ export class AcpmuxDirectClient {
     if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
   }
 
+  /// The newest record the selected chat's event stream brought this page (`streamGap`), whatever the page did
+  /// with it.
+  private streamHeard?: { sessionId: string; generation: number; seq: number };
+
+  /// acpmux names the record its event stream sent before this one (`prev`, server `Conn::stream_prev`). A chat
+  /// that holds less lost records on the way (a dropped bridge frame, a relay): they are read from its cursor now,
+  /// as after a lag, rather than left a hole only a reload filled (Leo, 2026-11-22: "we need to make sure any
+  /// solutions that reloading would help with, we never encounter those classes of bugs in the first place.").
+  private streamGap(event: EventRecord): void {
+    const sessionId = event.sessionId as string;
+    const generation = this.selectionGeneration;
+    const before = this.streamHeard;
+    const heard = before?.sessionId === sessionId && before.generation === generation ? before.seq : 0;
+    this.streamHeard = { sessionId, generation, seq: Math.max(heard, event.seq) };
+    const prev = (event as { prev?: unknown }).prev;
+    // Before the attach lands its page is the cursor, and acpmux's stream starts over at every attach.
+    if (this.attachedGeneration !== generation || !streamLost(prev, this.lastSeq, heard)) return;
+    this.wire.lifecycle("stream gap", { sessionId, after: this.lastSeq, prev });
+    this.resyncAfterLag({
+      dropped: (prev as number) - this.lastSeq,
+      sessionIds: [sessionId],
+      afterSeq: this.lastSeq,
+      reason: "stream_gap",
+    });
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
+    this.streamGap(event);
     if (event.sessionId && this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
     acpmuxPerf.recordsTaken("applied", 1, event.seq);
     // The chat's records reach the page: the quiet watch starts over from here.
@@ -18052,6 +18079,14 @@ function readerHere(): boolean {
 /// show's `_acpmux/lagged {reason: "hidden", afterSeq}` names where the first one left out was
 /// (acpmux server/view.rs), so the read gets every chunk back in order (`fetchMissedEvents` merges
 /// by seq, so records the page already has are not drawn twice).
+/// Whether an event-stream record whose stream sent `prev` before it (acpmux `Conn::stream_prev`) finds records
+/// lost on the way: the page holds the chat through `lastSeq` (0: no page yet) and heard through `heard`.
+export function streamLost(prev: unknown, lastSeq: number, heard: number): prev is number {
+  return (
+    typeof prev === "number" && Number.isSafeInteger(prev) && prev > 0 && lastSeq > 0 && prev > Math.max(lastSeq, heard)
+  );
+}
+
 export function lagCursor(params: unknown, lastSeq: number): number {
   const afterSeq = (params as { afterSeq?: unknown } | null | undefined)?.afterSeq;
   return typeof afterSeq === "number" && Number.isFinite(afterSeq) && afterSeq >= 0

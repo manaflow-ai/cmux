@@ -63,6 +63,9 @@ fn shape_of(params: &Value) -> Value {
         obj.remove("seq");
         obj.remove("at");
         obj.remove("chunkRef");
+        // The stream's cursor before the record (`prev`, `Conn::stream_prev`) differs on every
+        // record; a compact frame carries its own.
+        obj.remove("prev");
     }
     if let Some(content) = shape.pointer_mut("/msg/params/update/content")
         && let Some(obj) = content.as_object_mut()
@@ -110,7 +113,10 @@ impl ChunkDeltas {
             && at >= t.at
             && t.shape == shape
         {
-            let delta = json!({"ref": t.chunk_ref, "seq": seq, "dt": at.saturating_sub(t.at), "text": text});
+            let mut delta = json!({"ref": t.chunk_ref, "seq": seq, "dt": at.saturating_sub(t.at), "text": text});
+            if let Some(prev) = params.get("prev").and_then(Value::as_u64) {
+                delta.set("prev", json!(prev));
+            }
             t.seq = seq;
             t.at = at;
             return Message::notification(CHUNK, delta);

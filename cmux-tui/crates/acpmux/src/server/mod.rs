@@ -223,6 +223,9 @@ mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
 mod stream_cursor_tests;
+#[cfg(test)]
+#[path = "stream_prev_tests.rs"]
+mod stream_prev_tests;
 mod subsessions;
 mod surgery;
 /// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
@@ -300,6 +303,11 @@ pub struct SubOpts {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+    /// The seq of the last record this event stream sent the client for this chat (0: none yet):
+    /// the next one carries it as `prev`, so a client whose newest record is older knows records
+    /// were lost on the way (a bridge, a relay, a dropped frame) and reads them from its cursor,
+    /// instead of drawing a hole a reload alone repaired (`stream_prev`).
+    pub stream_sent: u64,
 }
 
 /// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
@@ -1168,6 +1176,23 @@ impl Conn {
             return Err(RpcError::internal("the connection that would answer ended"));
         }
         Ok(())
+    }
+
+    /// The `prev` of an event-stream record of `session_id` with `seq` going out now: the seq of
+    /// the record this stream sent before it (0 when none since the attach, or `seq` is not past
+    /// it), and `seq` becomes the stream's last. A client that holds less than `prev` missed
+    /// records the stream sent: it reads them from its cursor (`_acpmux/events {afterSeq}`), the
+    /// read a reload did (Leo, 2026-11-22: "we need to make sure any solutions that reloading
+    /// would help with, we never encounter those classes of bugs in the first place.").
+    fn stream_prev(&self, session_id: &str, seq: u64) -> u64 {
+        let mut subs = self.subs.lock_or_recover();
+        let Some(sub) = subs.get_mut(session_id) else { return 0 };
+        let prev = sub.stream_sent;
+        if seq <= prev {
+            return 0;
+        }
+        sub.stream_sent = seq;
+        prev
     }
 
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
@@ -3013,10 +3038,22 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && (!sub.event_stream || sub.filter.matches_live(rec))
             && conn.leaves_out_hidden(&ev.session_id, rec.seq);
         if repeat || quiet {
-            // Sent by the replay, or left out while hidden.
+            // Sent by the replay, or left out while hidden (the show's `_acpmux/lagged` covers
+            // those). A replayed record is the client's: the next record's `prev` counts it.
+            if repeat && sub.event_stream {
+                conn.stream_prev(&ev.session_id, rec.seq);
+            }
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                let params = routed(event_value(&ev.session_id, rec));
+                let mut params = routed(event_value(&ev.session_id, rec));
+                // A peer daemon's link keeps its own cursors (`peer_forward.rs`); every client
+                // that draws the chat hears what this stream sent before the record.
+                if conn.origin != Origin::Peer {
+                    let prev = conn.stream_prev(&ev.session_id, rec.seq);
+                    if prev > 0 {
+                        params.set("prev", json!(prev));
+                    }
+                }
                 conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
             }
         } else {
