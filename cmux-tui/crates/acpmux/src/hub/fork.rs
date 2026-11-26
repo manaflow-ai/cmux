@@ -1013,6 +1013,16 @@ impl Hub {
             meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
         }
         let new = self.make_session(meta);
+        // A Cloud chat's launch credential lives in this daemon's memory only (`agent_credentials.rs`):
+        // a fork of it onto the same family carries it, or the fork's agent started on the machine's own
+        // route and said "Claude Code is signed out" (cmux#57418). Another family's fork goes without.
+        let carried =
+            session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone().filter(|c| {
+                target.as_ref().is_none_or(|t| {
+                    crate::agent_credentials::Family::of_harness(&t.family) == Some(c.family())
+                })
+            });
+        *new.credential.lock().unwrap_or_else(|e| e.into_inner()) = carried;
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).

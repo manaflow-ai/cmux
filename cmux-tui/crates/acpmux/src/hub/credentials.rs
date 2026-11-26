@@ -325,6 +325,34 @@ mod tests {
         assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
     }
 
+    /// cmux#57418: a fork of a Cloud chat started its agent with no credential (the parent's was
+    /// in memory only and the fork took none), so the fork said "Claude Code is signed out".
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_fork_of_a_credentialed_chat_starts_on_its_credential() {
+        let hub = hub();
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        };
+        let parent = hub.new_session(req).await.unwrap();
+        hub.child_for(&parent).await.unwrap();
+        let fork =
+            hub.fork(&parent, None, None, Default::default(), None, None, false).await.unwrap();
+        assert_eq!(*fork.credential.lock().unwrap(), Some(credential(FIRST)));
+        hub.child_for(&fork).await.unwrap();
+        assert_eq!(launched(&fork).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
+        assert!(!written(&hub, &fork.id).contains(FIRST), "never written down");
+        // A chat with none forks with none.
+        let plain = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        let fork =
+            hub.fork(&plain, None, None, Default::default(), None, None, true).await.unwrap();
+        assert!(fork.credential.lock().unwrap().is_none());
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_update_of_another_family_or_an_unknown_session_is_refused() {
         let hub = hub();

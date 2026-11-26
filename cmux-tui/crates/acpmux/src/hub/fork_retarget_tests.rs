@@ -16,7 +16,11 @@ fn hub() -> Arc<Hub> {
                         "picky": {"argv": ["python3", fake], "family": "picky",
                                   "env": {"FAKE_PICKER": "1", "FAKE_REFUSE_ID": "bad-model"}},
                         // Takes its model at spawn, from its defaults' env only.
-                        "spawned": {"argv": ["python3", fake], "family": "spawned"}},
+                        "spawned": {"argv": ["python3", fake], "family": "spawned"},
+                        // Cloud credential families (cmux#57418).
+                        "claude-like": {"argv": ["python3", fake], "family": "claude"},
+                        "claude-other": {"argv": ["python3", fake], "family": "claude"},
+                        "codex-like": {"argv": ["python3", fake], "family": "codex"}},
                      "defaults": {"spawned": {"env": {"FAKE_MODEL_ARG": "${model}"}}},
                      "defaultHarness": "fake",
                      "titles": {"generate": false}});
@@ -212,4 +216,40 @@ async fn a_switch_whose_named_model_the_harness_refuses_fails_and_leaves_no_fork
         .await
         .unwrap();
     assert_eq!(fork.meta().harness, "picky");
+}
+
+/// cmux#57418: a Cloud chat's launch credential lives only in acpmux's memory, so a fork that did
+/// not carry it started its agent signed out. A fork onto the same family carries it; one onto
+/// another family does not (a Claude token is not Codex's).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_carries_the_chats_cloud_credential_only_to_its_own_family() {
+    let hub = hub();
+    let credential = crate::agent_credentials::AgentCredential::parse(
+        &json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-forktest"}}),
+    )
+    .unwrap();
+    let parent = hub
+        .new_session(NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            harness: Some("claude-like".into()),
+            credential: Some(credential.clone()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let held = |s: &Session| s.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(held(&parent), Some(credential.clone()));
+
+    let same = hub.fork(&parent, None, None, Default::default(), None, None, true).await.unwrap();
+    assert_eq!(held(&same), Some(credential.clone()), "a fork on the chat's own harness");
+    let claude = hub
+        .fork_to(&parent, to("claude-other"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(held(&claude), Some(credential), "a fork onto another Claude harness");
+    let codex = hub
+        .fork_to(&parent, to("codex-like"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(held(&codex), None, "a Claude token never goes to a Codex fork");
 }
