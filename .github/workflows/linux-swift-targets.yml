@@ -1,0 +1,73 @@
+name: Linux Swift targets
+
+# Ratchet: the number of first-party Swift targets that compile on Linux only
+# goes up. scripts/ci/linux_swift_target_census.py builds every target of every
+# first-party package with Linux SwiftPM and fails when a target listed in
+# scripts/ci/linux_swift_targets.json stops compiling. A target that newly
+# compiles is reported with the command that raises the baseline. The census
+# report (every target, its blocker and first error) is uploaded as the
+# linux-swift-census artifact.
+
+on:
+  pull_request:
+    paths:
+      - '**/*.swift'
+      - '**/Package.resolved'
+      - scripts/ci/linux_swift_target_census.py
+      - scripts/ci/linux_swift_targets.json
+      - scripts/ci/swiftpm_prefetch_binary_artifacts.py
+      - .github/workflows/linux-swift-targets.yml
+  push:
+    branches: [main]
+    paths:
+      - '**/*.swift'
+      - '**/Package.resolved'
+      - scripts/ci/linux_swift_target_census.py
+      - scripts/ci/linux_swift_targets.json
+      - .github/workflows/linux-swift-targets.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  SWIFT_VERSION: 6.2.1
+  SWIFT_SHA256: 4022cb64faf7e2681c19f9b62a22fb7d9055db6194d9e4a4bef9107b6ce10946
+
+jobs:
+  ratchet:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Check out the submodules Swift packages reach
+        run: git submodule update --init --depth 1 vendor/bonsplit
+      - name: Install Swift ${{ env.SWIFT_VERSION }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/swift-$SWIFT_VERSION"
+          url="https://download.swift.org/swift-$SWIFT_VERSION-release/ubuntu2404/swift-$SWIFT_VERSION-RELEASE/swift-$SWIFT_VERSION-RELEASE-ubuntu24.04.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/swift.tgz" "$url"
+          echo "$SWIFT_SHA256  $RUNNER_TEMP/swift.tgz" | sha256sum -c -
+          mkdir -p "$dir"
+          tar xzf "$RUNNER_TEMP/swift.tgz" -C "$dir" --strip-components=1
+          rm "$RUNNER_TEMP/swift.tgz"
+          echo "$dir/usr/bin" >> "$GITHUB_PATH"
+          "$dir/usr/bin/swift" --version
+      - name: Build every first-party Swift target on Linux and check the ratchet
+        run: |
+          python3 scripts/ci/linux_swift_target_census.py check --build \
+            --jobs "$(nproc)" --scratch "$RUNNER_TEMP/census" --json "$RUNNER_TEMP/linux-swift-census.json"
+      - name: Upload the census report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-swift-census
+          path: ${{ runner.temp }}/linux-swift-census.json
+          if-no-files-found: ignore
