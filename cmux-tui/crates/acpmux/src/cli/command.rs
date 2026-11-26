@@ -16,6 +16,36 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session place-set`: where an existing chat runs, from the place menu's choices.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct PlaceSessionArgs {
+    /// The chats to place (ids or names).
+    #[arg(required = true)]
+    pub sessions: Vec<String>,
+    /// Auto (nothing moves now), cloud (a fresh cloud machine) or machine (move there, stay).
+    #[arg(long, value_parser = ["auto", "cloud", "machine"], required_unless_present_any = ["undo", "status"])]
+    pub mode: Option<String>,
+    /// With `--mode machine`: the machine.
+    #[arg(long, value_name = "MACHINE")]
+    pub machine: Option<String>,
+    /// With `--mode machine`: run the chat in this folder there (as `session move --cwd`).
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<String>,
+    /// The reason the chat's move line gives (default: you chose it).
+    #[arg(long)]
+    pub why: Option<String>,
+    /// Go on although the move leaves something behind (a localhost server, files outside the
+    /// repo, an ssh tunnel); without it the move lists them and does nothing.
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    /// Move back to where the chat's last move came from. Ask the machine the chat is on now.
+    #[arg(long, conflicts_with_all = ["mode", "status"])]
+    pub undo: bool,
+    /// Say where each chat is pinned and where a move stands; change nothing.
+    #[arg(long, conflicts_with = "mode")]
+    pub status: bool,
+}
+
 /// `session rebalance`: one pass of the lane rebalancer on this host (`crate::rebalance`).
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct RebalanceArgs {
@@ -940,6 +970,8 @@ pub enum Command {
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
+    #[command(hide = true)]
+    PlaceSession(PlaceSessionArgs),
     // Built only by flattening `session hold` / `session release`; its fields carry no #[arg], so it
     // is no subcommand of its own (clap's debug build refused the positional `held` switch).
     #[command(skip)]
@@ -1676,6 +1708,11 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
+    /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
+    /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
+    #[command(name = "place-set")]
+    PlaceSet(PlaceSessionArgs),
     /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
     /// only chats between turns with no work running below them, at most a few a pass, to the
     /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
@@ -2164,6 +2201,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
+            SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
             SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
                 Command::SessionHold {
                     session,
