@@ -675,10 +675,7 @@ try {
       let steady: Idle | undefined;
       if (still) {
         await settledAt(page);
-        const idleFrom = await page.evaluate(() => Math.round(performance.now()));
         [quiet] = await measureIdle([{ page, cdp }]);
-        // TEMP-DEBUG
-        console.log("SLACKARM idleFrom", idleFrom, JSON.stringify(await page.evaluate(() => ((globalThis as any).__slackArm ?? []).slice(-4))));
         // Then the chat left alone, past the beat before a page rests (pageHealth.ts) and its slack
         // jobs' windows (slackTimers.ts): with nothing changing, nothing should wake.
         await new Promise((resolve) => setTimeout(resolve, STEADY_AFTER_MS));

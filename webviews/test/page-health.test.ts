@@ -421,4 +421,3 @@ test("a resting page that is hidden and shown again beats at once and is timed a
   expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 1 } });
   dom.window.close();
 });
-
