@@ -15,6 +15,7 @@
 //!   `path`, or `{}`.
 //! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`], [`link_rules`].
 
+pub mod chrome_theme;
 pub mod effective;
 pub mod jsonc;
 pub mod link_rules;
@@ -43,6 +44,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         _ => theme::call(op, request)
             .or_else(|| effective::call(op, request))
             .or_else(|| looks::call(op, request))
+            .or_else(|| chrome_theme::call(op, request))
             .or_else(|| shortcut::call(op, request))
             .or_else(|| link_rules::call(op, request))
             .or_else(|| schema::call(op, request))
