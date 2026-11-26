@@ -113,11 +113,7 @@ mod linux {
                 if let Some(parent) = std::path::Path::new(&path).parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                let result = std::fs::write(&path, data).and_then(|()| match mode {
-                    Some(m) => std::fs::set_permissions(&path, std::fs::Permissions::from_mode(m)),
-                    None => Ok(()),
-                });
-                match result {
+                match write_atomic(&path, &data, mode) {
                     Ok(()) => GuestResponse::Ok,
                     Err(e) => err(format!("{path}: {e}")),
                 }
@@ -126,6 +122,33 @@ mod linux {
                 exec(program, args, env, cwd, stdin, timeout_ms)
             }
         }
+    }
+
+    /// Write through a temp file made with the final mode (a 0600 secret is never readable by
+    /// others, not even for a moment), flushed to disk, then renamed over `path`: a reader sees
+    /// the old file or the whole new one.
+    fn write_atomic(path: &str, data: &[u8], mode: Option<u32>) -> io::Result<()> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let tmp = format!("{path}.cmux-vmd-tmp");
+        let result = (|| {
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(mode.unwrap_or(0o644))
+                .open(&tmp)?;
+            // The umask may have narrowed the mode at create, and a stale temp keeps its own.
+            if let Some(m) = mode {
+                f.set_permissions(std::fs::Permissions::from_mode(m))?;
+            }
+            f.write_all(data)?;
+            f.sync_all()?;
+            std::fs::rename(&tmp, path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        result
     }
 
     fn exec(

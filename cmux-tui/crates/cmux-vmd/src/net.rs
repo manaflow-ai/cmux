@@ -159,7 +159,41 @@ pub async fn init_host(ipv6: bool) -> Result<()> {
         .await?;
         run(&["sysctl", "-qw", "net.ipv6.conf.all.forwarding=1"]).await?;
     }
-    nft(&host_table(), None).await
+    nft(&host_table(), None).await?;
+    open_foreign_forward(ipv6).await;
+    Ok(())
+}
+
+/// A drop in any table is final, so a co-resident firewall whose FORWARD policy is DROP
+/// (Docker, ufw, firewalld) silently cuts every guest off even when our egress chain accepts.
+/// Accept slot traffic in iptables' FORWARD too; our own `forward` chain still applies each
+/// slot's egress verdict, so this widens nothing. Hosts without iptables are skipped.
+async fn open_foreign_forward(ipv6: bool) {
+    let tools: &[&str] = if ipv6 { &["iptables", "ip6tables"] } else { &["iptables"] };
+    for tool in tools {
+        for rule in [
+            &["-i", "vmdh+", "-j", "ACCEPT"][..],
+            &["-o", "vmdh+", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"]
+                [..],
+        ] {
+            let check: Vec<&str> = [*tool, "-w", "-C", "FORWARD"]
+                .iter()
+                .copied()
+                .chain(rule.iter().copied())
+                .collect();
+            if run(&check).await.is_ok() {
+                continue;
+            }
+            let insert: Vec<&str> = [*tool, "-w", "-I", "FORWARD", "1"]
+                .iter()
+                .copied()
+                .chain(rule.iter().copied())
+                .collect();
+            if let Err(e) = run(&insert).await {
+                eprintln!("cmux-vmd: {tool} FORWARD accept for slots not added: {e:#}");
+            }
+        }
+    }
 }
 
 fn host_table() -> String {

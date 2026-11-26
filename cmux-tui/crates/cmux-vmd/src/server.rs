@@ -14,6 +14,7 @@
 //! DELETE /v1/snapshots/{id}
 //! POST   /v1/snapshots/{id}/fork      same body as create (image ignored)
 //! GET    /healthz                     (no token)
+//! /v1/vms..., /v1/templates...        cmux-platform's own-host contract (ownhost.rs)
 //! ```
 
 use std::sync::Arc;
@@ -32,6 +33,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::host::{CreateRequest, ExecRequest, Host, VmdError};
+use crate::ownhost::OwnHost;
 
 /// Largest request body (file uploads).
 pub const MAX_BODY: usize = 192 * 1024 * 1024;
@@ -42,7 +44,7 @@ struct AppState {
     token: Arc<str>,
 }
 
-pub fn router(host: Arc<Host>, token: String) -> Router {
+pub fn router(host: Arc<Host>, own: Arc<OwnHost>, token: String) -> Router {
     let state = AppState { host, token: token.into() };
     let api = Router::new()
         .route("/v1/machines", post(create).get(list))
@@ -56,6 +58,7 @@ pub fn router(host: Arc<Host>, token: String) -> Router {
         .route("/v1/snapshots", get(snapshots))
         .route("/v1/snapshots/{id}", delete(remove_snapshot))
         .route("/v1/snapshots/{id}/fork", post(fork))
+        .merge(crate::ownhost::routes(own))
         .layer(middleware::from_fn_with_state(state.clone(), auth));
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
@@ -91,7 +94,7 @@ async fn auth(
     next.run(req).await
 }
 
-struct ApiError(StatusCode, &'static str, String);
+pub(crate) struct ApiError(pub(crate) StatusCode, pub(crate) &'static str, pub(crate) String);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -107,12 +110,13 @@ impl From<VmdError> for ApiError {
             VmdError::SnapshotNotFound => Self(StatusCode::NOT_FOUND, "snapshot_not_found", msg),
             VmdError::InvalidState { .. } => Self(StatusCode::CONFLICT, "invalid_state", msg),
             VmdError::InvalidInput(_) => Self(StatusCode::BAD_REQUEST, "invalid_input", msg),
+            VmdError::HostFull(_) => Self(StatusCode::SERVICE_UNAVAILABLE, "host_full", msg),
             VmdError::Backend(_) => Self(StatusCode::INTERNAL_SERVER_ERROR, "backend", msg),
         }
     }
 }
 
-type ApiResult = Result<Response, ApiError>;
+pub(crate) type ApiResult = Result<Response, ApiError>;
 
 async fn create(State(st): State<AppState>, Json(req): Json<CreateRequest>) -> ApiResult {
     let (machine, timing) = st.host.create(req).await?;
