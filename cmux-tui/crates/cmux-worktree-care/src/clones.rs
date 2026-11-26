@@ -197,10 +197,7 @@ mod tests {
     #[test]
     fn ignored_local_files_keep_the_clone_but_build_output_does_not() {
         let (_base, clone) = clone_pair("clone-ignored");
-        std::fs::write(clone.join(".gitignore"), ".env\ntarget/\nnode_modules/\n").unwrap();
-        git(&clone, &["add", ".gitignore"]);
-        git(&clone, &["commit", "-q", "-m", "ignore"]);
-        git(&clone, &["push", "-q", "origin", "HEAD:main"]);
+        std::fs::write(clone.join(".git/info/exclude"), ".env\ntarget/\nnode_modules/\n").unwrap();
         std::fs::create_dir_all(clone.join("target/debug")).unwrap();
         std::fs::write(clone.join("target/debug/bin"), "x").unwrap();
         std::fs::create_dir_all(clone.join("node_modules/pkg")).unwrap();

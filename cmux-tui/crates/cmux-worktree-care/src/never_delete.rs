@@ -87,7 +87,7 @@ impl NeverDelete {
             if !absolute.contains('/') {
                 continue;
             }
-            let fixed = absolute.find(['*', '?']).map_or(absolute.as_str(), |at| &absolute[..at]);
+            let fixed = absolute.split(['*', '?']).next().unwrap_or_default();
             if fixed.starts_with(&under) {
                 return Some(format!("{glob} (inside it)"));
             }
