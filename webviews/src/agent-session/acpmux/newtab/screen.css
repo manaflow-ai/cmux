@@ -1480,12 +1480,11 @@
 :root[data-home-cards="raised"] .nt-cards:not([data-variant="list"]) .nt-card:hover {
   background: color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-surface, var(--acpmux-base, Canvas)));
 }
-/* glass: see-through cards over the window's picture, the glass material's rim and depth. Reduce Transparency keeps
-   the rim on an opaque fill. */
+/* glass: see-through cards over the window's picture, the glass material's rim and depth. No backdrop blur: these
+   cards scroll with the content (design/glass-system.md rules 2 and 7; check-one-material: only .ui-glass paints a
+   blur). Reduce Transparency keeps the rim on an opaque fill. */
 :root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
   background: color-mix(in srgb, var(--acpmux-base, Canvas) 42%, transparent);
-  -webkit-backdrop-filter: var(--glass-material-backdrop, blur(20px) saturate(1.6));
-  backdrop-filter: var(--glass-material-backdrop, blur(20px) saturate(1.6));
   box-shadow: var(--glass-material-rim, inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, white 30%, transparent)),
     var(--glass-material-depth-composer, var(--elevation-2, none));
 }
@@ -1495,8 +1494,6 @@
 @media (prefers-reduced-transparency: reduce) {
   :root[data-home-cards="glass"] :is(.nt-cards:not([data-variant="list"]) .nt-card, .nt-stage-card, .acpmux-home-list) {
     background: var(--acpmux-composer-surface, var(--acpmux-base, Canvas));
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
   }
 }
 /* New Tab's composer: one borderless card (Lucas 2026-11-25, newtab-composer-lab "Unified Card"). The field has the
