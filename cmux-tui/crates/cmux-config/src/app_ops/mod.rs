@@ -13,7 +13,7 @@
 //! - `jsonc.strip` `{source}` answers `{text}` or `{problem}`.
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
-//! - The areas: [`theme`], [`effective`], [`looks`], [`controller`],
+//! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`], [`controller`],
 //!   [`build_defaults`], [`quick_toggles`].
 
 pub mod build_defaults;
@@ -22,6 +22,7 @@ pub mod effective;
 pub mod jsonc;
 pub mod looks;
 pub mod quick_toggles;
+pub mod shortcut;
 pub mod theme;
 
 use serde_json::Value;
@@ -44,6 +45,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         _ => theme::call(op, request)
             .or_else(|| effective::call(op, request))
             .or_else(|| looks::call(op, request))
+            .or_else(|| shortcut::call(op, request))
             .or_else(|| controller::call(op, request))
             .or_else(|| build_defaults::call(op, request))
             .or_else(|| quick_toggles::call(op, request))
