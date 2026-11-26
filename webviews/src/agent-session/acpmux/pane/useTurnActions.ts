@@ -7,7 +7,7 @@ import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
 import type { HarnessCatalog } from "../catalog";
 import type { HunkReview } from "../changes/hunkReview";
-import { type ChatAccounts, ownRouteOf } from "../chatAccounts";
+import { type ChatAccounts } from "../chatAccounts";
 import type { Presentation } from "../chatDisplay";
 import { type CloudSignIn, terminalSignIn } from "../cloudAgentLogin";
 import type { ComposerHandle } from "../Composer";
@@ -364,7 +364,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     catalog,
     cloudRouteHostKind,
     cloudTeamMachine,
-    chatAccounts,
     access,
   } = deps;
   // Sign in again's terminal login: a chat here or on an own machine, and a Cloud chat on an older
@@ -644,7 +643,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
     // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
-    ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
     access,
   };
 }

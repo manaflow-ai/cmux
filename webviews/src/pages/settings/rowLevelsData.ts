@@ -348,7 +348,6 @@ export const ROW_LEVELS: {
     "agents.chats.roots": "more",
     "chat.on": "more",
     "agents.promptCache": "more",
-    "agents.modelRouter.model": "more",
     "computerUse.driver": "more",
     "computerUse.livePreview": "more",
     "computerUse.whileLocked": "more",

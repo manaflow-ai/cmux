@@ -6943,7 +6943,7 @@ a.cv-sha:focus-visible {
 .cv-turn-error__primary:hover {
   background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
 }
-/* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
+/* A link-styled action after a turn error's cause (CloudSignIn.tsx). */
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
 .cv-turn-error__offer-link {
   all: unset;

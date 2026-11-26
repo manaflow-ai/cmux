@@ -329,7 +329,6 @@
     "setting.agents.guidance.otherAgents": true,
     "setting.agents.guidance.userSkills": true,
     "setting.agents.mcpServers.enabled": true,
-    "setting.agents.modelRouter.model": "deepseek/deepseek-v4.1-flash-1017",
     "setting.agents.promptCache": "1h",
     "setting.agents.promptSuggestions": true,
     "setting.agents.subsessions.answerQuestions": false,

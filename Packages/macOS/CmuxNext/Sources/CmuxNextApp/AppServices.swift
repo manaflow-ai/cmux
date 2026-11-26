@@ -271,14 +271,6 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
-    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
-    private(set) lazy var modelRouter: ModelRouterLease? = {
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
-                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
-        return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
-    }()
     /// The cmux sign-in lent to acpmux for GitHub App tokens (CmuxNextHomeEngine GitHubAppLease).
     private(set) lazy var githubAppLease = GitHubAppLease(identity: cloud.installIdentity,
                                                           apiBaseURL: cloud.configuration.ownerAPIBaseURL(),

@@ -896,18 +896,6 @@
       "title" : "Saved Servers in Agent Chats",
       "type" : "boolean"
     },
-    "agents.modelRouter.model" : {
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "description" : "The model new cmux model router chats start on.",
-      "enum" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "title" : "cmux Model Router Model",
-      "type" : "string"
-    },
     "agents.promptCache" : {
       "default" : "1h",
       "description" : "One hour keeps replies after a pause cheap; its cache writes cost a little more.",

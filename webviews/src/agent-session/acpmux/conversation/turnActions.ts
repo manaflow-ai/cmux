@@ -130,13 +130,6 @@ export type TurnActions = {
   route?: import("../failureCopy").FailureRoute;
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
-  /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's
-  /// routes offer of CodeRouter (chatAccounts.ts codeRouterOffer), and the move onto a route, which
-  /// acpmux applies at once on an idle chat and resumes the same session. Only on this Mac's acpmux.
-  ownRoute?: {
-    find: () => Promise<ChatAccount | "on" | undefined>;
-    use: (routeId: string) => Promise<void>;
-  };
   /// Add Credits… on a turn the cmux model router refused for want of a plan or credits
   /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs it on the person's click.
   access?: AccessOffer;

@@ -123,62 +123,6 @@
             "verified",
             "mcp"
           ]
-        },
-        {
-          "key": "agents.modelRouter.model",
-          "name": "modelRouterModel",
-          "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",
-          "title": {
-            "key": "settings.agents.modelRouter.model",
-            "text": "cmux Model Router Model"
-          },
-          "help": {
-            "key": "settings.agents.modelRouter.model.help",
-            "text": "The model new cmux model router chats start on."
-          },
-          "kind": "choice",
-          "choices": [
-            {
-              "value": "deepseek/deepseek-v4.1-flash-1017",
-              "title": {
-                "key": "settings.choice.modelRouterDeepSeekV41Flash1017",
-                "text": "DeepSeek V4.1 Flash 1017 (Images)"
-              }
-            },
-            {
-              "value": "deepseek/deepseek-v4.1-flash",
-              "title": {
-                "key": "settings.choice.modelRouterDeepSeekV41Flash",
-                "text": "DeepSeek V4.1 Flash"
-              }
-            },
-            {
-              "value": "deepseek/deepseek-v4-flash",
-              "title": {
-                "key": "settings.choice.modelRouterDeepSeekV4Flash",
-                "text": "DeepSeek V4 Flash"
-              }
-            },
-            {
-              "value": "deepseek/deepseek-v4-pro",
-              "title": {
-                "key": "settings.choice.modelRouterDeepSeekV4Pro",
-                "text": "DeepSeek V4 Pro"
-              }
-            }
-          ],
-          "default": "deepseek/deepseek-v4.1-flash-1017",
-          "keywords": [
-            "model",
-            "router",
-            "cmux router",
-            "deepseek",
-            "vision",
-            "images",
-            "inference",
-            "default model",
-            "new chat"
-          ]
         }
       ]
     },
