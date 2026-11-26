@@ -37,7 +37,8 @@ use super::service::{self, Answer};
 
 const FORMAT: &str = "cmux-relay-floors/1";
 const WORKSPACES: &str = "workspaces";
-const CHAT_LIST: &str = "chat-list";
+/// The chat list's relay surface.
+pub const CHAT_LIST: &str = "chat-list";
 const CHAT_PREFIX: &str = "chat/";
 
 /// The relay surface of a chat.
