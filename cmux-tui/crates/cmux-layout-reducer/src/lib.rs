@@ -56,6 +56,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod rows;
 pub mod sidebar_archive_marks;
+pub mod sidebar_chat_history;
 pub mod sidebar_nav;
 pub mod sidebar_section_customization;
 mod tab_moves;
