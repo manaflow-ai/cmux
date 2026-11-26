@@ -21,7 +21,27 @@ public final class FirstRunSetup {
     public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false) {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
-        shows = !skipsOnboarding && ["pending", "reopened"].contains(defaults.string(forKey: Self.stateKey) ?? "")
+        shows = false
+        shows = launch(isFirstRun: false, screenReader: false).shows
+    }
+
+    /// The stored state as the rules read it at launch. A value no build writes acts as a card
+    /// that started and ended: it shows none and starts none.
+    private var launchState: String? {
+        guard let state = defaults.string(forKey: Self.stateKey) else { return nil }
+        return ["pending", "reopened", "ended"].contains(state) ? state : "ended"
+    }
+
+    /// The stored state as the end rules read it: a value no build writes is no card, which Hide ends.
+    private var endState: String? {
+        defaults.string(forKey: Self.stateKey).flatMap { ["pending", "reopened", "ended"].contains($0) ? $0 : nil }
+    }
+
+    /// The rules' answer for this launch (Rust `onboarding_first_run_card`).
+    private func launch(isFirstRun: Bool, screenReader: Bool) -> FirstRunRules.LaunchAnswer {
+        FirstRunRules.launch(.init(state: launchState, isFirstRun: isFirstRun, screenReader: screenReader,
+                                   skipsOnboarding: skipsOnboarding,
+                                   agentsShown: defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey)))
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
@@ -40,11 +60,17 @@ public final class FirstRunSetup {
     /// expired, or its login opened here waits to be confirmed. A read not made yet, a list acpmux did not answer
     /// (Claude Code not listed at all), an unknown sign-in (a Keychain login) and a configured Claude route never
     /// show it. Independent of the onboarding switch.
-    public var needsChiefAgent: Bool {
-        guard !chiefAgentHidden, let model = agentsModel, model.loaded, model.source?.chiefUsesRoute != true else { return false }
-        if model.installable.contains(where: { $0.id == Self.chiefAgentID }) { return true }
-        guard let agent = model.agents.first(where: { $0.id == Self.chiefAgentID }) else { return false }
-        return agent.auth == .signedOut || agent.auth == .expired || model.awaitsConfirmation(agent)
+    public var needsChiefAgent: Bool { chief.needsChiefAgent }
+
+    /// Chief's card from the rules (Rust `onboarding_first_run_chief`): one call for both answers.
+    private var chief: FirstRunRules.ChiefAnswer {
+        let agent = agentsModel?.agents.first(where: { $0.id == Self.chiefAgentID })
+        return FirstRunRules.chief(.init(
+            shows: shows, hidden: chiefAgentHidden, loaded: agentsModel?.loaded ?? false,
+            usesRoute: agentsModel?.source?.chiefUsesRoute == true,
+            installable: agentsModel?.installable.contains(where: { $0.id == Self.chiefAgentID }) ?? false,
+            auth: agent?.auth.rawValue,
+            awaitsConfirmation: agent.map { agentsModel?.awaitsConfirmation($0) ?? false } ?? false))
     }
 
     /// Which Set Up card Chief's chat shows (``SetupCardHost``).
@@ -57,7 +83,13 @@ public final class FirstRunSetup {
 
     /// The card Chief's chat shows now, or `nil` for none: the whole card while ``shows``, else its Chief form while
     /// ``needsChiefAgent``.
-    public var cardForm: CardForm? { shows ? .full : needsChiefAgent ? .chief : nil }
+    public var cardForm: CardForm? {
+        switch chief.cardForm {
+        case "full": .full
+        case "chief": .chief
+        default: nil
+        }
+    }
 
     /// Reads the agents once (the shared model's first read), so ``needsChiefAgent`` can answer.
     public func checkChiefAgent(source: (any AgentSignInSource)?) {
@@ -86,8 +118,7 @@ public final class FirstRunSetup {
     /// Chromium page, not the card's WebKit one (manaflow-ai/cmux#37809).
     @discardableResult
     public func begin(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Bool {
-        guard isFirstRun, !screenReader, !skipsOnboarding, defaults.string(forKey: Self.stateKey) == nil,
-              !defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey) else { return false }
+        guard launch(isFirstRun: isFirstRun, screenReader: screenReader).begins else { return false }
         for key in [OnboardingWindowPresenter.agentsShownKey] + replacedKeys { defaults.set(true, forKey: key) }
         defaults.set("pending", forKey: Self.stateKey)
         shows = true
@@ -101,13 +132,14 @@ public final class FirstRunSetup {
 
     /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
-        if begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) { return .startCard }
-        return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
+        let route = Route(wire: launch(isFirstRun: isFirstRun, screenReader: screenReader).route)
+        if route == .startCard { begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) }
+        return route
     }
 
     /// Hide, or first-run completion: the card leaves until explicitly reopened, and this Mac's first launch is finished.
     public func end() {
-        guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
+        guard FirstRunRules.ends(state: endState, completion: false) else { return }
         defaults.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
@@ -124,7 +156,7 @@ public final class FirstRunSetup {
 
     /// Automatically dismisses first-run setup; a requested visit stays so completed rows can be reviewed.
     func complete() {
-        guard defaults.string(forKey: Self.stateKey) != "reopened" else { return }
+        guard FirstRunRules.ends(state: endState, completion: true) else { return }
         end()
     }
 }

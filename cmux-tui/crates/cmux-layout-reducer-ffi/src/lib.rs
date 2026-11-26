@@ -46,6 +46,9 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! `cmux-window-rules`' first-run rules (`onboarding_first_run_*`: the
+//! project scan's order, the Set Up card's route and form, the classic
+//! migration's next step),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -92,6 +95,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod onboarding_first_run;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -589,6 +593,10 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            // Narrower than the onboarding footer's `onboarding_` ops: asked first.
+            operation if onboarding_first_run::handles(operation) => {
+                onboarding_first_run::respond(operation, request)?
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
