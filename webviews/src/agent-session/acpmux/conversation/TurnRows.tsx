@@ -39,9 +39,9 @@ import {
   workedLabel,
   workedMessagesText,
   turnTimeKey,
-  formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
+  formatDuration,
 } from "./turns";
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
@@ -53,7 +53,15 @@ import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, ty
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, Retry, Close } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
 import { SteerChatContext } from "./pendingSteerModel";
@@ -683,6 +691,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {/* The reply's age after its buttons ("4 minutes ago", the exact time on its tooltip), shown
+              with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
+              and you get the timing ... and we already have logic for the timing"). */}
+          {!messages && !failed && <ReplyTime at={row.at} />}
           {!messages && endMark}
         </MessageFooterRow>
       </div>
