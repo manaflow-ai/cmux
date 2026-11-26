@@ -29,7 +29,8 @@
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
- *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode. cmux-dns-scope.path
+ *   keeps public resolvers behind the provider's TLS-edge resolver on a machine created with an edge rule.
  * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
  *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
  *   memory and task limits, and the user's systemd manager outlives a runaway session.
@@ -117,7 +118,7 @@ import {
   rdSetupCommand,
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
-import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
@@ -898,6 +899,8 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "echo shell-env-ok",
   ].join(" && "));
   await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
+  for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
