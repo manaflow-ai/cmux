@@ -22,6 +22,7 @@ pub mod effective;
 pub mod jsonc;
 pub mod looks;
 pub mod quick_toggles;
+pub mod schema;
 pub mod shortcut;
 pub mod theme;
 
@@ -49,6 +50,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
             .or_else(|| controller::call(op, request))
             .or_else(|| build_defaults::call(op, request))
             .or_else(|| quick_toggles::call(op, request))
+            .or_else(|| schema::call(op, request))
             .unwrap_or(Err(OpError::Unknown)),
     }
 }
