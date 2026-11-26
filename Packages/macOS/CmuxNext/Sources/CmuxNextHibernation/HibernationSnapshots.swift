@@ -211,7 +211,8 @@ package final class HibernationSnapshots {
     /// over `points`; unknown when `points` is not positive), so it is drawn at the page area's size, sharp when it
     /// has the pixels for it and never stretched past that size (cmux#57419).
     package nonisolated static func picture(of image: CGImage, data: Data? = nil, scale: CGFloat? = nil, pointsWide points: CGFloat) async -> Picture? {
-        let made: Picture? = if let data { Picture(data: data, image: image) } else { await compress(image) }
+        var made = data.map { Picture(data: $0, image: image) }
+        if made == nil { made = await compress(image) }
         guard var picture = made else { return nil }
         if let scale { picture.scale = scale * CGFloat(picture.image.width) / CGFloat(max(image.width, 1)) }
         else if points > 0 { picture.scale = CGFloat(picture.image.width) / points }
