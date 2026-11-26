@@ -194,6 +194,7 @@ public final class MacScreenSession {
     /// Ends the session here (the hub hears it from the tab's viewer).
     public func disconnect(silently: Bool = false) {
         connectDeadline.cancel()
+        lostDeadline.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         transport?.stop()
@@ -445,17 +446,16 @@ public final class MacScreenSession {
 
     /// How long a lost stream waits for the link's own `ended` line (stdout) before the card says only "lost".
     @ObservationIgnored var lostGrace: Duration = .seconds(1)
+    /// The pending lost-stream grace; `linkEnded` (through disconnect()) cancels it.
+    @ObservationIgnored let lostDeadline = DemandTimer(owner: "mac-screen.lost-grace")
 
     /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
     /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
     func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport?) {
-        let grace = lostGrace
-        // task-owner: one grace wait; ends at its deadline or when disconnect() cancels `tasks`.
-        tasks.append(Task { [weak self] in
-            try? await Task.sleep(for: grace)
-            guard let self, !Task.isCancelled, self.transport === transport else { return }
+        lostDeadline.schedule(after: lostGrace) { @MainActor [weak self, weak transport] in
+            guard let self, let transport, self.transport === transport else { return }
             fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
-        })
+        }
     }
 
     private func fail(_ message: String) {
