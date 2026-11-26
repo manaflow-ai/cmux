@@ -720,6 +720,7 @@ fn dispatch_command(
             title,
             pinned,
             marked_unread,
+            keep_awake,
             mutation,
         } => cmd_workspaces::set_workspace_metadata(
             mux,
@@ -731,6 +732,7 @@ fn dispatch_command(
             title,
             pinned,
             marked_unread,
+            keep_awake,
             mutation,
         ),
         Command::ListPersonal => cmd_profiles::list_personal(mux),

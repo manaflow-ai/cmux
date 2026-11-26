@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0639b5abd40f690eb96abcea4b4159e95cd31199a88d5fc41ac0bf6a4903580a";
+inline constexpr std::string_view kProtocolIrSha256 = "2bad69e8f9b120d6c7f02ded8625b17f0323bbdb295b27f373e135904c9f0855";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -5939,6 +5939,7 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> icon{};
+    Field<bool> keep_awake{};
     Field<std::string> key{};
     Field<bool> marked_unread{};
     Field<std::string> mutation_id{};

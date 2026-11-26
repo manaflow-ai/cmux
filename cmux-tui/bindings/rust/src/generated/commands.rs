@@ -3971,6 +3971,8 @@ pub struct SetWorkspaceMetadataRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub keep_awake: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub marked_unread: Optional<bool>,
@@ -6178,6 +6180,10 @@ impl CmuxClient {
     }
 
     pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
+        if !request.keep_awake.is_missing() {
+            self.require_protocol_field("set-workspace-metadata", 12)?;
+            self.require_capability_field("set-workspace-metadata", "workspace-keep-awake-v1")?;
+        }
         if !request.marked_unread.is_missing() {
             self.require_protocol_field("set-workspace-metadata", 12)?;
             self.require_capability_field("set-workspace-metadata", "notification-mark-unread-v1")?;
