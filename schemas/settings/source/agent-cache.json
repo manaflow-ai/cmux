@@ -13,7 +13,7 @@
         {
           "key": "agents.cacheCompact.enabled",
           "name": "cacheCompactEnabled",
-          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off by default: acpmux arms no timer until you turn it on (Leo, 2026-11-26: \"we ought to not make jcmux/acpmux so opinionated with compacition\"). ACPMUX_CACHE_COMPACT=0|1 in the acpmux daemon's environment overrides it.",
+          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact 30 s before a five-minute cache expires or 3 min before a one-hour cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off by default: acpmux arms no timer until you turn it on (Leo, 2026-11-26: \"we ought to not make jcmux/acpmux so opinionated with compacition\"). ACPMUX_CACHE_COMPACT=0|1 in the acpmux daemon's environment overrides it.",
           "title": {
             "key": "settings.agents.cacheCompact.enabled",
             "text": "Compact Before the Cache Expires"
