@@ -142,4 +142,8 @@ print(f"suite {suite}: exit {rc}, pool up {up} s, total {total} s, "
 for name in failed:
     print("FAILED:", name)
 PY
+if [[ "$suite" == shared-views && "$rc" == 0 ]]; then
+  python3 -I "$(dirname "${BASH_SOURCE[0]}")/ios_shared_view_captures.py" \
+    "$log" "$out" "$out/junit.xml" "$(git rev-parse HEAD)" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
+fi
 exit "$rc"
