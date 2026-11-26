@@ -637,3 +637,14 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def test_hosted_verify_help_names_every_reserved_filter() -> None:
+    # The dispatch wrapper's help is how an agent learns the reserved filters;
+    # one the workflow gates on but the help leaves out goes unused (cmux#59347).
+    script = ROOT / "scripts" / "verify-cmux-tui-hosted.sh"
+    result = subprocess.run(["bash", str(script), "--help"], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0
+    for reserved in ("chatmux_relay", "windows"):
+        assert f"--filter {reserved}" in result.stdout
+        assert f"`{reserved}` filter" in result.stdout
