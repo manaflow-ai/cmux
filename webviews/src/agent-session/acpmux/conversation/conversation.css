@@ -6625,7 +6625,7 @@ a.cv-sha:focus-visible {
   box-sizing: border-box;
   min-height: var(--ds-control-row);
   /* 8 across, not 12: the error card's actions keep the width they had at 9, so a late action (the
-     CodeRouter offer) joins their line instead of wrapping it. */
+     sign-in link) joins their line instead of wrapping it. */
   padding: var(--ds-space-1) var(--ds-space-2);
   border: 1px solid var(--ds-surface-control-line);
   border-radius: var(--ds-radius-control);
@@ -6956,7 +6956,6 @@ a.cv-sha:focus-visible {
 .cv-turn-error__primary:hover {
   background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
 }
-/* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
 .cv-turn-error__offer-link {
   all: unset;
@@ -7737,14 +7736,6 @@ a.cv-sha:focus-visible {
 .acpmux-shell-block button:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
-}
-.acpmux-shell-block kbd {
-  font-style: normal;
-  font-weight: 400;
-  font-size: calc(var(--cv-font-size) * 11 / 14);
-  line-height: calc(var(--cv-font-size) * 16 / 14);
-  font-family: var(--cv-font);
-  color: var(--cv-text-muted);
 }
 .acpmux-shell-block-output {
   display: flex;
@@ -9444,6 +9435,45 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 .cv-tool__file:hover {
   text-decoration-color: currentColor;
+}
+/* The agent dot signature (AgentSignature.tsx, appearance.agentSignature, off by default): the chat's
+   dots on the glyph step before the running line's words, in the variant's accent (`color`). Each dot
+   drifts on a small circle of radius `--cv-signature-drift` boxes (0.04 * drift), from its phase (the
+   spot's still rotation), on the breathing loop's period; transform only, so the compositor runs it.
+   Reduce Motion, cmux motion off or reduced, agent motion off and the static status look keep the dots
+   still. */
+.cv-signature {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  align-self: center;
+  width: var(--grid-glyph, 1em);
+  height: var(--grid-glyph, 1em);
+  margin-inline-end: var(--ds-space-2);
+}
+.cv-signature__at {
+  position: absolute;
+}
+.cv-signature__dot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-signature__dot {
+    animation: cv-signature-drift var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+}
+@keyframes cv-signature-drift {
+  from {
+    transform: rotate(0deg) translateX(calc(var(--grid-glyph, 1em) * var(--cv-signature-drift, 0))) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(calc(var(--grid-glyph, 1em) * var(--cv-signature-drift, 0))) rotate(-360deg);
+  }
 }
 
 /* ---------- Transcript looks (conversation/transcriptLook.ts) ----------

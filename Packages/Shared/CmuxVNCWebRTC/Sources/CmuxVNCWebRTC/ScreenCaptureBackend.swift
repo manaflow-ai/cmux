@@ -78,20 +78,24 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
     /// Puts a pasted image on the pasteboard; false when it could not (tests record it instead).
     private let writePasteboard: @Sendable (Data, String) -> Bool
 
-    public convenience init(log: @escaping @Sendable (String) -> Void) {
+    /// `rules`: the capture fits a viewer's demand by them (none: always the display's size).
+    public convenience init(log: @escaping @Sendable (String) -> Void, rules: ScreenRules = ScreenRules()) {
         let timing = CaptureTimingLog()
-        self.init(log: log, timing: timing, input: EventInjector(timing: timing), writePasteboard: Self.writeGeneralPasteboard)
+        self.init(log: log, timing: timing, input: EventInjector(timing: timing), writePasteboard: Self.writeGeneralPasteboard, rules: rules)
     }
 
     init(log: @escaping @Sendable (String) -> Void, timing: CaptureTimingLog?, input: EventInjector,
          writePasteboard: @escaping @Sendable (Data, String) -> Bool,
-         sourceProbe: any ScreenSourceProbe = SystemScreenSourceProbe()) {
+         sourceProbe: any ScreenSourceProbe = SystemScreenSourceProbe(), rules: ScreenRules = ScreenRules()) {
+        self.rules = rules
         self.log = log
         self.timing = timing
         self.input = input
         self.writePasteboard = writePasteboard
         self.sourceProbe = sourceProbe
     }
+
+    private let rules: ScreenRules
 
     /// Reads the lock and display sleep (the system's; a test's own).
     private let sourceProbe: any ScreenSourceProbe
@@ -301,7 +305,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
     /// pointers from the host's `telepointers` messages turns it off.
     private func configuration(for display: SCDisplay, frameRate: Int, cursor: Bool, cap: Int?) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
-        let size = ViewerDemand.fit(pixelSize(display), cap: cap)
+        let size = ViewerDemand.fit(pixelSize(display), cap: cap, rules: rules)
         configuration.width = Int(size.width)
         configuration.height = Int(size.height)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(frameRate))
