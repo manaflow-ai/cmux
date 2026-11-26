@@ -1,134 +1,133 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.failure.useCodeRouter" : {
-      "comment" : "Agent pane: a failed turn's action that moves the chat onto cmux CodeRouter and sends the turn again",
+    "settings.agents.codexPersonality" : {
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Personality"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "استخدم cmux CodeRouter"
+            "value" : "شخصية Codex"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Koristi cmux CodeRouter"
+            "value" : "Ličnost za Codex"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Brug cmux CodeRouter"
+            "value" : "Codex-personlighed"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter verwenden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use cmux CodeRouter"
+            "value" : "Codex-Persönlichkeit"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Usar cmux CodeRouter"
+            "value" : "Personalidad de Codex"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Utiliser cmux CodeRouter"
+            "value" : "Personnalité de Codex"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Usa cmux CodeRouter"
+            "value" : "Personalità di Codex"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter を使う"
+            "value" : "Codex のパーソナリティ"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ប្រើ cmux CodeRouter"
+            "value" : "បុគ្គលិកលក្ខណៈ Codex"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter 사용"
+            "value" : "Codex 성격"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bruk cmux CodeRouter"
+            "value" : "Codex-personlighet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Użyj cmux CodeRouter"
+            "value" : "Osobowość Codex"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Usar o cmux CodeRouter"
+            "value" : "Personalidade do Codex"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Использовать cmux CodeRouter"
+            "value" : "Характер Codex"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ใช้ cmux CodeRouter"
+            "value" : "บุคลิกของ Codex"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux CodeRouter'ı kullan"
+            "value" : "Codex kişiliği"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Використати cmux CodeRouter"
+            "value" : "Характер Codex"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dùng cmux CodeRouter"
+            "value" : "Tính cách của Codex"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "使用 cmux CodeRouter"
+            "value" : "Codex 个性"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "使用 cmux CodeRouter"
+            "value" : "Codex 個性"
           }
         }
       }
