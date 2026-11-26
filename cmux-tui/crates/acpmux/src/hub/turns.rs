@@ -681,7 +681,7 @@ impl Hub {
                 .run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission)
                 .await;
         }
-        use super::prompt_admission::{Admission, Unanswered};
+        use super::prompt_admission::{Admission, Stage, Unanswered};
         let unanswered = Unanswered::of(&blocks, client, &mut opts);
         let admission = opts.admission.take().unwrap_or_else(|| Admission::new(session));
         let mut setup = Box::pin(async {
@@ -703,19 +703,27 @@ impl Hub {
         if admission.committed() {
             return setup.await;
         }
-        // Nothing it did yet needs undoing: its setup is dropped where it waits.
         let stage = admission.stage_now();
-        drop(setup);
+        // Cancel a pending wait before charging the queue. If setup owns the turn,
+        // keep its lock until the durable row is in place ahead of later arrivals.
+        let claimed_setup = matches!(stage, Stage::DirectDispatch).then(move || setup);
         admission.release();
-        match unanswered {
-            Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+        let outcome = match unanswered {
+            Unanswered::Defer(deferral) => {
+                self.queue_unanswered(session, deferral, stage, || drop(claimed_setup))?
+            }
             Unanswered::Guarded(guard) => {
                 guard()?;
-                Err(super::auto_resume::retry_turn::busy())
+                return Err(super::auto_resume::retry_turn::busy());
             }
-            Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
-            Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
-        }
+            Unanswered::Busy => return Err(super::auto_resume::retry_turn::busy()),
+            Unanswered::SteerUnavailable => return Err(super::turn_cap::steer_unavailable(false)),
+        };
+        let mut answer = outcome.subscribe();
+        self.start_restored(session);
+        let dropped = || RpcError::internal("the queued run of this prompt was dropped");
+        let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
+        settled.unwrap_or_else(|| Err(dropped()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -839,7 +847,7 @@ impl Hub {
             }
         };
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
-        // (`inbox.rs`). Boxed, out of this future.
+        // (`inbox.rs`). It can be accepted even while startup holds the child lock.
         let route = self.inbox_route(
             session,
             &prompt_id,
@@ -1087,6 +1095,9 @@ impl Hub {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
+        if !waiting {
+            admission.claimed_direct_turn();
+        }
         admitted();
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
@@ -1253,6 +1264,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // After publishing the turn, finish its journal entry and acceptance together.
+        // Until here a stalled direct dispatch can still release its speculative claim.
+        admission.commit();
         if let Err(e) =
             self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
         {

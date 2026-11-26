@@ -449,6 +449,8 @@ impl Hub {
                     break waiting || gather || hold;
                 };
                 let withdraw = if waiting {
+                    // The admission loop released `admit`; enqueue reacquires it so a restore
+                    // cannot start between its final check and the durable queued record.
                     let (waits, position) = self
                         .enqueue_or_refuse(session, &p, &turn_id, limits)
                         .inspect_err(|_| {
@@ -823,7 +825,7 @@ impl Hub {
         turn_id: &str,
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
-        self.enqueue(session, p, turn_id, limits, |_, waits| waits).map_err(Err)
+        self.enqueue(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
     }
 
     /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
@@ -862,6 +864,24 @@ impl Hub {
         p: &Slot<'_>,
         turn_id: &str,
         limits: QueueLimits,
+        claimed_turn: bool,
+        register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
+    ) -> Result<(T, u64), RpcError> {
+        let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        self.enqueue_admitted(session, p, turn_id, limits, claimed_turn, register)
+    }
+
+    /// Inserts a prompt while the caller already holds `session.admit`.
+    ///
+    /// Keep this separate from [`Self::enqueue`] so admission can make its check and queue
+    /// insertion one atomic step without attempting to lock the non-reentrant mutex twice.
+    pub(super) fn enqueue_admitted<T>(
+        &self,
+        session: &Arc<Session>,
+        p: &Slot<'_>,
+        turn_id: &str,
+        limits: QueueLimits,
+        claimed_turn: bool,
         register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
     ) -> Result<(T, u64), RpcError> {
         // Measured before the lock: under it only sizes measured already are added up.
@@ -915,6 +935,15 @@ impl Hub {
         // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
         let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
+        // A restore may have started while the prompt waited for the turn lock.
+        // The caller holds admission through the queued record so its receipt always names a
+        // durable entry.
+        if session.restoring.load(Ordering::SeqCst)
+            || session.restore_token.load(Ordering::SeqCst) != 0
+        {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            return Err(super::prompt_admission::restore_deadline());
+        }
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
         // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
@@ -955,6 +984,7 @@ impl Hub {
         // (`cancel.rs` `hold_agent_messages`); a digest then waits held in its place.
         let stop_held = p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
         let at = match p.agent {
+            _ if claimed_turn && !stop_held => Some(0),
             Some(_) if super::digest::inbox_digest::is_digest(p.provenance) => {
                 Some(super::digest::inbox_digest::place(&queue))
             }

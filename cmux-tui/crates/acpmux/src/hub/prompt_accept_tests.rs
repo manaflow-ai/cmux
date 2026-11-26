@@ -49,6 +49,51 @@ fn prompt(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_inbox_delivery_is_accepted_before_the_agent_probe_times_out() {
+    let (hub, s) = chat().await;
+    // Once the chat has run its first turn, an ordinary peer message goes to its inbox.
+    let (first_tx, _first_accepted) = tokio::sync::oneshot::channel();
+    let first = prompt(&hub, &s, "initial-work", "first", first_tx);
+    tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
+
+    let child = s.child.lock().await;
+    let (tx, receipt) = tokio::sync::oneshot::channel();
+    let opts = PromptOptions {
+        prompt_id: Some("peer-delivery".into()),
+        provenance: Some(json!({"kind": "session_message", "from": "acp:peer",
+                                "fromName": "peer", "to": format!("acp:{}", s.id)})),
+        agent: Some("peer".into()),
+        inbox: true,
+        on_accepted: Some(Box::new(move |v| {
+            let _ = tx.send(v);
+        })),
+        ..PromptOptions::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": "peer update"})];
+    let mut delivery = Box::pin(hub.prompt_with(&s, blocks, "test", false, opts));
+    let accepted = tokio::select! {
+        receipt = tokio::time::timeout(prompt_admission::ADMISSION_BOUND, receipt) =>
+            receipt.expect("inbox acceptance waited for the agent probe").unwrap(),
+        result = &mut delivery => panic!("delivery ended before inbox acceptance: {result:?}"),
+    };
+    assert_eq!(accepted["promptId"], "peer-delivery");
+    assert_eq!(accepted["inbox"], true);
+    let records = hub.events(&s.id, 0, 1000).unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.kind == "inbox" && r.msg["promptId"] == "peer-delivery")
+            .count(),
+        1
+    );
+    assert!(matches!(hub.inbox_unsend(&s, "peer-delivery"), inbox::Unsend::Unsent));
+    drop(child);
+    let answer = tokio::time::timeout(WAIT, delivery).await.unwrap().unwrap();
+    assert_eq!(answer["_meta"]["acpmux"]["withdrawn"], true);
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_prompt_behind_one_about_to_start_its_turn_is_accepted_queued_at_once() {
     let (hub, s) = chat().await;
     // The first prompt holds the turn lock, stopped before its turn shows.
@@ -104,10 +149,14 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
     let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
     *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
     let (accepted_tx, accepted) = tokio::sync::oneshot::channel();
-    let prompt = prompt(&hub, &session, "idle-config-deadline", "blocked config", accepted_tx);
+    let first = prompt(&hub, &session, "idle-config-deadline", "blocked config", accepted_tx);
 
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
-    // Keep direct dispatch parked after it claims the turn slot.
+    // A later arrival has a durable place behind the stalled direct dispatch.
+    let (later_tx, later_accepted) = tokio::sync::oneshot::channel();
+    let later = prompt(&hub, &session, "later", "second", later_tx);
+    let queued = tokio::time::timeout(WAIT, later_accepted).await.unwrap().unwrap();
+    assert_eq!(queued["queued"], true);
 
     let accepted = tokio::time::timeout(Duration::from_secs(8), accepted)
         .await
@@ -120,8 +169,10 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
     );
     assert!(release.send(()).is_err(), "the blocked setup was dropped");
 
-    let result = tokio::time::timeout(WAIT, prompt).await.unwrap().unwrap().unwrap();
-    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    for prompt in [first, later] {
+        let result = tokio::time::timeout(WAIT, prompt).await.unwrap().unwrap().unwrap();
+        assert_eq!(result["stopReason"], "end_turn", "{result}");
+    }
     assert!(!session.turn_claimed(), "deferral cleans up the speculative turn claim");
     let messages = hub
         .events(&session.id, 0, 10_000)
@@ -130,7 +181,7 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
         .filter(|record| record.kind == "user_message")
         .map(|record| record.msg["promptId"].clone())
         .collect::<Vec<_>>();
-    assert_eq!(messages, [json!("idle-config-deadline")]);
+    assert_eq!(messages, [json!("idle-config-deadline"), json!("later")]);
 }
 
 #[tokio::test]
@@ -573,6 +624,34 @@ async fn a_prompt_waiting_on_a_held_turn_lock_is_answered_queued_by_its_due_time
     let answer = tokio::time::timeout(WAIT * 3, run).await.unwrap().unwrap().unwrap();
     assert!(answer.get("stopReason").is_some(), "{answer}");
     assert_eq!(s.queue().len(), 0, "the queue drained");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restore_starting_during_the_turn_lock_wait_refuses_the_queue_receipt() {
+    let (hub, s) = chat().await;
+    let held = s.turn_lock.lock().await;
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let run = prompt(&hub, &s, "raced-restore", "waits on the turn lock", tx);
+    tokio::time::timeout(WAIT, async {
+        while s.queued() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the prompt reserved its queue slot");
+    {
+        let _admit = s.admit.lock().unwrap();
+        s.restoring.store(true, Ordering::SeqCst);
+        hub.park_writes(&s, 17);
+    }
+    let refusal = tokio::time::timeout(WAIT, run).await.unwrap().unwrap().unwrap_err();
+    assert_eq!(refusal.data.unwrap()["wait"], "prompt waiting for journal restore");
+    assert!(accepted.await.is_err());
+    assert!(s.queue().is_empty());
+    assert_eq!(s.queued(), 0);
+    s.restoring.store(false, Ordering::SeqCst);
+    hub.unpark_writes(&s);
+    drop(held);
 }
 
 /// An owner still importing its journal has reserved the next sequence numbers. If its
