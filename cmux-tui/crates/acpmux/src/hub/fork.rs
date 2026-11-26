@@ -811,6 +811,8 @@ impl Hub {
                 session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
             }
         }
+        // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
+        let (title, title_source) = super::titles::fork_title(&parent_meta);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -897,8 +899,8 @@ impl Hub {
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             policy_source: parent_meta.policy_source.clone(),
-            title: None,
-            title_source: None,
+            title,
+            title_source,
             title_prompt: None,
             title_asking: false,
             title_failures: 0,
