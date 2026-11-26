@@ -230,9 +230,16 @@ pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool)
 
 /// [`neutral_run_end`] with line ends neutral: one pass that stops only at
 /// ESC and bytes >= 0x80 (16 bytes a step, [`find_esc_or_high`]), steps over
-/// a complete inert CSI or a run of complete valid code points there, and
-/// ends at the first that is neither. A frame of SGR-colored text has an ESC
-/// every few bytes, so the walk makes no call per ESC-to-ESC segment.
+/// a complete inert CSI there, and ends at the first ESC that is not one. A
+/// frame of SGR-colored text has an ESC every few bytes, so the walk makes no
+/// call per ESC-to-ESC segment.
+///
+/// From a byte >= 0x80 the bytes up to the next ESC are neutral exactly when
+/// they are valid UTF-8 (`simdutf8` accepts the same code points as
+/// [`utf8_len`]: no overlong forms, surrogates or values past U+10FFFF), and
+/// its `valid_up_to` stops before an invalid or incomplete code point, where
+/// the byte walk stops too. Non-ASCII text (CJK, box drawing, emoji) is then
+/// validated 16-64 bytes a step instead of one code point at a time.
 fn neutral_run_end_by_escape(data: &[u8], from: usize) -> usize {
     let mut at = from;
     loop {
@@ -246,17 +253,12 @@ fn neutral_run_end_by_escape(data: &[u8], from: usize) -> usize {
             at += csi;
             continue;
         }
-        // Non-ASCII text comes in runs (CJK, box drawing): stay on them.
-        loop {
-            let len = utf8_len(data, at);
-            if len == 0 {
-                return at;
-            }
-            at += len;
-            if data.get(at).is_none_or(|next| *next < 0x80) {
-                break;
-            }
+        let rest = data.get(at..).unwrap_or_default();
+        let esc = memchr::memchr(0x1b, rest).map_or(data.len(), |offset| at + offset);
+        if let Err(error) = simdutf8::compat::from_utf8(data.get(at..esc).unwrap_or_default()) {
+            return at + error.valid_up_to();
         }
+        at = esc;
     }
 }
 
