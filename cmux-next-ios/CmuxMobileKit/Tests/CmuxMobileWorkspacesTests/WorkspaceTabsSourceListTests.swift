@@ -39,19 +39,6 @@ import SwiftUI
                             enqueueMainActor: enqueueMainActor)
     }
 
-    /// Waits for a streamed value and the state derived from it, with a bound
-    /// that still lets the following assertions explain the card contract.
-    static func waitUntil(_ what: String, _ condition: @escaping () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(30))
-        while !condition() {
-            let left = deadline - clock.now
-            guard left > .zero else { break }
-            try await Task.sleep(for: min(.milliseconds(10), left))
-        }
-        try #require(condition(), what + " within 30 s")
-    }
-
     /// A publish that changes another workspace (or nothing the kit shows)
     /// rebuilds no tab and tells nobody who read `tabs` or `activeTabID`.
     @Test func anotherWorkspaceChangingRebuildsNothing() throws {
@@ -243,7 +230,6 @@ import SwiftUI
         _ = source.chatStore(agent, workspace)
         #expect(source.kitTabBuilds == before)
         #expect(queue.count == 0)
-        #expect(source.kitTabBuilds == before)
         source.overviewIdleChanged(true)
         #expect(queue.count == 0)
         #expect(source.kitTabBuilds == before + 1)
@@ -288,21 +274,17 @@ import SwiftUI
         )
         mock.chunkSize = 8
         let chat = AgentChatStore(source: mock)
-        try await Self.waitUntil("initial chat turns") { !chat.turns.isEmpty }
+        try #require(await yieldUntil("initial chat turns") { !chat.turns.isEmpty })
         let feed = AgentCardFeed(store: chat)
         let start = feed.pulls
         let before = chat.turns
         chat.send(prompt: "go")
         // The short mock turn completes after many streamed changes. The card
         // becomes stale on the first change, but copies none of the stream.
-        var goTurnID: String?
-        try await Self.waitUntil("streamed chat turn completion") {
-            guard let goTurn = chat.turns.last(where: { $0.prompt == "go" }) else { return false }
-            goTurnID = goTurn.id
-            return goTurn.status == .completed
-        }
-        let completedGoTurnID = try #require(goTurnID)
-        let completedGoTurn = try #require(chat.turns.first { $0.id == completedGoTurnID })
+        try #require(await yieldUntil("streamed chat turn completion") {
+            chat.turns.last(where: { $0.prompt == "go" })?.status == .completed
+        })
+        let completedGoTurn = try #require(chat.turns.last { $0.prompt == "go" })
         #expect(completedGoTurn.prompt == "go")
         #expect(completedGoTurn.status == .completed)
         #expect(chat.turns != before)
