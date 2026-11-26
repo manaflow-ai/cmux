@@ -66,6 +66,8 @@ mod list_read;
 mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
+#[path = "peer_runtime_requests.rs"]
+mod runtime_requests;
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
 };
@@ -602,6 +604,9 @@ pub struct Peer {
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
+    /// The current link's transport read progress (`Heard::read`), from its open: a read
+    /// forwarded on it waits while bytes keep arriving (`Peer::link_read`).
+    link_read: StdMutex<cmux_deadline::Progress>,
 }
 
 /// What a link received: frame bytes and JSON text bytes, from its open.
