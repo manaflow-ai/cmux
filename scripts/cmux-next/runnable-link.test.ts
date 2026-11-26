@@ -69,8 +69,10 @@ describe("runnable link", () => {
       { id: "l4", name: "link user_9 rl-new-mint", status: "ready", created_at: "2026-11-25T22:30:00Z" },
       { id: "l5", name: "link user_9 handoff-1", status: "ready", created_at: "2020-01-01T00:00:00Z" },
       { id: "l6", name: "cmux-1234", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+      { id: "l7", name: "link user_9 rl-new2-mint", status: "failed", created_at: "2026-11-25T22:30:00Z" },
+      { id: "l8", name: "cmux-5678", status: "failed", created_at: "2020-01-01T00:00:00Z" },
     ];
-    expect(strays(rows, "rl-x", now, new Set())).toEqual(["l1", "l2", "l3"]);
+    expect(strays(rows, "rl-x", now, new Set())).toEqual(["l1", "l2", "l3", "l7"]);
     expect(runTag("runnable link rl-ab parent")).toBe("rl-ab");
     expect(runTag("runnable link rl-ab")).toBe("rl-ab");
     expect(runTag("link user_1 rl-ab-mint")).toBe("rl-ab");

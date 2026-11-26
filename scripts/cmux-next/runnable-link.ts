@@ -269,7 +269,9 @@ export const STRAY_AGE_MS = 80 * 60_000;
 export function strays(rows: any[], tag: string, now: number, deleted: Set<string>): string[] {
   return rows
     .filter((r) => runTag(r?.name) !== null && r.status !== "deleted" && r.status !== "deleting")
-    .filter((r) => runTag(r.name) === tag || now - createdMs(r) >= STRAY_AGE_MS)
+    // A failed row of this script is never restorable yet still holds a quota slot (run 45760655846: before the mint the
+    // list held a 47-minute-old failed link snapshot of an earlier run, and two failed foreign ones), so it goes at any age.
+    .filter((r) => runTag(r.name) === tag || r.status === "failed" || now - createdMs(r) >= STRAY_AGE_MS)
     .map((r) => String(r.id ?? r.machine_id ?? ""))
     .filter((id) => id && !deleted.has(id));
 }
