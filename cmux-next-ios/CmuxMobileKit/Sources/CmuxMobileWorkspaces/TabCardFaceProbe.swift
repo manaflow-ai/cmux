@@ -45,6 +45,7 @@ public enum TabCardFaceProbe {
     private static var gridShown = false
     private static var favicons: [String: (first: Bool, now: Bool)] = [:]
     private static var macSeededCards = 0
+    private static var macDroppedPictures = false
 
     /// The grid showed (true) or was covered by a page (`WorkspaceTabsSource.overviewVisibilityChanged`).
     static func gridVisible(_ visible: Bool) {
@@ -67,6 +68,13 @@ public enum TabCardFaceProbe {
         install()
     }
 
+    /// The rig's mock Mac sent its rows again with no pictures, and its blobs were let go (`ListStressMacCards`).
+    public static func macDropped() {
+        guard isEnabled else { return }
+        macDroppedPictures = true
+        install()
+    }
+
     static func record(_ face: String, tab: String) {
         guard isEnabled else { return }
         faces[tab] = (first: faces[tab]?.first ?? face, now: face)
@@ -76,7 +84,7 @@ public enum TabCardFaceProbe {
     static var summary: String {
         let cards = faces.keys.sorted().compactMap { tab in faces[tab].map { "\(tab)=\($0.first)>\($0.now)" } }
         let icons = favicons.keys.sorted().compactMap { tab in favicons[tab].map { "icon:\(tab)=\($0.first ? 1 : 0)>\($0.now ? 1 : 0)" } }
-        return (["grid=\(gridShown ? 1 : 0)", "macseeded=\(macSeededCards)", "saves=\(TabCardSnapshots.shared.saves)",
+        return (["grid=\(gridShown ? 1 : 0)", "macseeded=\(macSeededCards)", "macdropped=\(macDroppedPictures ? 1 : 0)", "saves=\(TabCardSnapshots.shared.saves)",
                  "saved=" + (TabCardSnapshots.shared.savedTabs.isEmpty ? "-" : TabCardSnapshots.shared.savedTabs.sorted().joined(separator: ","))] + cards + icons).joined(separator: " ")
     }
 

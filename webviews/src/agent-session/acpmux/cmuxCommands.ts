@@ -19,6 +19,7 @@ export type CmuxCommand = SlashCommand & {
     | "btw"
     | "side"
     | "status"
+    | "rename"
     | "mcp"
     | "cd"
     | "resume"
@@ -127,6 +128,15 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashStatus",
     source: "cmux",
     action: "status",
+  },
+  // The header's Rename (⌘R, a double-click on the title), typed: a harness's own /rename needs its
+  // terminal UI, which a GUI chat does not have.
+  {
+    name: "rename",
+    description: "",
+    descriptionKey: "composer.slashRename",
+    source: "cmux",
+    action: "rename",
   },
   // A bare /mcp shows the chat's MCP servers where cmux lists them, Session Info's Connectors, at
   // once: like /status it sends nothing to the agent, so it never queues or steers behind a running

@@ -21,6 +21,7 @@ import { chromium, webkit } from "./browsers";
 import type { Browser, CDPSession, Page } from "playwright";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, median, settledAt, IDLE_MS, type Idle } from "./stability";
+import { sharedBuildDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const onlyAt = argv.indexOf("--only");
@@ -156,16 +157,21 @@ async function round(
 }
 
 try {
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "ui-stability-gallery-"));
-  releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
-  const builtAt = performance.now();
-  // `gallery:build` (package.json): the generated strings, then the static gallery.
-  const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], { cwd: webviews, stdout: "ignore" });
-  if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr.toString()}`);
-  process.env.CMUX_GALLERY_OUT_DIR = out;
-  const { build } = await import("vite");
-  await build({ root: webviews, configFile: path.join(webviews, "vite.config.gallery.ts"), logLevel: "error" });
-  console.log(`ui-stability: gallery built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+  // Under bench/web-ui-suite.ts, the suite's one gallery build of the run (bench/support/sharedBuilds.ts).
+  const shared = sharedBuildDir("gallery");
+  const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "ui-stability-gallery-"));
+  if (shared) console.log(`ui-stability: the suite's gallery build (${shared})`);
+  else {
+    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    const builtAt = performance.now();
+    // `gallery:build` (package.json): the generated strings, then the static gallery.
+    const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], { cwd: webviews, stdout: "ignore" });
+    if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr.toString()}`);
+    process.env.CMUX_GALLERY_OUT_DIR = out;
+    const { build } = await import("vite");
+    await build({ root: webviews, configFile: path.join(webviews, "vite.config.gallery.ts"), logLevel: "error" });
+    console.log(`ui-stability: gallery built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+  }
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",

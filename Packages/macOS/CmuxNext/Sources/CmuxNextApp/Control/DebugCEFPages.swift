@@ -17,7 +17,7 @@ func debugCEFPagesReport(_ services: AppServices) -> JSONValue {
         // a browser tab keeps only its origin.
         if page.origin.hasPrefix("cmux-page://") { members["path"] = .string(URL(string: page.url)?.path ?? "") }
         return .object(members)
-    })])
+    }), "page_gc": .object(services.cache.cef.pageCollectorStats.mapValues { .number(Double($0)) })])
 }
 
 /// `debug.cef_page_devtools {browser, method, params}`: a DevTools method on one of cmux's own Chromium pages by browser

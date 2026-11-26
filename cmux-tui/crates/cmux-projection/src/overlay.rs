@@ -23,6 +23,9 @@
 //!   new blob is admitted the least recently used ones go, and a later read fetches them again.
 //!   A pinned folder's bytes ([`Overlay::pin`], the `pins` file) are kept apart: fetched whole,
 //!   never evicted and not counted against the cap, so they read with the Mac away.
+//!   Each cached blob is a hard link into `content/` ([`content`], RFD 0065 piece 5): every
+//!   fetched blob by the hash of its bytes, sized to the free disk and kept across listings, so a
+//!   blob the cap let go or a new listing forgot is read off the disk again, not fetched.
 //!   The upper layer is never evicted; it goes only once its edits are safe ([`crate::state`],
 //!   [`crate::reap`]).
 
@@ -39,8 +42,11 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use crate::lower::Lower;
 use crate::manifest::{Entry, Kind, Manifest, ROOT};
-use crate::upper::{SetTime, Stat, Upper};
+use crate::upper::{RENAME_EXCHANGE, RENAME_NOREPLACE, SetTime, Stat, Upper, fmt};
 use crate::{Fetch, FetchError};
+
+#[path = "overlay_room.rs"]
+mod room;
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
@@ -75,24 +81,26 @@ pub const DEFAULT_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 /// The cache's own file naming the manifest it belongs to (never evicted).
 pub const CACHE_ID_FILE: &str = "manifest-id";
 
-/// `errno` values (Linux numbers; the mount is Linux only).
+/// `errno` values, the system's own numbers (Linux's under the FUSE mount, macOS's under the NFS
+/// one).
 pub mod errno {
-    pub const EPERM: i32 = 1;
-    pub const ENOENT: i32 = 2;
-    pub const EIO: i32 = 5;
-    pub const EBADF: i32 = 9;
-    pub const EACCES: i32 = 13;
-    pub const EEXIST: i32 = 17;
-    pub const EXDEV: i32 = 18;
-    pub const ENOTDIR: i32 = 20;
-    pub const EISDIR: i32 = 21;
-    pub const EINVAL: i32 = 22;
-    pub const ENAMETOOLONG: i32 = 36;
-    pub const ENOTEMPTY: i32 = 39;
+    pub const EPERM: i32 = libc::EPERM;
+    pub const ENOENT: i32 = libc::ENOENT;
+    pub const EIO: i32 = libc::EIO;
+    pub const EBADF: i32 = libc::EBADF;
+    pub const EACCES: i32 = libc::EACCES;
+    pub const EEXIST: i32 = libc::EEXIST;
+    pub const EXDEV: i32 = libc::EXDEV;
+    pub const ENOTDIR: i32 = libc::ENOTDIR;
+    pub const EISDIR: i32 = libc::EISDIR;
+    pub const EINVAL: i32 = libc::EINVAL;
+    pub const ENAMETOOLONG: i32 = libc::ENAMETOOLONG;
+    pub const ENOTEMPTY: i32 = libc::ENOTEMPTY;
+    pub const ENOSPC: i32 = libc::ENOSPC;
 }
 use errno::{
-    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
-    EXDEV,
+    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOSPC, ENOTDIR, ENOTEMPTY,
+    EPERM, EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -126,13 +134,13 @@ impl Type {
     /// The type an `st_mode`'s `S_IFMT` bits name.
     #[must_use]
     pub fn of_mode(mode: u32) -> Self {
-        match mode & libc::S_IFMT {
-            libc::S_IFDIR => Self::Dir,
-            libc::S_IFLNK => Self::Link,
-            libc::S_IFIFO => Self::Fifo,
-            libc::S_IFSOCK => Self::Socket,
-            libc::S_IFCHR => Self::Char,
-            libc::S_IFBLK => Self::Block,
+        match mode & fmt::S_IFMT {
+            fmt::S_IFDIR => Self::Dir,
+            fmt::S_IFLNK => Self::Link,
+            fmt::S_IFIFO => Self::Fifo,
+            fmt::S_IFSOCK => Self::Socket,
+            fmt::S_IFCHR => Self::Char,
+            fmt::S_IFBLK => Self::Block,
             _ => Self::File,
         }
     }
@@ -379,7 +387,12 @@ pub struct Overlay {
     away: Option<Arc<crate::away::Away>>,
     cache_index: Mutex<CacheIndex>,
     cache_max: u64,
+    /// Every fetched blob by the hash of its bytes, kept across listings ([`content`]); `None`
+    /// for a source that is not cached, or a store that could not be made.
+    content: Option<content::Content>,
     cache_evicted: AtomicU64,
+    /// A failed cache store means readahead would repeatedly fetch bytes it cannot retain.
+    cache_failing: AtomicBool,
     /// The pinned paths, written to `pins_file` (one per NUL) on every change.
     pins: Mutex<BTreeSet<String>>,
     pins_file: PathBuf,
@@ -438,7 +451,7 @@ fn check(ret: libc::c_int) -> Result<(), i32> {
 
 fn fd_chmod(file: &fs::File, mode: u32) -> Result<(), i32> {
     // SAFETY: the descriptor is open for the call.
-    check(unsafe { libc::fchmod(file.as_raw_fd(), mode & 0o7777) })
+    check(unsafe { libc::fchmod(file.as_raw_fd(), crate::upper::mode_t(mode & 0o7777)) })
 }
 
 fn fd_chown(file: &fs::File, uid: u32, gid: u32) -> Result<(), i32> {
@@ -648,6 +661,8 @@ impl Overlay {
         let (whiteouts, rewrite) = parse_whiteouts(&bytes);
         let next = manifest.len() as u64 + 2;
         let cache_index = Mutex::new(cache_on_disk(&cache));
+        let content =
+            if fetch.cache() { content::Content::open(&state.join("content")) } else { None };
         let pins_file = state.join(pin::PINS_FILE);
         let pins = pin::read_pins(&pins_file)?;
         let overlay = Self {
@@ -683,7 +698,9 @@ impl Overlay {
             away: None,
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
+            content,
             cache_evicted: AtomicU64::new(0),
+            cache_failing: AtomicBool::new(false),
             pins: Mutex::new(BTreeSet::new()),
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
@@ -727,6 +744,22 @@ impl Overlay {
         self.cache_max = bytes;
         self.evict_to_fit(&mut self.cache_lock(), 0);
         self
+    }
+
+    /// This overlay with its content store leaving `bytes` of its disk free
+    /// ([`content::DEFAULT_CONTENT_FLOOR`] by default); `u64::MAX` keeps nothing in it.
+    #[must_use]
+    pub fn with_content_floor(self, bytes: u64) -> Self {
+        if let Some(content) = &self.content {
+            content.set_floor(bytes);
+        }
+        self
+    }
+
+    /// The bytes the content store holds now (every listing's blobs, by hash).
+    #[must_use]
+    pub fn content_bytes(&self) -> u64 {
+        self.content.as_ref().map_or(0, content::Content::bytes)
     }
 
     /// The bytes of the Mac's files cached on the machine now.
@@ -969,7 +1002,7 @@ impl Overlay {
     pub fn version(&self, ino: u64) -> Result<Option<Version>, i32> {
         let path = self.path_of(ino)?;
         Ok(match self.node(&path).ok_or(ENOENT)? {
-            Node::Upper(stat) if stat.format() == libc::S_IFREG => Some(Version::Upper {
+            Node::Upper(stat) if stat.format() == fmt::S_IFREG => Some(Version::Upper {
                 dev: stat.dev,
                 ino: stat.ino,
                 size: stat.size,
@@ -1053,7 +1086,17 @@ impl Overlay {
                 return Ok(());
             }
         }
-        self.write_whiteouts(&inner)
+        let saved = self.write_whiteouts(&inner);
+        if saved.is_err() {
+            // A full disk means the on-disk whiteout did not change. Keep memory aligned with
+            // the state a reopen would observe.
+            if on {
+                inner.whiteouts.remove(path);
+            } else {
+                inner.whiteouts.insert(path.to_owned());
+            }
+        }
+        saved
     }
 
     /// Readies whited-out `path` for something new there: the whiteout goes, and when a lower
@@ -1118,6 +1161,16 @@ impl Overlay {
         let node = self.node(&path)?;
         // A name the number no longer answers to (its path now holds another file).
         (self.ino_of(&path, &node) == ino).then_some((path, node))
+    }
+
+    /// The number of the folder that holds `ino` (the folder itself for the root): what an NFS
+    /// client's lookup of `..` answers, which a FUSE kernel answers by itself.
+    pub fn parent(&self, ino: u64) -> Result<u64, i32> {
+        let path = self.path_of(ino)?;
+        if path.is_empty() {
+            return Ok(self.root());
+        }
+        Ok(self.lookup_path(Self::parent_of(&path))?.ino)
     }
 
     /// Whether folder `ino` is only in the manifest (no upper folder under it): its names change
@@ -1316,7 +1369,7 @@ impl Overlay {
         }
         let Ok(bytes) = fs::read(self.cache_path(key)) else {
             self.cache_lock().remove(key);
-            return None;
+            return self.content_read(key);
         };
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         self.cache_lock().touch(key);
@@ -1330,7 +1383,9 @@ impl Overlay {
         }
         let Ok(file) = fs::File::open(self.cache_path(key)) else {
             self.cache_lock().remove(key);
-            return None;
+            let bytes = self.content_read(key)?;
+            let from = usize::try_from(offset).ok()?;
+            return bytes.get(from..from.checked_add(len)?).map(<[u8]>::to_vec);
         };
         let bytes = read_range(&file, offset, len)?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
@@ -1338,16 +1393,67 @@ impl Overlay {
         Some(bytes)
     }
 
+    /// What the listing says of `key`'s blob: the content store's name for it.
+    fn content_name(&self, (index, part): Key) -> Option<content::Name> {
+        let entry = self.manifest.entry(index)?;
+        (entry.kind == Kind::File).then(|| content::Name {
+            path: self.manifest.path_of(index),
+            size: entry.size,
+            mtime_ns: entry.mtime_ns,
+            part,
+        })
+    }
+
+    /// Whether the content store holds `key`'s bytes (by its index alone).
+    fn in_content(&self, key: Key) -> bool {
+        self.content
+            .as_ref()
+            .zip(self.content_name(key))
+            .is_some_and(|(content, name)| content.has(&name))
+    }
+
+    /// `key`'s bytes from the content store (an earlier listing, or a blob the cap let go),
+    /// put back in the cache; a hit, never a fetch.
+    fn content_read(&self, key: Key) -> Option<Vec<u8>> {
+        let content = self.content.as_ref()?;
+        let (hash, bytes) = content.get(&self.content_name(key)?)?;
+        let temp = self.scratch_path();
+        if content.link(&hash, &temp) || fs::write(&temp, &bytes).is_ok() {
+            self.admit(key, &temp, bytes.len() as u64);
+        } else {
+            let _ = fs::remove_file(&temp);
+        }
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        Some(bytes)
+    }
+
     fn store(&self, key: Key, bytes: &[u8]) {
         if !self.fetch.cache() {
             return;
         }
-        let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_err() {
-            let _ = fs::remove_file(&temp);
+        if !self.cache_has_room(bytes.len() as u64) {
+            self.cache_failing.store(true, Ordering::Relaxed);
             return;
         }
-        let size = bytes.len() as u64;
+        let temp = self.scratch_path();
+        // The content store keeps the bytes once, by hash; the cache's file is a hard link to it.
+        let linked = self
+            .content
+            .as_ref()
+            .zip(self.content_name(key))
+            .and_then(|(content, name)| content.put(name, bytes).map(|hash| (content, hash)))
+            .is_some_and(|(content, hash)| content.link(&hash, &temp));
+        if !linked && fs::write(&temp, bytes).is_err() {
+            let _ = fs::remove_file(&temp);
+            self.cache_failing.store(true, Ordering::Relaxed);
+            return;
+        }
+        self.admit(key, &temp, bytes.len() as u64);
+        self.cache_failing.store(false, Ordering::Relaxed);
+    }
+
+    /// Lands scratch file `temp` (`size` bytes) as cached `key`, under the cap.
+    fn admit(&self, key: Key, temp: &Path, size: u64) {
         // Room first, then the blob lands and is counted, under one lock: the cache never holds
         // more than its cap, and no eviction races a blob landing. A pinned file's blob is kept
         // apart and makes no room.
@@ -1356,17 +1462,17 @@ impl Overlay {
         if !pinned && size > self.cache_max {
             // Never fits: it is served, not kept.
             drop(index);
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
             return;
         }
         index.remove(key);
         if !pinned {
             self.evict_to_fit(&mut index, size);
         }
-        if fs::rename(&temp, self.cache_path(key)).is_ok() {
+        if fs::rename(temp, self.cache_path(key)).is_ok() {
             index.insert(key, size);
         } else {
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
         }
     }
 
@@ -1402,13 +1508,15 @@ impl Overlay {
         }
         let mut batch = vec![index];
         // A source with no cache answers one file at a time: read ahead would be thrown away.
-        if self.fetch.cache() {
+        if self.fetch.cache() && !self.cache_failing.load(Ordering::Relaxed) {
             let picked = {
                 let inner = self.lock();
                 read_ahead(&self.manifest, index, |other, entry| {
                     self.manifest.kept(other).is_some()
                         || Self::hidden(&inner, &self.manifest.path_of(other))
-                        || (entry.kind == Kind::File && self.cache_path((other, WHOLE)).exists())
+                        || (entry.kind == Kind::File
+                            && (self.cache_path((other, WHOLE)).exists()
+                                || self.in_content((other, WHOLE))))
                 })
             };
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1644,7 +1752,7 @@ impl Overlay {
             }
         }
         let (file, lower) = match self.node(&path).ok_or(ENOENT)? {
-            Node::Upper(stat) if stat.format() == libc::S_IFREG => {
+            Node::Upper(stat) if stat.format() == fmt::S_IFREG => {
                 let access = flags & libc::O_ACCMODE;
                 let file = self.upper.open_existing(&path, access)?;
                 if flags & libc::O_TRUNC != 0 {
@@ -1722,14 +1830,17 @@ impl Overlay {
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
-        let path = self.path_of(ino)?;
-        self.ensure_upper(&path)?;
-        let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
-        file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
-        u32::try_from(data.len()).map_err(|_| EINVAL)
+        self.with_room(|| {
+            let path = self.path_of(ino)?;
+            self.ensure_upper(&path)?;
+            let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
+            file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+            u32::try_from(data.len()).map_err(|_| EINVAL)
+        })
     }
 
-    /// `fallocate(2)` through open handle `handle`.
+    /// `fallocate(2)` through open handle `handle` (Linux).
+    #[cfg(target_os = "linux")]
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
@@ -1749,7 +1860,7 @@ impl Overlay {
     /// instead, whose new folders are set-group-id too) and its mode, as the kernel does on a disk.
     fn adopt_new(&self, parent: &str, child: &str, who: Who, mode: Option<u32>) -> Result<(), i32> {
         let parent_attr = self.node(parent).map(|node| self.attr(parent, &node));
-        let set_gid = parent_attr.is_some_and(|attr| attr.mode & libc::S_ISGID != 0);
+        let set_gid = parent_attr.is_some_and(|attr| attr.mode & fmt::S_ISGID != 0);
         let gid = match parent_attr {
             Some(attr) if set_gid => attr.gid,
             _ => who.gid,
@@ -1762,7 +1873,7 @@ impl Overlay {
         }
         if let Some(mut mode) = mode {
             if stat.is_dir() && set_gid {
-                mode |= libc::S_ISGID;
+                mode |= fmt::S_ISGID;
             }
             self.upper.chmod(child, mode)?;
         }
@@ -1775,6 +1886,16 @@ impl Overlay {
     /// level saved on every create after the first in a folder); an upper path already there is
     /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
+        self.with_room(|| self.create_once(parent, name, mode, who))
+    }
+
+    fn create_once(
+        &self,
+        parent: u64,
+        name: &str,
+        mode: u32,
+        who: Who,
+    ) -> Result<(Attr, u64), i32> {
         let (parent, child) = self.child(parent, name)?;
         if self.lower(&child).is_some() {
             return Err(EEXIST);
@@ -1821,9 +1942,9 @@ impl Overlay {
     ) -> Result<Attr, i32> {
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
-        let format = mode & libc::S_IFMT;
+        let format = mode & fmt::S_IFMT;
         match format {
-            0 | libc::S_IFREG => {
+            0 | fmt::S_IFREG => {
                 self.in_folder(&parent, || {
                     self.upper.open_file(
                         &child,
@@ -1832,7 +1953,7 @@ impl Overlay {
                     )
                 })?;
             }
-            libc::S_IFIFO | libc::S_IFSOCK | libc::S_IFCHR | libc::S_IFBLK => {
+            fmt::S_IFIFO | fmt::S_IFSOCK | fmt::S_IFCHR | fmt::S_IFBLK => {
                 self.in_folder(&parent, || self.upper.mknod(&child, format | 0o600, rdev))?;
             }
             _ => return Err(EINVAL),
@@ -1943,10 +2064,9 @@ impl Overlay {
     ) -> Result<(), i32> {
         let (_, from) = self.child(parent, name)?;
         let (to_parent, to) = self.child(new_parent, new_name)?;
-        let exchange = flags & libc::RENAME_EXCHANGE != 0;
-        let noreplace = flags & libc::RENAME_NOREPLACE != 0;
-        if flags & !(libc::RENAME_EXCHANGE | libc::RENAME_NOREPLACE) != 0 || (exchange && noreplace)
-        {
+        let exchange = flags & RENAME_EXCHANGE != 0;
+        let noreplace = flags & RENAME_NOREPLACE != 0;
+        if flags & !(RENAME_EXCHANGE | RENAME_NOREPLACE) != 0 || (exchange && noreplace) {
             return Err(EINVAL);
         }
         let node = self.node(&from).ok_or(ENOENT)?;
@@ -2056,7 +2176,7 @@ impl Overlay {
         self.ensure_upper(from)?;
         self.ensure_upper(to)?;
         self.upper_folder(to_parent)?;
-        self.upper.rename(from, to, libc::RENAME_EXCHANGE)?;
+        self.upper.rename(from, to, RENAME_EXCHANGE)?;
         // Swap the two names' numbers (and everything below each).
         let temp = format!("\0exchange\0{a}");
         self.move_names(from, &temp, a);
@@ -2068,6 +2188,10 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
+        self.with_room(|| self.setattr_once(ino, handle, set))
+    }
+
+    fn setattr_once(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
         let by_handle = handle.and_then(|handle| self.handle_file(handle));
         // A change through an open handle goes to the file it holds: no lookup, no open.
         if let Some(file) = &by_handle
@@ -2185,6 +2309,12 @@ pub mod pin;
 
 #[path = "overlay_swap.rs"]
 mod swap;
+
+#[path = "overlay_content.rs"]
+pub mod content;
+
+#[path = "overlay_age.rs"]
+mod age;
 
 #[path = "overlay_extend.rs"]
 mod extend;

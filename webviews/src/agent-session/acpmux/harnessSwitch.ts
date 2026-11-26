@@ -114,6 +114,11 @@ export const browserSwitchClock: SwitchClock = {
   },
 };
 
+/// How long a switch's `session/new` may take before the start fails with Retry. acpmux bounds an
+/// agent's start and each start setting by its start budget (90 s by default); past this, the
+/// person sees why nothing happens instead of a prompt that never goes (cmux#55755).
+export const START_DEADLINE_MS = 120_000;
+
 /// How long the pointer or keyboard rests on a harness before the prewarm hint goes out.
 export const PREWARM_DEBOUNCE_MS = 150;
 /// The same harness hinted again this soon after its last hint is not sent again (acpmux keeps
@@ -818,9 +823,20 @@ export class HarnessSwitch {
     if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
     intent.running = port;
     if (!sessionId) {
+      // A start that never answers fails into the switch's card, with Retry and the held prompts
+      // back in the composer, instead of holding them under a Thinking line forever (cmux#55755).
+      let expired = false;
+      const stopDeadline = this.clock.schedule(() => {
+        if (this.intent !== intent || intent.running !== port || intent.phase !== "starting") return;
+        expired = true;
+        intent.running = undefined;
+        this.fail(intent, new Error(t("switch.startTimedOut", { agent: agentName(intent.harness) })));
+      }, START_DEADLINE_MS);
       try {
         sessionId = await port.create(intent.harness, intent.cwd, intent.config.model);
       } catch (error) {
+        stopDeadline();
+        if (expired) return;
         if (intent.running === port) intent.running = undefined;
         // A dropped connection is not a failure: the next client runs it again.
         if (this.intent !== intent) return;
@@ -829,7 +845,9 @@ export class HarnessSwitch {
         this.fail(intent, error);
         return;
       }
-      if (this.intent !== intent) {
+      stopDeadline();
+      // Answered after the deadline failed it, or after a newer pick: nobody uses that session.
+      if (expired || this.intent !== intent) {
         if (sessionId) port.discard(sessionId);
         return;
       }

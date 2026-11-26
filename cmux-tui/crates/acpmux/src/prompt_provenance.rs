@@ -829,8 +829,17 @@ impl RelaySender {
         Some(Self { by: by.to_owned(), machine: machine.to_owned(), session })
     }
 
+    /// The record with no `session` key when it names none: the hub's `MeshSenderRelay.session` is
+    /// an optional string, and `session: null` was a 400 for every send from a program outside any
+    /// session (2026-11-24 04:58Z, after #52662; the hub takes null since cmux-platform's fix).
     pub(crate) fn to_value(&self) -> Value {
-        json!({"by": self.by, "machine": self.machine, "session": self.session})
+        let mut record = serde_json::Map::new();
+        record.insert("by".into(), json!(self.by));
+        record.insert("machine".into(), json!(self.machine));
+        if let Some(session) = &self.session {
+            record.insert("session".into(), json!(session));
+        }
+        Value::Object(record)
     }
 
     /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
@@ -881,6 +890,24 @@ pub fn mark_waited(mut provenance: Value) -> Value {
 pub fn waited(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get(WAITED)) == Some(&Value::Bool(true))
         || relay_of(provenance).is_some_and(|r| r.by == SSH_CARRY_RELAY)
+}
+
+/// On a prompt's provenance: the sender's own delivery deadline in ms (`acpmux send --within`,
+/// `_meta.acpmux.within`), which tightens its class's (`prompt_class::due_at`). Kept on the
+/// inbox record, so a restart keeps the deadline.
+pub const WITHIN: &str = "within";
+
+/// `provenance` with the sender's `within`, when it gave one.
+pub fn mark_within(mut provenance: Value, within: Option<u64>) -> Value {
+    if let (Some(fields), Some(ms)) = (provenance.as_object_mut(), within) {
+        fields.insert(WITHIN.to_owned(), Value::from(ms));
+    }
+    provenance
+}
+
+/// The sender's `within` on `provenance`, in ms.
+pub fn within(provenance: Option<&Value>) -> Option<u64> {
+    provenance.and_then(|p| p.get(WITHIN)).and_then(Value::as_u64)
 }
 
 /// A caller-supplied sender label kept beside authenticated provenance.  It is deliberately
