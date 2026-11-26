@@ -49,17 +49,19 @@ const START: &str = "if command -v systemctl >/dev/null 2>&1 && [ -d /run/system
 else root mkdir -p /var/run/tailscale; root setsid tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock </dev/null >>/var/log/cmux-tailnet-tailscaled.log 2>&1 & fi";
 
 /// Once the node is `Running` on the new holder: start a WireGuard handshake from here to every
-/// online peer (a TSMP ping, `tailscale ping --tsmp`, one each, detached, at most 64 peers).
+/// online peer (one TSMP ping each, `tailscale ping --tsmp`, detached, at most 64 peers, 3 s at
+/// worst; milliseconds when the peer answers).
 ///
 /// Why: the new holder's first map request carries its new disco key before it has found its
-/// own endpoints, so control can push peers the new disco key next to the old holder's
-/// endpoints. A peer (the user's laptop) drops its session on the disco change, sends one
-/// handshake to that dead path, and WireGuard retries only after REKEY_TIMEOUT (5 s), even
-/// though the right endpoint arrives under a second later: the laptop saw ~6 s instead of ~1 s
-/// on about half the moves (`testing/handoff-e2e.sh`). A handshake started from this side
-/// gives the peer a session at once. A TSMP ping runs through WireGuard but around the packet
-/// filter, so it works where the policy refuses this node dialing the user's devices; a disco
-/// ping does not start a handshake, so it does not help.
+/// own endpoints, so control pushes peers the new disco key next to the old holder's endpoints.
+/// A peer (the user's laptop) drops its session on the disco change, sends one handshake down
+/// that dead path, and WireGuard retries only after REKEY_TIMEOUT (5 s), even though the right
+/// endpoint arrives about 0.8 s later: the laptop saw ~7 s instead of ~2.5 s on 9 of 20 moves
+/// (`testing/handoff-e2e.sh`, verbose tailscaled logs). A handshake started from this side
+/// reaches the peer from this machine's real endpoint and gives it a session at once. TSMP runs
+/// through WireGuard but around the packet filter, so it works where the policy refuses this
+/// node dialing the user's devices. A disco ping alone starts no handshake (it did not help);
+/// disco pings before the TSMP ping delayed the handshake past its use (measured worse).
 const PEER_KICK: &str = "( tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
 
 /// One exec on the old holder: stop `tailscaled`, print its state as one base64 word, print the
