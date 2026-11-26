@@ -7237,26 +7237,27 @@ CmuxNextDiff	class	DiffViewedFiles	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources
 CmuxNextErrorJournal	class	ConsoleErrorReceiver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ConsoleErrorCapture.swift	from struct ConsoleErrorCapture:13: page console capture into os_log
 CmuxNextErrorJournal	struct	ConsoleErrorCapture	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ConsoleErrorCapture.swift	from struct ConsoleErrorCapture:13: page console capture into os_log
 CmuxNextErrorJournal	struct	CrashReportErrorSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/CrashReportErrorSource.swift	DiagnosticReports crash report harvest
-CmuxNextErrorJournal	struct	ErrorEntry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorEntry.swift	deduplicated error entry model
-CmuxNextErrorJournal	struct	ErrorEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorEvent.swift	error event model
-CmuxNextErrorJournal	struct	ErrorFingerprint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorFingerprint.swift	FNV-1a error fingerprint
+CmuxNextErrorJournal	struct	ErrorEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorEntry.swift	Swift copy of cmux-error-journal's stored entry (serde shape)
+CmuxNextErrorJournal	struct	ErrorEvent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorEvent.swift	Swift copy of cmux-error-journal's event
+CmuxNextErrorJournal	struct	ErrorFingerprint	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorFingerprint.swift	FFI call: error_journal_fingerprint
 CmuxNextErrorJournal	protocol	ErrorHarvestSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorHarvestSource.swift	harvest source seam
 CmuxNextErrorJournal	struct	ErrorHarvest	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorHarvestSource.swift	from protocol ErrorHarvestSource:3: harvest source seam
-CmuxNextErrorJournal	actor	ErrorJournal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournal.swift	error journal actor: dedupe, counts, cursors, compaction, storms
-CmuxNextErrorJournal	struct	ErrorJournalLimits	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalLimits.swift	error journal size limits
-CmuxNextErrorJournal	struct	ErrorJournalReport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalReport.swift	error journal text report
-CmuxNextErrorJournal	enum	ErrorLevel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorLevel.swift	error severity levels
-CmuxNextErrorJournal	extension	String	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorNormalizer.swift	from struct ErrorNormalizer:9: message template normalizer rules
-CmuxNextErrorJournal	struct	ErrorNormalizer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorNormalizer.swift	message template normalizer rules
-CmuxNextErrorJournal	struct	ErrorQuery	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorQuery.swift	error journal query and order
-CmuxNextErrorJournal	struct	ErrorRedactor	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorRedactor.swift	secret redaction rules for error text
-CmuxNextErrorJournal	struct	ErrorSegmentStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorSegmentStore.swift	segment files persistence and compaction
-CmuxNextErrorJournal	struct	LogFileErrorSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/LogFileErrorSource.swift	log file harvest with byte cursor and rotation rule
-CmuxNextErrorJournal	struct	LogLineParser	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/LogLineParser.swift	log line problem parser (tracing lines, panics)
+CmuxNextErrorJournal	actor	ErrorJournal	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournal.swift	actor: files, timer, cursors.json around the error_journal_* ops
+CmuxNextErrorJournal	struct	ErrorJournalLimits	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalLimits.swift	Swift copy of cmux-error-journal's limits
+CmuxNextErrorJournal	struct	ErrorJournalReport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalReport.swift	FFI call: error_journal_report_text
+CmuxNextErrorJournal	enum	ErrorLevel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorLevel.swift	Swift copy of cmux-error-journal's level
+CmuxNextErrorJournal	struct	ErrorNormalizer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorNormalizer.swift	FFI call: error_journal_template
+CmuxNextErrorJournal	struct	ErrorQuery	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorQuery.swift	Swift copy of cmux-error-journal's query; matching is Rust's
+CmuxNextErrorJournal	struct	ErrorRedactor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorRedactor.swift	FFI call: error_journal_redact
+CmuxNextErrorJournal	struct	ErrorSegmentStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorSegmentStore.swift	segment file I/O; what to write is error_journal_* in Rust
+CmuxNextErrorJournal	struct	LogFileErrorSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/LogFileErrorSource.swift	log file stat/seek/read; plan and parse are error_journal_log_* in Rust
 CmuxNextErrorJournal	struct	OSLogErrorSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/OSLogErrorSource.swift	unified log harvest source
 CmuxNextErrorJournal	protocol	OSLogReading	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/OSLogReading.swift	OSLog reading seam
 CmuxNextErrorJournal	struct	OSLogRecord	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/OSLogRecord.swift	OSLog record value
 CmuxNextErrorJournal	struct	OSLogStoreReader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/OSLogStoreReader.swift	OSLogStore reader
+CmuxNextErrorJournal	enum	ErrorJournalFFI	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalFFI.swift	app FFI JSON channel to error_journal_* ops
+CmuxNextErrorJournal	extension	ErrorJournalLimits	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalFFI.swift	FFI wire encoding of the limits
+CmuxNextErrorJournal	extension	ErrorQuery	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal/ErrorJournalFFI.swift	FFI wire encoding of the query
 CmuxNextFavicons	class	TabFaviconStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextFavicons/TabFaviconStore.swift	from class TabFaviconStore:19: Favicon store per profile
 CmuxNextFeed	class	FeedTeeSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Feed/FeedTeeSource.swift	from class FeedTeeSource:7: feed glue / colors / draft text in field
 CmuxNextFeed	class	FeedAppearance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFeed/FeedAppearance.swift	from struct FeedColors:11: feed glue / colors / draft text in field

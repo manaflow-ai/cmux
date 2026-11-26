@@ -24,53 +24,53 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
         let files = FileManager()
-        let since = cursor.flatMap(Double.init).map { Date(timeIntervalSince1970: $0 / 1000) }
-            ?? Date().addingTimeInterval(-firstLookBack)
         let names = (try? files.contentsOfDirectory(atPath: directory.path)) ?? []
-        var newest = since
-        var events: [ErrorEvent] = []
-        for name in names where name.hasSuffix(".ips") && prefixes.contains(where: { name.lowercased().hasPrefix($0) }) {
+        guard let wanted = ErrorJournalFFI.object("error_journal_crash_names", ["names": names, "prefixes": prefixes])?["names"]
+            as? [String] else { throw ErrorJournalFFI.Unanswered(operation: "error_journal_crash_names") }
+        let stamped: [[String: Any]] = wanted.map { name in
             let url = directory.appendingPathComponent(name)
-            guard let modified = (try? files.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
-                  modified > since else { continue }
-            newest = max(newest, modified)
-            events.append(Self.event(report: url, modified: modified))
+            var file: [String: Any] = ["name": name]
+            if let modified = (try? files.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date {
+                file["modified"] = modified.timeIntervalSince1970
+            }
+            return file
         }
-        let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
-        return ErrorHarvest(events: events, cursor: String(ms))
+        var request: [String: Any] = ["now": Date().timeIntervalSince1970, "look_back": firstLookBack, "files": stamped]
+        if let cursor { request["cursor"] = cursor }
+        guard let scan = ErrorJournalFFI.decode(Scan.self, "error_journal_crash_scan", request) else {
+            throw ErrorJournalFFI.Unanswered(operation: "error_journal_crash_scan")
+        }
+        let events = scan.reports.map { report in
+            Self.event(report: directory.appendingPathComponent(report.name),
+                       modified: Date(timeIntervalSince1970: report.modified ?? 0))
+        }
+        return ErrorHarvest(events: events, cursor: scan.cursor)
     }
 
+    /// The report's event (Rust reads its kind, app, exception and frame from the first 64 KiB).
     static func event(report url: URL, modified: Date) -> ErrorEvent {
         let head = (try? FileHandle(forReadingFrom: url)).flatMap { handle -> Data? in
             defer { try? handle.close() }
             return try? handle.read(upToCount: 64 << 10)
         } ?? Data()
-        let text = String(decoding: head, as: UTF8.self)
-        let header = text.split(separator: "\n", maxSplits: 1).first.flatMap {
-            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
-        } ?? [:]
-        let app = header["app_name"] as? String ?? url.deletingPathExtension().lastPathComponent
-        let kind: String = switch header["bug_type"] as? String {
-        case "309": "crash"
-        case "298", "288": "hang"
-        case "211": "analytics"
-        case let other?: "report \(other)"
-        case nil: "report"
-        }
-        let exception = Self.first(#""exception"\s*:\s*\{[^}]*"type"\s*:\s*"([^"]+)""#, in: text)
-        let signal = Self.first(#""signal"\s*:\s*"([^"]+)""#, in: text)
-        let frame = Self.first(#""symbol"\s*:\s*"([^"]+)""#, in: text)
-        let message = ["\(kind) \(app)", exception, signal].compactMap { $0 }.joined(separator: " ")
-        var context = ["report": url.path]
-        if let version = header["app_version"] as? String { context["version"] = version }
-        return ErrorEvent(source: "crash", level: .crash, message: message, topFrame: frame, context: context,
-                          date: modified)
+        let request: [String: Any] = ["text": String(decoding: head, as: UTF8.self), "path": url.path,
+                                      "modified": modified.timeIntervalSince1970]
+        return ErrorJournalFFI.decode(EventReply.self, "error_journal_crash_event", request)?.event.event
+            ?? ErrorEvent(source: "crash", level: .crash, message: "report \(url.deletingPathExtension().lastPathComponent)",
+                          context: ["report": url.path], date: modified)
     }
 
-    private static func first(_ pattern: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[range])
+    private struct Scan: Decodable {
+        struct Report: Decodable {
+            let name: String
+            let modified: Double?
+        }
+
+        let reports: [Report]
+        let cursor: String
+    }
+
+    private struct EventReply: Decodable {
+        let event: ErrorJournalFFI.WireEvent
     }
 }

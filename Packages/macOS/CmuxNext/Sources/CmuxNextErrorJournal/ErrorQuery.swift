@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Which entries ``ErrorJournal/entries(_:)`` returns and in what order.
+/// Which entries ``ErrorJournal/entries(_:)`` returns and in what order (Rust filters and sorts).
 public struct ErrorQuery: Sendable, Equatable {
     /// The order of the answer.
     public enum Order: String, Sendable {
@@ -32,19 +32,5 @@ public struct ErrorQuery: Sendable, Equatable {
         self.text = text
         self.order = order
         self.limit = limit
-    }
-
-    func matches(_ entry: ErrorEntry) -> Bool {
-        if let since, entry.lastMs < Int64(since.timeIntervalSince1970 * 1000) { return false }
-        if entry.level < minimumLevel { return false }
-        if !sources.isEmpty, !sources.contains(where: { entry.source == $0 || entry.source.hasPrefix($0 + ":") }) {
-            return false
-        }
-        if let text, !text.isEmpty,
-           entry.template.range(of: text, options: .caseInsensitive) == nil,
-           entry.sample.range(of: text, options: .caseInsensitive) == nil {
-            return false
-        }
-        return true
     }
 }
