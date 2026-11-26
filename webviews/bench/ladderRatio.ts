@@ -108,15 +108,22 @@ export function majorGcEnds(
   events: { pid: number; ts: number; dur: number; heapBefore: number }[],
   gapUs = EPISODE_GAP_US,
 ) {
-  if (!events.length) return { pid: null as number | null, ends: [] as number[] };
+  if (!events.length) return { pid: null as number | null, ends: [] as number[], heaps: [] as number[] };
   const pid = [...events].sort((a, b) => b.heapBefore - a.heapBefore)[0]!.pid;
   const mine = events.filter((e) => e.pid === pid).sort((a, b) => a.ts - b.ts);
+  // heaps: each episode's largest heap before a collection, bytes (what the cycle ending there collected from).
   const ends: number[] = [];
+  const heaps: number[] = [];
   for (const e of mine) {
     const end = e.ts + e.dur;
-    if (ends.length && e.ts - ends[ends.length - 1]! < gapUs)
-      ends[ends.length - 1] = Math.max(ends[ends.length - 1]!, end);
-    else ends.push(end);
+    const last = ends.length - 1;
+    if (ends.length && e.ts - ends[last]! < gapUs) {
+      ends[last] = Math.max(ends[last]!, end);
+      heaps[last] = Math.max(heaps[last]!, e.heapBefore);
+    } else {
+      ends.push(end);
+      heaps.push(e.heapBefore);
+    }
   }
-  return { pid, ends };
+  return { pid, ends, heaps };
 }

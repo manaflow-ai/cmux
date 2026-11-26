@@ -113,5 +113,6 @@ describe("sim-ladder whole collection cycles", () => {
     ]);
     expect(ends.pid).toBe(1);
     expect(ends.ends).toEqual([370, 6_800_000, 12_100_000]);
+    expect(ends.heaps).toEqual([9e8, 8e8, 8e8]);
   });
 });
