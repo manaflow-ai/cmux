@@ -3,7 +3,8 @@
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! the group hover card's summary (`group_hover_summary`), the ports a
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), a workspace row's own layout
+//! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
+//! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -13,10 +14,10 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
-//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
-//! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
+//! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -34,6 +35,9 @@
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
+//! ticket, signaling frames, follow mode's focus producer, viewer demand, the
+//! cursor shape delivery);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -46,8 +50,11 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' right column rule and subagent pane tracker
+//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -75,6 +82,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
@@ -92,6 +100,9 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod pane_focus;
+mod pane_placement;
+mod screen;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -99,6 +110,8 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_groups;
+mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -248,12 +261,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
-            b"sidebar_automatic_plan" => {
-                use cmux_layout_reducer::automatic;
-                let request: automatic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
-            }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
                 let request: settle::Request =
@@ -281,6 +288,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_launch_order::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_list_rules" => {
+                use cmux_layout_reducer::sidebar_list_rules;
+                let request: sidebar_list_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_list_rules::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_row_layout" => {
@@ -358,6 +372,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: capability::AnswerRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            b"cloud_approval_next" => {
+                use cmux_cloud_start_core::approval_answer;
+                let request: approval_answer::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
@@ -603,6 +624,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
             }
@@ -614,12 +636,22 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if pane_placement::handles(operation) => {
+                pane_placement::respond(operation, request)?
+            }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
+            operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if browser_rules::handles(operation) => {
+                browser_rules::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
+            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
