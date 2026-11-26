@@ -17,6 +17,10 @@ extension LayoutModel {
         let read = attentionReadByEntry.union(readByEntry).subtracting(shown.keys)
         if attentionReadByEntry != read { attentionReadByEntry = read }
         if attention != shown { attention = shown }
+        if holdsAttentionUntilShown { // a held ring read by going in stays until the hold ends, so it blinks out where it shows (cmux#56125)
+            let held = shown.merging(attentionWhileHeld.filter { read.contains($0.key) }) { mark, _ in mark }
+            if attentionWhileHeld != held { attentionWhileHeld = held }
+        }
     }
 
     /// The person went into `pane` (the focus moved into it, or `click`): a ring the App reads so goes
@@ -26,8 +30,14 @@ extension LayoutModel {
     public func enterAttention(_ pane: PaneID, click: Bool = false) -> Bool {
         guard let mark = attention[pane], readsAttentionOnEntry(pane, click) else { return false }
         enteredAttention[pane] = mark.generation
-        if DesignSettings.shared.attention.flashesOnRead { attentionReadByEntry.insert(pane) }
+        if DesignSettings.shared.attention.flashesOnRead { attentionReadByEntry.insert(pane) } else if holdsAttentionUntilShown { attentionWhileHeld[pane] = nil } // no blink: it goes unseen under the hold
         attention[pane] = nil
         return true
     }
+
+    /// This layout came on screen in its window (a workspace switch, a top page closing) with the focus on a pane:
+    /// the person goes into that pane as a focus move into it does. Its focus did not move, so ``focus(_:notify:source:)``
+    /// never enters it, and its ring would wait for the focus machine, the viewed-tab rules and the read (cmux#46908).
+    @discardableResult
+    public func enterShownFocus() -> Bool { focusedPane.map { enterAttention($0) } ?? false }
 }

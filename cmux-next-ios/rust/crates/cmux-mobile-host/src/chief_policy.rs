@@ -75,7 +75,9 @@ pub const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     // (``InboxWindow``); the owner never sees them. `since` (a revision) goes
     // to the owner, which answers the rows changed since (`home-inbox-since-v1`).
     ("home-inbox", &["owners", "offset", "limit", "ids", "since"]),
-    ("conversation-inbox-op", &["conversation", "op"]),
+    // `op_id`: a resend after a lost reply runs once at an owner with
+    // `conversation-inbox-op-once-v1`; an older owner ignores it.
+    ("conversation-inbox-op", &["conversation", "op", "op_id"]),
 ];
 
 /// `conversation-inbox-op` kinds a phone may send, with their exact fields
@@ -355,6 +357,12 @@ impl ChiefPolicy {
             }
             if let Err(why) = check_inbox_op(object.get("op")) {
                 return refuse(format!("{command}: {why}"));
+            }
+            if object
+                .get("op_id")
+                .is_some_and(|id| !id.as_str().is_some_and(|id| !id.is_empty() && id.len() <= 128))
+            {
+                return refuse(format!("{command}: op_id is not a short string"));
             }
         }
         let pending = match command {
@@ -1325,6 +1333,14 @@ mod tests {
         ] {
             assert_eq!(
                 policy.evaluate(&line(
+                    serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("o{op}"),
+                    "conversation": CHIEF, "op": op, "op_id": "phone-op-1"})
+                )),
+                Verdict::Forward,
+                "{op} with op_id"
+            );
+            assert_eq!(
+                policy.evaluate(&line(
                     serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("p{op}"),
                     "conversation": CHIEF, "op": op})
                 )),
@@ -1347,6 +1363,11 @@ mod tests {
             serde_json::json!({"cmd": "conversation-inbox-op", "id": "x6", "conversation": CHIEF, "op": "inbox.pin"}),
             serde_json::json!({"cmd": "conversation-inbox-op", "id": "x7", "conversation": CHIEF,
                 "op": {"kind": "inbox.pin", "pinned": true}, "actor": "agent_mux"}),
+            // An op_id that is not a short string.
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x8", "conversation": CHIEF,
+                "op": {"kind": "inbox.pin", "pinned": true}, "op_id": 7}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x9", "conversation": CHIEF,
+                "op": {"kind": "inbox.pin", "pinned": true}, "op_id": ""}),
         ] {
             refused(&policy, value);
         }

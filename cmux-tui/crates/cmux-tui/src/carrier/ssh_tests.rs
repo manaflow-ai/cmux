@@ -923,6 +923,41 @@ fn a_failed_routes_line_says_why_in_fixed_codes_only() {
     let said = "x; ssh stderr: \"a; carrier ssh key: b\"; relay: timed out";
     assert_eq!(why_codes(said).as_deref(), Some("other,timeout"));
     assert_eq!(why_codes("  "), None);
+    // Which of ssh-endpoint's refusals dropped the route, or failed the key:
+    // the platform's status and fixed code, never other text.
+    assert_eq!(
+        why_codes("carrier ssh route dropped: cmux-platform answered 403 auth.forbidden")
+            .as_deref(),
+        Some("ssh_refused_403_auth_forbidden")
+    );
+    assert_eq!(
+        why_codes("carrier ssh key: cmux-platform answered 409 cloud.machine.not_running; relay: connection closed")
+            .as_deref(),
+        Some("ssh_key_409_cloud_machine_not_running,closed")
+    );
+    assert_eq!(
+        why_codes("carrier ssh route dropped: cmux-platform answered 403 Token=abc").as_deref(),
+        Some("ssh_refused")
+    );
+    // A resume that failed on every route: each failure after its route's
+    // scheme, never the route's host.
+    let both = "transport provider failed: all reconnect route providers failed: \
+                relay+do://relay.example/s/1: transport provider failed: slot gone 10.0.0.9; \
+                ssh://cmux@100.64.0.7: transport provider failed: SSH bootstrap failed for \
+                reconnect route ssh://cmux@100.64.0.7: exit 255";
+    assert_eq!(why_codes(both).as_deref(), Some("relay_other,ssh_bootstrap"));
+    let unsupported = "transport provider failed: all reconnect route providers failed: \
+                       ssh://cmux@100.64.0.7: transport scheme \"ssh\" does not support \
+                       carrier-grant client authentication; relay+do://r/s: the carrier route was killed";
+    assert_eq!(why_codes(unsupported).as_deref(), Some("ssh_unsupported_auth,killed"));
+    assert_eq!(
+        why_codes("invalid transport configuration: no reconnect routes configured").as_deref(),
+        Some("no_routes")
+    );
+    assert_eq!(
+        why_codes("service transport failed: connection is closed").as_deref(),
+        Some("closed")
+    );
     let line = routes_line(MACHINE, Phase::Resume, None, None, Some(Step::Relay), Some(all));
     assert_eq!(
         line,
@@ -934,6 +969,64 @@ fn a_failed_routes_line_says_why_in_fixed_codes_only() {
     assert!(!line.contains("secret"), "{line}");
     let ok = routes_line(MACHINE, Phase::Resume, None, Some("ssh:0"), None, Some(all));
     assert!(!ok.contains("why="), "{ok}");
+}
+
+/// A resume that kept failing on the killed relay says so: each code its
+/// text places on no route is the route it ran on (`relay_link_closed`, not
+/// `other`), and a failed search for the next route is its own
+/// `phase=discover` line, each failure after its route.
+#[test]
+fn a_failed_resume_names_the_route_it_ran_on_and_a_failed_discovery_its_own_line() {
+    use super::super::contract::{routes_line_on, why_codes_on};
+    assert_eq!(why_codes_on("link is closed", Some("relay")).as_deref(), Some("relay_link_closed"));
+    assert_eq!(
+        why_codes_on("SSH connection group is closed", Some("ssh")).as_deref(),
+        Some("ssh_group_closed")
+    );
+    assert_eq!(
+        why_codes_on("relay+do://r/s: link is closed", Some("ssh")).as_deref(),
+        Some("relay_link_closed"),
+        "the text's own route wins"
+    );
+    let line = routes_line_on(
+        MACHINE,
+        Phase::Resume,
+        None,
+        None,
+        Some("relay:0"),
+        Some(Step::Relay),
+        Some("link is closed"),
+    );
+    assert_eq!(
+        line,
+        format!(
+            "carrier.routes machine={MACHINE} phase=resume carrier=none outcome=relay \
+             why=relay_link_closed\n"
+        )
+    );
+    let none = routes_line_on(
+        MACHINE,
+        Phase::Resume,
+        None,
+        None,
+        Some("none"),
+        Some(Step::Relay),
+        Some("link is closed"),
+    );
+    assert!(none.ends_with(" why=link_closed\n"), "{none}");
+    let found = "transport provider failed: all reconnect route providers failed: \
+                 relay+do://r/s: link transport failed: the carrier route was killed; \
+                 ssh://cmux@100.64.0.7: link is closed";
+    let discover =
+        routes_line(MACHINE, Phase::Discover, None, None, Some(Step::Relay), Some(found));
+    assert_eq!(
+        discover,
+        format!(
+            "carrier.routes machine={MACHINE} phase=discover carrier=none outcome=relay \
+             why=killed,ssh_link_closed\n"
+        )
+    );
+    assert!(!discover.contains("100.64"), "{discover}");
 }
 
 /// A state directory whose path holds `%`: every path reaches ssh as an

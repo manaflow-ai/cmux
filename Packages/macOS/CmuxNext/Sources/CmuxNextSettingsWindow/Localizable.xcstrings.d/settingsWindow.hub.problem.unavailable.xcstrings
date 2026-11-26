@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.hub.problem.unavailable" : {
+      "comment" : "Settings > Integrations: shown when the bundled cmux CLI is missing.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build has no cmux command-line tool, so integrations can't load."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يحتوي هذا الإصدار على أداة سطر أوامر cmux، لذا لا يمكن تحميل عمليات الدمج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ova verzija nema cmux alat komandne linije, pa se integracije ne mogu učitati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne version har intet cmux-kommandolinjeværktøj, så integrationer kan ikke indlæses."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Build hat kein cmux-Befehlszeilenwerkzeug, daher können Integrationen nicht geladen werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta versión no tiene la herramienta de línea de comandos de cmux, así que no se pueden cargar las integraciones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette version n'a pas l'outil en ligne de commande cmux : les intégrations ne peuvent pas se charger."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa build non ha lo strumento da riga di comando cmux, quindi le integrazioni non possono essere caricate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このビルドには cmux コマンドラインツールがないため、連携を読み込めません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណែនេះមិនមានឧបករណ៍បន្ទាត់ពាក្យបញ្ជា cmux ទេ ដូច្នេះការភ្ជាប់មិនអាចផ្ទុកបានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 빌드에는 cmux 명령줄 도구가 없어 통합을 불러올 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne versjonen har ikke cmux-kommandolinjeverktøyet, så integrasjoner kan ikke lastes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta kompilacja nie ma narzędzia wiersza poleceń cmux, więc nie można wczytać integracji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta versão não tem a ferramenta de linha de comando do cmux, então as integrações não podem ser carregadas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "В этой сборке нет утилиты командной строки cmux, поэтому интеграции не загружаются."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รุ่นนี้ไม่มีเครื่องมือบรรทัดคำสั่ง cmux จึงโหลดการเชื่อมต่อไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sürümde cmux komut satırı aracı yok, bu yüzden entegrasyonlar yüklenemiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У цій збірці немає інструмента командного рядка cmux, тож інтеграції не завантажуються."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bản dựng này không có công cụ dòng lệnh cmux nên không thể tải tích hợp."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本没有 cmux 命令行工具，无法加载集成。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本沒有 cmux 命令列工具，無法載入整合。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

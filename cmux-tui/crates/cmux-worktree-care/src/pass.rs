@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::archive;
 use crate::disk::{self, Usage};
-use crate::inventory::{self, now_ms};
+use crate::inventory::{self, Guarded, now_ms};
 use crate::policy::{self, Action, Pressure, Session, Settings, Verdict};
 use crate::procs::{Open, Uses};
 use crate::store::Store;
@@ -49,6 +49,9 @@ pub struct Options {
     /// (the daemon's live list): a chat that opened in a worktree while the
     /// pass scanned and measured keeps it. `sessions` is the scan's.
     pub sessions_now: Option<Arc<SessionsNow>>,
+    /// Folders a pass never reads or acts on (`inventory::Guarded`): the
+    /// privacy-protected ones, where a git run raises a prompt nobody asked for.
+    pub guarded: Arc<Guarded>,
 }
 
 /// Reads the sessions as they are now (`Options::sessions_now`).
@@ -118,7 +121,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     // No process list, no action: a worktree some program uses could go.
     let processes = (options.uses)()?;
     let session_dirs: Vec<PathBuf> = options.sessions.iter().map(|s| s.cwd.clone()).collect();
-    let repositories = inventory::repositories(&options.roots, &session_dirs);
+    let repositories = inventory::repositories(&options.roots, &session_dirs, &*options.guarded);
     let disk = options.roots.first().and_then(|root| disk::usage(root));
     let pressure = options
         .pressure
@@ -137,13 +140,14 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     let measure_until = options.measure_budget.map(|budget| std::time::Instant::now() + budget);
     let finished = Arc::new(inventory::FinishedMemo::load(store.finished_path()));
     for common in repositories {
-        let repo = match inventory::scan_with_memo(&common, &[], Arc::clone(&finished)) {
-            Ok(repo) => repo,
-            Err(error) => {
-                report.errors.push(format!("{}: {error}", common.display()));
-                continue;
-            }
-        };
+        let repo =
+            match inventory::scan_guarded(&common, &[], Arc::clone(&finished), &*options.guarded) {
+                Ok(repo) => repo,
+                Err(error) => {
+                    report.errors.push(format!("{}: {error}", common.display()));
+                    continue;
+                }
+            };
         let mut pruned = false;
         for worktree in &repo.worktrees {
             if !options.only.is_empty() && !options.only.iter().any(|p| p == &worktree.path) {

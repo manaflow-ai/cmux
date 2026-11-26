@@ -107,6 +107,7 @@ pub(super) async fn retention(
         archive,
         older_than_days: days,
         only: str_param(params, "only").map(str::to_owned),
+        unread_only: params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(false),
     };
     Some(hub.retention_pass(req).await)
 }

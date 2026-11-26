@@ -9,7 +9,14 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolLabel } from "../toolPaths";
 import { TurnActionsContext } from "./turnActions";
-import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";
+import {
+  waterfall,
+  waterfallCharts,
+  waterfallLines,
+  WATERFALL_FIRST,
+  type WaterfallSpan,
+  type WaterfallTone,
+} from "./waterfallSpans";
 import "./TurnWaterfall.css";
 import { spanTime } from "./turnWaterfallModel";
 import { WithFacts } from "../chips/FactsHoverCard";
@@ -29,6 +36,12 @@ export type WaterfallSummary = "count" | "total" | "turn" | "strong";
 /// `row` (a last row of its own, its bars in the gaps and its sum, chosen), `tint` (the gaps shaded
 /// in every track, no row) or `none` (as before: blank track). The others are gallery arms.
 export type WaterfallModelTime = "row" | "tint" | "none";
+
+/// Chart or plain lines: `auto` (chosen) charts only a turn worth charting (waterfallSpans.ts
+/// `waterfallCharts`: two or more visible call bars and the model's time under half the turn) and
+/// lists any other as plain lines, "Thinking 1m 16s", "Sent a message 24.5s". `chart` and `plain`
+/// force one, for the gallery's before and after.
+export type WaterfallForm = "auto" | "chart" | "plain";
 
 /// A gap shorter than this share of the axis draws no row: a turn of back-to-back calls has nothing
 /// to explain.
@@ -82,6 +95,7 @@ export function TurnWaterfall({
   look = "bars",
   summary = "count",
   modelTime = "row",
+  form = "auto",
 }: {
   id?: string;
   row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">;
@@ -89,6 +103,7 @@ export function TurnWaterfall({
   look?: WaterfallLook;
   summary?: WaterfallSummary;
   modelTime?: WaterfallModelTime;
+  form?: WaterfallForm;
 }) {
   const t = useT();
   const { showCall } = useContext(TurnActionsContext);
@@ -194,14 +209,76 @@ export function TurnWaterfall({
     for (const span of chart.spans) byTone.set(span.tone, [...(byTone.get(span.tone) ?? []), span]);
     return [...byTone];
   }, [look, chart]);
+  const head = (
+    <span className={`cv-waterfall__summary${summary === "strong" ? " is-strong" : ""}`}>
+      {corner.lead && <span>{corner.lead}</span>}
+      {corner.lead && <span aria-hidden="true">{" · "}</span>}
+      <span className="cv-waterfall__total">{corner.time}</span>
+    </span>
+  );
+  if (form === "plain" || (form === "auto" && !waterfallCharts(chart))) {
+    // Plain: the turn's thinking as one line, then each call and its time; no axis, no bars.
+    const lines = waterfallLines(chart);
+    const listed = all ? lines : lines.slice(0, WATERFALL_FIRST);
+    const more = lines.length - listed.length;
+    return (
+      <section id={id} className="cv-waterfall is-plain" aria-label={t("turn.timeline.label")} data-find-skip="">
+        <div className="cv-waterfall__head">{head}</div>
+        <ul className="cv-waterfall__lines">
+          {listed.map((line, at) => {
+            const time = spanTime(t, line.ms);
+            const span = line.span;
+            if (!span)
+              return (
+                <li key="thinking" className="cv-waterfall__line is-thinking">
+                  <span className="cv-waterfall__name">{t("turn.timeline.thought")}</span>
+                  <span className="cv-waterfall__time">{time}</span>
+                </li>
+              );
+            const label = spanLabel(t, span.item);
+            const className = ["cv-waterfall__line", span.failed && "is-failed", span.toolId && showCall && "is-link"]
+              .filter(Boolean)
+              .join(" ");
+            const body = (
+              <>
+                <span className="cv-waterfall__name">{label}</span>
+                {span.failed && <span className="cv-waterfall__tag is-failed">{t("turn.timeline.failed")}</span>}
+                <span className="cv-waterfall__time">{time}</span>
+              </>
+            );
+            return (
+              <li key={`${at}:${span.toolId}`}>
+                {span.toolId && showCall ? (
+                  <button
+                    type="button"
+                    className={className}
+                    data-tool-id={span.toolId}
+                    title={`${label} · ${time}`}
+                    onClick={() => showCall(span.toolId!, span.item.tool?.startedAt)}
+                  >
+                    {body}
+                  </button>
+                ) : (
+                  <div className={className} title={`${label} · ${time}`}>
+                    {body}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {more > 0 && (
+          <button type="button" className="cv-waterfall__more" onClick={() => setAll(true)}>
+            {t("turn.timeline.more", { n: more })}
+          </button>
+        )}
+      </section>
+    );
+  }
   return (
     <section id={id} className={`cv-waterfall is-${look}`} aria-label={t("turn.timeline.label")} data-find-skip="">
       <div className="cv-waterfall__head">
-        <span className={`cv-waterfall__summary${summary === "strong" ? " is-strong" : ""}`}>
-          {corner.lead && <span>{corner.lead}</span>}
-          {corner.lead && <span aria-hidden="true">{" · "}</span>}
-          <span className="cv-waterfall__total">{corner.time}</span>
-        </span>
+        {head}
         <div className="cv-waterfall__axis" aria-hidden="true">
           {/* The axis's start is the turn's start, not a duration: a bare 0, never "0ms". */}
           <span>0</span>

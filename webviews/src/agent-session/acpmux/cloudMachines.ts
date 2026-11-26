@@ -430,6 +430,10 @@ export const currentCloudTeam = teamSnapshot;
 const planSnapshot = () => cloudPlan;
 /// The plan as last read: a Send reads it at once (App `sendToCloud`), the pricing card's wait after a read.
 export const currentCloudPlan = planSnapshot;
+/// The plan as last read, as a hook: the Where menu's AutoCloud gate (autoCloud.ts) follows it.
+export function useCloudPlan(): CloudPlanView {
+  return useSyncExternalStore(subscribe, planSnapshot, planSnapshot);
+}
 
 /// Tests: the plan as if the app's reply named it.
 export function setCloudPlanForTest(next: CloudPlanView = UNKNOWN_PLAN): void {

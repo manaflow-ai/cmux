@@ -16,12 +16,12 @@ export const chatUnderGlass: CoveredCandidates = (surface) =>
 // menu over the New chat composer go clear and its text read through (Lucas, 2026-11-10).
 const composer: CoveredCandidates = (surface) => surface.closest(".acpmux-shell")?.querySelectorAll(CHAT_DOCK) ?? [];
 
-/** Session Info's overlay. One with a foot (data-over-chat, SessionInfo.tsx) stops above the composer's
- * stack by construction, its foot moving in the frame the stack grows; only the short pane's popover
- * (no foot) reaches over the composer. The blur's pass runs at the frame's start, before the foot's
- * ResizeObserver, so a stack growing under a card at its full height (the running tray coming in) read
- * as an overlap for that frame and switched the card's glass to the page's and back, a flash
- * (session-info-stream-scroll-steady.test.ts at 1000 and 760 px with Storage open). */
+/** Session Info's overlay. Over the chat's column it has a foot (data-over-chat, SessionInfo.tsx) that
+ * stops it above the composer's stack, so it never covers the composer and never keeps its underlay
+ * for it. Measured anyway, the blur's frame read saw the stack grown (the running tray coming in)
+ * before the foot followed it later in that frame, and the card flipped its glass to the underlay and
+ * back: a flash per tool call while a turn streams (test/session-info-stream-scroll-steady.test.ts).
+ * Only the popover, with no foot, reaches over the composer. */
 export const chatGlass: SeeThroughOptions = {
   keepUnderlayOver: (surface) => (surface.hasAttribute("data-over-chat") ? [] : composer(surface)),
 };
