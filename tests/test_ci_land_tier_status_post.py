@@ -47,7 +47,7 @@ def step(name: str) -> dict:
 
 
 class LandTierStatusPost(unittest.TestCase):
-    def run_post(self, app_token: str, fail: str, state: str = "success") -> tuple[int, list[str], str]:
+    def run_post(self, app_token: str, fail: str, state: str = "success", pools: str = "") -> tuple[int, list[str], str]:
         script = step("Post the land tier status")["run"]
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
@@ -56,7 +56,8 @@ class LandTierStatusPost(unittest.TestCase):
             calls = Path(tmp, "calls")
             env = {"PATH": f"{tmp}:{os.environ['PATH']}", "CALLS": str(calls), "FAIL_TOKENS": fail,
                    "APP_TOKEN": app_token, "JOB_TOKEN": "job", "REPO": "manaflow-ai/cmux", "SHA": "a" * 40,
-                   "STATE": state, "RUN_URL": "https://example.invalid/run", "LAND_STATUS_RETRY_S": "0"}
+                   "STATE": state, "RUN_URL": "https://example.invalid/run", "LAND_STATUS_RETRY_S": "0",
+                   "POOL_TOKENS": pools}
             done = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True, timeout=30)
             lines = calls.read_text().splitlines() if calls.exists() else []
         return done.returncode, lines, done.stdout + done.stderr
@@ -100,6 +101,26 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(calls), 6)  # three rounds of both tokens
         self.assertIn("::warning::cmux/land-tier (pending) was not posted", said)
+
+    def test_every_description_fits_githubs_140_characters(self) -> None:
+        # GitHub refuses a longer one ("Description is too long (maximum is 140 characters)", run 45827285472).
+        for state in ("success", "pending"):
+            code, lines, out = self.run_post("app", "", state=state)
+            self.assertEqual(code, 0, out)
+            desc = lines[0].split("description=", 1)[1].split(" -f target_url=", 1)[0]
+            self.assertLessEqual(len(desc), 140, desc)
+
+    def test_a_spent_app_and_job_token_post_on_a_pool(self) -> None:
+        # the regression: 2026-11-26 job 140020669492 slept 61 s through three rounds with cmux-bot and the job
+        # token both refused for their spent hour, then left the status unposted
+        code, calls, _ = self.run_post("app", fail="app job pool1", pools="pool1 pool2")
+        self.assertEqual(code, 0)
+        self.assertEqual([c.split()[0] for c in calls], ["app", "pool1", "pool2"])
+
+    def test_the_post_reads_the_pool_tokens(self) -> None:
+        env = step("Post the land tier status")["env"]
+        self.assertIn("secrets.CI_POOL_TOKEN_1", env["POOL_TOKENS"])
+        self.assertIn("secrets.CI_POOL_TOKEN_2", env["POOL_TOKENS"])
 
     def test_the_token_is_minted_with_statuses_write_for_same_repo_heads_only(self) -> None:
         mint = step("Mint the land tier status token")
