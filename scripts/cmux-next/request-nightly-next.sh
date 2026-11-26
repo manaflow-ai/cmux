@@ -302,12 +302,13 @@ app_unchanged() { # <sha>
 # NIGHTLY_NEXT_PRECHECK=0 turns it off. CMUX_NIGHTLY_NEXT_PRECHECK_DEPTH (default 30) ancestors are read
 # at most; each verdict is read once a tick (the tick runs this script once per commit it walks).
 # In the tick (GH_TICK_CACHE) every answer is kept for the walk, not only a verdict: a commit's
-# none, pending or superseded answer, and the service being down, hold for
-# CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL seconds (default 300, the tree probes' window). The walk calls
+# none, pending or superseded answer, and the service being down, hold for the tick (its cache
+# dies with it), or CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL seconds when that is set. A 300 s window
+# re-read every commit about 5 times in a 25-minute walk, so the default is the tick. The walk calls
 # this script once per commit, and each call read its candidates and the same run of ancestors with
 # no verdict again (up to 30 each; a search over k same-tree candidates, k times that), and with
 # the service down each call spent its own 20 s timeout: tick 45858069814 (2026-11-26) took 14
-# minutes to refuse its commits. Now a walk reads each commit at most once a window, an outage once.
+# minutes to refuse its commits. Now a walk reads each commit at most once, an outage once.
 precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.com/compile-checks/v1}"
 precheck_reason=""
 # fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it), none (no
@@ -324,15 +325,15 @@ fleet_verdict() { # <sha>
     mkdir -p "$tick" 2>/dev/null || tick=""
   fi
   if [[ -n "$tick" ]]; then
-    ttl="${CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL:-300}"
-    [[ "$ttl" =~ ^[0-9]+$ ]] || ttl=300
+    ttl="${CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL:-}"
+    [[ "$ttl" =~ ^[0-9]+$ ]] || ttl=""
     now="$(date +%s)"
     # The outage first: one read that got no answer stands for every read in the window.
     for held in "$tick/.down" "$tick/$1"; do
       [[ -s "$held" ]] && read -r at word < "$held" && [[ "$at" =~ ^[0-9]+$ ]] || continue
-      (( now - at < ttl )) || continue
+      [[ -z "$ttl" ]] || (( now - at < ttl )) || continue
       [[ "$held" != "$tick/.down" ]] \
-        || echo "nightly-next precheck: the results service did not answer $((now - at)) s ago; ${1:0:12} is not read again this window" >&2
+        || echo "nightly-next precheck: the results service did not answer $((now - at)) s ago; ${1:0:12} is not read again this tick" >&2
       echo "$word"; return 0
     done
   fi

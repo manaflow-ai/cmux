@@ -1183,6 +1183,10 @@ grep -q "not prechecked yet" "$TMP/batch-out" || fail "a commit with no verdict 
 distinct=$(sort -u "$TMP/precheck.log" | grep -c .)
 (( reads12 == distinct )) || fail "a walk must read each commit's verdict once, read $reads12 for $distinct commits:" "$(sort "$TMP/precheck.log" | uniq -c | sort -rn | head)"
 (( reads12 - reads4 <= 8 )) || fail "8 more commits walked may cost at most 8 more reads, got $reads4 then $reads12"
+# A long walk does not re-read: by default an answer holds for the whole tick, an hour old or not.
+for f in "$TMP/batch-tick-12/precheck/"*; do read -r _ w < "$f"; echo "$(( $(date +%s) - 3600 )) $w" > "$f"; done
+reads_again=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+(( reads_again == 0 )) || fail "within one tick a commit's answer must not be read again, got $reads_again"
 # Without the tick cache the same walk reads the same ancestors again (what the cache saves).
 reads_uncached=$(batch_walk 12 "" 43)
 (( reads_uncached > 3 * reads12 )) || fail "fixture: without the tick cache the walk must read far more, got $reads_uncached vs $reads12"
