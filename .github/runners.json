@@ -417,7 +417,7 @@
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "cmux-next-tip-test-compile.yml#compile": {
+    "cmux-next-tip-test-compile.yml#compile-fleet": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
@@ -627,8 +627,7 @@
       "class": "apple-gui",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
-    "test-ios.yml#ios-simulator-build": "apple-ios",
-    "test-ios.yml#mobile-core-package": "apple-ios"
+    "test-ios.yml#ios-simulator-build": "apple-ios"
   },
   "hosted_light_jobs": {
     "$comment": [
