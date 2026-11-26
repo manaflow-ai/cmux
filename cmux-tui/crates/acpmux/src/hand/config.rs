@@ -114,23 +114,18 @@ pub fn validate(cfg: &HandConfig) -> Result<()> {
 pub fn save(cfg: &HandConfig) -> Result<PathBuf> {
     validate(cfg)?;
     let dir = home();
-    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    crate::home_fs::create_dirs(&dir).with_context(|| format!("create {}", dir.display()))?;
     let p = path();
     let tmp = dir.join(".hand.json.tmp");
     write_private(&tmp, serde_json::to_vec_pretty(cfg)?.as_slice())?;
-    std::fs::rename(&tmp, &p)?;
+    crate::home_fs::rename(&tmp, &p)?;
     Ok(p)
 }
 
 pub(super) fn write_private(p: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
-    let mut o = std::fs::OpenOptions::new();
-    o.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        o.mode(0o600);
-    }
+    let mut o = crate::home_fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true).mode(0o600);
     let mut f = o.open(p).with_context(|| format!("open {}", p.display()))?;
     f.write_all(bytes)?;
     f.sync_all()?;
