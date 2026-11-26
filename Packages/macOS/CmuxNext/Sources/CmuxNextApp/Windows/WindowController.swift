@@ -505,11 +505,13 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        // A live resize's step: its main-thread time (`debug.layout_counters` `resize_steps`, DEBUG and bench builds).
-        guard inLiveResize else { return super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
-        let start = ResizeStepTimes.start()
+        // A live resize's step: its main-thread time by phase (`ResizeStepTimes`: `debug.layout_counters` `resize_steps`
+        // in DEBUG and bench builds, the live-resize log in every build while someone streams it).
+        guard inLiveResize, let start = ResizeStepTimes.beginStep(.window, input: NSApp.currentEvent?.timestamp) else {
+            return super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+        }
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-        ResizeStepTimes.live.record("set_frame", since: start)
+        ResizeStepTimes.recordLive("set_frame", since: start, detail: " x=\(Int(frame.minX)) w=\(Int(frame.width)) h=\(Int(frame.height))")
     }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
