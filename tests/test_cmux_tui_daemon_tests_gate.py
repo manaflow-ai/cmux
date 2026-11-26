@@ -121,8 +121,9 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertNotIn(SHADOW, WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1].replace(
             "cmux-next-daemon-macos-shadow.yml", ""))
         doc = shadow_workflow()
-        self.assertEqual(set(doc["on"]), {"push", "workflow_dispatch"})
-        self.assertEqual(doc["on"]["push"]["branches"], ["feat-cmux-next"])
+        # workflow_dispatch only since 2026-11-21 (ci-time-map: nothing waits for it, ~0.8k Mac-min a day);
+        # a push trigger would put it back on every feat-cmux-next push touching cmux-tui.
+        self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
         self.assertEqual(doc["permissions"], {})
         self.assertEqual(doc["concurrency"]["cancel-in-progress"], "false")
         shadow = doc["jobs"][SHADOW]
@@ -130,7 +131,9 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertFalse(shadow["name"].startswith("cmux_next_ daemon tests"))
         run = flat(step(shadow, "cargo test the macOS-only daemon tests")["run"])
         for test in MAC_ONLY_TESTS:
-            self.assertIn(f"--test {test}", run)
+            # cmux-tui's integration tests are modules of one binary, `it` (#56677): a file's tests run as
+            # `--test it -- FILE::`.
+            self.assertTrue(f"--test {test}" in run or f"--test it -- {test}::" in run, f"{test}: {run}")
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
         runs_on = sole_runs_on(shadow_workflow()["jobs"][SHADOW])

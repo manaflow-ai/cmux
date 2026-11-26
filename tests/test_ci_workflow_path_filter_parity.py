@@ -33,6 +33,14 @@ EXEMPTIONS: dict[str, str] = {
     "only `types` (opened, synchronize, reopened, ready_for_review: a draft skips its jobs until it is ready)",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
+    # Two different jobs: a pull request runs the journey on the Cloud CLI code it changes; a feat-cmux-next push
+    # runs only `seed`, which rebuilds the R2 dependency cache when that cache key's inputs change.
+    "cloud-journey-pr.yml": "pull requests name the Cloud CLI code the journey runs; push names only the seed "
+    "job's cache-key inputs (Cargo.lock, rust-toolchain.toml, cloud-journey-cargo-key.sh)",
+    # Cut to the component library on pull requests (#56329, ~2.4k runner-min a day when every webview PR ran it);
+    # a direct push still gets the whole-webviews receipt, since it skips every pull request check.
+    "gallery-advisory.yml": "pull requests take only the component library (kit, ui, shared token CSS); a "
+    "direct push to feat-cmux-next takes all of webviews/**, as it skips every pull request check",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these

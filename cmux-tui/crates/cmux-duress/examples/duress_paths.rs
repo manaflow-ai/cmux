@@ -36,6 +36,7 @@ const SCROLLBACK: usize = 64 * 1024 * 1024;
 const INGEST_CHUNK: usize = 64 * 1024;
 
 fn main() {
+    // affected-reads: cmux-tui webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let inputs = Inputs::load_repo(&repo).expect("the PTY and chat recordings (a full checkout)");
     let args: Vec<String> = std::env::args().skip(1).collect();

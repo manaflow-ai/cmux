@@ -53,7 +53,8 @@ def job_scripts() -> set[str]:
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
     # The job's test steps run the lane script, which calls the rest by path.
     job += (ROOT / LANE).read_text(encoding="utf-8")
-    found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
+    # A whole path: cmux-next-ios/rust/scripts/build-xcframework.sh is that file, not scripts/build-xcframework.sh.
+    found = set(re.findall(r"(?<![\w.-])(?:\./)?((?:cmux-next-ios/rust/)?scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
     pending = list(found)
     while pending:
         script = ROOT / pending.pop()

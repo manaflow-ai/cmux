@@ -294,6 +294,8 @@ fn the_production_keys_refuse_a_test_signed_file() {
 }
 
 fn repo(path: &str) -> String {
+    // affected-reads: Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+    // affected-reads: scripts/cmux-next/web-bundle-key.py
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../");
     std::fs::read_to_string(format!("{root}{path}")).unwrap_or_else(|e| panic!("{path}: {e}"))
 }

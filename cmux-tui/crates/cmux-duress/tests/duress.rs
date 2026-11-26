@@ -12,6 +12,7 @@ use cmux_fault::Rng;
 use cmux_fault::shaper::LinkProfile;
 
 fn repo() -> PathBuf {
+    // affected-reads: cmux-tui webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
 }
 
