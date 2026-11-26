@@ -149,6 +149,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
     method::MUX_ROOMS,
+    method::MUX_FOLLOW,
     method::MUX_TYPING,
     method::MUX_UNDELETE,
     method::MUX_UPLOADS_KEEP,
