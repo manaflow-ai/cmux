@@ -31,6 +31,15 @@ struct TerminalComposer: View {
     @AppStorage(CmuxMobilePreferences.Key.terminalComposerAutocorrect)
     private var autocorrect = CmuxMobilePreferences.defaultTerminalComposerAutocorrect
 
+    #if DEBUG
+    /// The accessibility probes are opt-in so ordinary debug UI tests keep the same
+    /// view hierarchy and query cost as a production launch. The composer-edge test
+    /// enables them explicitly when it needs to inspect hit routing.
+    private var tapProbeEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-cmuxMobileComposerTapProbe")
+    }
+    #endif
+
     var body: some View {
         #if DEBUG
         let _ = InputLatencyTrace.shared?.count("composer_body")
@@ -49,7 +58,11 @@ struct TerminalComposer: View {
         }
         .overlay(alignment: .topLeading) { floatingNotes }
         #if DEBUG
-        .background(alignment: .bottomLeading) { KeyBarFiredProbe(model: model) }
+        .background(alignment: .bottomLeading) {
+            if tapProbeEnabled {
+                KeyBarFiredProbe(model: model)
+            }
+        }
         #endif
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
@@ -185,8 +198,14 @@ struct TerminalComposer: View {
     /// terminal theme's colors over the same Liquid Glass, so it reads as part of the pane.
     private var card: some View {
         ComposerCard(look: look.card, lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the page's inset leaves out what reaches above the
+            // field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing.").
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         } leading: {
@@ -211,7 +230,8 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
                 autocorrect: autocorrect,
-                reservedTop: model.attachments.isEmpty ? 0 : ComposerCardMetrics.attachmentStripHeight
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
         } trailing: {
             HStack(spacing: 0) {

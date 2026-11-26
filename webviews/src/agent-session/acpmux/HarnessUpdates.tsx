@@ -102,6 +102,7 @@ export function HarnessUpdatesSection({
               {row.phase === "updating" ? (
                 <Spinner size={12} loading />
               ) : row.phase === "failed" ? (
+                // retry-prompt-ok: runs the agent's updater again (an install).
                 t("harness.tryAgain")
               ) : (
                 t("harness.update")

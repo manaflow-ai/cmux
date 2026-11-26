@@ -114,11 +114,16 @@ impl ForumOwner {
             return Self::not_set_up();
         };
         let url = var(URL_ENV).unwrap_or_else(|| cmux_forum_hosted::DEVELOPMENT_BASE_URL.into());
+        Self::at(url, &team, &key)
+    }
+
+    /// The forum at `url` for `team`, signing with the agent key `key`.
+    fn at(url: String, team: &str, key: &str) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let Ok(headers) = cmux_build_space::headers() else {
             return Self { forum: Err("build_space"), runtime: OnceLock::new() };
         };
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_tui_core::server::forum_routed")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
@@ -128,7 +133,7 @@ impl ForumOwner {
             return Self { forum: Err("http_client"), runtime: OnceLock::new() };
         };
         let transport = AnyTransport::new(cmux_forum_hosted::HttpTransport::new(url, http));
-        Self::new(transport, &team, &key)
+        Self::new(transport, team, key)
     }
 
     /// Runs `call` to its end on the owner's runtime, within [`CALL_TIMEOUT`].
