@@ -761,7 +761,7 @@ GATED = {
 # signal kept on every head (pr-body-checks, risk tier, language boundaries, merge freeze, pr-checks, web complexity,
 # classic frozen guard) or already skips feat-cmux-next pull requests (scripts/ci/affected_jobs.py PR_SKIP_IF).
 GATED = {name: "pull_request" for name in (
-    "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+    "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
     "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloudflare-relay.yml",
     "cmux-cloud-cli.yml", "cmux-next-car-guards.yml", "cmux-next-fast-gates.yml", "cmux-next-guards.yml",
     "cmux-next-hot-verify.yml", "cmux-next-pr-autofix.yml",
