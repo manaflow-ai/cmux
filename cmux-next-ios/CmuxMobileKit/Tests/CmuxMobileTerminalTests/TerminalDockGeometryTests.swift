@@ -165,7 +165,7 @@ import UIKit
         #expect(!model.offersReconnect, "attached: no Reconnect")
 
         model.ingest(.connection(.reattaching(mac: "Demo Mac")))
-        #expect(model.connectionLine == "Reconnecting to Demo Mac…", "past the quiet bound")
+        #expect(model.connectionLine == nil, "past the quiet bound too: nothing (Leo 2026-11-22)")
         #expect(model.offersReconnect, "Reconnect is offered (in the page menu)")
         // On purpose: a reattach puts no words in the pill (Leo, 2026-11-24: "all the connecting...
         // indicators ... nah let's not do that"); before this it said "Reattaching…".
