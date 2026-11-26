@@ -239,6 +239,12 @@ scripts/lint-namespace-types-ratchet.txt merge=cmux-baseline-v1
 scripts/lint-namespace-types-baseline.txt merge=cmux-baseline-v1
 scripts/lint-ios-package-conventions-baseline.txt merge=cmux-baseline-v1
 scripts/cmux-next/*-baseline.tsv merge=cmux-baseline-v1
+# The Swift logic class table (swift-logic-lines.py) gets a row per declaration
+# from many lanes at once, mostly in the same package regions, so a line merge
+# conflicts on nearly every base merge. Its rows end in a reason, so the driver
+# keys each whole line: rows either side added are kept, rows either side
+# removed are removed, and no row is lost to a hand resolution.
+plans/cmux-next/swift-logic-classes.tsv merge=cmux-baseline-v1
 scripts/cmux-next/*-baseline.json merge=cmux-baseline-v1
 webviews/scripts/design-tokens-baseline.jsonl merge=cmux-baseline-v1
 # Upstream license texts the shared Ghostty license collector ships, pinned by

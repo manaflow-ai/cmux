@@ -89,6 +89,12 @@ export class ChatSource {
     return state !== "off" && capabilities?.has(HOLD_ATTACH_CAPABILITY) === true;
   }
 
+  /// A host on this page opened a chat on the store: an open asked before its handshake answers
+  /// may guess the switch (`direct.ts` `HandshakeGuess`), checked against that handshake after.
+  hostSaidOn(): boolean {
+    return state === "on";
+  }
+
   /// The chat's rows come from the store: its v1 attach is the hold.
   holds(chat: string): boolean {
     return this.shown?.chat === chat;
