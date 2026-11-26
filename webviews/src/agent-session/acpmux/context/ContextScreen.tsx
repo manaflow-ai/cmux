@@ -14,7 +14,7 @@ import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { Button } from "../../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import "../../../ui/controls.css";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import {
@@ -115,7 +115,7 @@ export function ContextScreen({
       </header>
       {state.kind === "loading" ? (
         <p className="acpmux-context-screen-note" data-context-state="loading">
-          <Spinner size={12} loading /> {t("contextScreen.loading")}
+          <WaitSpinner size={12} loading /> {t("contextScreen.loading")}
         </p>
       ) : state.kind === "failed" ? (
         <p className="acpmux-context-screen-note" data-context-state="failed">

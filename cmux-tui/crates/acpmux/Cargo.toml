@@ -167,7 +167,8 @@ cmux-tui-platform.workspace = true
 # SKILL.md frontmatter, read as YAML (`agent_guidance::frontmatter`), shared with `cmux agent-config skills`.
 cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
-# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
+# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`),
+# and the model picker's lists, served stale while a probe refreshes them (`hub/model_lists.rs`).
 cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
