@@ -116,7 +116,11 @@ class Workflow(unittest.TestCase):
         for job in SECRET_JOBS:
             with self.subTest(job=job):
                 runs_on = re.search(r"^    runs-on: (.*)$", self.jobs[job], re.MULTILINE).group(1)
-                self.assertNotIn("vars.", runs_on)
+                # CI_JIT_SKIP_FLEET only chooses between two literal one-job labels; no variable names the machine.
+                self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                 "vars.CI_JIT_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+                                 "'blacksmith-4vcpu-ubuntu-2404' }}")
+                self.assertNotIn("vars.", runs_on.replace("vars.CI_JIT_SKIP_FLEET != '1' && ", "", 1))
 
     def test_storekit_dispatches_feat_cmux_next(self) -> None:
         block = self.jobs["storekit"]
