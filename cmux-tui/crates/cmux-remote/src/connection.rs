@@ -1327,8 +1327,22 @@ impl ClientConnection {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
+        let recovery_auth_excluded_at_start = self
+            .reconnect_groups
+            .as_ref()
+            .map_or(Duration::ZERO, |source| source.resolution_time_excluded());
+        let effective_recovery_deadline = || {
+            recovery_deadline.map(|deadline| {
+                let excluded = self
+                    .reconnect_groups
+                    .as_ref()
+                    .map_or(Duration::ZERO, |source| source.resolution_time_excluded())
+                    .saturating_sub(recovery_auth_excluded_at_start);
+                deadline.checked_add(excluded).unwrap_or(deadline)
+            })
+        };
         let remaining = |bound: Duration| {
-            recovery_deadline
+            effective_recovery_deadline()
                 .map(|deadline| {
                     bound.min(deadline.saturating_duration_since(tokio::time::Instant::now()))
                 })
@@ -1356,10 +1370,12 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
             }
-            if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            if effective_recovery_deadline()
+                .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+            {
                 return Err(ConnectionError::ReconnectDeadlineExceeded { attempts: attempt });
             }
-            self.spend_redial_token(recovery_deadline, attempt, close_state).await?;
+            self.spend_redial_token(effective_recovery_deadline(), attempt, close_state).await?;
             attempt = attempt.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.set_diagnostics_state(ConnectionState::Reconnecting);
@@ -1431,7 +1447,7 @@ impl ClientConnection {
             let result = match reconnect {
                 Ok(result) => result,
                 Err(_) => Err(
-                    if recovery_deadline
+                    if effective_recovery_deadline()
                         .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
                     {
                         ConnectionError::ReconnectDeadlineExceeded { attempts: attempt }
@@ -1487,8 +1503,9 @@ impl ClientConnection {
                                 None
                             }
                             next = async {
-                                if let Some(deadline) = recovery_deadline
-                                    && tokio::time::Instant::now() >= deadline
+                                let deadline = effective_recovery_deadline();
+                                if deadline
+                                    .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
                                 {
                                     return None;
                                 }
@@ -1501,7 +1518,7 @@ impl ClientConnection {
                                         ).await
                                     }
                                 };
-                                match recovery_deadline {
+                                match deadline {
                                     Some(deadline) => {
                                         resolve_reconnect_group_until(source.as_ref(), deadline, discovery).await
                                     }
@@ -1656,8 +1673,10 @@ async fn resolve_reconnect_group(
     source: &dyn ReconnectGroupSource,
     reconnect_attempt_timeout: Duration,
 ) -> Option<Arc<dyn LinkGroup>> {
+    const AUTH_WAIT_SLICE: Duration = Duration::from_millis(100);
     let budget = source.resolution_timeout(reconnect_attempt_timeout);
     let excluded_at_start = source.resolution_time_excluded();
+    let mut last_excluded = Duration::ZERO;
     let started = tokio::time::Instant::now();
     let next = source.next_group();
     tokio::pin!(next);
@@ -1668,9 +1687,12 @@ async fn resolve_reconnect_group(
         if remaining.is_zero() {
             return None;
         }
-        match tokio::time::timeout(remaining, &mut next).await {
+        let wait =
+            if excluded > last_excluded { remaining.max(AUTH_WAIT_SLICE) } else { remaining };
+        last_excluded = excluded;
+        match tokio::time::timeout(wait, &mut next).await {
             Ok(result) => return result.ok(),
-            Err(_) => continue, // Recompute only at the deadline; no periodic polling.
+            Err(_) => continue, // Recompute at the deadline or bounded auth-progress slice.
         }
     }
 }
@@ -1679,15 +1701,17 @@ async fn resolve_reconnect_group(
 /// authentication time measured by the source. The future stays alive across
 /// timeout slices so an in-flight prompt is not cancelled when the ordinary
 /// recovery budget expires.
-async fn resolve_reconnect_group_until<F>(
+async fn resolve_reconnect_group_until<F, T>(
     source: &dyn ReconnectGroupSource,
     deadline: tokio::time::Instant,
     future: F,
-) -> Option<Arc<dyn LinkGroup>>
+) -> Option<T>
 where
-    F: std::future::Future<Output = Option<Arc<dyn LinkGroup>>>,
+    F: std::future::Future<Output = Option<T>>,
 {
+    const AUTH_WAIT_SLICE: Duration = Duration::from_millis(100);
     let excluded_at_start = source.resolution_time_excluded();
+    let mut last_excluded = Duration::ZERO;
     tokio::pin!(future);
     loop {
         let excluded = source.resolution_time_excluded().saturating_sub(excluded_at_start);
@@ -1696,7 +1720,14 @@ where
         if remaining.is_zero() {
             return None;
         }
-        match tokio::time::timeout(remaining, &mut future).await {
+        // When authentication is still adding excluded time, avoid a tiny
+        // timeout slice near the original deadline. The source has no async
+        // completion signal, so a bounded slice trades a few wakeups for
+        // prompt completion without a millisecond-scale busy loop.
+        let wait =
+            if excluded > last_excluded { remaining.max(AUTH_WAIT_SLICE) } else { remaining };
+        last_excluded = excluded;
+        match tokio::time::timeout(wait, &mut future).await {
             Ok(result) => return result,
             Err(_) => continue,
         }

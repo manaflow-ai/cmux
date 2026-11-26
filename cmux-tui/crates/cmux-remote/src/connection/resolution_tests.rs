@@ -57,6 +57,20 @@ async fn outer_recovery_deadline_excludes_authentication() {
         previously_spent: Duration::ZERO,
     };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    let found = resolve_reconnect_group_until(&source, deadline, async {
+        tokio::time::sleep(Duration::from_millis(3500)).await;
+        Some(())
+    })
+    .await;
+    assert_eq!(found, Some(()));
+    assert_eq!(source.started.elapsed(), Duration::from_millis(3500));
+
+    let source = AuthenticatingSource {
+        started: tokio::time::Instant::now(),
+        authentication: Duration::from_secs(3),
+        previously_spent: Duration::ZERO,
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
     assert!(
         resolve_reconnect_group_until(&source, deadline, std::future::pending()).await.is_none()
     );
