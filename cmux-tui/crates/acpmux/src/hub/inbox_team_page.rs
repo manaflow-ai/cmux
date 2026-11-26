@@ -102,8 +102,10 @@ impl Hub {
     pub(super) async fn notice_reader_has_tools(&self, session: &Session) -> bool {
         let m = session.meta();
         let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
-        let row = format!("mcp:{}", crate::acpmux_mcp::SERVER_NAME);
-        let launched = m.tools.rows.iter().any(|r| r.source == "cmux" && r.id == row && r.enabled);
+        // A chat launched before the rename keeps its row as `mcp:acpmux`.
+        let ours =
+            |id: &str| id.strip_prefix("mcp:").is_some_and(crate::acpmux_mcp_names::is_server_name);
+        let launched = m.tools.rows.iter().any(|r| r.source == "cmux" && ours(&r.id) && r.enabled);
         if m.remote_origin
             || switch.is_some_and(|v| v == "0")
             || session.launched_with_tools.load(Ordering::SeqCst) == 2
@@ -162,7 +164,8 @@ fn spawn_keeps_tools(cfg: &crate::config::Config, m: &SessionMeta) -> bool {
     let servers =
         env.get(crate::agent_tools::SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
     !crate::agent_tools::left_out(false, &env, &args)
-        && servers.is_none_or(|v| v.split(',').any(|s| s.trim() == crate::acpmux_mcp::SERVER_NAME))
+        && servers
+            .is_none_or(|v| v.split(',').any(|s| crate::acpmux_mcp_names::is_server_name(s.trim())))
 }
 
 /// The notice of `items` for an agent with no cmux tools: each message whole, oldest first, under
