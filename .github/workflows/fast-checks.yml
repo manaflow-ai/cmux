@@ -451,11 +451,18 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, shlex, signal, subprocess, time
+          import hashlib, json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
           command_text = os.environ['FAST_CHECKS_COMMAND']
+
+          def write_receipt(result):
+              result['command_sha256'] = hashlib.sha256(command_text.encode()).hexdigest()
+              receipt = json.dumps(result)
+              print('FAST_CHECKS_RECEIPT=' + receipt, flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(receipt)
+
           try:
               lexer = shlex.shlex(command_text, posix=True)
               lexer.whitespace_split = True
@@ -487,8 +494,7 @@ jobs:
                   exit_code=0,
               )
               print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
-              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              write_receipt(result)
               raise SystemExit(0)
           # cargo -p CRATE from a workspace that excludes CRATE: refused with the next step before it runs.
           cargo_check = pathlib.Path(os.environ.get('GITHUB_WORKSPACE', '/nonexistent'), '.fast-checks-cargo-tools', 'scripts', 'ci', 'cargo_package_workspace_check.py')
@@ -499,15 +505,14 @@ jobs:
                   result = dict(source_sha=actual, source_tree=tree, head_after=actual, command_started_at=time.time(),
                       command_seconds=0, exit_code=refused, refused='cargo-package-workspace',
                       run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
-                  print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-                  pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+                  write_receipt(result)
                   raise SystemExit(refused)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(
               ['timeout', '--signal=TERM', '--kill-after=30s',
                os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
-               os.environ['FAST_CHECKS_COMMAND']],
+               command_text],
               cwd=directory, start_new_session=True)
           command_pgid = command.pid
           try:
@@ -524,8 +529,7 @@ jobs:
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
               command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
-          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          write_receipt(result)
           raise SystemExit(code if actual == after else 2)
           PY
 
@@ -646,7 +650,7 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, signal, subprocess, time
+          import hashlib, json, os, pathlib, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
@@ -655,7 +659,8 @@ jobs:
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
           started_at = time.time()
           start = time.monotonic()
-          command = subprocess.Popen(['bash', '-c', os.environ['FAST_CHECKS_COMMAND']],
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          command = subprocess.Popen(['bash', '-c', command_text],
                                      cwd=directory, start_new_session=True)
           command_pgid = command.pid
           timed_out = False
@@ -685,7 +690,8 @@ jobs:
           after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
-              timed_out=timed_out, command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+              timed_out=timed_out, command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count(),
+              command_sha256=hashlib.sha256(command_text.encode()).hexdigest())
           print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
           pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
           raise SystemExit(code if actual == after else 2)
