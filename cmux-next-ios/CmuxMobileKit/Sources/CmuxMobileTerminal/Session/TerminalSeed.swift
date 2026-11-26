@@ -32,6 +32,41 @@ public enum TerminalSeed {
         return lines[first...].joined(separator: "\n")
     }
 
+    /// `rows` with each row cut at `columns` characters: the Mac's screen text is its rows at the
+    /// Mac pane's width, and fed to a narrower surface each one wrapped onto the next row (a rule
+    /// across the Mac's screen took a row and a half of the phone's; Leo, 2026-11-25: "the layout
+    /// calculations too"). Cut, each Mac row is one phone row until the Mac's replay, at the
+    /// phone's width, replaces them. The phone's own rows are its own width and are never cut.
+    public static func rows(_ rows: String, clippedTo columns: Int) -> String {
+        guard columns > 0 else { return rows }
+        return Self.rowLines(of: rows).map { line in
+            var width = 0
+            var end = line.startIndex
+            for index in line.indices {
+                let next = width + cellWidth(line[index])
+                if next > columns { break }
+                width = next
+                end = line.index(after: index)
+            }
+            return String(line[..<end])
+        }.joined(separator: "\n")
+    }
+
+    /// Cells a character takes: two for East Asian wide and emoji presentation, else one.
+    static func cellWidth(_ character: Character) -> Int {
+        guard let scalar = character.unicodeScalars.first else { return 1 }
+        if character.unicodeScalars.count > 1, character.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation }) { return 2 }
+        if scalar.properties.isEmojiPresentation { return 2 }
+        switch scalar.value {
+        case 0x1100...0x115F, 0x2E80...0x303E, 0x3041...0x33FF, 0x3400...0x4DBF, 0x4E00...0x9FFF,
+             0xA000...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF, 0xFE30...0xFE4F, 0xFF00...0xFF60,
+             0xFFE0...0xFFE6, 0x20000...0x3FFFD:
+            return 2
+        default:
+            return 1
+        }
+    }
+
     /// The bytes a fresh surface is fed for `rows`: one row per line, with every control
     /// character but a tab removed, so a kept page only ever prints text (it never runs an
     /// escape sequence, never sets a mode or a title).

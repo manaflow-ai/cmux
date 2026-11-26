@@ -144,5 +144,5 @@ test("the Ask row has no action hint when another row leads", async () => {
   await render([]);
   await type("reddit");
   const ask = rows().find((row) => label(row) === "Ask Claude Code")!;
-  expect(ask.querySelector("kbd")).toBeNull();
+  expect(ask.querySelector(".ui-key-hint")).toBeNull();
 });
