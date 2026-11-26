@@ -759,8 +759,9 @@ public final class AgentPaneModel {
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
-        // Nor the paths of files dropped or pasted from this Mac.
-        case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
+        // Nor the paths of files dropped or pasted from this Mac. Before its handshake a page
+        // reached over a remote route still reads `remoteChat == false`, so refuse it too.
+        case .attachDropped where remoteChat || !hasHandshake: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names, let gestureAt): return await attachDropped(kind, names: names, gestureAt: gestureAt)
         // A chat on another machine, or a page before its handshake, gets the pasteboard's claim
         // only, never this Mac's file metadata (`attachSource`).

@@ -920,22 +920,14 @@ jobs:
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-558
           sparse-checkout: |
-            /.github/
-            /scripts/
-            /tests/
-            /cmux-tui/
-            /Packages/macOS/CmuxNext/
-            /Packages/*/*/Package.swift
-            /vendor/stack-auth-swift-sdk-prerelease/Package.swift
-            /cmux.xcodeproj/project.pbxproj
-            /AGENTS.md
-            /.gitmodules
-            /first-party-apps/cloud/
-            /workers/cmux-vm/cli/
-            !/Packages/macOS/CmuxNext/**/*.xcstrings
-            !/Packages/macOS/CmuxNext/**/*.avif
-            !/Packages/macOS/CmuxNext/**/*.png
+            /scripts/ci/prefetch-sparse-checkout.sh
+            /scripts/ci/path-route-sparse-checkout.txt
+      - name: Widen the sparse checkout with a parallel blob fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/prefetch-sparse-checkout.sh < scripts/ci/path-route-sparse-checkout.txt
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
@@ -1782,6 +1774,28 @@ jobs:
             bash scripts/cef/tests/test-embedder-step.test.sh
             [web-bundle-key-inputs]
             bash tests/test_web_bundle_key_inputs.sh
+            # The serial tail: these ran one after another after the pool; they read the tree only.
+            [companion-workflows]
+            python3 tests/test_cmux_next_generated_catch_up.py
+            python3 tests/test_next_batch.py
+            python3 tests/test_next_batch_groups.py
+            python3 tests/test_cmux_next_base_autofix_finishes.py
+            python3 tests/test_base_autofix_pushed_exports.py
+            python3 tests/test_cmux_next_pr_autofix_settings.py
+            python3 tests/test_cmux_next_pr_changed_paths.py
+            python3 tests/test_pr_capture_check_paths.py
+            python3 tests/test_car_guards.py
+            python3 tests/test_ci_github_token_budget.py
+            # Why: note-450
+            python3 scripts/ci/github_token_budget_lint.py
+            [base-red-classifier]
+            python3 tests/test_test_reds.py
+            python3 tests/test_base_red_excuse.py
+            python3 tests/test_web_coalesce.py
+            [motion-tokens]
+            python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+            python3 -I scripts/cmux-next/check-motion-tokens.py
+            python3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json" && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"
           CHECKS
 
       # Why: 2026-11-24-checks-31.md, note-134
@@ -2062,11 +2076,7 @@ jobs:
       - name: Motion and colour tokens
         id: motion-tokens
         continue-on-error: true
-        run: |
-          python3 -I scripts/cmux-next/tests/test_motion_inventory.py
-          python3 -I scripts/cmux-next/check-motion-tokens.py
-          python3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json"
-          python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" motion-tokens
 
       # Why: 2026-11-24-checks-38.md, note-147
       - name: Surface roles
@@ -2230,28 +2240,13 @@ jobs:
       - name: Companion workflows
         id: companion-workflows
         continue-on-error: true
-        run: |
-          python3 tests/test_cmux_next_generated_catch_up.py
-          python3 tests/test_next_batch.py
-          python3 tests/test_next_batch_groups.py
-          python3 tests/test_cmux_next_base_autofix_finishes.py
-          python3 tests/test_base_autofix_pushed_exports.py
-          python3 tests/test_cmux_next_pr_autofix_settings.py
-          python3 tests/test_cmux_next_pr_changed_paths.py
-          python3 tests/test_pr_capture_check_paths.py
-          python3 tests/test_car_guards.py
-          python3 tests/test_ci_github_token_budget.py
-          # Why: note-450
-          python3 scripts/ci/github_token_budget_lint.py
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" companion-workflows
 
       # Why: 2026-11-24-checks-46.md, note-163
       - name: Base-red classifier (per test)
         id: base-red-classifier
         continue-on-error: true
-        run: |
-          python3 tests/test_test_reds.py
-          python3 tests/test_base_red_excuse.py
-          python3 tests/test_web_coalesce.py
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" base-red-classifier
 
       # Why: 2026-11-24-checks-47.md, note-164
       - name: DEV update and classic import scripts

@@ -24,7 +24,7 @@
 #          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
 #          [--what-to-test <text>]
 #
-#   --ref                 commit to build (default HEAD); the source is `git archive` of it
+#   --ref                 commit to build (default HEAD); build only source recorded at this commit
 #   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION, the
 #                         configuration's own when it sets one); must be >= every version
 #                         already uploaded to the app record
@@ -436,8 +436,18 @@ log "cmux-next-ios $config archive $sha -> $out"
 # --- Source (the commit only) ----------------------------------------------
 paths=(cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
        cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
-git -C "$repo" archive --format=tar "$sha" "${paths[@]}" \
-  ':(exclude)cmux-next-ios/verify' | tar -x -C "$work/src"
+if [[ ${CMUX_INTERNAL_SPARSE_ARCHIVE:-0} == 1 ]]; then
+  # git archive can prefetch excluded blobs in a partial clone. Materialize
+  # the tracked build inputs from this commit, even if the worktree is dirty.
+  (
+    export GIT_INDEX_FILE="$private/source.index"
+    git -C "$repo" -c core.sparseCheckout=false read-tree "$sha"
+    git -C "$repo" ls-files --error-unmatch -z -- "${paths[@]}" ':(exclude)cmux-next-ios/verify' |
+      git -C "$repo" checkout-index --prefix="$work/src/" -z --stdin
+  )
+else
+  git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+fi
 
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \

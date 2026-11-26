@@ -1061,6 +1061,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_published_in_comments.py
 
+      - name: Validate every published NIGHTLY gets its PR list (notes checkout, span fetch, dispatch retry)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_pr_list_publish.py
+
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_status.py
