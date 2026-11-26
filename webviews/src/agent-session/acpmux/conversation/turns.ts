@@ -1662,7 +1662,6 @@ export const FLOOR_MS = 1_000;
 
 /// The rows a fold would hide: each tool call, and each row another agent wrote
 /// (the turn's own prompt among them). Thinking counts by its time, not as a row.
-const foldsAsWork = (row: AcpmuxRow) => isAgentPrompt(row);
 export function workRowCount(user: AcpmuxRow, body: readonly AcpmuxRow[]): number {
   let count = foldsAsWork(user) ? 1 : 0;
   for (const row of body) {
@@ -2941,7 +2940,7 @@ function foldTailTurn(
   const folds = turnFoldStyle(agentFamily).conclusion;
   if (background === undefined || !endedBackground.has(background))
     return folds
-      ? harnessStartedTail(stretch, expanded, endedBackground, clockOffset, sessionStatus, agentFamily)
+      ? harnessStartedTail(stretch, expanded, endedBackground, clockOffset, agentFamily)
       : endedTail(stretch);
   // What came before its line (a late update of an earlier call) draws as it came; rows the harness
   // wrote that set it going are its first calls (`harnessEnd`).
@@ -3022,7 +3021,6 @@ function harnessStartedTail(
   expanded: Folds,
   endedBackground: ReadonlySet<string>,
   clockOffset: number,
-  sessionStatus: boolean,
   agentFamily: string | undefined,
 ): AcpmuxRow[] {
   const anchor = stretch[0];
@@ -3038,7 +3036,6 @@ function harnessStartedTail(
     false,
     false,
     clockOffset,
-    sessionStatus,
     agentFamily,
     0,
     endedBackground,
