@@ -983,4 +983,5 @@ pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
+pub mod sidebar_session_tree;
 pub mod workspace_port_links;
