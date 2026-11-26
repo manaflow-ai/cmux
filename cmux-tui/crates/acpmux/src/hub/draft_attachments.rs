@@ -121,6 +121,31 @@ pub(crate) fn write(folder: &Path, chips: &[Value]) -> std::io::Result<Vec<Strin
     }
     crate::home_fs::create_dirs(folder)?;
     let before = saved(folder)?.unwrap_or_default();
+
+    // Validate carry-forward contents before touching any existing files. A reconnect normally
+    // names a held chip without its bytes, which is safe only while every declared file exists.
+    // An omitted chip is an intentional removal and is therefore not checked here. An explicit
+    // null is also a removal, while a fresh string is a complete replacement and can recover a
+    // missing old file.
+    for chip in chips {
+        let id = chip.get("id").and_then(Value::as_str).unwrap_or_default();
+        for field in CONTENTS {
+            let Some(previous) = before.held.get(id) else { continue };
+            if !previous.iter().any(|held| held == field) {
+                continue;
+            }
+            if chip.get(field).is_none() {
+                let path = folder.join(file_name(id, field));
+                if !path.is_file() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("held attachment {id:?} is missing its {field} contents"),
+                    ));
+                }
+            }
+        }
+    }
+
     let mut saved = Saved::default();
     for chip in chips {
         let mut chip = chip.clone();

@@ -113,6 +113,32 @@ async fn a_missing_declared_attachment_file_fails_the_read() {
     assert!(target.draft_attachments(&target_session).await.unwrap().is_empty());
 }
 
+#[test]
+fn a_missing_carried_contents_file_rejects_the_write_without_changing_the_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join(DIR);
+    write(&folder, &chips()).unwrap();
+    let manifest_before = std::fs::read(folder.join(LIST)).unwrap();
+    std::fs::remove_file(folder.join(file_name("img-1", "data"))).unwrap();
+
+    let mut reconnect = chips();
+    for chip in &mut reconnect {
+        let object = chip.as_object_mut().unwrap();
+        object.remove("data");
+        object.remove("text");
+    }
+    let error = write(&folder, &reconnect).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(std::fs::read(folder.join(LIST)).unwrap(), manifest_before);
+
+    // A complete resend recovers the missing file, while removing a chip from the list remains
+    // an intentional operation.
+    write(&folder, &chips()).unwrap();
+    let without_image: Vec<Value> =
+        chips().into_iter().filter(|chip| chip["id"] != "img-1").collect();
+    write(&folder, &without_image).unwrap();
+}
+
 #[tokio::test]
 async fn an_unwritable_destination_refuses_the_import_and_preserves_the_source() {
     let source_dir = tempfile::tempdir().unwrap();
