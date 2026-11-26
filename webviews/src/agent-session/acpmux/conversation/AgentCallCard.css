@@ -14,6 +14,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Its words in their own box, so the line's end cuts them with an ellipsis, not mid-letter. */
+.cv-agentcall__status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cv-agentcall__status[data-state="failed"] {
   color: var(--agent-status-failure);
 }
