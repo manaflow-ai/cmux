@@ -1,12 +1,15 @@
 import Foundation
 
-/// The main-thread time of each window resize step, by phase (`debug.layout_counters` `resize_steps`, DEBUG and bench
-/// builds): a live resize sets the window's frame once per mouse event, and cmux's own layout runs inside that call. The
-/// other Mac's samples (in-tree ON and OFF, 2026-11-24) put about half of all main-thread samples of a corner drag under
-/// `ShellWindow.setFrame`, with 330-430 ms frames; a sample gives the shares, not which step was slow. This keeps one
-/// entry per step: the whole `setFrame`, and inside it the root's `layout()` and its screens' fit, and the parts inside
-/// those (each pane's layout by its content, the sidebar, the overlay sync), each call its own entry: a phase's
-/// `total_ms` over `set_frame`'s `steps` is its share of a step. One value for all windows (``live``).
+/// The main-thread time of each resize step, by phase. A step is a window live resize's `ShellWindow.setFrame` (one per
+/// mouse event, with cmux's own layout inside it) or a divider drag's frame tick (`LayoutRootView.advanceFrame`, which
+/// writes the drag's newest pointer and lays the panes out); either one lasts until its run-loop turn has committed its
+/// Core Animation transaction. Inside a step each part is its own entry: the root's `layout()` and its screens' fit, each
+/// pane's layout by its content, the sidebar, the overlay sync, the Home transcript.
+///
+/// Two readers. DEBUG and bench builds keep the times (`debug.layout_counters` `resize_steps`; a divider step's phases
+/// under `divider.`). Every build, Release too, writes them to the unified log while someone streams its debug messages
+/// (``ResizeStepLog``). With nobody streaming a Release build times nothing and installs no observer: a live resize reads
+/// one flag of the log per call (`Logger.isEnabled`).
 @MainActor
 public struct ResizeStepTimes {
     /// One phase's milliseconds per step, the last ``capacity`` steps.
@@ -15,24 +18,81 @@ public struct ResizeStepTimes {
 
     public init() {}
 
-    /// The times of every window's live-resize steps (`debug.layout_counters` `resize_steps`).
+    /// The times of every window's resize steps (`debug.layout_counters` `resize_steps`).
     public static var live = ResizeStepTimes()
 
-    /// ``start()`` while `inLiveResize` is true, in DEBUG and bench builds (which keep the times); else nil, and the
-    /// caller measures nothing.
-    public static func startIfLive(_ inLiveResize: Bool?) -> UInt64? {
+    /// What a step resizes.
+    public enum StepKind: String, Sendable {
+        /// A window live resize (its corner or an edge).
+        case window
+        /// A pane divider, column edge or row edge drag.
+        case divider
+    }
+
+    /// Whether steps are timed: always in DEBUG and bench builds (which keep the times), in Release only while the log
+    /// streams. Tests force it (``recordingOverride``) to check what a Release build with nobody streaming does.
+    public static var isRecording: Bool {
+        if let recordingOverride { return recordingOverride }
         #if DEBUG || CMUX_BENCH_HOOKS
-        return inLiveResize == true ? start() : nil
+        return true
         #else
-        return nil
+        return ResizeStepLog.isStreaming
         #endif
     }
 
-    /// Records under `phase` (built only when there is a start) the time since `start`, into ``live``.
-    public static func recordLive(_ phase: @autoclosure () -> String, since start: UInt64?) {
-        guard let start else { return }
-        live.record(phase(), since: start)
+    /// Tests only: forces ``isRecording``.
+    static var recordingOverride: Bool?
+
+    /// Begins a step of `kind` when steps are timed and `condition` holds (built only then), and returns its start; else
+    /// nil, and the caller measures nothing. `input` is the `NSEvent.timestamp` of the pointer event the step shows (a
+    /// window step's current event); a divider step takes the events ``noteInput(_:)`` kept since the last one.
+    public static func beginStep(_ kind: StepKind, if condition: @autoclosure () -> Bool = true,
+                                 input: @autoclosure () -> Double? = nil) -> UInt64? {
+        guard isRecording, condition() else { return nil }
+        return ResizeStepLog.begin(kind, input: input())
     }
+
+    /// Keeps a divider's pointer event (its `NSEvent.timestamp`) for the drag's next step, which reports how long the
+    /// newest and the oldest one waited (`input_age`, `input_wait`).
+    public static func noteInput(_ timestamp: Double) {
+        guard isRecording else { return }
+        ResizeStepLog.noteInput(timestamp)
+    }
+
+    /// ``start()`` inside a step, or in a live resize while steps are timed; else nil, and the caller measures nothing.
+    public static func startIfLive(_ inLiveResize: Bool?) -> UInt64? {
+        if ResizeStepLog.step != nil { return start() }
+        return inLiveResize == true && isRecording ? start() : nil
+    }
+
+    /// ``start()`` while steps are timed (a divider's mouse event, outside any step), else nil.
+    public static func startIfRecording() -> UInt64? {
+        isRecording ? start() : nil
+    }
+
+    /// Records under `phase` (built only when there is a start) the time since `start`: into ``live`` in DEBUG and bench
+    /// builds, and to the log while it streams. `kind` names a phase outside any step (a divider's mouse event); inside
+    /// one, the step's kind.
+    /// `detail` (built only while the log streams) follows the time on the phase's line, as ` key=value` pairs.
+    public static func recordLive(_ phase: @autoclosure () -> String, kind: StepKind? = nil, since start: UInt64?,
+                                  detail: @autoclosure () -> String = "") {
+        guard let start else { return }
+        let ms = Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
+        let kind = ResizeStepLog.step?.kind ?? kind ?? .window
+        let name = phase()
+        keep(kind, name, ms)
+        if ResizeStepLog.isStreaming { ResizeStepLog.write(kind, name, ms, detail: detail()) }
+    }
+
+    /// One fact of a step that is not a time of its own: a resize fence's wait and outcome (`CEFResizeFences`). `step`:
+    /// the step it belongs to (a fence's page reports in a later turn); the open one by default.
+    public static func note(_ phase: @autoclosure () -> String, ms: Double, step: UInt64? = nil, detail: @autoclosure () -> String = "") {
+        guard ResizeStepLog.isStreaming else { return }
+        ResizeStepLog.write(ResizeStepLog.step?.kind ?? .window, phase(), ms, step: step, detail: detail())
+    }
+
+    /// The open step's number, while one is open and the log streams (for a fact reported later, ``note(_:ms:step:detail:)``).
+    public static var openStep: UInt64? { ResizeStepLog.isStreaming ? ResizeStepLog.step?.id : nil }
 
     /// The time now, to pass to ``record(_:since:)`` after the phase's work. Two calls instead of one closure-taking
     /// `mutating` method: a phase measured inside another on the same value (the root's `layout()` inside
@@ -41,12 +101,22 @@ public struct ResizeStepTimes {
 
     /// Records the time since `start` under `phase` (DEBUG and bench builds; else nothing).
     public mutating func record(_ phase: String, since start: UInt64) {
+        record(phase, ms: Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000)
+    }
+
+    mutating func record(_ phase: String, ms: Double) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        let ms = Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
         var list = phases[phase, default: []]
         if list.count >= Self.capacity { list.removeFirst(list.count - Self.capacity + 1) }
         list.append(ms)
         phases[phase] = list
+        #endif
+    }
+
+    /// Into ``live`` (DEBUG and bench builds): a divider step's phases under `divider.`.
+    static func keep(_ kind: StepKind, _ phase: String, _ ms: Double) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        live.record(kind == .window ? phase : "divider." + phase, ms: ms)
         #endif
     }
 

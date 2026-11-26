@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// Window frame sync (fork API 32, `cmux_browser_resize_fence`; plans/cmux-next/cef-layer-hosting-DESIGN.md, FRAME OWNER
@@ -45,6 +46,12 @@ final class CEFResizeFences {
             fence = CEFResizeFence(port: port)
             current[key] = fence
             CEFHostView.trackerStats.resizeFences += 1
+            // The resize step this fence holds the commit of (`ResizeStepTimes`, while its log streams).
+            fence.step = ResizeStepTimes.openStep
+            if fence.step != nil {
+                fence.opened = DispatchTime.now().uptimeNanoseconds
+                ResizeStepTimes.note("fence_open", ms: Double(timeoutMs), step: fence.step)
+            }
             // After this turn no page joins; a fence nobody joined goes at once.
             CEFLayerHosting.atEndOfTurn { [weak self] in
                 if self?.current[key] === fence { self?.current[key] = nil }
@@ -59,12 +66,13 @@ final class CEFResizeFences {
                 // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
                 do { try await clock.sleep(for: after) } catch { return }
                 if fence.outstanding > 0 { CEFHostView.trackerStats.resizeFencesExpired += 1 }
-                fence.drop()
+                fence.drop(expired: fence.outstanding > 0)
             }
         }
         let joined = ask(fence.port) { [weak fence] presented in
             if presented { CEFHostView.trackerStats.resizeFencePresented += 1 } else { CEFHostView.trackerStats.resizeFenceMissed += 1 }
             guard let fence else { return }
+            fence.note("fence_page", presented ? " presented=1" : " presented=0")
             fence.outstanding -= 1
             if fence.outstanding <= 0, fence.sealed { fence.drop() }
         }
@@ -83,6 +91,9 @@ final class CEFResizeFence {
     fileprivate var outstanding = 0
     fileprivate var sealed = false
     fileprivate var deadline: Task<Void, Never>?
+    /// The resize step whose commit this fence holds, and when it opened (uptime ns), while the step log streams.
+    fileprivate var step: UInt64?
+    fileprivate var opened: UInt64 = 0
 
     fileprivate init(port: mach_port_t) {
         self.port = port
@@ -93,8 +104,15 @@ final class CEFResizeFence {
         if outstanding <= 0 { drop() }
     }
 
-    fileprivate func drop() {
+    /// A fact of this fence for its step's log (`fence_page`, `fence_released`): the time since it opened.
+    fileprivate func note(_ phase: String, _ detail: String) {
+        guard let step else { return }
+        ResizeStepTimes.note(phase, ms: Double(DispatchTime.now().uptimeNanoseconds &- opened) / 1_000_000, step: step, detail: detail)
+    }
+
+    fileprivate func drop(expired: Bool = false) {
         guard port != mach_port_t(MACH_PORT_NULL) else { return }
+        note("fence_released", expired ? " expired=1 outstanding=\(outstanding)" : " expired=0")
         mach_port_deallocate(mach_task_self_, port)
         port = mach_port_t(MACH_PORT_NULL)
         outstanding = 0
