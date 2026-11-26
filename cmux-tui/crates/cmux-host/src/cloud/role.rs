@@ -1486,6 +1486,9 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
     }
+    if let Some(ask) = msg.get(super::integration::REQUEST_KEY) {
+        return Some(Ask::Integration(super::integration::from_json(ask)));
+    }
     if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
         return Some(super::github_repos::ReposAsk::from_json(ask).into());
     }

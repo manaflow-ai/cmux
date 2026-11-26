@@ -49,7 +49,9 @@ impl Http for Fake {
                     json!({ "access_token": format!("bearer-{n}"), "token_type": "Bearer", "expires_at": T0 + 600_000, "install": INSTALL, "user": "user_u0000000000000000001", "grant": "grant_v000000000000000004", "team": "team_t0000000000000000001" }),
                 ))
             }
-            TOKEN_PATH => Ok(st.answers.pop_front().unwrap_or((500, json!({})))),
+            TOKEN_PATH | "/v1/integrations/slack/token" => {
+                Ok(st.answers.pop_front().unwrap_or((500, json!({}))))
+            }
             _ => Ok((404, json!({}))),
         }
     }
@@ -282,6 +284,55 @@ fn a_200_must_carry_every_field_for_the_asked_repo() {
 fn no_log(_: &str) {}
 fn fixed_now() -> u64 {
     T0
+}
+
+#[test]
+fn integration_tokens_use_the_bound_install_and_shared_minter() {
+    let fake = Fake::default();
+    fake.0.lock().unwrap().answers.extend([
+        (
+            200,
+            json!({"token": "xoxb-test-token", "provider": "slack",
+            "expires_at": "2026-11-26T21:00:00Z", "token_id": "0123456789abcdef"}),
+        ),
+        (403, json!({"error": {"code": "integration.disabled", "message": "disabled"}})),
+    ]);
+    let minter: Minter<Fake> = Minter::spawn(fixed_now, no_log, Arc::default()).unwrap();
+    minter.bound(client(&fake));
+    let ask = super::integration::from_json(&json!({
+        "provider": "slack", "scopes": ["chat:write"], "label": "setup",
+        "team": "untrusted-team"
+    }))
+    .unwrap();
+    for expected_ok in [true, false] {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        minter.ask(super::github_minter::Ask::Integration(Ok(ask.clone())), theirs);
+        let mut line = String::new();
+        BufReader::new(ours).read_line(&mut line).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["ok"], expected_ok);
+        if expected_ok {
+            assert_eq!(reply["token"], "xoxb-test-token");
+            assert_eq!(reply["provider"], "slack");
+        } else {
+            assert_eq!(reply["error"]["code"], "integration.disabled");
+            assert!(!line.contains("xoxb-test-token"));
+        }
+        assert!(!super::integration::note_for(&ask, &reply).contains("xoxb-test-token"));
+    }
+    let st = fake.0.lock().unwrap();
+    let requests: Vec<_> = st
+        .seen
+        .iter()
+        .filter(|(url, _, _)| url.ends_with("/v1/integrations/slack/token"))
+        .collect();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(st.tokens_minted, 1, "policy refusal must not retry authentication");
+    for (_, bearer, body) in requests {
+        assert_eq!(bearer.as_deref(), Some("bearer-1"));
+        assert_eq!(*body, json!({"team": TEAM, "scopes": ["chat:write"], "label": "setup"}));
+    }
 }
 
 /// One ask through the minter thread: the reply line on `ours`.
