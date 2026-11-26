@@ -1,6 +1,7 @@
 public import CmuxNextAgentPane
 public import CmuxNextBridge
 public import CmuxNextDaemon
+import Foundation
 
 /// Mute one agent chat's notifications (cx-sg1qz) from its tab's or sidebar
 /// row's menu. The mute is the chat's acpmux tag `notifications: muted`, so it
@@ -28,5 +29,22 @@ public struct AgentChatMute {
         try await environment.tag(session: session, set: muted ? [:] : [tag: AgentTurnStates.mutedValue],
                                   remove: muted ? [tag] : [])
         return true
+    }
+}
+
+/// The mute rows' strings (Localizable.xcstrings).
+public struct AgentChatMuteStrings {
+    public init() {}
+    public static var mute: String {
+        String(localized: "agentChat.muteNotifications", defaultValue: "Mute Chat Notifications", bundle: .localizedModule)
+    }
+    public static var unmute: String {
+        String(localized: "agentChat.unmuteNotifications", defaultValue: "Unmute Chat Notifications", bundle: .localizedModule)
+    }
+    public static var notAChat: String {
+        String(localized: "agentChat.mute.notAChat", defaultValue: "Only an agent chat on this Mac can be muted.", bundle: .localizedModule)
+    }
+    public static var failed: String {
+        String(localized: "agentChat.mute.failed", defaultValue: "The chat's notifications could not be changed.", bundle: .localizedModule)
     }
 }
