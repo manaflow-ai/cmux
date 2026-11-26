@@ -18,8 +18,8 @@ public import Foundation
 /// The unlock rules are Rust's (cmux-screenshots `gate.rs`); this keeps the remembered click.
 @MainActor
 public final class ScreenshotsGate {
-    private let handle = Handle()
-    private var gate: OpaquePointer? { handle.gate }
+    private let handle = RustHandle(cmux_screenshots_gate_new()) { cmux_screenshots_gate_free($0) }
+    private var gate: OpaquePointer? { handle.pointer }
     private let defaults: UserDefaults
     private static let accessKey = "screenshots.showScreenshotsClicked"
 
@@ -64,13 +64,5 @@ public final class ScreenshotsGate {
         view.onShowScreenshots = onShow
         view.onAccessMissing = { [weak self] in self?.forgetAccess() }
         view.startsWhenShown = ScreenshotsFFI.bytes(key) { cmux_screenshots_gate_starts_when_shown(gate, $0, $1, remembersAccess) }
-    }
-
-    /// The Rust gate, freed with this gate.
-    private nonisolated final class Handle: Sendable {
-        /// The gate's address, a plain value, so the nonisolated deinit can free it.
-        private let address = UInt(bitPattern: cmux_screenshots_gate_new())
-        var gate: OpaquePointer? { OpaquePointer(bitPattern: address) }
-        deinit { cmux_screenshots_gate_free(gate) }
     }
 }

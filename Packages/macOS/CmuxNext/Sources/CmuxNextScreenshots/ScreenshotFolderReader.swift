@@ -66,18 +66,13 @@ public nonisolated struct ScreenshotFolderReader: Sendable {
     @concurrent
     public func newestPicture(in folder: URL) async -> URL? {
         guard let entries = try? await lister.list(folder) else { return nil }
-        let bytes = entries.flatMap { Array($0.name.utf8) }
-        let index = bytes.withUnsafeBufferPointer { names in
-            var offset = 0
-            let raw = entries.map { entry in
-                let count = entry.name.utf8.count
-                defer { offset += count }
-                return CmuxScreenshotsEntry(kind: ScreenshotsFFI.raw(entry.kind), hidden: entry.isHidden,
-                                            name: names.baseAddress.map { $0 + offset }, name_len: count,
-                                            system_kind: ScreenshotsFFI.systemKind(ofFileNamed: entry.name),
-                                            modified: entry.modified.timeIntervalSince1970)
+        let index = ScreenshotsFFI.strings(entries.map(\.name)) { names in
+            let raw = zip(entries, names).map { entry, name in
+                CmuxScreenshotsEntry(kind: ScreenshotsFFI.raw(entry.kind), hidden: entry.isHidden, name: name.bytes,
+                                     name_len: name.count, system_kind: ScreenshotsFFI.systemKind(ofFileNamed: entry.name),
+                                     modified: entry.modified.timeIntervalSince1970)
             }
-            return raw.withUnsafeBufferPointer { cmux_screenshots_newest_picture($0.baseAddress, $0.count) }
+            return cmux_screenshots_newest_picture(raw, raw.count)
         }
         guard index >= 0 else { return nil }
         let newest = entries[Int(index)]
