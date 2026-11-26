@@ -122,6 +122,10 @@ public final class MacScreenSession {
     /// own-device rule, decided where the pane is made (`RemoteClipboardPolicy`). The host still
     /// lists the cap only when its person turned clipboard sync on.
     @ObservationIgnored public var offersClipboard = false
+    /// Whether this session's hello offers cap `video.sharp_text` (Settings > Customize "Sharper Text
+    /// from Linux Machines", `remoteDesktop.sharpLinuxText`): a Linux OpenH264 host codes it in screen
+    /// usage. Other hosts do not list the cap, so it changes nothing there.
+    @ObservationIgnored public var offersSharpText = false
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -194,6 +198,7 @@ public final class MacScreenSession {
     /// Ends the session here (the hub hears it from the tab's viewer).
     public func disconnect(silently: Bool = false) {
         connectDeadline.cancel()
+        lostDeadline.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         transport?.stop()
@@ -379,9 +384,11 @@ public final class MacScreenSession {
         // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
         // `clock` and `ledger`: every frame's stage times, on the host's clock.
+        // `video.sharp_text`: the person asked a Linux host for screen usage (`offersSharpText`).
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
                                   caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
-                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap])
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap]
+                                      + (offersSharpText ? [RemoteRdHello.sharpTextCap] : []))
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true, clipboard: offersClipboard) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
@@ -411,7 +418,7 @@ public final class MacScreenSession {
                     }
                 case let .ended(why):
                     switch why {
-                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                    case .connectionLost: failLostUnlessLinkExplains(transport: transport)
                     case let .hostFailed(reason): hostFailed(reason)
                     case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     default: end(String(describing: why))
@@ -441,6 +448,21 @@ public final class MacScreenSession {
         let wasConnected = phase == .connected
         disconnect()
         phase = wasConnected ? .ended : .failed(message: reason, needsSignIn: false)
+    }
+
+    /// How long a lost stream waits for the link's own `ended` line (stdout) before the card says only "lost".
+    @ObservationIgnored var lostGrace: Duration = .seconds(1)
+    /// The pending lost-stream grace; `linkEnded` (through disconnect()) cancels it.
+    @ObservationIgnored let lostDeadline = DemandTimer(owner: "mac-screen.lost-grace")
+
+    /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
+    /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
+    func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport?) {
+        let stream = transport.map(ObjectIdentifier.init)
+        lostDeadline.schedule(after: lostGrace) { @MainActor [weak self] in
+            guard let self, self.transport.map(ObjectIdentifier.init) == stream else { return }
+            fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+        }
     }
 
     private func fail(_ message: String) {
