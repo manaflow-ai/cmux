@@ -735,6 +735,7 @@ dependencies = [
  "p256",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
