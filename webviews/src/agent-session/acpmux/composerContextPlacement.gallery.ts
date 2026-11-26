@@ -9,7 +9,15 @@
 // the other side: a menu never covers its own control (Lucas 2026-11-07), so a second press on the
 // control still closes it. Each play fails when a menu opens on the wrong side, covers its control
 // or leaves the window (composer-location-away.test.ts).
+//
+// Leo, 2026-11-22: "the things should usually if possible open away from the text input", and the
+// glass rules "we can follow and measure". Every play here also runs `menuConstraintFailures`
+// (gallery/menuConstraints.ts): the menu sits on its control's side away from the text field, covers
+// neither the field nor another control's text, and its text keeps 4.5:1 on its glass over the
+// lightest or darkest surface under it. `newtab-folder-mid` is Lucas's case: a New Tab composer just under the window's
+// middle, whose folder menu opened down over the field and the "Bypass permissions" chip.
 import { agentPaneEntry } from "../../gallery/format";
+import { menuConstraintFailures } from "../../gallery/menuConstraints";
 import type { PlayContext } from "../../gallery/play";
 import { CWD, manySessions, noChat } from "../../gallery/fixtures/acpmux";
 
@@ -51,30 +59,40 @@ const claudeLook = async (ctx: PlayContext) => {
 
 const MENU = ".acpmux-location-menu[data-side], .acpmux-env-popover[data-side]";
 
+const ACCESS_MENU = ".acpmux-access-menu";
+
 /// Opens the named location control (Folder, or the Computer / Environment control) and checks
 /// the menu opened on the expected side, clear of its control, and stays in the window.
-function opensAway(control: "Folder" | "Computer", expected: "top" | "bottom") {
+function opensAway(control: "Folder" | "Computer" | "Access", expected: "top" | "bottom") {
   return async (ctx: PlayContext) => {
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-context"));
-    await ctx.click({ role: "button", name: control === "Folder" ? "Folder" : /^(Computer|Environment)/ });
-    await ctx.waitFor(() => ctx.document.querySelector(MENU));
+    if (control === "Access") await ctx.click({ selector: ".acpmux-access-trigger" });
+    else await ctx.click({ role: "button", name: control === "Folder" ? "Folder" : /^(Computer|Environment)/ });
+    const selector = control === "Access" ? ACCESS_MENU : MENU;
+    await ctx.waitFor(() => ctx.document.querySelector(selector));
     const trigger = ctx.document.querySelector('[aria-expanded="true"]');
     await nextFrames(ctx);
     const view = ctx.document.defaultView!;
-    const popup = ctx.document.querySelector(MENU)!;
+    const popup = ctx.document.querySelector(selector)!;
     const box = popup.getBoundingClientRect();
-    const side = popup.getAttribute("data-side");
+    const own = trigger?.getBoundingClientRect();
+    const side = popup.getAttribute("data-side") ?? (own && box.top >= own.bottom - 1 ? "bottom" : "top");
     const text = `side ${side}, popup ${Math.round(box.top)}-${Math.round(box.bottom)}, viewport ${view.innerHeight}`;
     if (side !== expected) throw new Error(`the ${control} menu should open ${expected}: ${text}`);
-    const own = trigger?.getBoundingClientRect();
     if (own && box.bottom > own.top + 1 && box.top < own.bottom - 1)
       throw new Error(
         `the ${control} menu covers its control (${Math.round(own.top)}-${Math.round(own.bottom)}): ${text}`,
       );
     if (box.top < 0 || box.bottom > view.innerHeight + 1)
       throw new Error(`the ${control} menu left the window: ${text}`);
+    const broken = menuConstraintFailures(popup, { trigger });
+    if (broken.length) throw new Error(`the ${control} menu breaks the glass menu rules: ${broken.join("; ")}`);
   };
 }
+
+/// New Tab's centred composer (the minimal template) in a window short enough that the composer
+/// sits just under the middle: Lucas's case.
+const newTabCentred = () => ({ ...newTab(), newTab: { ...newTab().newTab, template: "minimal" } });
 
 const NOTE = "Leo 2026-10-29: project and machine head the composer, and their menus open away from the chat.";
 
@@ -126,6 +144,33 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(6), PEERS),
       native: { "cloudMachine.list": CLOUD_LIST },
       play: opensAway("Computer", "top"),
+    },
+    "newtab-folder-mid": {
+      composerLook: "claude",
+      note: 'Leo 2026-11-22: "open away from the text input". Lucas\'s case: New Tab\'s centred composer just under the window\'s middle. The folder menu opens up, clear of the field and the "Bypass permissions" chip, its list scrolling in the room over its control.',
+      height: 700,
+      ready: newTabCentred(),
+      snapshot: noChat(manySessions(14), PEERS),
+      native: { "cloudMachine.list": CLOUD_LIST },
+      play: opensAway("Folder", "top"),
+    },
+    "newtab-computer-mid": {
+      composerLook: "claude",
+      note: "The machine menu of the same centred New Tab composer opens up too, clear of the field.",
+      height: 700,
+      ready: newTabCentred(),
+      snapshot: noChat(manySessions(14), PEERS),
+      native: { "cloudMachine.list": CLOUD_LIST },
+      play: opensAway("Computer", "top"),
+    },
+    "newtab-access-mid": {
+      composerLook: "claude",
+      note: "The access chip sits under the field, so its menu opens down, away from the field, and covers no other control.",
+      height: 700,
+      ready: newTabCentred(),
+      snapshot: noChat(manySessions(14), PEERS),
+      native: { "cloudMachine.list": CLOUD_LIST },
+      play: opensAway("Access", "bottom"),
     },
     // The strip's surface, the design choice (the Debug setting agentPane.debug.topStripStyle that
     // the app sets as <html data-top-strip>). Picked: the default, plain text over the box, the

@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "How agents move the pointer is the person's choice: an agent must not make itself faster or slower."
+}

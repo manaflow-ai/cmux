@@ -28,6 +28,6 @@ nonisolated enum WorkspaceVerbStrings {
     static var expandGroup: String { text("workspaceVerbs.expandGroup", "Expand Group") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "WorkspaceVerbs", bundle: .module)
+        String(localized: key, defaultValue: value, table: "WorkspaceVerbs", bundle: .module.inAppLanguage)
     }
 }

@@ -152,11 +152,11 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The header's tooltip: the status words or detail, then a Cloud
+    /// The header's tooltip, one line: the status words or detail, then a Cloud
     /// machine's cost and the account's cap (`SidebarMachine.Cost.lines`) as of `now`.
     static func machineToolTip(status: String?, cost: SidebarMachine.Cost?, now: Date) -> String? {
-        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
-        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+        let parts = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
@@ -200,7 +200,7 @@ final class SectionHeaderRowView: SidebarRowView {
             ownIcon = machine.icon
             let drawn = Self.drawn(machine)
             statusTone = Self.tone(drawn, hostGroup: section.isHostGroup)
-            let words = Self.statusWords(machine.status)
+            let words = Self.statusWords(drawn.status)
             badgeText = Self.statusText(drawn.status, hostGroup: section.isHostGroup)
             // A connected Cloud machine draws no dot (Leo 2026-10-30), yet its tooltip still says it is connected.
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil
@@ -238,7 +238,7 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityHelp(nil)
         }
         if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
-        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
+        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize), style: symbol == .statePinned ? .solid : .line)
         machineIcon.configure(icon: ownIcon)
         name.setString(title)
         name.setFont(SidebarStyle.headerFont)

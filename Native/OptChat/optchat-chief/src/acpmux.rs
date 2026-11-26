@@ -291,6 +291,10 @@ pub trait AgentPort: Send + Sync {
     fn end_session(&self, session: &str) -> Result<(), String>;
     /// A session's id by name.
     fn find(&self, name: &str) -> Result<Option<String>, String>;
+    /// The names of every session this daemon holds (`_acpmux/sessions`).
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
     /// A session's summary by id (None: no such session).
     fn session(&self, _id: &str) -> Result<Option<SessionSummary>, String> {
         Ok(None)
@@ -1354,6 +1358,14 @@ pub fn new_session_watching(
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
+    // A Cloud machine's Chief: its own Claude sessions sign in with the host's credential, as a
+    // Cloud chat's launch does (turn_credential.rs). Only here, at the send: `session_meta` has
+    // other readers.
+    if let Some(credentials) =
+        crate::turn_credential::meta_for(spec, crate::turn_credential::current())
+    {
+        meta["credentials"] = credentials;
+    }
     let deadline = if waits_on_harness(spec) {
         START_WAIT_CEILING
     } else {
@@ -1534,6 +1546,13 @@ impl AgentPort for Acpmux {
 
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         find_named(&*self.client()?, name)
+    }
+
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(sessions(&*self.client()?)?
+            .into_iter()
+            .map(|s| s.name)
+            .collect())
     }
 
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {

@@ -26,9 +26,14 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case sizeState(TerminalSizeState, selfParticipant: String?)
     /// Rows of the Mac's history older than the mirror's oldest row: the
     /// attach's `vt-state` left them out (`history_rows_omitted`,
-    /// `attach-replay-history-rows-v1`); 0 for a whole replay. (A `resized`
-    /// replay, always whole, says so with ``resetMirror(alternate:)``.)
+    /// `attach-replay-history-rows-v1`); 0 for a whole replay. A `resized`
+    /// replay is whole (``resetMirror(alternate:)`` says so) unless it names
+    /// the rows it left out (`attach-replay-history-window-v1`), which follow it.
     case historyRowsOmitted(Int)
+    /// History rows between the mirror's window and the Mac's screen, left
+    /// out of the attach's `vt-state` (`history_rows_skipped`,
+    /// `attach-replay-history-window-v1`); 0 when its rows reach the screen.
+    case historyRowsSkipped(Int)
     /// An `agent-cli-frame` (`agent-cli-hybrid-v1`) was drawn: its stream and frame, which a
     /// reattach names to resume from it; `resumed` when it applied on the screen the mirror
     /// already held (a resume after a drop), so the attach keeps that screen.
@@ -39,6 +44,36 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     /// frame: the session attaches again for a full resync, or in bytes mode
     /// (``DaemonTerminalSession``), so the phone never shows a wrong screen it cannot see is wrong.
     case hybridFallback(reason: String)
+    /// The Mac stamped this line's redraw (`pseq`, hostd): after its bytes, with the time the
+    /// phone read the line (epoch ms), so the screen can say when it painted it.
+    case stamped(seq: Int, receivedMs: Double)
+    /// Where the mirror stands in the Mac's byte stream once this line's bytes are drawn
+    /// (`terminal-resume-v1`: `offset` and `generation` on `vt-state`, `output`, `resized` and
+    /// `colors-changed`), only on a line that carries one.
+    case streamPosition(TerminalStreamPosition)
+    /// The bytes a whole replay (`vt-state`) took: a resume that would send more asks for a
+    /// replay instead (`resume_max_bytes`, `terminal-resume-bounded-v1`).
+    case replayBytes(Int)
+}
+
+/// A position in a terminal's byte stream (cmux-tui `resume_ring.rs`): the offset after the
+/// last byte the mirror holds, and the stream's `"<nonce>.<epoch>"` generation (a resize, a
+/// host replay or a color change starts a new one).
+struct TerminalStreamPosition: Sendable, Equatable {
+    var offset: Int
+    var generation: String
+
+    init?(_ object: [String: Any]) {
+        guard let offset = (object["offset"] as? NSNumber)?.intValue, offset >= 0,
+              let generation = object["generation"] as? String, !generation.isEmpty else { return nil }
+        self.offset = offset
+        self.generation = generation
+    }
+
+    init(offset: Int, generation: String) {
+        self.offset = offset
+        self.generation = generation
+    }
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -51,6 +86,8 @@ struct DaemonTerminalEventParser: Sendable {
     private var grid: (columns: Int, rows: Int)?
     /// Whether this attach drew an `agent-cli-frame` yet: a later keyframe at another grid starts the mirror over.
     private var drewHybridFrame = false
+    /// The cursor the last drawn agent CLI frame left (column, row, visible).
+    private var drewCursor: (x: Int, y: Int, visible: Bool)?
     /// This attach's lean frames (`agent-cli-lean`): their header and style table.
     private var lean = AgentCLIHybridLeanDecoder()
     /// The stream and frame the mirror shows: the one this attach drew last, or before its
@@ -64,10 +101,14 @@ struct DaemonTerminalEventParser: Sendable {
 
     /// `hybridResume`: the stream and frame this attach names to resume from (nil: none);
     /// `alternate`: whether the mirror it resumes on shows the alternate screen.
-    init(surface: Int, hybridResume: (stream: String, frame: Int)? = nil, alternate: Bool = false) {
+    /// `bytesResume`: the attach names a byte offset to resume from (`terminal-resume-v1`), so
+    /// an exact resume's bytes go on the mirror as it was, on the screen `alternate` says (a
+    /// replay starts its own detector over).
+    init(surface: Int, hybridResume: (stream: String, frame: Int)? = nil, alternate: Bool = false, bytesResume: Bool = false) {
         self.surface = surface
         hybridShown = hybridResume
         resumeAlternate = alternate
+        if bytesResume { detector = AlternateScreenDetector(active: alternate) }
     }
 
     mutating func parse(_ line: Data) -> [DaemonTerminalInbound] {
@@ -86,6 +127,7 @@ struct DaemonTerminalEventParser: Sendable {
             // A latest-screen-first replay names the older rows it left out;
             // any other replay holds the whole history.
             out.append(.historyRowsOmitted(max(0, object["history_rows_omitted"] as? Int ?? 0)))
+            out.append(.historyRowsSkipped(max(0, object["history_rows_skipped"] as? Int ?? 0)))
             // The attach's replay rebuilds the whole screen: its final
             // alternate screen state goes first, then its bytes, like a
             // `resized` replay. A reattach to a TUI that is still running
@@ -98,8 +140,13 @@ struct DaemonTerminalEventParser: Sendable {
             for chunk in chunks { _ = detector.scan(chunk) }
             out.append(.alternateScreen(detector.isActive))
             out.append(contentsOf: chunks.map { .output($0) })
+            if let position = TerminalStreamPosition(object) {
+                out.append(.replayBytes(chunks.reduce(0) { $0 + $1.count }))
+                out.append(.streamPosition(position))
+            }
         case "output":
             emit(object["data"] as? String, into: &out)
+            position(object, into: &out)
         case "resized":
             if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
@@ -112,6 +159,8 @@ struct DaemonTerminalEventParser: Sendable {
             if let cols = object["cols"] as? Int, let rows = object["rows"] as? Int,
                let grid, grid.columns == cols, grid.rows == rows {
                 out.append(.sameGridResize(columns: cols, rows: rows))
+                // The kept screen is at the replay's new generation.
+                position(object, into: &out)
                 break
             }
             noteGrid(object)
@@ -122,7 +171,15 @@ struct DaemonTerminalEventParser: Sendable {
                 .compactMap { $0.flatMap { Data(base64Encoded: $0) } }.filter { !$0.isEmpty }
             for chunk in chunks { _ = detector.scan(chunk) }
             out.append(.resetMirror(alternate: detector.isActive))
+            // The viewer's own window of the reflowed history, not all of it.
+            if let omitted = object["history_rows_omitted"] as? Int {
+                out.append(.historyRowsOmitted(max(0, omitted)))
+            }
             out.append(contentsOf: chunks.map { .output($0) })
+            position(object, into: &out)
+        case "colors-changed":
+            // Colors are not in the bytes: the position moves to the new generation.
+            position(object, into: &out)
         case "agent-cli-frame":
             // An agent CLI's screen as the cells that changed (`agent-cli-hybrid-v1`), drawn
             // into the same mirror as terminal bytes, so it looks as it does from the PTY.
@@ -143,6 +200,11 @@ struct DaemonTerminalEventParser: Sendable {
             }
         default:
             break
+        }
+        // A redraw hostd stamped: after what it drew, so the mark follows its bytes.
+        if let seq = (object["pseq"] as? NSNumber)?.intValue, seq > 0,
+           out.contains(where: { if case .output = $0 { true } else { false } }) {
+            out.append(.stamped(seq: seq, receivedMs: Date().timeIntervalSince1970 * 1000))
         }
         return out
     }
@@ -205,9 +267,23 @@ struct DaemonTerminalEventParser: Sendable {
             // A resumed stream applies on the mirror as it was, on the screen it showed.
             detector = AlternateScreenDetector(active: resumeAlternate)
         }
-        out.append(.output(bytes))
+        // An equal refresh (no cell, no row, the same cursor, on the screen this attach already
+        // drew) changes nothing on screen: no bytes, so the terminal view is not woken; the frame
+        // mark still follows, so a resume applies on it (Leo, 2026-11-24, ask-983c698fa4).
+        let cursor = (x: frame.cursorX, y: frame.cursorY, visible: frame.cursorVisible)
+        let unchanged = drewHybridFrame && sameGrid && frame.changesNoCell
+            && drewCursor.map { $0.x == cursor.x && $0.y == cursor.y && $0.visible == cursor.visible } == true
+        if !unchanged { out.append(.output(bytes)) }
+        drewCursor = cursor
         out.append(.hybridFrame(stream: frame.stream, frame: frame.frame, resumed: frame.base != nil && !drewHybridFrame))
         drewHybridFrame = true
+    }
+
+    /// The line's place in the byte stream, when it carries one (`terminal-resume-v1`). An
+    /// attach's lines all carry one or none (a daemon without it, an agent CLI attach), and
+    /// the session forgets the last position at each attach that does not resume from it.
+    private func position(_ object: [String: Any], into out: inout [DaemonTerminalInbound]) {
+        if let position = TerminalStreamPosition(object) { out.append(.streamPosition(position)) }
     }
 
     private mutating func noteGrid(_ object: [String: Any]) {

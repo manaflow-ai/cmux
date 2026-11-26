@@ -1,8 +1,9 @@
 // The Task Manager page's pure rules: a column's order, the selection across samples, the PID
 // column's text and whether Kill Process is on. No DOM, no host.
 import type { SortKey, SortOrder, TaskManagerRow } from "./types";
+import { intl } from "../../ui/intl";
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const collator = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function compare(key: SortKey, a: TaskManagerRow, b: TaskManagerRow): number {
   switch (key) {

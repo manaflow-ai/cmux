@@ -157,7 +157,7 @@ class SigningVariableTests(unittest.TestCase):
     def test_the_switch_reads_the_one_list(self) -> None:
         self.assertIs(switch.SIGNING_VARIABLES, signing.EPHEMERAL_RUNNER_VARIABLES)
         self.assertIn("MACOS_RUNNER_26", switch.SIGNING_VARIABLES)
-        # LINUX_RUNNER names our own Linux runners since 2026-11-19; no signing job reads it (rule 7 refuses one).
+        # LINUX_RUNNER names our own Linux runners since 2026-11-19; no signing job reads it.
         self.assertNotIn("LINUX_RUNNER", switch.SIGNING_VARIABLES)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:
@@ -421,8 +421,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1).
-        self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
+        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1), and GitHub-hosted
+        # starts nothing in manaflow-ai (Leo, 2026-11-21: "the ci must flow"): a one-job owned JIT VM.
+        self.assertIn("runs-on: cmux-gcp-repair-jit-x64 #", self.text)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:

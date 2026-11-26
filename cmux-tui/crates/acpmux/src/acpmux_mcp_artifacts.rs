@@ -199,7 +199,7 @@ pub fn from_config() -> Option<Arc<Artifacts>> {
     }
     let relay = relay?;
     let hub = crate::mesh_http::HttpHub::new(&relay).ok()?;
-    let env = std::env::var(API_ENV).ok();
+    let env = crate::tool_env::var(API_ENV);
     let base = base_url(env.as_deref(), &config, Some(&relay));
     Artifacts::new(base, Bearer::Hub(Box::new(hub))).ok().map(Arc::new)
 }
@@ -242,7 +242,7 @@ pub struct File {
 impl Artifacts {
     pub fn new(base: String, bearer: Bearer) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .read_timeout(CALL_TIMEOUT)
@@ -905,8 +905,8 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
             }
             let files = files(args, kind)?;
             let mut trailers = json!({});
-            if let (Ok(session), Some(map)) =
-                (std::env::var(super::SESSION_ENV), trailers.as_object_mut())
+            if let (Some(session), Some(map)) =
+                (crate::tool_env::var(super::SESSION_ENV), trailers.as_object_mut())
                 && !session.is_empty()
                 && session.len() <= 256
                 && !session.chars().any(char::is_control)

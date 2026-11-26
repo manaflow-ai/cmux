@@ -153,10 +153,14 @@ final class SwipeReply {
     }
 
     /// cmux: a new gesture starts over: a swipe still claimed (its release never came) ends
-    /// cancelled, held events go back, the last swipe's momentum is no longer awaited.
+    /// cancelled, held events go back, the last swipe's momentum is no longer awaited, and the
+    /// direction is decided on this gesture's motion alone (a claim keeps the sums it decided on).
     private func reset() {
         if claimed { end(cancelled: true, at: nil) }
         if deciding { handBack() }
+        held = []
+        heldDX = 0
+        heldDY = 0
         deciding = false
         swallowMomentum = false
     }

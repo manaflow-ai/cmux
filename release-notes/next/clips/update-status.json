@@ -1,0 +1,47 @@
+{
+  "caption": "Update Status shows the running build, the staged update and whether a relaunch installs it now.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Find Update Status in the palette",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "Update Status"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Run it",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "updates.status",
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.1,
+    0.0,
+    0.8,
+    0.9
+  ]
+}

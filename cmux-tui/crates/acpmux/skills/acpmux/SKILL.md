@@ -1,15 +1,19 @@
 ---
 name: acpmux
-description: "Use cmux agent to list, message, search and inspect named coding-agent sessions on this machine and its peers."
+description: "Drive coding agents through acpmux, which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
 ---
 
-# Agent sessions
+# acpmux guide
 
-Use `cmux agent` to work with named sessions on this machine and its peers
-(`machine/name`). The engine, acpmux, keeps sessions and their history after
-your shell exits. Its standalone CLI accepts the existing commands.
+`cmux agent` is the public front door for session work. It delegates to the acpmux engine, and
+the original `acpmux` spellings remain aliases. A daemon keeps agent sessions alive; the `acpmux`
+CLI and a JSON-RPC socket drive them. Sessions survive your process, keep
+their history, and can live on other machines (`machine/name`). The daemon
+starts on first use. Print this guide any time with `acpmux guide`
+(`--guide`, `--skill`); the binary is the authority: `acpmux --help`,
+`cmux agent wait --help`, `cmux agent session --help`.
 
-## 1. Identify the current session
+## 1. Am I inside acpmux?
 
 ```bash
 test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_SESSION_ID)"
@@ -21,9 +25,11 @@ Sessions you start are siblings, not children: they outlive you.
 To message another session from a chat, use the `send` tool
 (`mcp__acpmux__send`, `mcp__cmux__acpmux_send` when cmux lists every tool, or
 `cmux.acpmux_send` in a cmux_exec script), not
-`cmux agent send` in Bash ("Messages between agents" below). In a shell,
-use the cmux CLI from the running build. On a standalone host,
-`"$ACPMUX_BIN"` invokes the session's own engine with the same arguments.
+`cmux agent send` in Bash ("Messages between agents" below). For the rest, run
+the `cmux agent` CLI. Use `acpmux` directly for engine maintenance, daemon startup,
+and low-level protocol or PATH/SSH integration. The front door keeps the caller
+identity and delegates supported commands to that engine, so a stale binary on
+PATH does not silently change who sent a message.
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
@@ -84,7 +90,7 @@ One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `pri
 slashes. Nothing is inferred. A head that is neither is an error, and when it is a
 model id the error tells you the spelling to use.
 
-| You want | Write | Result |
+| You want | Write | acpmux does |
 | --- | --- | --- |
 | a Claude, a Codex, with defaults | `-m claude`, `-m codex` | the family's preferred profile (an account pool, a router) plus its model, effort, policy |
 | one exact model | `-m claude/opus`, `-m codex/gpt-5.5`, `-m opencode/zai/glm-5.1`, `-m pi/subrouter/gpt-5.6-sol` | that harness, that model |
@@ -95,11 +101,11 @@ model id the error tells you the spelling to use.
 Read, never guess:
 
 ```bash
-cmux agent defaults               # per family: profile chosen, model, effort, policy
-cmux agent preset                 # named bundles for -p
-cmux agent harnesses              # profiles with family and argv
-cmux agent --json daemon models   # every model id each harness declares or reports; --refresh re-probes
-cmux agent daemon reload         # reread harnesses/defaults/presets without stopping sessions
+acpmux defaults               # per family: profile chosen, model, effort, policy
+acpmux preset                 # named bundles for -p
+acpmux harnesses              # profiles with family and argv
+acpmux --json daemon models   # every model id each harness declares or reports; --refresh re-probes
+acpmux daemon reload         # reread harnesses/defaults/presets without stopping sessions
 ```
 
 `daemon reload` is safe while sessions are running: it replaces only catalog-facing
@@ -114,12 +120,12 @@ knows; the session is not created.
 
 ## 3. Core loop
 
-From a chat with session MCP tools, message with the `send` tool, not the
+From a chat with acpmux's MCP tools, message with the `send` tool, not the
 `send` lines below; they are for shells and scripts.
 
 ```bash
 cmux agent run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the failing test"   # create, send, print only the reply
-cmux agent --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
+acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
 cmux agent exec -m claude "…"                          # run, then delete the session
 cmux agent ensure NAME -m codex --cwd DIR --tag task=review # get it, or create it with a label
 cmux agent send NAME "next step"                       # the person's send: stream the reply; -q for the final text only
@@ -138,13 +144,16 @@ cmux agent history NAME                                # one line per turn: prom
 cmux agent bg start 'make test'                         # inside a session, start a background shell command
 cmux agent bg list                                     # show this session's background tasks
 cmux agent notices                                     # read this session's inbox threads
+cmux agent search "cache"                              # every authorized session on this host and peers; session, host, UTC Z time, preview
+                                                        # reachable hits remain visible; unreachable peers print unavailable with a stable reason
 cmux agent ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
 cmux agent ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--machine MACHINE]   # a filter hides nothing
-cmux agent ls --json --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
+acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 cmux agent resolve Mango                         # the handle, stable session id, host and task
 cmux agent session rename --handle NAME Mango    # change the handle without changing the task or id
+acpmux icon @ 🥭                                   # the icon every surface draws for this session (emoji, sf:NAME, .svg, URL; `none` clears)
 cmux agent ls Mango                               # the same session's handle, task, host and harness
-cmux agent ls --json --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
+acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 cmux agent session info NAME                           # model, mode, policy, pending permissions, usage
 cmux agent session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
 cmux agent ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
@@ -162,9 +171,11 @@ cmux agent session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
+A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held|delivered|steered id=ID to=TARGET` first (`--json`: `{"ok":true,"state":…,"id":…}`); a retry loop checks the exit code, never greps the text.
+
 ### Messages between agents
 
-In a chat with session MCP tools, message with the `send` tool
+In a chat with acpmux's MCP tools, message with the `send` tool
 (`mcp__acpmux__send`; `mcp__cmux__acpmux_send` when cmux lists every tool;
 `cmux.acpmux_send` in a cmux_exec script), not
 `cmux agent send` in Bash: one call, or `messages` for several, with `file`,
@@ -215,18 +226,18 @@ the person's prompt. What the receiver gets depends on who you are to it:
   relay has, so the far side's answer reaches the lead, not the subagent.
   The `send` tool (`to: LEAD`) reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
-  `CODEX_THREAD_ID`); when the daemon does not know the lead's thread, the line
+  `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
   says `LEAD (subagent identity not available for codex)`.
 - An agent keeps its proven identity across a daemon restart or update: the
   daemon keeps digests of its caller tokens, so `no proven session` after a
   restart is a bug, not a step to fix by hand.
 - An inbox notice ends with how to reply. Answer in your turn, with
   `inbox_reply` or the `send` tool (`cmux agent send NAME` without them); never
-  with your harness's own SendMessage, which addresses that harness's own subagents.
-- In a Claude Code agent the daemon started, Claude Code's own cross-session
+  with your harness's own SendMessage, which reaches no cmux agent session.
+- In a Claude Code agent acpmux started, Claude Code's own cross-session
   messaging is off (no `ListAgents`; its peer list was every Claude Code on the
   machine, other daemons' too, and a message it held showed nowhere).
-  `SendMessage` to a managed session is refused with the command to use:
+  `SendMessage` to an cmux agent session is refused with the command to use:
   `"$ACPMUX_BIN" send NAME --wait "…"` (its reply in this turn) or the `send`
   tool. `SendMessage` still reaches your own subagents. `cmux agent ls` is the peer
   list. A profile that sets `CLAUDE_CODE_HARBOR_KITE` itself keeps its value.
@@ -236,16 +247,16 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 
-A Claude Code session started outside cmux (the Claude desktop app's Code tab,
+A Claude Code session acpmux did not start (the Claude desktop app's Code tab,
 a terminal `claude`) takes a stable name from its own shell (a Codex thread gets
-one when started through cmux):
+one by being started with acpmux):
 
 ```bash
 cmux agent register desktop-zoe            # in its Bash tool; then run the --code line it receives
 cmux agent send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
 ```
 
-Running `cmux agent send` from such a chat before it registers starts this itself
+An `cmux agent send` from such a chat before it registers starts this itself
 (macOS): nothing can reply to it until it has a name, so the send also delivers
 the one-time code, under `claude-desktop-<first 8 of its session id>`, and
 prints on stderr that the receiver cannot reply yet. Run the
@@ -308,6 +319,7 @@ cmux agent wait A B --all --timeout 600 --print  # every named session, print ea
 cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
 ```
 
@@ -318,7 +330,7 @@ cooperatively.
 
 To try a build or a daemon restart, use a daemon of your own, never the one
 every session on this machine shares. Point `ACPMUX_HOME` and `ACPMUX_SOCKET`
-at a folder you made (the daemon never creates a missing `ACPMUX_HOME`). Unset every
+at a folder you made (acpmux never creates a missing `ACPMUX_HOME`). Unset every
 other `ACPMUX_*` variable and Claude Code's `CLAUDE_CODE_MESSAGING_*` there: they
 name your own session, its token and its daemon, so your sends would be your
 session's (or go to the shared daemon) and not the person's. The first command
@@ -331,7 +343,7 @@ X=/abs/path/to/acpmux                       # the build you try (in a session, "
 mkdir -p /tmp/try-acpmux
 for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
-$X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`cmux agent defaults` there)
+$X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`acpmux defaults` there)
 $X daemon status                            # starts it; this home's sessions and live agents
 $X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
 $X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
@@ -352,8 +364,8 @@ open ask instead of restating it; cmux draws it as a chip that opens the ask in
 its Needs you list. Its `heldMessages` lists another session's message that a
 chat's Claude Code holds instead of reading it (`session`, `fromName`, `from`,
 `cause`, `messageUuid`, `heldAt`; also `heldMessages` of `session info`). Claude
-Code gives the daemon no way to release it: it waits for that chat's approval or
-expires, so have the sender send it with `cmux agent send` instead. The daemon keeps
+Code gives acpmux no way to release it: it waits for that chat's approval or
+expires, so have the sender send it with `cmux agent send` instead. acpmux keeps
 held messages in memory only: after a daemon restart they no longer show.
 
 Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
@@ -372,11 +384,11 @@ command is denied at once, so the reviewer never waits for a person:
 `cmux agent run -m claude --cwd ~/proj --policy review "review the diff of HEAD~1"`.
 A build or test run writes, so review cannot compile: give the reviewer the
 build output, or run it in a lane with `approve-edits`. Rules sit above the policy and match tool kind, title, and
-name, case-insensitively. File writes a harness delegates to the daemon (ACP
+name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
-A session you start from inside your own session (`cmux agent new`, `cmux agent run`, a local
-`dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
+A session you start from inside your own session (`cmux agent new` or its alias
+`cmux agent run`, a local `dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
 pass neither: your policy, and your mode (or, on another harness family, the
 same level: full access, asking, or its own mode). It never runs wider than
 you: a wider `--mode` is refused. A start from a plain shell with no session
@@ -386,9 +398,9 @@ resolve): your policy answers those, and `ask` sends them to a person.
 
 A policy narrower than approve-all holds or the chat does not run: the start
 fails, or a live agent stops, with `policy_unenforceable`. It holds through
-the daemon's Claude Code gate, a harness mode that asks, OpenCode asked to ask,
+acpmux's own Claude Code gate, a harness mode that asks, OpenCode asked to ask,
 or an ACP agent that says at `initialize` that it asks before every tool call
-(`agentCapabilities._meta.acpmux.asksBeforeTools: true`). The daemon accepts that
+(`agentCapabilities._meta.acpmux.asksBeforeTools: true`). acpmux believes that
 claim only from an agent it started from a harness entry of its own config
 (`config.json` or a discovered harness), and only while that entry still has
 the argv and env the agent started with. It does not believe it from a folder
@@ -413,30 +425,31 @@ machine named that way; several matches are refused with each one, never guessed
 person for a session id.
 
 ```bash
-cmux agent machine status                            # each machine: reachable, round trip, disk, load, build
-cmux agent machine pick                              # which machine new work would go to, and why
+acpmux machine status                            # each machine: reachable, round trip, disk, load, build
+acpmux machine pick                              # which machine new work would go to, and why
 cmux agent run -m claude --machine MACHINE "…"       # start there; --cwd is a remote path
 cmux agent ensure NAME -m codex --machine MACHINE
 cmux agent send MACHINE/NAME "…"                     # wait, tail, history, cancel work the same
 cmux agent wait                                      # covers remote sessions too
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
                                                  # the session a PR footer's link (or an id, machine/name, name) names, here or on another machine: machine, ids, model, cwd, lane, PRs, last turn
-cmux agent bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
+acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
-- **cmux Cloud machines.** A Cloud machine's chats run in that machine's own daemon, which is not
+- **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
   one of this Mac's machines. From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json`
   starts a chat there, sends the prompt and answers the reply with its `machine_id` and
-  `session_id`; its `follow_up` commands send, wait and read on through `cmux cloud exec`.
-- **Old spellings.** `cmux agent host` (and `hosts`, `peer`), `host place`, `host vm-host` and
+  `session_id`; its `follow_up` commands send (`cmux chat send`), wait and read on
+  (`cmux cloud chat status|last --target machine:vm-… --session SESSION_ID`).
+- **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
-- **Check first.** Run `cmux agent machine status` before remote work and after any request to a
+- **Check first.** Run `acpmux machine status` before remote work and after any request to a
   machine fails. Don't guess from a timeout. It names the next command for a machine it cannot reach
-  (`cmux agent machine doctor MACHINE`) and for one on another build (`cmux agent machine update MACHINE`, or its
+  (`acpmux machine doctor MACHINE`) and for one on another build (`acpmux machine update MACHINE`, or its
   target-specific `--binary-dir DIR` form when the machine differs). The
   update restarts that machine's daemon: run it only when the task asks for it (see below), and
   otherwise report the version mismatch.
-- **Unreachable machine.** The daemon reconnects by itself. A request refused as unreachable was not
+- **Unreachable machine.** acpmux reconnects by itself. A request refused as unreachable was not
   sent, so send it again once `machine status` shows the machine reachable. Its sessions show
   `unreachable` meanwhile; don't start a replacement elsewhere unless the task can't wait.
 - **Where files live.** A remote session reads and writes that machine's disk. `--cwd` and
@@ -462,8 +475,8 @@ A remote start runs under that machine's rules. `--cwd` must sit inside its
 `webRoots` (a missing folder there is made); with no `--cwd` the session gets a
 scratch folder. `--mode` is refused, and the session starts in the harness's
 asking mode. `--policy approve-all` passes only when that machine serves this one
-as a peer (`servedAs` in `cmux agent --json machine ls`); otherwise start it on that
-machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
+as a peer (`servedAs` in `acpmux --json machine ls`); otherwise start it on that
+machine itself, `ssh HOST 'cmux agent new … --policy approve-all -d'`, and drive it
 from here as `MACHINE/NAME`. Every such refusal ends with the command that works
 (`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
 
@@ -474,43 +487,55 @@ for it.
 
 ## 7. Find things
 
-To find a past prompt or reply across sessions, search the session history
-on this machine and its peers. Each matching turn shows the session, host,
-UTC time (ending in `Z`) and a one-line preview.
+Before you read transcript files or `ls` folders by hand, ask the daemon. It
+already indexes every chat on this device, from every harness (not only the
+ones acpmux started), and answers in milliseconds over tens of thousands.
 
 ```bash
-cmux agent search "resize lag"
-```
-
-For chats discovered from harnesses on this device, use the local chat index.
-
-```bash
-cmux agent chats search resize lag -n 10           # chats whose prompts or answers hold every word, with a snippet
-cmux agent chats search flaky test --harness codex --folder ~/wt/cmux
-cmux agent chats list -q review --folder ~/proj    # by title or folder, newest first; --account for one account home
-cmux agent chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
-cmux agent chats roots                             # which folders the index reads, and which it refuses and why
+acpmux chats search resize lag -n 10           # chats whose prompts or answers hold every word, with a snippet
+acpmux chats search flaky test --harness codex --folder ~/wt/cmux
+acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
+acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
+acpmux chats roots                             # which folders the index reads, and which it refuses and why
+acpmux board                                   # this machine's branches, read-only (`--json` for scripts)
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
-cmux agent who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
+acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line
-cmux agent ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
-cmux agent bead ls cx-cus7j.230                    # the sessions working on a tracker bead
-cmux agent process list                            # background processes agents left running
-cmux agent worktree list                           # this machine's worktrees and the agents that made them
+acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
+acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
+acpmux process list                            # background processes agents left running
+acpmux ps --json                               # every process and lock acpmux owns: owner now, session, state, why
+acpmux gc                                      # proven orphans only (dry run); --apply ends them, logged; never guess from ps/argv
+acpmux board                                   # read-only local branch board (Labs > Show Preview Features); --json
+acpmux worktree list                           # this machine's worktrees and the agents that made them
+acpmux ls --archived                           # archived chats, newest archive first, and who archived each
+acpmux archive NAME OTHER                      # take chats off the lists (--json says what changed)
+acpmux unarchive NAME                          # bring an archived chat back
 ```
 
-Add `--json` for ids and paths to act on. Other session commands include
-`race` and `compare` (one task on
-several models), `continue` (move a chat to another harness), `briefs` and `task`
-(tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
-(durable messages, reports), `forum`, `bridge`, `desktop` and `register`
-(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
-`machine-auth`, `hand`, `share-host`, `router`, `web`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+Add `--json` before the command for ids and paths to act on. The rest of the
+surface, one line each in `acpmux --help`: `race` and `compare` (one task on
+several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
+(move a chat to another harness), `briefs` and `task` (tracked work), `watch`
+(wake me when others finish), `inbox` and `deliver` (durable messages, reports),
+`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `run-ask`
+(run an accepted forum run ask here or through the scheduler), `bridge`,
+`desktop` and `register` (desktop apps), `group` (sidebar
+groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
+switch, remove, list; `account readiness` says which still need installing or a
+sign-in), `harness`, `capabilities`,
+`machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
+`stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
+workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
+`fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
+teammate's agent address while its grant lets you), `memory` (the fleet memory mount), `succeed`
+(make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
+addresses), and `skill` (this guide).
 
 ## 8. Output
 
-For machine-readable output, use `cmux agent ls --json`. Errors under `--json`
+Put `--json` before the command: `acpmux --json ls`. Errors under `--json`
 are one object on stderr, `{"error": {"code", "detail", "message",
 "sessionId", "retryable"}}`, and nothing on stdout. `--suppress-reads` blanks
 read-tool payloads in event output.

@@ -1,10 +1,9 @@
 # cmux NEXT nightly: artifact verification and rollback
 
 cmux NEXT installs update themselves from one Sparkle feed,
-`https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml`. A bad
+`https://files-next.cmux.com/nightly-next/appcast-arm64.xml`. A bad
 nightly reaches every install within one update check. This page covers the
-advisory static verifier and the manual command that takes a bad build off
-that feed.
+artifact and latency verdicts, the Sentry health gate, and how to pull a bad build.
 
 ## Pull a bad build
 
@@ -59,6 +58,14 @@ over the last 24 h. It writes the build's verdict to
 | `pending` | No session yet, or too few and too young for a pass. |
 | `unknown` | Sentry could not be read; the file says why. |
 
+An `unknown` because Sentry was not read means the gate is blind: it can never
+pull a build. Job `blind` then opens one issue, "nightly-next health gate is
+blind: Sentry is not read" (an open one is never repeated), and ends the run
+red until a tick reads Sentry again. It refuses and pulls nothing. From
+2026-11-19 to 2026-11-22 every verdict was `unknown` (Sentry HTTP 403: the
+`SENTRY_AUTH_TOKEN` lacks `org:read` and `event:read`) while every run stayed
+green.
+
 A `fail` of the newest build pulls it through `nightly-next-rollback.yml` with
 `bad_build` and `if_newest` set to it, so a build published meanwhile is never
 pulled, and the pull starts the fix-forward like any other. Detection is one
@@ -103,11 +110,9 @@ pulled build updates to the newer build.
 
 ## Artifact verification
 
-The scheduled verifier is static and post-publication. It downloads the exact
+The scheduled verifier runs after publication. It downloads the exact
 DMG named by the feed, records its SHA-256 receipt, and checks the feed length, stapler tickets,
-Gatekeeper policy, and build number. It does not launch the app, invoke the
-bundled CLI, or mutate the feed. Runtime behavior belongs to the path-routed
-daemon/app integration tests.
+Gatekeeper policy, build number and source commit. A scheduled or manually dispatched pass also measures the verified app on the secret-free CI Mac.
 
 `nightly-next-canary.yml` runs from `main` every 15 minutes. Each feed build is
 checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
@@ -126,12 +131,42 @@ retried rather than kept as a failure.
 A failed static check remains a visible failed workflow; rollback remains a
 manual operator action through `nightly-next-rollback.yml`.
 
+### Felt latency in the canary verdict
+
+After the static checks pass, the CI Mac runs the signed DMG through
+`scripts/ci/launch_tti_check.py`. It restores Home, a terminal workspace with
+2,000 lines of scrollback, and a workspace with one chat. Five warm terminal relaunches each supply:
+
+| Timing in milliseconds | Start → end | Absolute floor |
+| --- | --- | --- |
+| First frame | Process start → first committed window frame | 150 ms |
+| Typing echo | In-app key posted → first live terminal output decoded after input was accepted | 25 ms |
+
+The comparison uses the newest **strictly earlier** feed build whose durable
+artifact verdict passed. Each metric needs all five readings from both builds,
+the same measurement profile, Mac model, chip and OS build. A median increase
+greater than **all three** of 25% of the baseline median, the absolute floor,
+and three times the larger median absolute deviation fails that metric.
+Missing keys, unmatched machines and a previous pass without measurements show
+as `unavailable`. The current samples still seed a later comparison.
+
+The canary run summary shows both medians, ranges, delta and threshold. Its
+`canary-latency-<build>-<attempt>` artifact and the `latency` field in
+`verdicts/<build>.json` carry the samples and the advisory verdict. A latency
+`fail` emits a warning. Static verification still decides ring promotion.
+Five first frames on a signed Nightly ranged from 1,182.3 to 1,328.6 ms
+(median 1,224.5 ms). A five-launch large-session run ranged from 993.6 to
+2,225.3 ms. Five native key-to-echo measurements on a 120-workspace Mac
+build had a median of 29.7 ms and a p90 of 43.5 ms. An earlier unattended run
+missed all eight echoes. Both timings warn while the scheduled canary collects
+comparable samples on signed Nightlies. [Native echo measurements](https://github.com/manaflow-ai/cmux/pull/47154#issuecomment-7040903643)
+
 ### Switches
 
 `NIGHTLY_NEXT_CANARY=off` disables the advisory artifact monitor. Any other
 accepted value (`report`, `enforce`, `auto`, or unset) keeps the static monitor
 enabled; the former report-week/enforce resolver is retained for compatibility
-and no longer launches code or pulls a build from the feed.
+and the artifact monitor never pulls a build from the feed.
 
 ### Release rings: Dev before Nightly
 
