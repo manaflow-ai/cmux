@@ -317,12 +317,13 @@ function autoChat(picked: boolean, log: string[], mode: RunMode = "persistent") 
   };
 }
 
-test("Auto heads a new chat's list only when the page offers it", async () => {
+// cmux#51731: This Mac, Auto, Cloud, Other devices, so Auto reads as the step between the two.
+test("Auto sits between This Mac and Cloud in a new chat's list only when the page offers it", async () => {
   const offered = await renderDevices(DEVICES, autoChat(false, []));
   await open(offered.container);
   expect(optionRows().map(rowLabel)).toEqual([
-    translate("composer.auto"),
     translate("composer.thisMac"),
+    translate("composer.auto"),
     translate("composer.cloud"),
     translate("composer.otherDevices"),
   ]);
@@ -397,7 +398,7 @@ test("AutoCloud: Auto's row is a chevron that opens Auto, Cloud only and Machine
   await open(container);
   const row = document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')!;
   expect(row.querySelector(".acpmux-env-more-chevron")).not.toBeNull();
-  expect(optionRows().map(rowLabel)[0]).toBe(translate("composer.auto"));
+  expect(optionRows().map(rowLabel)[1]).toBe(translate("composer.auto"));
   await choose('[data-action="autoPlaces"]');
   expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
   expect(optionRows().map(rowLabel)).toEqual([

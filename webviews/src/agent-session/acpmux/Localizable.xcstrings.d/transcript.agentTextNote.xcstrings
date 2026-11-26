@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "transcript.agentTextNote" : {
+      "comment" : "Agent pane: one quiet line under the person's message when part of its text reads as another agent's output (likely pasted from a client that marks no pastes); name is that agent, such as Codex",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جزء من هذا يبدو رسالة من {name}، ملصقة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dio ovoga izgleda kao poruka od {name}, zalijepljena"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En del af dette ligner en besked fra {name}, indsat"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Teil davon wirkt wie eine eingefügte Nachricht von {name}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Part of this reads as {name}'s message, pasted in"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Parte de esto parece un mensaje de {name}, pegado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une partie ressemble à un message de {name}, collé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una parte sembra un messaggio di {name}, incollato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一部は {name} のメッセージを貼り付けたもののようです"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្នែកខ្លះនេះមើលទៅដូចសាររបស់ {name} ដែលបានបិទភ្ជាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "일부는 붙여넣은 {name}의 메시지로 보입니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En del av dette ser ut som en melding fra {name}, limt inn"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Część wygląda na wklejoną wiadomość od {name}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Parte disso parece uma mensagem de {name}, colada"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Часть похожа на вставленное сообщение от {name}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บางส่วนดูเหมือนข้อความจาก {name} ที่วางไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir kısmı {name} kaynağından yapıştırılmış bir mesaja benziyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Частина схожа на вставлене повідомлення від {name}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một phần trông như tin nhắn của {name} được dán vào"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其中部分内容看起来是粘贴的 {name} 消息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其中部分內容看起來是貼上的 {name} 訊息"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
