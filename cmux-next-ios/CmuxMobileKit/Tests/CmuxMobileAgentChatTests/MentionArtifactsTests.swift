@@ -22,7 +22,15 @@ import Testing
         store.apply(.turnResult(turnId: id, status: .completed, errorText: nil, at: Date()))
     }
 
-    final class Flag { var fired = false }
+    /// `onChange` is a `@Sendable` closure under Swift 6, so what it sets must be Sendable.
+    final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        var fired: Bool {
+            get { lock.withLock { value } }
+            set { lock.withLock { value = newValue } }
+        }
+    }
 
     @Test func readingTheCandidatesObservesNothing() {
         let store = AgentChatStore(source: Recorder())

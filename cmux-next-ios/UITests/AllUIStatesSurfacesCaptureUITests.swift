@@ -9,26 +9,35 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
     @MainActor
     func testTerminal() {
         let g = "7 Terminal"
+        func showKeyboard(_ app: XCUIApplication) -> String? {
+            C.showKeyboard(app, field: app.textViews["terminal.composer.field"], "terminal composer")
+        }
         capture([
             Scene(group: g, id: "idle-keyboard-down", args: Self.idle),
             Scene(group: g, id: "keyboard-up-armed-draft", args: ["-cmux-mobile-demo", "ws-terminal-armed"]),
-            Scene(group: g, id: "composer-open", args: Self.idle) { app in C.tap(app.buttons["terminal.key.composer"], "composer key") },
-            Scene(group: g, id: "keyboard-up-empty", args: Self.idle) { app in
-                C.showKeyboard(app, field: app.textViews["terminal.composer.field"], "terminal composer")
+            Scene(group: g, id: "composer-open", args: Self.idle) { app in
+                // The key row shows only over the soft keyboard: give the terminal focus first.
+                if let miss = C.wait(app.textViews["terminal.composer.field"], "terminal composer") { return miss }
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+                return C.tap(app.buttons["terminal.key.composer"], "composer key")
             },
+            Scene(group: g, id: "keyboard-up-empty", args: Self.idle, reach: showKeyboard),
             Scene(group: g, id: "control-locked", args: Self.idle) { app in
+                if let miss = showKeyboard(app) { return miss }
                 let control = app.buttons["terminal.key.control"]
                 guard control.waitForExistence(timeout: 10) else { return "no control key" }
                 control.tap(); control.tap()
                 return nil
             },
             Scene(group: g, id: "key-row-scrolled", args: Self.idle) { app in
+                if let miss = showKeyboard(app) { return miss }
                 let row = app.buttons["terminal.key.escape"]
                 guard row.waitForExistence(timeout: 10) else { return "no key row" }
                 row.swipeLeft()
                 return nil
             },
             Scene(group: g, id: "joystick", args: Self.idle) { app in
+                if let miss = showKeyboard(app) { return miss }
                 let arrow = C.any(app, "terminal.key.up")
                 guard arrow.waitForExistence(timeout: 10) else { return "no arrow key" }
                 arrow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -180,10 +189,10 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
         let g = "11 Tab card still pictures"
         capture([
             // The gallery takes its scheme from -cmux-mobile-gallery-appearance, not the device's look.
-            Scene(group: g, id: "stills-light", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], settle: 3),
-            Scene(group: g, id: "stills-dark", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], settle: 3),
-            Scene(group: g, id: "stills-mocha", args: ["-cmux-mobile-recovery-gallery", "stills-mocha", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], settle: 3),
-            Scene(group: g, id: "stills-solarized", args: ["-cmux-mobile-recovery-gallery", "stills-solarized", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], settle: 3),
+            Scene(group: g, id: "stills-light", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], ready: .clock(3)),
+            Scene(group: g, id: "stills-dark", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], ready: .clock(3)),
+            Scene(group: g, id: "stills-mocha", args: ["-cmux-mobile-recovery-gallery", "stills-mocha", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], ready: .clock(3)),
+            Scene(group: g, id: "stills-solarized", args: ["-cmux-mobile-recovery-gallery", "stills-solarized", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], ready: .clock(3)),
         ])
     }
 }

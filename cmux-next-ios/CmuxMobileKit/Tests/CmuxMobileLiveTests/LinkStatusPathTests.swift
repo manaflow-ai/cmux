@@ -26,7 +26,8 @@ import Testing
         // Neither UDP nor the TURN host: cmux's WebSocket relay (PROTOCOL.md "WebSocket relay").
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .httpsRelay, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS) · 40 ms")
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        // The header says nothing for a connected link, on cmux's relay as on any path (#53778).
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
@@ -157,12 +158,16 @@ import Testing
     }
 
     #if os(iOS)
-    @Test func offlineBannerOffersRetryWithoutEmbeddingAnInertActionInText() {
+    /// Leo, 2026-11-22: "vacuous decisions like that should be just done". The link redials on
+    /// its own, so an offline banner offers no Retry; only signed out has a button (Sign in).
+    @Test func offlineBannerOffersNoRetryAndNoInertActionInText() {
         #expect(ConnectionBannerState.connectionFailed.text == "Offline")
-        #expect(ConnectionBannerState.connectionFailed.offersRetry)
-        // This iPhone offline: nothing to retry; the links redial when the network returns.
+        #expect(!ConnectionBannerState.connectionFailed.offersRetry)
         #expect(!ConnectionBannerState.offline.offersRetry)
-        #expect(ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.refreshFailed().offersRetry)
+        #expect(ConnectionBannerState.signedOut.offersRetry && ConnectionBannerState.signedOut.actionTitle != nil)
+        #expect(ConnectionBannerState.reconnecting(to: "Studio").text == "Reconnecting…")
     }
     #endif
 }

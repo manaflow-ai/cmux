@@ -415,9 +415,17 @@ impl Endpoint {
             entry.unanswered_sends = 0;
             entry.unanswered_datagrams = 0;
         }
+        let had_rtt = self.selector.path(path).is_some_and(|view| view.rtt_us.is_some());
         let outcome = ProbeOutcome::Answered { rtt_us: now_us.saturating_sub(sent).max(1) };
-        if let Ok(Some(switch)) = self.selector.on_probe(path, outcome) {
-            self.report_switch(switch.to);
+        match self.selector.on_probe(path, outcome) {
+            Ok(Some(switch)) => self.report_switch(switch.to),
+            // The handshake's route became current with no RTT (`on_opened`,
+            // braid paths): its first measured RTT is reported on the same
+            // path, or callers that size by path RTT never learn it.
+            Ok(None) if !had_rtt && self.selector.current() == Some(path) => {
+                self.report_switch(Some(path));
+            }
+            _ => {}
         }
     }
 

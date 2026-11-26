@@ -3,7 +3,8 @@ import CmuxNextDesign
 
 /// One group of the Chief profile's rows, drawn as macOS 26 draws an info panel's (Messages' and
 /// Contacts' info, System Settings' forms; Lawrence 2026-11-23, "drastically improve these UIs"): the rows
-/// on one rounded fill, a hairline between two shown rows. The rows keep the card's two columns
+/// on one rounded fill (edged by a hairline where text contrast keeps the fill faint, ``Palette/groupStroke``),
+/// a hairline between two shown rows. The rows keep the card's two columns
 /// (``HomeChiefSettingsView/row(_:_:fills:)``); a hidden row takes its hairline with it.
 @MainActor
 final class HomeChiefFormGroup: NSStackView {
@@ -77,7 +78,11 @@ final class HomeChiefFormGroup: NSStackView {
     }
 
     private func applyTheme() {
-        performWithTheme { layer?.backgroundColor = Palette.hoverFill.cgColor }
+        performWithTheme {
+            layer?.backgroundColor = Palette.groupFill.cgColor
+            layer?.borderColor = Palette.groupStroke.cgColor
+        }
+        layer?.borderWidth = 1 / (window?.backingScaleFactor ?? 2)
         needsLayout = true
     }
 }

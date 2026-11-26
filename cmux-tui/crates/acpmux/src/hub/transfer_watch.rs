@@ -287,14 +287,32 @@ impl Hub {
             .then(|| MoveWatch { hub: self.clone(), transfer_id: transfer_id.to_owned() })
     }
 
-    /// Watches the move `transfer_id` of `session` until it ends, unless another holds its watch.
-    pub(super) fn watch_transfer(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
+    /// Watches the move `transfer_id` of `session`, which this daemon found at start, until it
+    /// ends, unless another holds its watch. A move whose bundle was not
+    /// read to its end cannot have landed anywhere, and its client's connection did not survive
+    /// the restart, so it ends now (the chat runs here again) rather than after a lease the chat
+    /// spends frozen (RFD 0063, "Nothing lives only on the VM"). A client still reading it gets
+    /// `transfer.unknown` and starts the move anew. A move read to its end waits for its lease.
+    pub(super) fn watch_transfer_after_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        transfer_id: &str,
+    ) {
         if tokio::runtime::Handle::try_current().is_err() {
             return;
         }
-        if let Some(watch) = self.claim_move_watch(transfer_id) {
-            self.watch_claimed(session, watch);
-        }
+        let Some(watch) = self.claim_move_watch(transfer_id) else { return };
+        let (hub, session) = (self.clone(), session.clone());
+        self.scope.spawn_until_cancelled("move-watch-restart", async move {
+            let dir = transfers_dir().join(&watch.transfer_id);
+            if dir.is_dir()
+                && fully_read(&dir) == Some(false)
+                && hub.end_stalled_move(&session, &watch.transfer_id, &dir).await
+            {
+                return;
+            }
+            hub.transfer_watch(&session, &watch.transfer_id).await;
+        });
     }
 
     /// Watches the move `watch` claims until it ends; the claim goes with the watch.
@@ -313,7 +331,7 @@ impl Hub {
         self.refreeze_stopped_moves();
         for session in self.sessions() {
             if let Some(transfer_id) = session.moving().filter(|id| names_a_move(id)) {
-                self.watch_transfer(&session, &transfer_id);
+                self.watch_transfer_after_restart(&session, &transfer_id);
             }
         }
     }

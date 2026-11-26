@@ -13,6 +13,8 @@
 //! - [`stun`]: RFC 5389 binding requests and responses, for the reflexive
 //!   address candidate.
 //! - [`relay_frame`]: the binary frame the Durable Object relay forwards.
+//! - [`hop`]: hop/1, per-leg repair and latest-wins on our UDP relay PoP
+//!   (RFD 0142 R4, R5).
 //! - [`hub`], [`hub_truth`]: the three-way hub's frame, seal, relay rule
 //!   and the viewer's truth tracker (RFD 0142 R6).
 //! - [`probe`]: path probes carried inside the WireGuard session.
@@ -25,6 +27,7 @@
 
 pub mod candidates;
 pub mod classify;
+pub mod hop;
 pub mod hub;
 pub mod hub_truth;
 pub mod medium;
@@ -37,11 +40,15 @@ pub mod stun;
 pub use candidates::{
     CANDIDATE_PORT, CandidateError, MAX_CANDIDATES, decode_candidates, encode_candidates,
 };
-pub use classify::{DatagramClass, classify};
+pub use classify::{DatagramClass, classify, is_hop};
+pub use hop::{
+    Delivered, HopClass, HopError, HopMsg, HopRelay, Leg, LegConfig, LegMode, LegStats, Record,
+    Repair, Side, StreamTag, decode_records, encode_records,
+};
 pub use medium::{LocalNetwork, Medium, local_networks, medium_of};
 pub use path::{PathClass, PathId, PathKind};
 pub use probe::{Probe, ProbeError, ProbeKind};
-pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError};
+pub use relay_frame::{FrameKind, PeerId, RelayFrame, RelayFrameError, RelaySender, TaggedRecord};
 pub use selector::{
     PathState, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
 };

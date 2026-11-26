@@ -621,6 +621,21 @@ impl Platform for LinuxPlatform {
         }
     }
 
+    fn page_in_harnesses(&self) {
+        // Outside the real root (tests on a shared machine) nothing here paused.
+        if !self.cfg.paths.is_system_root() {
+            return;
+        }
+        let homes = match &self.layout {
+            Some(layout) => vec![layout.home.clone()],
+            None => vec![
+                PathBuf::from(crate::daemon_spec::WORK_HOME),
+                PathBuf::from(crate::daemon_spec::ROOT_HOME),
+            ],
+        };
+        crate::cloud::page_in::spawn(homes);
+    }
+
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
         loop {
             let tokens = self.epoll.wait()?;

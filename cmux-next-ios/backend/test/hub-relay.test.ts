@@ -30,6 +30,18 @@ const hubFrame = (sessionId: string, epoch: number, seq: number, source: "mac" |
 const seqOf = (frame: Uint8Array) => Number(hubHeader(frame.subarray(RELAY_FRAME_HEADER_LEN))!.seq)
 const sourceOf = (frame: Uint8Array) => hubHeader(frame.subarray(RELAY_FRAME_HEADER_LEN))!.source
 
+/** The Mac answers the phone's `wg-init`; each device's relay ticket, as its own signaling socket received it (#53240). */
+const relayTickets = async (p: Sock, phone: string, m: Sock, mac: string, sessionId: string) => {
+  const last = (s: Sock) => s.frames.filter((f) => f.type === "signal" && f.sessionId === sessionId).at(-1)
+  const macTicket = last(m)?.relayTicket as string
+  m.send({ type: "signal", to: phone, from: mac, sessionId, payload: { kind: "wg-resp", publicKey: "k", endpoints: [], overlayIP: "10.77.0.1" } })
+  await p.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === sessionId && f.payload?.kind === "wg-resp"))
+  const tickets: Record<string, string> = { [mac]: macTicket, [phone]: last(p)?.relayTicket as string }
+  expect(typeof tickets[mac]).toBe("string")
+  expect(typeof tickets[phone]).toBe("string")
+  return tickets
+}
+
 const join = (tok: string, sessionId: string, deviceId: string, role: string, extra: Record<string, string> = {}) =>
   worker.fetch(`https://api.test/v1/hub/${sessionId}?deviceId=${deviceId}&role=${role}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}`, ...extra } })
 
@@ -255,7 +267,8 @@ describe("hub: lockstep with clients and relays that predate it", () => {
     const sessionId = crypto.randomUUID()
     p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
     await m.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === sessionId))
-    const res = await worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${phone}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}` } })
+    const tickets = await relayTickets(p, phone, m, mac, sessionId)
+    const res = await worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${phone}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}`, "x-cmux-relay-ticket": tickets[phone]! } })
     expect(res.status).toBe(101)
     const a = sockOf(res.webSocket!)
     await a.until((x) => x.frames.some((f) => f.type === "joined"))
@@ -275,8 +288,9 @@ describe("hub: lockstep with clients and relays that predate it", () => {
     const sessionId = crypto.randomUUID()
     p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
     await m.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === sessionId))
+    const tickets = await relayTickets(p, phone, m, mac, sessionId)
     const open = async (id: string) => {
-      const res = await worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${id}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}`, "Sec-WebSocket-Protocol": "cmux-relay.v1" } })
+      const res = await worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${id}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}`, "Sec-WebSocket-Protocol": "cmux-relay.v1", "x-cmux-relay-ticket": tickets[id]! } })
       expect(res.status).toBe(101)
       expect(res.headers.get("sec-websocket-protocol")).toBe("cmux-relay.v1")
       const s = sockOf(res.webSocket!)

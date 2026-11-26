@@ -23,7 +23,13 @@ public final class AgentSessionDirectory {
         #if DEBUG
         if DeveloperOptions.mockContentEnabled {
             // Tabs made on the phone ("New session") start empty.
-            return MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
+            let mock = MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
+            // `CMUX_MOBILE_MOCK_LINK`: the history comes as late as over that link.
+            if let link = MockLinkProfile.current {
+                var random = SystemRandomNumberGenerator()
+                return DelayedHistorySource(inner: mock, delay: link.historyDelay(using: &random))
+            }
+            return mock
         }
         #endif
         return DisconnectedAgentSource(summary: summary)
@@ -98,6 +104,7 @@ public final class AgentSessionDirectory {
     /// Sign-out: no account's chats stay in memory (notification previews save `loadedStores`, and a
     /// later sign-in must not meet a store bound to the old account's link).
     public func removeAll() {
+        ChatReplayPlayer.forgetKept()
         guard !stores.isEmpty else { return }
         stores.removeAll()
         generation += 1
@@ -155,9 +162,26 @@ public struct AgentChatDestinationView: View {
         return (workspace, tab)
     }
 
+    /// The tab as this phone last saved it, while the live list does not hold it yet (a cold open
+    /// from a notification, a workspace past the first screen of cached rows): the chat draws its
+    /// kept turns at once instead of "Loading chat…". Leo, 2026-11-24: "holy shit this is a huge
+    /// problem in ios... wer need to chase all these placeholders doen and prevent them".
+    private var saved: (workspace: Workspace, tab: WorkspaceTab)? {
+        Self.savedTab(destination, in: appStore, loading: isLoading)
+    }
+
+    /// The saved copy of `destination`'s tab, read only while the list is still loading: once a
+    /// live list lacks the tab, the closed grace decides.
+    static func savedTab(_ destination: AgentChatDestination, in appStore: AppStore,
+                         loading: Bool) -> (workspace: Workspace, tab: WorkspaceTab)? {
+        guard loading, let workspace = appStore.savedWorkspace(appStore.resolvedWorkspaceID(destination.workspaceID)),
+              let tab = workspace.tabs.first(where: { $0.id == destination.tabID }) else { return nil }
+        return (workspace, tab)
+    }
+
     public var body: some View {
         let found = current
-        if let shown = remembered.shown(found, closed: confirmedClosed) {
+        if let shown = remembered.shown(found ?? (remembered.found == nil ? saved : nil), closed: confirmedClosed) {
             let mac = appStore.teams.flatMap(\.macs).first { $0.id == shown.workspace.macID }?.name ?? "Mac"
             AgentChatScreen(store: AgentSessionDirectory.shared.store(workspace: shown.workspace, tab: shown.tab, macName: mac))
                 .onAppear { appStore.noteOpened(tabID: shown.tab.id, in: shown.workspace.id) }
@@ -169,11 +193,13 @@ public struct AgentChatDestinationView: View {
                     if !Task.isCancelled, current == nil, linkUp(shown.workspace.macID) { confirmedClosed = true }
                 }
         } else if isLoading {
-            // The workspaces are still on their way (a cold open from a notification): the
-            // chat loads, it is not "closed".
+            // The workspaces are still on their way (a cold open from a notification) and this
+            // phone never saved this tab: the chat loads, it is not "closed".
             VStack(spacing: 12) {
+                // placeholder-ok: the phone never saved this workspace or tab, so no turns can stand in
                 CmuxSpinner()
                 // Keeps its room while hidden, so the spinner never moves when it shows.
+                // placeholder-ok: never-saved tab only; a saved one draws its kept turns above
                 Text("Loading chat…")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -182,8 +208,10 @@ public struct AgentChatDestinationView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .ignore)
+            // placeholder-ok: the never-saved tab's spinner above, read aloud
             .accessibilityLabel(Text("Loading chat…"))
             .accessibilityIdentifier("agentChat.destination.loading")
+            .placeholderBound("chat.destination.loading", .milliseconds(2000))
             .onAppear { loadingWords.update(down: true) }
             .onDisappear { loadingWords.update(down: false) }
         } else {
@@ -214,7 +242,20 @@ public struct AgentChatDestinationView: View {
 extension View {
     /// Registers `AgentChatDestination` on the enclosing NavigationStack.
     public func agentChatDestinations() -> some View {
-        navigationDestination(for: AgentChatDestination.self) { AgentChatDestinationView(destination: $0) }
+        navigationDestination(for: AgentChatDestination.self) {
+            AgentChatDestinationView(destination: $0).modifier(TurnsWithPhone())
+        }
+    }
+}
+
+/// A pushed chat turns with the phone while on screen (`AgentChatPageOrientation`).
+private struct TurnsWithPhone: ViewModifier {
+    @State private var id = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { AgentChatPageOrientation.shared.page(id, shows: true) }
+            .onDisappear { AgentChatPageOrientation.shared.page(id, shows: false) }
     }
 }
 #endif

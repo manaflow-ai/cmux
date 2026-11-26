@@ -10,12 +10,15 @@ const newTabGallery = readFileSync(resolve(src, "newtab/ComposerHeight.gallery.t
 
 // Leo 2026-11-24: follow Claude desktop's composer max (its prompt stops at 384 px, max-h-96).
 const CAP = "var(--acpmux-composer-max-height,calc(384px*var(--cmux-interface-scale,1)))";
+const CAP_HEIGHT = `min(${CAP},50vh)`;
+const ATTACHED_CAP_HEIGHT = `calc(${CAP_HEIGHT}-var(--acpmux-attach-band,0px))`;
 test("all composer fields share Claude desktop's 384 px cap", () => {
   const styles = readFileSync(resolve(src, "styles.css"), "utf8").replace(/\s+/g, "");
   expect(styles).toContain(".acpmux-shell{--acpmux-composer-max-height:calc(384px*var(--cmux-interface-scale,1))}");
-  expect(chat).toContain(`max-height:min(${CAP},50vh)`);
-  expect(newTab).toContain(`max-height:min(${CAP},50vh)`);
-  expect(styles).toContain(`max-height:min(${CAP},50vh)`);
+  expect(chat).toContain(`--acpmux-md-max-height:${CAP_HEIGHT}`);
+  expect(chat).toContain("max-height:calc(var(--acpmux-md-max-height)-var(--acpmux-attach-band,0px))");
+  expect(newTab).toContain(`max-height:${ATTACHED_CAP_HEIGHT}`);
+  expect(styles).toContain(`max-height:${ATTACHED_CAP_HEIGHT}`);
   for (const css of [chat, newTab, styles]) {
     expect(css).not.toContain("composer-max-lines");
     expect(css).not.toContain("60vh);margin");

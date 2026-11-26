@@ -985,6 +985,34 @@ fn hydration_after_a_restart_keeps_the_disk_reserve() {
     assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
 }
 
+#[test]
+fn pin_states_show_each_pin_and_how_much_of_it_is_on_disk() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    // Pinned with the Mac away: on record, nothing on disk yet.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    assert!(overlay.pin_states().is_empty());
+    overlay.pin("src").unwrap();
+    let pending = overlay.pin_states();
+    assert_eq!(pending.len(), 1);
+    let first = pending.first().cloned().unwrap_or_default();
+    assert_eq!((first.path.as_str(), first.files, first.bytes), ("src", 4, 36));
+    assert_eq!(first.local_bytes, 0);
+    assert!(first.present && !first.complete());
+    drop(overlay);
+
+    // Back online, a hydration fills it; a second pin of a deeper folder shows on its own.
+    let (_, _, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    overlay.hydrate_pins();
+    overlay.pin("src/deep").unwrap();
+    let states = overlay.pin_states();
+    let paths: Vec<&str> = states.iter().map(|pin| pin.path.as_str()).collect();
+    assert_eq!(paths, ["src", "src/deep"]);
+    assert!(states.iter().all(pin::PinState::complete), "{states:?}");
+    assert_eq!(states.iter().map(|pin| pin.local_bytes).collect::<Vec<_>>(), [36, 9]);
+}
+
 fn file_item(path: &str, size: u64) -> Item {
     Item {
         path: path.into(),
@@ -1205,4 +1233,207 @@ fn the_content_store_keeps_its_floor_of_free_disk() {
     let asked = fake.calls.load(Ordering::Relaxed);
     scan(&overlay, &files);
     assert!(fake.calls.load(Ordering::Relaxed) > asked, "evicted blobs came from nowhere");
+}
+
+/// 20 files in each of folders `a` and `b`.
+fn two_folders() -> Vec<String> {
+    let mut paths = Vec::new();
+    for folder in ["a", "b"] {
+        for n in 0..20 {
+            paths.push(format!("{folder}/f{n:02}.rs"));
+        }
+    }
+    paths
+}
+
+fn read_path(overlay: &Overlay, path: &str) -> Vec<u8> {
+    overlay.read(path_ino(overlay, path), 0, 100).unwrap()
+}
+
+#[test]
+fn a_session_records_first_reads_in_order_and_the_next_start_fetches_them_in_batches() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    // Read in this order, b's files backwards then a's, each twice.
+    let order: Vec<&str> = refs[20..].iter().rev().chain(&refs[..20]).copied().collect();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        assert!(overlay.replay_list().is_empty());
+        for path in order.iter().chain(&order) {
+            assert_eq!(read_path(&overlay, path), format!("<{path}>").into_bytes());
+        }
+    }
+    let list = fs::read(state.path().join("replay/start")).unwrap();
+    let listed: Vec<&str> = list
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty())
+        .map(|p| std::str::from_utf8(p).unwrap())
+        .collect();
+    assert_eq!(listed, order);
+
+    // A new listing's start: nothing cached, the whole list comes in one batch, in id order.
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::remove_dir_all(state.path().join("content")).unwrap();
+    let (_, fresh) = served(&refs);
+    let overlay = open(state.path(), &manifest, &fresh).with_replay("start");
+    assert_eq!(overlay.replay_list(), order);
+    let report = overlay.replay_prefetch();
+    assert_eq!((report.listed, report.asked, report.fetched, report.batches), (40, 40, 40, 1));
+    let batch = fresh.batches.lock().unwrap()[0].clone();
+    let mut sorted = batch.clone();
+    sorted.sort_unstable();
+    assert_eq!(batch, sorted);
+    for path in &order {
+        assert_eq!(read_path(&overlay, path), format!("<{path}>").into_bytes());
+    }
+    assert_eq!(fresh.calls.load(Ordering::Relaxed), 1);
+    // A second prefetch finds everything cached and asks for nothing.
+    assert_eq!(overlay.replay_prefetch().asked, 0);
+}
+
+#[test]
+fn with_a_list_a_fault_reads_no_folder_ahead_until_a_scan_is_detected() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        for path in &refs[..replay::MIN_FILES] {
+            read_path(&overlay, path);
+        }
+    }
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::remove_dir_all(state.path().join("content")).unwrap();
+    let (_, fresh) = served(&refs);
+    let overlay = open(state.path(), &manifest, &fresh).with_replay("start");
+    // Folder b is not in the list: each fault asks for its own file alone.
+    for path in &refs[20..20 + replay::SCAN_MISSES - 1] {
+        read_path(&overlay, path);
+    }
+    let batches = fresh.batches.lock().unwrap().clone();
+    assert_eq!(batches.len(), replay::SCAN_MISSES - 1);
+    assert!(batches.iter().all(|batch| batch.len() == 1));
+    // One more miss makes a scan: the rest of b comes with it.
+    read_path(&overlay, refs[20 + replay::SCAN_MISSES - 1]);
+    let last = fresh.batches.lock().unwrap().last().unwrap().clone();
+    assert_eq!(last.len(), 20 - (replay::SCAN_MISSES - 1));
+}
+
+#[test]
+fn a_start_that_reads_almost_nothing_keeps_the_last_list() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        for path in &refs[..replay::MIN_FILES + 2] {
+            read_path(&overlay, path);
+        }
+    }
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        read_path(&overlay, refs[30]);
+    }
+    let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+    assert_eq!(overlay.replay_list().len(), replay::MIN_FILES + 2);
+    // Another key has a list of its own.
+    let other = open(tempfile::tempdir().unwrap().path(), &manifest, &fake).with_replay("build");
+    assert!(other.replay_list().is_empty());
+}
+
+#[test]
+fn without_replay_nothing_is_recorded() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    read_path(&overlay, "src/a.rs");
+    drop(overlay);
+    assert!(!state.path().join("replay").exists());
+}
+
+/// RFD 0065 piece 6: a listing entry's hash lets the store answer by content, so a file that moved
+/// and was touched (another path, size kept, another mtime) is read with no fetch, where without
+/// the hash the same listing fetches it.
+#[test]
+fn a_listed_hash_serves_a_moved_file_from_the_content_store_with_no_fetch() {
+    let bytes = b"the same bytes under a new name".to_vec();
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&[("a.txt".to_owned(), bytes.clone())], 1);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &[("a.txt".to_owned(), bytes.clone())]);
+    drop(overlay);
+
+    let moved = [("moved/b.txt".to_owned(), bytes.clone())];
+    // No hash: the listing names a new (path, mtime), so the store has no record: a fetch.
+    let (plain, fake) = listing(&moved, 2);
+    let overlay = open(state.path(), &plain, &fake).with_content_floor(0);
+    scan(&overlay, &moved);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    drop(overlay);
+
+    // With the hash the Mac listed: the store answers by content.
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&[("a.txt".to_owned(), bytes.clone())], 1);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &[("a.txt".to_owned(), bytes.clone())]);
+    drop(overlay);
+    let (plain, _) = listing(&moved, 2);
+    let mut hashed = (*plain).clone();
+    let index = hashed.resolve("moved/b.txt").unwrap();
+    hashed.set_hash(index, content::hash_of(&bytes)).unwrap();
+    let hashed = Arc::new(hashed);
+    let fake = Arc::new(Fake::default());
+    let overlay = open(state.path(), &hashed, &fake).with_content_floor(0);
+    scan(&overlay, &moved);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0, "a listed hash did not serve from the store");
+    assert!(overlay.stats().cache_hits > 0);
+}
+
+// MARK: Warm (the Mac's predicted hot set, cmux-tui `project_hot`)
+
+#[test]
+fn warm_fills_the_cache_without_a_pin_and_a_later_read_asks_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    let paths = vec!["README.md".to_owned(), "src/deep".to_owned(), "nope".to_owned()];
+    let report = overlay.warm(&paths, 64, 8 * 1024 * 1024);
+    assert_eq!((report.files, report.bytes), (2, 15));
+    assert!(report.fetched_bytes >= 15, "a read's folder read-ahead may come along");
+    assert_eq!((report.failed, report.first_error), (0, None));
+    assert!(overlay.pins().is_empty(), "a warm records no pin");
+    assert_eq!(overlay.pinned_bytes(), 0, "a warm keeps nothing apart from the LRU");
+    assert!(overlay.pin_states().is_empty());
+    assert!(!state.path().join(pin::PINS_FILE).exists(), "a warm writes no pins file");
+    let calls = fake.calls.load(Ordering::Relaxed);
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64).unwrap(), b"readme");
+    assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls, "a warmed read asked the Mac");
+    let again = overlay.warm(&paths, 64, 8 * 1024 * 1024);
+    assert_eq!(again.fetched_bytes, 0, "already in the cache");
+}
+
+#[test]
+fn warm_stops_at_its_file_cap_and_skips_a_file_past_its_byte_cap() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    // big.bin is past 1 KB and skipped; the walk goes on to src, whose first two files fit the cap.
+    let paths = vec!["big.bin".to_owned(), "src".to_owned()];
+    let report = overlay.warm(&paths, 2, 1024);
+    assert_eq!((report.files, report.bytes), (2, 18));
+    assert!(report.fetched_bytes >= 18 && report.fetched_bytes < BIG, "big.bin stayed home");
+    assert!(overlay.pins().is_empty());
+}
+
+#[test]
+fn warm_with_the_mac_away_stops_at_the_first_absence_and_pins_nothing() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    let report = overlay.warm(&[String::new()], 64, 1024);
+    assert_eq!(report.first_error, Some(FetchError::Away.errno()));
+    assert_eq!(report.failed, 1);
+    assert!(overlay.pins().is_empty());
 }

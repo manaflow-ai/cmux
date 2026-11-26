@@ -76,8 +76,9 @@ extension AcpmuxPaneSocket {
 }
 
 extension AcpmuxPaneShedding {
-    /// The records of a chat's stream: a pane nobody sees reads them again when it shows.
-    nonisolated static let streamMethods: Set<String> = ["session/update", "_acpmux/event"]
+    /// The records of a chat's stream: a pane nobody sees reads them again when it shows. `_acpmux/chunk` is a
+    /// streamed chunk in compact form (direct.ts chatDeltas.ts): left out with the whole events it follows.
+    nonisolated static let streamMethods: Set<String> = ["session/update", "_acpmux/event", "_acpmux/chunk"]
 
     /// Whether a pane nobody can see may go without `text` until it shows: a stream record the page can read again
     /// (``sheddable(_:method:)`` already holds) that it does not wait on (``AcpmuxPaneSocket/pageWaits(on:)``: a turn's

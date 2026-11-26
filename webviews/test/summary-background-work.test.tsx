@@ -277,7 +277,9 @@ test("the chats the agent started are listed under Subagents with their state, a
   );
   const section = container.querySelector<HTMLElement>('section[aria-label="Subagents"]')!;
   // Running started chats count in the title, as running subagents do.
-  expect(section.querySelector("h3")?.textContent).toBe("Subagents · 2 running");
+  expect(section.querySelector("h3")?.textContent).toBe("Subagents · 2");
+  // The number is the subagents' mark and the count; its name keeps the word for VoiceOver.
+  expect(section.querySelector("h3 .acpmux-live-count")?.getAttribute("aria-label")).toBe("2 running");
   const rows = [...section.querySelectorAll<HTMLButtonElement>(".acpmux-summary-session")];
   expect(
     rows.map((row) => [
@@ -287,12 +289,14 @@ test("the chats the agent started are listed under Subagents with their state, a
     ]),
   ).toEqual([
     ["Rename the settings keys", "Waiting", "waiting"],
-    ["Port the history page", "Running", "running"],
-    ["Migrate the settings store", "Running", "running"],
+    ["Port the history page", "", "running"],
+    ["Migrate the settings store", "", "running"],
     ["Fix the flaky drag test", "Failed", "failed"],
     ["Draft the release notes", "Done", "done"],
   ]);
   expect(section.textContent).not.toContain("None");
+  // Running is the row's spinner, not a word (Leo: "\"running\" doesn't need text."); hover still names it.
+  expect(rows[1]!.querySelector(".acpmux-summary-agent__state")?.getAttribute("title")).toBe("Running");
   await act(async () => rows[1]!.click());
   expect(opened).toEqual(["c5"]);
 });

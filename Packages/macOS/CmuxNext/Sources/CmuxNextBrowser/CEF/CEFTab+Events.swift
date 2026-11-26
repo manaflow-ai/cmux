@@ -56,6 +56,7 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            if firstCommittedURL == nil { firstCommittedURL = committedURL } // the tab's first page: was it opened for a sign-in (BrowserExternalApps.openOwn)
             // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
             (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
             (paintBeforeCommit, committedThisLoad) = (false, true)
@@ -116,9 +117,15 @@ extension CEFTab {
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
-            documentFaviconReported()
-            machine.apply(.faviconChanged(faviconURL))
-            loadFavicon(faviconURL)
+            // An empty report (a single-page app swapping its <head>, Chromium's list for a document without icon
+            // links) keeps the icon the tab has: the state machine clears it when the host changes, and the
+            // document read below answers a document that has none (the tab went back to the globe after a
+            // GitHub Turbo navigation).
+            if faviconURL != nil || state.faviconURL == nil {
+                documentFaviconReported()
+                machine.apply(.faviconChanged(faviconURL))
+                loadFavicon(faviconURL)
+            }
         case .progress(_, let value):
             machine.apply(.progress(value))
         case .fullscreen(_, let entering):
@@ -129,7 +136,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, userGesture: userGesture, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, engine: engineKind, userGesture: userGesture, firstPage: firstCommittedURL ?? committedURL, requestedPage: firstRequestedURL, close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -143,6 +150,7 @@ extension CEFTab {
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true)); hiddenHangChanged()
         case .renderResponsive: machine.apply(.unresponsiveChanged(false)); hiddenHangChanged()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .authPrompt(_, let token, let host, let realm, let isSecure): CEFHTTPAuthPrompts(tab: self).ask(token: token, host: host, realm: realm, isSecure: isSecure)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)

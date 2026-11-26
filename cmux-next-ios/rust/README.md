@@ -168,7 +168,12 @@ with a TURN server it offers only its relayed address and the path is
 dial fails at once (the backend relay frames are retired). `blockUdp`
 (debug "Block UDP", or `CMUX_MOBILE_DEV_BLOCK_UDP` in the environment) sends and
 accepts no plain UDP and skips TURN over UDP: WireGuard rides TURN over TLS
-on 443 (path `turnTls`). The path enum is `Direct`, `Turn`, `TurnTls`,
+on 443 (path `turnTls`). `proxyOnly` (debug "Proxy only",
+`CMUX_MOBILE_DEV_PROXY_ONLY`) blocks UDP too and lets TURN over TLS out only
+through the system's proxy; `dropWireguard` (debug "Drop WireGuard",
+`CMUX_MOBILE_DEV_DROP_WIREGUARD`) drops every WireGuard datagram over UDP while
+STUN still answers, so the link falls through to TURN over TLS
+(PROTOCOL.md "Corporate networks"). The path enum is `Direct`, `Turn`, `TurnTls`,
 `NoPath`.
 
 ## cmux-mobile-host

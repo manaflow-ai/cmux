@@ -27,7 +27,8 @@
         ],
         "eventStream": true,
         "visible": true,
-        "attending": true
+        "attending": true,
+        "quietHidden": true
       }
     },
     {
@@ -57,7 +58,8 @@
         ],
         "eventStream": true,
         "visible": true,
-        "attending": true
+        "attending": true,
+        "quietHidden": true
       }
     },
     {
@@ -79,7 +81,8 @@
         ],
         "eventStream": true,
         "visible": false,
-        "attending": true
+        "attending": true,
+        "quietHidden": true
       }
     },
     {
@@ -109,7 +112,8 @@
         ],
         "eventStream": true,
         "visible": true,
-        "attending": true
+        "attending": true,
+        "quietHidden": true
       }
     },
     {

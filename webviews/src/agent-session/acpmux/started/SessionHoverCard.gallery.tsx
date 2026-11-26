@@ -73,7 +73,7 @@ const chipEntry = sessionEntry({
   indicator: "working",
   status: "running",
   lane: { state: "working" },
-  turn: { planStep: "Switch the merge check", activity: "Edit scripts/ci/gh_merge_green.py" },
+  turn: { activity: "Edit scripts/ci/gh_merge_green.py" },
   updatedAt: NOW - 2 * MINUTE,
   pullRequests: ["https://github.com/manaflow-ai/cmux/pull/22092"],
   pullRequest: { number: 22092, title: "Switch gh-merge-green", state: "open", checks: "failing" },

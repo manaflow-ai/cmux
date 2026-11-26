@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.voiceRoom.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أثناء فتح غرفة، يرسل cmux إليها نصًا مفرّغًا من الميكروفون ونص شاشتك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dok je soba otvorena, cmux joj šalje transkript vašeg mikrofona i tekst s ekrana."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mens et rum er åbent, sender cmux en transskription af din mikrofon og skærmens tekst til det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solange ein Raum offen ist, sendet cmux ein Transkript deines Mikrofons und den Text deines Bildschirms dorthin."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While a room is open, cmux sends a transcript of your mic and your screen's text to it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mientras una sala está abierta, cmux le envía una transcripción de tu micrófono y el texto de tu pantalla."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tant qu’une salle est ouverte, cmux lui envoie une transcription de votre micro et le texte de votre écran."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mentre una stanza è aperta, cmux le invia una trascrizione del microfono e il testo dello schermo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームを開いている間、cmux はマイクの文字起こしと画面のテキストをルームに送ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលបន្ទប់បើក cmux ផ្ញើអត្ថបទពីមីក្រូហ្វូន និងអត្ថបទលើអេក្រង់របស់អ្នកទៅបន្ទប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸이 열려 있는 동안 cmux는 마이크 받아쓰기와 화면의 텍스트를 룸으로 보냅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mens et rom er åpent, sender cmux en transkripsjon av mikrofonen og skjermteksten din dit."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy pokój jest otwarty, cmux wysyła do niego transkrypcję mikrofonu i tekst z ekranu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enquanto uma sala está aberta, o cmux envia a ela uma transcrição do seu microfone e o texto da sua tela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пока комната открыта, cmux отправляет в неё расшифровку микрофона и текст с экрана."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขณะที่ห้องเปิดอยู่ cmux จะส่งข้อความถอดเสียงจากไมค์และข้อความบนหน้าจอของคุณไปยังห้อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda açıkken cmux, mikrofonunuzun dökümünü ve ekranınızdaki metni odaya gönderir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Поки кімната відкрита, cmux надсилає в неї розшифровку мікрофона й текст з екрана."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi phòng đang mở, cmux gửi bản chép lời micrô và chữ trên màn hình của bạn vào phòng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间打开期间，cmux 会把你的麦克风转写和屏幕上的文字发送到房间。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間開啟期間，cmux 會將你麥克風的轉寫內容和螢幕上的文字傳送到房間。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

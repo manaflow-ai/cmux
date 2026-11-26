@@ -31,11 +31,14 @@
 //! [`carrier_ticket`] (the session host's relay Register ticket),
 //! `carrier_server` (the thread and socket that answer it off the poll loop),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
-//! same socket), `github_minter` (the thread that answers both off the poll
-//! loop),
+//! same socket), [`mcp_call`] (cmux Cloud's hosted MCP server for the machine's agent
+//! sessions, the bearer kept here), `github_minter` (the thread that answers both off the poll
+//! loop), [`auto_session`] (Auto mode's store for the machine's daemon: one line per store
+//! route) and `auto_session_server` (its own socket and threads),
 //! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
 //! choice), `additions_thread` (its listing and send, off the poll loop),
 //! [`page_cache`] (the sync and clean page-cache drop the platform runs before a pause),
+//! [`page_in`] (the harness executables read back in right after a resume),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
 //! and `trajectory_thread` (its thread). A person's Claude or Codex login is
@@ -56,6 +59,11 @@ mod apps_call_tests;
 pub mod apps_spawn;
 #[cfg(all(test, unix))]
 mod apps_spawn_tests;
+pub mod auto_session;
+#[cfg(unix)]
+pub mod auto_session_server;
+#[cfg(all(test, unix))]
+mod auto_session_tests;
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 #[cfg(unix)]
@@ -73,7 +81,19 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod machine_request;
+pub mod mcp_call;
+#[cfg(all(test, unix))]
+mod mcp_call_tests;
 pub mod page_cache;
+pub mod page_in;
+#[cfg(all(test, unix))]
+mod page_in_tests;
+#[cfg(target_os = "linux")]
+mod poster_http;
+pub mod pressure;
+#[cfg(test)]
+mod pressure_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -81,6 +101,9 @@ pub mod session;
 pub mod trajectory;
 #[cfg(unix)]
 pub mod trajectory_thread;
+pub mod wake_echo;
+#[cfg(test)]
+mod wake_echo_tests;
 pub mod wire;
 pub mod workload;
 

@@ -498,7 +498,7 @@ async fn connection(
         return;
     }
     let ready = lock(&link).connect_at(Instant::now());
-    tokio::time::sleep_until(ready).await;
+    crate::timer::sleep_until(ready).await;
     if lock(&link).silent(index, path) {
         return;
     }
@@ -546,7 +546,7 @@ async fn direction(
     let writer_link = link.clone();
     let writer = async move {
         while let Some((at, segment)) = receive.recv().await {
-            tokio::time::sleep_until(at).await;
+            crate::timer::sleep_until(at).await;
             // Still on the air when the address changed (it goes to the old address too) or the
             // internet path died.
             if lock(&writer_link).silent(index, path) {
