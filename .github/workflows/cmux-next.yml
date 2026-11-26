@@ -2778,7 +2778,7 @@ jobs:
           # Why: note-551
           if [[ "$word" == superseded ]]; then
             authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 \
+            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
               ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$GITHUB_REF" 2>/dev/null | awk 'NR==1{print $1}')" || head=""
             if [[ -n "$head" && "$head" != "$REF" ]]; then
               echo "::notice title=Build fleet compile check::superseded push $REF: the branch head is $head, whose tip check covers this push; not compiled here"
@@ -5933,7 +5933,7 @@ jobs:
             if [[ "$state" == superseded ]]; then
               head=""
               if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
-                head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+                head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
                   "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
                   awk 'NR==1{print $1}')" || head=""
               fi
@@ -7967,7 +7967,7 @@ jobs:
             [[ -z "${PR:-}" && "${SUPERSEDED_GATE:-1}" != 0 && -z "$head_read" ]] || return 1
             head_read=1
             local head
-            head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+            head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
               "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
               awk 'NR==1{print $1}')" || head=""
             [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$SHA" ]]
