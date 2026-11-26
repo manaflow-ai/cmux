@@ -62,6 +62,9 @@ describe("cloud journey", () => {
 
   test("parses warm-home answers and unsupported images", () => {
     expect(parseWarmHomeAnswer('{"accepted":true,"state":"ready"}')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    // acpmux --json pretty-prints (cli/output.rs print_json): prod's stub leg read this as "no JSON answer".
+    expect(parseWarmHomeAnswer('{\n  "accepted": true,\n  "state": "ready",\n  "shapes": [\n    {\n      "harness": "claude"\n    }\n  ]\n}\n')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
+    expect(parseWarmHomeAnswer('note: dialing\n{\n  "accepted": false,\n  "state": "busy"\n}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer('{"accepted":false,"state":"busy"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer("")).toEqual({ state: "unsupported", reason: "warm-home is unavailable on this guest image" });
     expect(parseWarmHomeAnswer("warm-home: command not found")).toEqual({ state: "unsupported", reason: "warm-home returned no JSON answer" });

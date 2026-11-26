@@ -62,6 +62,8 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_HARNESS_INVENTORY_WATCH,
     method::MUX_HARNESS_UPDATE_PLAN,
     method::MUX_HARNESS_UPDATE_PREPARE,
+    method::MUX_HISTORY_DELETE,
+    method::MUX_HISTORY_OFFLOAD,
     method::MUX_HERE,
     method::MUX_HERE_BEAT,
     method::MUX_IMPORT,
