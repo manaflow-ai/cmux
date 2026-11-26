@@ -276,7 +276,7 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 12] = [
+pub const CAPABILITIES: [&str; 13] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
