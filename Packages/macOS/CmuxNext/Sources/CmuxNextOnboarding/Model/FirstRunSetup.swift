@@ -37,13 +37,16 @@ public final class FirstRunSetup {
     /// Whether Home's Chief chat shows the card's Chief form (first-run findings rows 1 and 4: with onboarding off,
     /// a fresh Mac opened straight into Home and Chief refused every message). True only on evidence that Chief
     /// cannot answer: acpmux answered and Claude Code is not installed, or its sign-in check says signed out or
-    /// expired, or its login opened here waits to be confirmed. A read not made yet, a list acpmux did not answer
-    /// (Claude Code not listed at all), an unknown sign-in (a Keychain login) and a configured Claude route never
-    /// show it. Independent of the onboarding switch.
+    /// expired, or its login opened here waits to be confirmed, or its in-place sign-in is next or running. A read
+    /// not made yet, a list acpmux did not answer (Claude Code not listed at all), an unknown sign-in (a Keychain
+    /// login) and a configured Claude route never show it. Independent of the onboarding switch.
     public var needsChiefAgent: Bool {
         guard !chiefAgentHidden, let model = agentsModel, model.loaded, model.source?.chiefUsesRoute != true else { return false }
         if model.installable.contains(where: { $0.id == Self.chiefAgentID }) { return true }
         guard let agent = model.agents.first(where: { $0.id == Self.chiefAgentID }) else { return false }
+        // An in-place sign-in an Install asked for, or one running: the card stays until it signs in (a fresh Claude
+        // Code reads unknown, which alone would take the card away before the person signed in).
+        if model.inPlaceSignIns.contains(Self.chiefAgentID), !model.countsAsSignedIn(agent) { return true }
         return agent.auth == .signedOut || agent.auth == .expired || model.awaitsConfirmation(agent)
     }
 

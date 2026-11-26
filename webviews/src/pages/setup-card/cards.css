@@ -651,6 +651,12 @@
   flex-direction: column;
   min-width: 0;
 }
+/* The agent's in-place sign-in: its code and link under the row's words. */
+.hm-setup__signin {
+  display: block;
+  margin-top: 6px;
+  min-width: 0;
+}
 .hm-setup__row-title {
   overflow: hidden;
   text-overflow: ellipsis;

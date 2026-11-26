@@ -1,5 +1,6 @@
 public import AppKit
 public import Observation
+public import CmuxNextSettings
 
 /// One agent CLI on this Mac and whether it is signed in, as acpmux reports it.
 public struct OnboardingAgent: Sendable, Equatable {
@@ -96,6 +97,13 @@ public final class AgentsStepModel {
     public private(set) var loginsOpened: Set<String> = []
     /// Agents whose login opened here and that the person then said are signed in (``confirmLogin(_:)``).
     public private(set) var confirmedLogins: Set<String> = []
+    /// Agents whose in-place sign-in (acpmux `account.sign_in`, ``OnboardingSignIn``) is next or running here: set
+    /// when an Install ends on a host that has it (the Install click asked for the sign-in too), or when a card
+    /// starts one; cleared when it finishes signed in or is cancelled. A card keeps showing while one waits.
+    public private(set) var inPlaceSignIns: Set<String> = []
+    /// The agent whose in-place sign-in an Install just asked for, not started yet: the card that draws it starts it
+    /// once, with the Install's click (``takeSignInAfterInstall(_:)``), so the person never clicks twice.
+    public private(set) var signInAfterInstall: String?
     @ObservationIgnored let source: (any AgentSignInSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -144,7 +152,71 @@ public final class AgentsStepModel {
             return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
         }
         installs[id] = nil
+        // A host whose daemon has the in-place sign-in (its readiness answered): the page that drew the Install starts
+        // it in place (no terminal tab, and no "I'm signed in" to click: its finish says whether it signed in). Else
+        // the terminal login, as before.
+        if let signIn = source?.onboardingSignIn, signIn.state().readiness != .null {
+            inPlaceSignIns.insert(id)
+            signInAfterInstall = id
+            return
+        }
         signIn(id)
+    }
+
+    /// The in-place sign-in an Install asked for, taken once by the card that starts it: true when `id`'s was waiting.
+    public func takeSignInAfterInstall(_ id: String) -> Bool {
+        guard signInAfterInstall == id else { return false }
+        signInAfterInstall = nil
+        return true
+    }
+
+    /// The in-place sign-in's started logins, by login id, with the agent each signs in (its finish ends that row).
+    @ObservationIgnored private var inPlaceLogins: [String: String] = [:]
+
+    /// One in-place sign-in gesture's answer, as a page forwarded it (``OnboardingSignIn/run``): a start names its
+    /// login, a finish or Cancel ends it. Only Claude Code and Codex rows are this model's; GitHub's pass through.
+    public func inPlaceSignInAnswered(_ action: String, params: JSONValue, reply: JSONValue) {
+        let family = params["family"]?.stringValue ?? params["provider"]?.stringValue
+        let agent = family.flatMap { id in OnboardingAgent.installPages[id] != nil ? id : nil }
+        let login = params["loginId"]?.stringValue
+        switch action {
+        case "signInStart":
+            if let agent, let id = reply["signIn"]?["loginId"]?.stringValue {
+                inPlaceLogins[id] = agent
+                inPlaceSignIns.insert(agent)
+            } else if let agent, reply["terminal"]?.boolValue == true {
+                terminalLoginOpened(agent)
+            }
+        case "signInFinish":
+            // A refusal that leaves the sign-in running (busy, a wrong code) carries no `finished`: nothing ends.
+            if let login, let finished = reply["finished"], let agent = inPlaceLogins.removeValue(forKey: login) {
+                inPlaceSignInEnded(agent, signedIn: finished["signedIn"]?.boolValue == true)
+            }
+        case "signInCancel":
+            if let login, let agent = inPlaceLogins.removeValue(forKey: login) {
+                inPlaceSignInEnded(agent, signedIn: false, cancelled: true)
+            }
+        default: break
+        }
+    }
+
+    /// A start the forwarder answered with the terminal login (a daemon without the in-place sign-in): the row is as
+    /// after its terminal Sign In, waiting for the person to say it finished.
+    func terminalLoginOpened(_ id: String) {
+        inPlaceSignIns.remove(id)
+        if signInAfterInstall == id { signInAfterInstall = nil }
+        signingIn = id
+        loginsOpened.insert(id)
+    }
+
+    /// `id`'s in-place sign-in ended: `signedIn` is its finish's answer (acpmux saw the login complete), which is the
+    /// proof a Keychain login never gives the terminal path, so it counts as signed in with no click. Cancelled or
+    /// failed: the card shows why and its Try Again; the person can still Hide it.
+    func inPlaceSignInEnded(_ id: String, signedIn: Bool, cancelled: Bool = false) {
+        if signedIn { confirmedLogins.insert(id) }
+        if signedIn || cancelled { inPlaceSignIns.remove(id) }
+        if signInAfterInstall == id, signedIn || cancelled { signInAfterInstall = nil }
+        refresh(recheck: true)
     }
 
     private func show(_ fresh: [OnboardingAgent]) {

@@ -50,7 +50,7 @@ async function mounted(state: SetupState) {
     navigator: window.navigator,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
-  const { client, calls } = host(state);
+  const { client, calls, push } = host(state);
   const store = new SetupCardStore(client);
   const root = window.document.createElement("div");
   window.document.body.appendChild(root);
@@ -63,7 +63,7 @@ async function mounted(state: SetupState) {
     if (!found) throw new Error(`no ${label} button`);
     return found as unknown as HTMLButtonElement;
   };
-  return { root, calls, button };
+  return { root, calls, button, push: (next: SetupState) => act(async () => push(next)) };
 }
 
 const names = ["document", "window", "ResizeObserver", "HTMLElement", "Element", "Node", "navigator"] as const;
@@ -157,5 +157,29 @@ describe("the Set Up cmux page", () => {
   test("no look from the host (an older app): no Text Size row", async () => {
     const card = await mounted(fresh);
     expect(card.root.querySelector('[data-step="look"]')).toBeNull();
+  });
+
+  test("Install's sign-in starts in place once, with no click; Sign In runs there too", async () => {
+    const installed: SetupState = {
+      ...fresh,
+      forChief: true,
+      agents: [{ id: "claude", name: "Claude Code", state: "signedOut" }],
+      signIn: { accounts: [], readiness: { providers: [] }, after: "claude" },
+    };
+    const card = await mounted(installed);
+    const starts = () => card.calls.filter(([op]) => op === SETUP_OPS.accountsRun);
+    expect(starts()).toEqual([
+      [SETUP_OPS.accountsRun, { action: "signInStart", provider: "claude", family: "claude" }],
+    ]);
+    await card.push({ ...installed });
+    expect(starts().length).toBe(1);
+
+    // No in-place sign-in on the host: Sign In is the terminal login, as before.
+    const older = await mounted({ ...installed, signIn: undefined });
+    await act(async () => older.button("Sign In to Claude Code").click());
+    expect(older.calls.filter(([op]) => op === SETUP_OPS.accountsRun)).toEqual([]);
+    expect(older.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "signInAgent", id: "claude" } }],
+    ]);
   });
 });

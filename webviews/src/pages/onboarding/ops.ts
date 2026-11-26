@@ -65,6 +65,9 @@ export interface AgentsState {
   /** The agent whose Sign In ran last; its terminal tab is where the login runs. */
   signingIn: string | null;
   signInFailed: boolean;
+  /** The agent whose in-place sign-in its Install asked for: the page starts it once, with no click of its
+   * own (Install's click asked for it). Absent when none waits. */
+  signInAfterInstall?: string;
 }
 
 // MARK: Import from Browser

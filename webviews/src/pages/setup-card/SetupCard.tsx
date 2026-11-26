@@ -9,6 +9,7 @@ import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../ui/Button";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import { TextSizePicker, type TextSizePickerLabels } from "../../ui/TextSizePicker";
+import { DeviceSignInCard, type DeviceSignInCardProps } from "../shared/signIn/DeviceSignInCard";
 import type { Strings } from "./strings";
 import {
   nextStep,
@@ -31,11 +32,18 @@ export interface SetupCardProps {
   onAction(action: SetupAction): void;
   /** Hide: the card leaves for good (the host records it); Settings keeps every row. */
   onHide(): void;
+  /** The agent's in-place sign-in in progress or just ended (shared/signIn): its card opens in the agents row,
+   * which shows no buttons while the sign-in starts or waits. */
+  signIn?: Omit<DeviceSignInCardProps, "look"> | null;
 }
 
-export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction, onHide }: SetupCardProps) {
+export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction, onHide, signIn }: SetupCardProps) {
   const { t, format } = strings;
-  const steps = setupSteps(state, strings);
+  const signing = signIn != null && (signIn.view.state === "starting" || signIn.view.state === "waiting");
+  // A sign-in starting or waiting is the agents row's one action: its card, not a second Sign In.
+  const steps = setupSteps(state, strings).map((step) =>
+    signing && step.id === "agents" ? { ...step, action: undefined, secondary: undefined, tertiary: undefined } : step,
+  );
   const next = nextStep(steps);
   const { done, total } = setupProgress(steps);
   const progress = format("home.setup.progress", String(done), String(total));
@@ -102,6 +110,11 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
                   onSize={(points) => onAction({ kind: "setTextSize", points })}
                   onDensity={(id) => onAction({ kind: "setDensity", id })}
                 />
+              )}
+              {step.id === "agents" && signIn && !step.done && (
+                <span className="hm-setup__signin">
+                  <DeviceSignInCard look="inline" {...signIn} />
+                </span>
               )}
             </span>
             {!step.optional && <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />}

@@ -76,6 +76,9 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let loaded: Bool
         let signingIn: String?
         let signInFailed: Bool
+        /// The agent whose in-place sign-in its Install asked for (``AgentsStepModel/signInAfterInstall``): the page
+        /// starts it once, with no click of its own. Absent when none waits.
+        var signInAfterInstall: String?
 
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -83,9 +86,10 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encode(loaded, forKey: .loaded)
             try c.encodeNullable(signingIn, forKey: .signingIn)
             try c.encode(signInFailed, forKey: .signInFailed)
+            try c.encodeIfPresent(signInAfterInstall, forKey: .signInAfterInstall)
         }
 
-        private enum Keys: String, CodingKey { case rows, loaded, signingIn, signInFailed }
+        private enum Keys: String, CodingKey { case rows, loaded, signingIn, signInFailed, signInAfterInstall }
     }
 
     struct Counts: Encodable, Equatable {
@@ -429,7 +433,8 @@ extension OnboardingPageState {
             AgentRow(id: agent.id, name: agent.name, auth: agent.auth.rawValue, offersSignIn: false,
                      icon: images.agent(agent, source: model.source), install: install(model.installs[agent.id], page: agent.installPage))
         }
-        return Agents(rows: installed + installable, loaded: model.loaded, signingIn: model.signingIn, signInFailed: model.signInFailed)
+        return Agents(rows: installed + installable, loaded: model.loaded, signingIn: model.signingIn, signInFailed: model.signInFailed,
+                      signInAfterInstall: model.signInAfterInstall)
     }
 
     nonisolated static func install(_ install: AgentsStepModel.Install?, page: URL?) -> Install {

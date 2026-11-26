@@ -12,6 +12,7 @@ import type { ActiveSignIn } from "../shared/signIn/AccountSwitcher";
 import { agentFamily, type ProviderReadinessProps, type ReadinessRow } from "../shared/signIn/ProviderReadiness";
 import { useSignInStrings } from "../shared/signIn/strings";
 import { useAccountSignIn, type AccountSignInTransport } from "../shared/signIn/useAccountSignIn";
+import { useSignInAfterInstall } from "../shared/signIn/useSignInAfterInstall";
 import { OPS, type OnboardingState } from "./ops";
 import type { OnboardingStore } from "./store";
 
@@ -83,12 +84,14 @@ export function useOnboardingReadiness(
     [store],
   );
   const signIn = useAccountSignIn(transport);
+  const accountFor = (family: AccountFamily) => {
+    const account = state?.signInReadiness?.providers.find((provider) => provider.family === family)?.account;
+    return account && (state?.signInAccounts ?? []).some((row) => row.id === account) ? account : null;
+  };
+  // Install asked for this agent's sign-in: it starts in its row, with no second click.
+  useSignInAfterInstall(state?.agents?.signInAfterInstall, (family) => signIn.start(family, accountFor(family)));
   const rows = readinessRows(state, signIn.running, strings);
   if (!rows || !state) return undefined;
-  const accountFor = (family: AccountFamily) => {
-    const account = state.signInReadiness?.providers.find((provider) => provider.family === family)?.account;
-    return account && (state.signInAccounts ?? []).some((row) => row.id === account) ? account : null;
-  };
   return {
     rows,
     onAction: (family, action) => {

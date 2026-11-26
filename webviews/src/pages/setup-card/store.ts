@@ -2,6 +2,7 @@
 // every `cmux.setup.changed`. Gestures are one call each; the host answers on the stream.
 import type { SetupState } from "./setupModel";
 import type { PageClient } from "../shared/pageClient";
+import type { AccountRunParams, AccountRunReply, AccountRunResult } from "../shared/signIn/accountSignIn";
 import { SETUP_OPS } from "./ops";
 
 export class SetupCardStore {
@@ -47,6 +48,16 @@ export class SetupCardStore {
   /** A call the host answers on the stream; a refusal (no gesture) changes nothing. */
   send(op: string, params: unknown): void {
     void this.client?.call(op, params).catch(() => {});
+  }
+
+  /** One in-place sign-in gesture (shared/signIn/useAccountSignIn.ts): the host's answer, or its refusal. */
+  async runAccountSignIn(params: AccountRunParams): Promise<AccountRunResult> {
+    if (!this.client) return { ok: false, error: { code: "cmux.setup.no_host" } };
+    try {
+      return { ok: true, value: await this.client.call<AccountRunReply>(SETUP_OPS.accountsRun, params) };
+    } catch (error) {
+      return { ok: false, error };
+    }
   }
 
   private set(next: SetupState): void {
