@@ -78,6 +78,11 @@ path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_git_token_env.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_git_token_env.py"
+
+[[test]]
 path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
