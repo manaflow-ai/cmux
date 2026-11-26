@@ -228,8 +228,15 @@ class WorkflowShape(unittest.TestCase):
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
-        self.assertEqual(set(on), {"pull_request", "workflow_dispatch"})
-        self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
+        # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
+        # either: a head the router starts nothing for starts none of its jobs.
+        self.assertEqual(set(on), {"workflow_call", "workflow_dispatch"})
+        routed = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())["callees"]["cmux-next-fast-gates.yml"]
+        for key in ("paths", "paths-ignore", "affects", "skip_docs_only"):
+            self.assertNotIn(key, routed, "a paths filter leaves PRs with no status")
+        self.assertIn("ready_for_review", routed["types"])
+        self.assertIn("uses: ./.github/workflows/cmux-next-fast-gates.yml",
+                      (ROOT / ".github/workflows/pr-router.yml").read_text())
         for event in on.values():
             for key in ("paths", "paths-ignore"):
                 self.assertNotIn(key, event or {}, "a paths filter leaves PRs with no status")
