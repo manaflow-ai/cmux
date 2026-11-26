@@ -163,6 +163,29 @@ pub fn allow_named(host_or_url: &str) {
     }
 }
 
+/// The proxy variables reqwest reads from the environment, in both cases.
+const PROXY_VARS: [&str; 6] =
+    ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"];
+
+/// Lets through the proxy the person's environment names (`HTTPS_PROXY`,
+/// `HTTP_PROXY`, `ALL_PROXY`, either case). reqwest sends a request through
+/// that proxy and the gate checks the proxy's host in place of the target's,
+/// so without this a company proxy refuses every request in enforce mode.
+/// Every gated builder calls it; it reads the environment once.
+pub fn allow_proxy_env() {
+    static READ: OnceLock<()> = OnceLock::new();
+    READ.get_or_init(|| allow_proxies_from(|key| std::env::var(key).ok()));
+}
+
+/// [`allow_proxy_env`] over `env`, read every time.
+fn allow_proxies_from(env: impl Fn(&str) -> Option<String>) {
+    for key in PROXY_VARS {
+        if let Some(value) = env(key).filter(|value| !value.trim().is_empty()) {
+            allow_named(&value);
+        }
+    }
+}
+
 /// The lower-cased host of a URL or bare host name, without port or trailing dot.
 fn host_of(text: &str) -> String {
     let text = text.trim();
@@ -336,6 +359,8 @@ fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
 fn install_crypto_provider() {
     // reqwest is built without a default rustls provider; a client built before one is installed panics.
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // Every gated builder comes through here: the person's proxy is theirs to name.
+    allow_proxy_env();
 }
 
 /// A reqwest client builder whose every connection passes the gate. `site`
@@ -453,6 +478,21 @@ pub mod ws {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_environments_proxy_passes_and_only_it() {
+        set_mode(Mode::Enforce);
+        let proxy = "proxy.corp-egress-proxy-test.org";
+        assert!(check(proxy, "test").is_err());
+        allow_proxies_from(|key| {
+            (key == "https_proxy").then(|| format!("http://user:secret@{proxy}:3128"))
+        });
+        assert_eq!(verdict(proxy), Verdict::Named);
+        assert!(check(proxy, "test").is_ok());
+        assert!(check("unrelated.corp-egress-proxy-test.org", "test").is_err());
+        allow_proxies_from(|_| Some("  ".to_owned()));
+        assert!(check("unrelated.corp-egress-proxy-test.org", "test").is_err());
+    }
 
     #[test]
     fn listed_hosts_and_patterns_pass() {
