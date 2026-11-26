@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWindowRules
 
 /// A daily window (local time) in which banners and sounds stay quiet.
 public nonisolated struct QuietHours: Hashable, Sendable {
@@ -11,12 +12,12 @@ public nonisolated struct QuietHours: Hashable, Sendable {
         self.end = end
     }
 
-    /// Parses `"HH:MM"`.
+    /// Parses `"HH:MM"` (cmux-window-rules `window_notifications_quiet_minutes`); nil when it does
+    /// not parse or the FFI does not answer.
     public static func minutes(_ text: String) -> Int? {
-        let parts = text.split(separator: ":")
-        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
-              (0...23).contains(hour), (0...59).contains(minute) else { return nil }
-        return hour * 60 + minute
+        struct Request: Encodable { var text: String }
+        struct Reply: Decodable { var minutes: Int? }
+        return WindowRules().call("window_notifications_quiet_minutes", Request(text: text), as: Reply.self)?.minutes
     }
 
     /// True when `minuteOfDay` lies in the window; a window may wrap past midnight.

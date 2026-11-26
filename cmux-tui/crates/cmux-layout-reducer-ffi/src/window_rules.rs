@@ -11,6 +11,8 @@ use crate::ERR_INVALID;
 
 #[path = "window_rules_misc.rs"]
 mod misc;
+#[path = "window_rules_notify.rs"]
+mod notify;
 #[path = "window_rules_workspaces.rs"]
 mod workspaces;
 
@@ -56,6 +58,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         return respond_tabs(operation, request);
     }
     let answer = match operation {
+        // What a notification's banner says, and the status alerts and runs it is posted for.
+        operation if notify::handles(operation) => {
+            return notify::respond_notify(operation, request);
+        }
         // The smaller handlers' tables and refusals (notifications, history, remote, browser, files, appearance).
         operation if misc::handles(operation) => return misc::respond_misc(operation, request),
         // Whether closing these tabs together earns the undo toast.
