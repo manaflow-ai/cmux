@@ -845,9 +845,51 @@ pub fn daemon_status() -> Value {
     status
 }
 
-/// This process's resident bytes now and at its peak; null where unknown.
+/// This process's resident bytes now and at its peak, null where unknown, and what the
+/// structures that grow with the chats it holds keep of them.
 pub fn memory() -> Value {
-    json!({"rssBytes": rss_bytes(), "peakRssBytes": peak_rss_bytes()})
+    json!({
+        "rssBytes": rss_bytes(),
+        "peakRssBytes": peak_rss_bytes(),
+        "closedRows": closed_rows().status(),
+    })
+}
+
+/// The closed rows' cached bytes (`hub/closed_rows.rs`): the forms kept, their bytes, their
+/// bound, and the forms let go to stay under it, since the daemon started.
+pub fn closed_rows() -> &'static ClosedRowsGauge {
+    static ROWS: OnceLock<ClosedRowsGauge> = OnceLock::new();
+    ROWS.get_or_init(ClosedRowsGauge::default)
+}
+
+#[derive(Default)]
+pub struct ClosedRowsGauge {
+    forms: AtomicU64,
+    bytes: AtomicU64,
+    cap_bytes: AtomicU64,
+    evicted: AtomicU64,
+}
+
+impl ClosedRowsGauge {
+    pub fn set(&self, forms: usize, bytes: usize, cap: usize) {
+        let n = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
+        self.forms.store(n(forms), Ordering::Relaxed);
+        self.bytes.store(n(bytes), Ordering::Relaxed);
+        self.cap_bytes.store(n(cap), Ordering::Relaxed);
+    }
+
+    pub fn evicted(&self, forms: u64) {
+        self.evicted.fetch_add(forms, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "forms": self.forms.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+            "capBytes": self.cap_bytes.load(Ordering::Relaxed),
+            "evicted": self.evicted.load(Ordering::Relaxed),
+        })
+    }
 }
 
 #[cfg(target_os = "linux")]
