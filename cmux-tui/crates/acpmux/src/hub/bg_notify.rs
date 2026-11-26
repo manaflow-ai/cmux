@@ -373,7 +373,7 @@ fn holds_end(ok: bool, listed: bool, orphan: bool) -> bool {
 }
 
 /// How long the lead's own exit-0 end waits in a plain chat's inbox before it wakes the chat.
-/// One lane's 24 h (gcp-agent-lane-5, 2026-11-26): 1,177 of its 3,060 wakes (38%) were task
+/// One lane's 24 h (one lane VM, 2026-11-26): 1,177 of its 3,060 wakes (38%) were task
 /// ends, each a turn of its own, and 28% of all its wakes came less than 5 minutes after the one
 /// before. Held this long in an idle chat, ends that come close together, and an end that comes
 /// just before another message, go in as one notice. Leo: "us not getting fucking swamped by our
