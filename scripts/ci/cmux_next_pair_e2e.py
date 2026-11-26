@@ -422,6 +422,12 @@ def run_pair(a, note, share):
     # and the account home, independently of HOME or ACPMUX_HOME.
     env["ACPMUX_HOME"] = build_names.names(mac_bundle, tag, pwd.getpwuid(os.getuid()).pw_dir)["acpmux_home"]
     env["CMUX_NEXT_ENROLL_ON_SIGN_IN"] = "1"
+    # The tag's build space, as the app hands it to every child (LaunchIdentity): the share host's
+    # hub client sends it, so a daemon this rig restarts (TaggedShareHost.prepare) registers in
+    # dev:<tag> beside the phone, not among NIGHTLY's devices (cmuxterm-hq#18912).
+    space = build_space_for_tag(tag)
+    if space:
+        env["CMUX_BUILD_SPACE"] = space
     env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_AUTH_CREDENTIALS_FILE=creds, CMUX_NEXT_IPHONE_PAIRING_SEED="",
                CMUX_NEXT_MOBILE_MACHINE_ID=machine_id(mac_bundle), CMUX_NEXT_NO_ACTIVATE="1",
                # The name phones list this Mac by (DEBUG override): the dev account lists 100+ Macs
@@ -799,6 +805,14 @@ def run_pair(a, note, share):
 
 LIVE_DATA_LINE = re.compile(r"live data on ")
 STACK_LINE = re.compile(r"Stack project ")
+
+
+def build_space_for_tag(tag):
+    """`dev:<tag>` when the tag is already a build-space slug (the rig's `iospair-<sha>-<pid>`), else None:
+    the app derives anything else itself, and a guess here would name another space."""
+    if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?", tag or ""):
+        return f"dev:{tag}"
+    return None
 
 
 def launch_live_state(phone_log, since):

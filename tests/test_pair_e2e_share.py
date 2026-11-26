@@ -283,3 +283,16 @@ class LaunchLiveStateTests(unittest.TestCase):
     def test_live_data_from_an_earlier_launch_does_not_count(self):
         state, log = self.log([(1, "live data on api.example"), (5, "Stack project p")])
         self.assertEqual(state(log, 2), "phone since launch: auth config after 3 s, live data not logged")
+
+
+class BuildSpaceForTagTests(unittest.TestCase):
+    """The rig's daemon gets the tag's build space, so its share host registers beside the phone."""
+
+    def test_the_rig_tag_is_its_own_space(self):
+        import cmux_next_pair_e2e
+        self.assertEqual(cmux_next_pair_e2e.build_space_for_tag("iospair-8f03f7e6-4242"), "dev:iospair-8f03f7e6-4242")
+
+    def test_a_tag_that_is_not_a_slug_is_left_to_the_app(self):
+        import cmux_next_pair_e2e
+        for tag in ("", None, "Upper", "-edge", "a_b", "x" * 65):
+            self.assertIsNone(cmux_next_pair_e2e.build_space_for_tag(tag), tag)
