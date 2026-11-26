@@ -142,6 +142,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPictures) {
+        Accepted::Shape(
+            "a list of pictures: listed paintings, desktop, system:<absolute path> or file:<absolute path>",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
         Accepted::Shape(
             "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
@@ -198,14 +202,12 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
-/// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does, and an old choice
-/// value reads as its replacement (`super::aliases`).
+/// An unset row that replaced retired keys reads the first of them whose value
+/// the retired-keys table lists (`super::retired`), as the app does, and an old
+/// choice value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    let stored = crate::value::value_at(root, &row.path).or_else(|| {
-        let replaced = super::replaced_by_row(&row.path)?;
-        replaced.read(crate::value::value_at(root, &replaced.old)?)
-    });
+    let stored =
+        crate::value::value_at(root, &row.path).or_else(|| super::replaced_value(&row.path, root));
     let stored = stored.map(|stored| aliased(row, stored));
     match stored {
         Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
@@ -270,6 +272,11 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::BackdropPicture) => {
             return value.as_str().is_some_and(super::backdrop::is_picture);
+        }
+        super::Validation::Domain(DomainKind::BackdropPictures) => {
+            return value.as_array().is_some_and(|items| {
+                items.iter().all(|item| item.as_str().is_some_and(super::backdrop::is_picture))
+            });
         }
         super::Validation::Domain(DomainKind::BackdropSchedule) => {
             return super::backdrop::is_schedule(value);
@@ -589,6 +596,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::BackdropPicture => "backdrop_picture",
+        DomainKind::BackdropPictures => "backdrop_pictures",
         DomainKind::BackdropSchedule => "backdrop_schedule",
         DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::BackdropMemory => "backdrop_memory",

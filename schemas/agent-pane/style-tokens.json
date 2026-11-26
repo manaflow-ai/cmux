@@ -1,5 +1,5 @@
 {
-  "$comment": "cmux.agentPane.style/1: the CSS custom properties a person's agent-pane/theme.css (and a look add-on's) may set, on :root only. They are paint: color, fill, edge and corner. None moves a box, so a look applied or hot reloaded never shifts the transcript. Type, width and spacing are settings (agentPane.display.*), because the transcript's height estimate reads them (model.ts); a stylesheet that set them would make rows jump when they are measured. The colors the host pushes from the theme (--agent-text, --agent-accent and the rest of shared/theme.ts cssVariables) are inline styles on the root, so a stylesheet cannot beat them: set those with the theme file's `colors` and `appearance.surfaces.agentPane`. webviews scripts/check-look-addons.ts holds the pane's stylesheets and every add-on in examples/looks to this file: each token is declared on :root in `owner` (or, for a token with no value of its own, read there with a fallback: `var(--token, today's value)`), nowhere else but `alsoScopedIn`, never pushed by the host, and an add-on sets nothing else. Docs: docs/cmux-next/look-addons.md.",
+  "$comment": "cmux.agentPane.style/1: the CSS custom properties a person's agent-pane/theme.css (and a look add-on's) may set, on :root only. They are paint (color, fill, edge and corner) and motion (duration and easing: how long and on which curve the chat's own transitions run, never what moves). None moves a box, so a look applied or hot reloaded never shifts the transcript. Type, width and spacing are settings (agentPane.display.*), because the transcript's height estimate reads them (model.ts); a stylesheet that set them would make rows jump when they are measured. The colors the host pushes from the theme (--agent-text, --agent-accent and the rest of shared/theme.ts cssVariables) are inline styles on the root, so a stylesheet cannot beat them: set those with the theme file's `colors` and `appearance.surfaces.agentPane`. webviews scripts/check-look-addons.ts holds the pane's stylesheets and every add-on in examples/looks to this file: each token is declared on :root in `owner` (or, for a token with no value of its own, read there with a fallback: `var(--token, today's value)`), nowhere else but `alsoScopedIn`, never pushed by the host, and an add-on sets nothing else; a duration is 0 to 600 ms and an easing a cubic-bezier() (x within 0 to 1), linear or linear(), never !important. Animations off and Reduce Motion (data-cmux-motion / data-agent-motion off or reduced on the root) put cmux's own motion values back above any look (gen-motion-scale.py). Docs: docs/cmux-next/look-addons.md.",
   "interface": "cmux.agentPane.style/1",
   "status": "draft: shapes are refined with the first outside look before the interface is public",
   "selectors": [":root"],
@@ -90,6 +90,66 @@
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/composerLook.css",
       "about": "The corner of the round composer's + button (Studio's paperclip) and its hover highlight; 50% draws a circle. Read only by the in-box composer looks (Studio, Codex), never by Claude's one-line look. Unset: the app's button corner, --ds-radius-control. A corner never changes the button's box."
+    },
+    {
+      "name": "--cmux-motion-quick",
+      "kind": "duration",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: 80 ms: a hover's color, a fade in place (a chip, a check). Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-motion-micro",
+      "kind": "duration",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: 120 ms: a popover, menu or tooltip entering; a small control's change. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-motion-standard",
+      "kind": "duration",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: 180 ms: a panel or card entering; a row's move. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-motion-large",
+      "kind": "duration",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: 240 ms: a sheet, drawer or the chat switch. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-motion-settle",
+      "kind": "duration",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: 180 ms: a fold or Show more growing or shrinking into its new height. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-motion-send",
+      "kind": "duration",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Duration, 0 to 600 ms (ms or s). Unset: 0 ms: a sent prompt's room, bubble and the thread's rise (instant by default). Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-ease-out",
+      "kind": "easing",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Easing: cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...). Unset: cubic-bezier(0, 0, 0.58, 1): anything entering. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-ease-spring",
+      "kind": "easing",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Easing: cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...). Unset: a linear() spring: a selection that travels, over --cmux-motion-standard. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-ease-settle",
+      "kind": "easing",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Easing: cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...). Unset: cubic-bezier(0.16, 1, 0.3, 1): a fold settling into its height, never past it. Off or reduced motion keeps cmux's value."
+    },
+    {
+      "name": "--cmux-ease-send",
+      "kind": "easing",
+      "owner": "webviews/src/pages/shared/desktop.css",
+      "about": "Easing: cubic-bezier(x1, y1, x2, y2) with x1 and x2 within 0 to 1, linear or linear(...). Unset: cubic-bezier(0.16, 1, 0.3, 1): a sent prompt's motion. Off or reduced motion keeps cmux's value."
     }
   ]
 }

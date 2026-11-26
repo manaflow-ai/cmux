@@ -2,6 +2,7 @@ import { type SessionAuth } from "./sessionAuth";
 import type { HarnessUpdates } from "./harnessUpdateList";
 import { useEffect, useRef, useState } from "react";
 import { agentBrand, hasAgentMark } from "../shared/AgentMark";
+import { AGENT_BRANDS } from "../shared/agentBrands.generated";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { type Choice } from "./composerPickerModel";
 import { type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
@@ -199,12 +200,37 @@ export type QuickFamily = {
 /// The tab a rail entry sits under: its model family (its `group`, else the brand its mark draws:
 /// Claude Code, claude-sr2 and a work login are all Claude; Codex and its app server are OpenAI),
 /// or itself when it has neither.
-export const groupKey = (family: Pick<QuickFamily, "id" | "group" | "starred" | "mark">) =>
-  family.starred ? family.id : (family.group ?? agentBrand(family.mark ?? family.id) ?? family.id);
+export const groupKey = (family: Pick<QuickFamily, "id" | "group" | "starred" | "mark">) => {
+  if (family.starred) return family.id;
+  if (family.group) return family.group;
+  const brand = agentBrand(family.mark ?? family.id);
+  return (brand && TAB_OF_BRAND[brand]) ?? brand ?? family.id;
+};
+
+/// Brands whose harnesses run another brand's models as a route of that brand's tab: Antigravity is
+/// Google's agent for Gemini models, so it is a route of the Gemini tab beside Gemini CLI, never a
+/// second tab (Lucas 2026-11-25: "we should probably just have the gemini symbol").
+const TAB_OF_BRAND: Readonly<Record<string, string>> = { antigravity: "gemini" };
+
+/// The brand whose tab a harness of `mark` is a route of, when that is another brand's
+/// (Antigravity: Gemini). Its menu then lists only that brand's models there: agy also serves
+/// Claude Opus and Sonnet and GPT-OSS, which are no Gemini models (Lucas 2026-11-25: "no bleeding
+/// through other harnesses").
+export function hostTabBrand(mark: string | undefined): string | undefined {
+  const brand = mark ? agentBrand(mark) : undefined;
+  return brand ? TAB_OF_BRAND[brand] : undefined;
+}
 
 /// One tab of the symbols row: a model family and its routes (transports, logins, launch setups),
 /// never a tab per route.
-export type QuickTab = { key: string; name: string; routes: QuickFamily[] };
+export type QuickTab = {
+  key: string;
+  name: string;
+  routes: QuickFamily[];
+  /// The mark the rail draws for a tab whose routes are other products: its brand's (the Gemini
+  /// mark also while the Antigravity route is shown). Absent: the shown route's own.
+  mark?: string;
+};
 
 /// The rail's tabs: one per model family, in the order its first route comes. A family's name is
 /// its first route's without a launch setup's "(suffix)".
@@ -216,22 +242,35 @@ export function familyTabs(list: readonly QuickFamily[]): QuickTab[] {
     if (tab) tab.routes.push(family);
     else tabs.set(key, { key, name: family.name, routes: [family] });
   }
-  for (const tab of tabs.values())
+  for (const tab of tabs.values()) {
     if (tab.routes.length > 1) {
       const lead = tab.routes.find((route) => !route.launch) ?? tab.routes[0]!;
       tab.name = lead.name.replace(/\s*\([^)]*\)\s*$/, "") || lead.name;
     }
+    // Routes of other products (Gemini CLI and Antigravity), or one product's routes in another
+    // brand's tab (Antigravity alone), take the brand's name and mark, not one product's.
+    const brands = new Set(tab.routes.map((route) => agentBrand(route.mark ?? route.id)));
+    if ((brands.size > 1 || !brands.has(tab.key as never)) && Object.hasOwn(AGENT_BRANDS, tab.key)) {
+      tab.name = AGENT_BRANDS[tab.key as keyof typeof AGENT_BRANDS].name;
+      tab.mark = tab.key;
+    }
+  }
   return [...tabs.values()];
 }
 
-/// The route a family's tab opens on: the chat's own when it runs this family, else the first
-/// that lists models, else the first.
+/// The route a family's tab opens on: the chat's own when it runs this family and can start, else
+/// the first that lists models and can start (Antigravity in the Gemini tab while Gemini CLI fails
+/// its probe, not signed in), else the chat's own, else the first.
 export function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
   const listsModels = (route: QuickFamily) =>
-    !route.launch && !route.note && [...route.models, ...route.more].some((model) => !model.disabled);
+    !route.launch &&
+    !route.note &&
+    !route.unavailable &&
+    [...route.models, ...route.more].some((model) => !model.disabled);
   return (
-    tab.routes.find((route) => route.id === running) ??
+    tab.routes.find((route) => route.id === running && !route.unavailable) ??
     tab.routes.find(listsModels) ??
+    tab.routes.find((route) => route.id === running) ??
     tab.routes.find((route) => !route.launch && !route.note) ??
     tab.routes[0]!
   );
