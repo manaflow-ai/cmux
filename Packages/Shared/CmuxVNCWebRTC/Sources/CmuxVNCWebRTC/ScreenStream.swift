@@ -690,7 +690,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 if !idle {
                     requests = nil
                 } else if let count = await session.link.keyframeRequests() {
-                    if let requests, count > requests { session.lock.withLock { session.idle.arm() } }
+                    if let requests, count > requests { session.lock.withLock { session.idle.keyframeRequested(now: now) } }
                     requests = count
                 }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
@@ -722,6 +722,18 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
         /// Something needs the picture encoded again.
         mutating func arm() { remaining = Self.repeats }
+
+        /// How soon after a picture a keyframe request (PLI/FIR) still means
+        /// the viewer lost it. libwebrtc's receiver also asks for a keyframe
+        /// on its own 3 s after the last frame while packets are recent;
+        /// answering that one would repeat a still screen forever.
+        static let lossRequestWindowNs: UInt64 = 2_000_000_000
+
+        /// The viewer asked for a keyframe: re-arm only when it follows a
+        /// picture closely enough to be a loss, not the receiver's timeout.
+        mutating func keyframeRequested(now: UInt64) {
+            if lastPushNs != 0, now &- lastPushNs < Self.lossRequestWindowNs { arm() }
+        }
 
         /// No picture for a period and none left to repeat.
         func isIdle(now: UInt64) -> Bool { remaining == 0 && stale(now: now) }

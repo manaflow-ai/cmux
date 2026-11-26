@@ -52,6 +52,23 @@ struct IdleRefreshTests {
         #expect(policy.remaining == Policy.repeats - 1)
     }
 
+    /// Regression: the viewer's own 3 s no-frame keyframe request re-armed
+    /// the repeats, so a still screen still sent 4 frames every few seconds.
+    @Test func theReceiversTimeoutRequestDoesNotRepeatAStillScreen() {
+        var policy = Policy()
+        policy.pushed(now: 1, fresh: true)
+        var now: UInt64 = 1
+        while !policy.isIdle(now: now) {
+            now += Self.period
+            if policy.repeatNow(now: now) { policy.pushed(now: now, fresh: false) }
+        }
+        let lastPicture = now - Self.period
+        policy.keyframeRequested(now: lastPicture + 3_000_000_000)
+        #expect(policy.remaining == 0)
+        policy.keyframeRequested(now: lastPicture + 500_000_000) // a loss right after the picture
+        #expect(policy.remaining == Policy.repeats)
+    }
+
     @Test func nothingToRepeatBeforeTheFirstPicture() {
         var policy = Policy()
         let beforeFirst = policy.repeatNow(now: Self.period * 3)
