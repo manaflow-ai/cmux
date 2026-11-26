@@ -551,6 +551,8 @@ pub struct Session {
     /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
     /// schedule no second end.
     pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
+    /// The running turn's prompt line until Claude Code starts it (`queued_turn.rs`).
+    pub(super) queued_prompt: StdMutex<super::queued_turn::QueuedPrompt>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
@@ -1065,6 +1067,11 @@ impl Session {
     /// An open sub-session below it waits on the person (`asks_below.rs`).
     pub(crate) fn waits_below(&self) -> bool {
         self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
+    }
+    /// How many permissions wait on an answer: the summary's `pendingPermissions`, read
+    /// without building the row.
+    pub(crate) fn pending_permission_count(&self) -> usize {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.len()
     }
     pub(crate) fn has_pending_permissions(&self) -> bool {
         !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()

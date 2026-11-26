@@ -116,8 +116,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -343,8 +348,13 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -529,8 +539,13 @@ jobs:
 
       - name: Install valgrind
         run: |
-          sudo apt-get update
-          sudo apt-get install -y valgrind
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s valgrind >/dev/null 2>&1; then
+            echo "valgrind: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y valgrind
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -1053,8 +1068,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -1142,8 +1162,13 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config bubblewrap >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config bubblewrap: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          fi
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
@@ -1712,8 +1737,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -1742,6 +1772,12 @@ jobs:
       - name: Build cmux-tui server
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --locked
+
+      # The web frontend's ghostty-web terminal (?terminal=ghostty) against this
+      # daemon in system Chrome: it renders the shell and a typed command echoes.
+      - name: Web ghostty terminal e2e (Playwright)
+        working-directory: cmux-tui/frontends/web
+        run: bash scripts/ghostty-e2e.sh --bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
 
       - name: Resolve Zig SDK version
         id: zig-sdk-version

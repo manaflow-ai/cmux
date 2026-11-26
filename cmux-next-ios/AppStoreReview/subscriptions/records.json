@@ -1,0 +1,30 @@
+{
+  "about": "Subscription records asc_subscription_records.py brings up to what App Review needs. Never prices, availability, submissions or deletions.",
+  "subscriptions": [
+    {
+      "productId": "com.cmux.app.next_plus.monthly",
+      "reviewScreenshot": "review-plans.png",
+      "promotionalImage": "promo-next_plus.png",
+      "localizations": {"en-US": {"name": "cmux Plus", "description": "More agents, hosts and cloud hours"}}
+    },
+    {
+      "productId": "com.cmux.app.next_pro.monthly",
+      "reviewScreenshot": "review-plans.png",
+      "promotionalImage": "promo-next_pro.png",
+      "localizations": {"en-US": {"name": "cmux Pro", "description": "For daily work across many agents"}}
+    },
+    {
+      "productId": "com.cmux.app.next_max.monthly",
+      "reviewScreenshot": "review-plans.png",
+      "promotionalImage": "promo-next_max.png",
+      "localizations": {"en-US": {"name": "cmux Max", "description": "The most agents and cloud hours"}}
+    }
+  ],
+  "retired": [
+    {
+      "productId": "com.cmux.app.pro.trial.monthly",
+      "id": "6822947304",
+      "why": "an unused trial App Store Connect cannot delete; never sold, so its findings are notes (app_review_gate.py RETIRED_SUBSCRIPTIONS)"
+    }
+  ]
+}
