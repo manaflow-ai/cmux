@@ -261,11 +261,12 @@ fn integer(arguments: &Map<String, Value>, key: &str, max: u64) -> Result<Option
     }
 }
 
-/// A Cloud machine id from `machine:<id>` or the bare id: letters, digits, `-` and `_` (the
+/// A Cloud machine id from `machine:<id>`, `vm:<id>` (the form `cmux chat --on`, `cloud list-machines`'
+/// `target` and start-chat's `placement` print) or the bare id: letters, digits, `-` and `_` (the
 /// ids the app lists), so it is safe in a target and a shell word.
 pub(in crate::cli) fn machine_id(value: &str) -> Option<String> {
     let id = value.trim();
-    let id = id.strip_prefix("machine:").unwrap_or(id);
+    let id = id.strip_prefix("machine:").or_else(|| id.strip_prefix("vm:")).unwrap_or(id);
     (!id.is_empty()
         && id.len() <= 128
         && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'))
@@ -483,9 +484,9 @@ impl<B: Backend> Calls<'_, B> {
             }
         }
         if let Some(machine) = text(arguments, "machine")? {
-            if machine.starts_with("machine:") {
-                let id =
-                    machine_id(machine).ok_or_else(|| invalid("machine must be machine:<id>"))?;
+            if machine.starts_with("machine:") || machine.starts_with("vm:") {
+                let id = machine_id(machine)
+                    .ok_or_else(|| invalid("machine must be machine:<id> or vm:<id>"))?;
                 words.extend(["--target".to_owned(), format!("machine:{id}")]);
             } else {
                 words.extend(["--name".to_owned(), machine.to_owned()]);
@@ -509,7 +510,8 @@ impl<B: Backend> Calls<'_, B> {
 
     fn chat_target(&self, arguments: &Map<String, Value>) -> Result<(String, String), Value> {
         let machine = required(arguments, "machine")?;
-        let id = machine_id(machine).ok_or_else(|| invalid("machine must be machine:<id>"))?;
+        let id = machine_id(machine)
+            .ok_or_else(|| invalid("machine must be machine:<id> or vm:<id>"))?;
         Ok((id, session_id(arguments)?))
     }
 
@@ -541,7 +543,7 @@ impl<B: Backend> Calls<'_, B> {
         }
         machine_id(&named)
             .map(Computer::Machine)
-            .ok_or_else(|| invalid("machine must be machine:<id> or chief:<id>"))
+            .ok_or_else(|| invalid("machine must be machine:<id>, vm:<id> or chief:<id>"))
     }
 
     /// One verb on the Chief's own computer: the Worker's answer, or its refusal (the person's
@@ -896,6 +898,25 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
 
 #[cfg(test)]
 mod tests {
+
+    /// interim-coord, 11-25: `cloud chat status --target vm:vm_...` was refused ("machine must be
+    /// machine:<id>"), though `vm:` is the form `cmux chat --on` and the machine list print.
+    #[test]
+    fn machine_id_takes_vm_and_machine_forms() {
+        for form in [
+            "machine:vm_55575f236c97ed2e811d",
+            "vm:vm_55575f236c97ed2e811d",
+            "vm_55575f236c97ed2e811d",
+        ] {
+            assert_eq!(
+                super::machine_id(form).as_deref(),
+                Some("vm_55575f236c97ed2e811d"),
+                "{form}"
+            );
+        }
+        assert_eq!(super::machine_id("vm:"), None);
+        assert_eq!(super::machine_id("vm:a b"), None);
+    }
     use super::*;
 
     /// The prelude and a step run in a real `sh` against a stand-in `cmux-cua` that logs each

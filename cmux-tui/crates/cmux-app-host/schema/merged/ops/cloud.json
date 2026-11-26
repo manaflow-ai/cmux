@@ -184,6 +184,11 @@
       "risk": "mutate-shared",
       "digest": "386f1c6f21f27cb0"
     },
+    "cloud.machine.fork": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2c91c140d5cebeff"
+    },
     "cloud.machine.get": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
@@ -538,6 +543,13 @@
       "source": "local",
       "class": "read",
       "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.machine.request": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "bd1a173ec0a3df5e"
     },
     "cloud.vm.network_policy": {
       "source": "cloud",

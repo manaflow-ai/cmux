@@ -27,7 +27,7 @@ routing step did not run or failed) is != 'false', so it runs everything. `--sum
 per skipped step with why.
 
     python3 tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
-        --changed-files FILE --event EVENT [--github-output F] [--summary F] [--root DIR] [--json]
+        --changed-files FILE --event EVENT [--pr-scope] [--github-output F] [--summary F] [--root DIR] [--json]
 """
 from __future__ import annotations
 
@@ -52,12 +52,20 @@ from workflow_paths_cover_inputs import (  # noqa: E402
 # no test file): scripts/ci/tooling-step-inputs.json. A change to it runs every step, as a change to this router does.
 DECLARED = "scripts/ci/tooling-step-inputs.json"
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
-                "scripts/ci/gh_expressions.py", DECLARED)
+                "scripts/ci/gh_expressions.py", "scripts/ci/tooling_reuse.py", DECLARED)
 SETUP_ID = "setup-"
 # Imports no repository file can satisfy: what the job pip-installs (PyYAML, pytest) and Pillow. Any other import the
 # walker cannot resolve may be a repository module it missed, so the step runs.
 THIRD_PARTY = {"yaml", "pytest", "_pytest", "xdist", "PIL"}
 EXPR = "$__EXPR"
+# Product source code: no tooling test reads these, and a command the tests' scripts run from a variable (`bash "$t"`,
+# a wrapper's "$candidate") is one of the repository's own tools, never a file of these. A diff made only of them leaves
+# a step whose sole unresolved inputs are such variable commands to the checks below (CI cut 2026-11-24: tooling-tests
+# was 20,693 runner-min in 24 h, most of it steps a webviews, Rust or web source change cannot fail). Data, docs,
+# string catalogs, tests and Package.swift are not here, and a push still runs every step.
+PRODUCT_SOURCE = re.compile(
+    r"^(?:webviews/src|web/(?:app|components|lib)|cmux-tui/crates/[^/]+/src|backend/(?:apps|packages)/[^/]+/src"
+    r"|Packages/[^/]+/[^/]+/Sources)/.+\.(?:tsx?|jsx?|css|rs|swift)$")
 POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+|@:[0-9]+(?::[0-9]+)?)\})")
 # `git ls-files` with no pathspec, in a Python argument list (`["git", "-C", root, "ls-files", "-z"]`) or a shell
 # command (`git ls-files | grep`): the whole tracked tree is an input.
@@ -237,6 +245,19 @@ def load_declared(root: Path, workflow: str, job: str) -> dict[str, list[str]]:
         return {}
 
 
+def load_traced(root: Path, workflow: str, job: str) -> set[str]:
+    """Step ids whose DECLARED entry says `"traced": true`: its globs and the inputs the walker resolved are every path
+    a traced run of it read (`verify` checks that), so they alone decide it. The walker's guesses past them (a folder
+    a script names, a whole-tree list, a file name spelled out) are what the trace settled, and are not consulted.
+    Only steps load_declared accepts count; anything malformed traces nothing (fails open)."""
+    declared = load_declared(root, workflow, job)
+    try:
+        steps = json.loads((Path(root) / DECLARED).read_text(encoding="utf-8"))[workflow][job]
+        return {str(k) for k, e in steps.items() if str(k) in declared and e.get("traced") is True}
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
 def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | None:
     """(changed path, glob) for the first changed path a declared input glob matches."""
     regexes = [(g, glob_regex(g)) for g in declared]
@@ -249,7 +270,7 @@ def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | No
 
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
                changed: set[str], declared: list[str] | None = None,
-               added_deleted: set[str] | None = None) -> tuple[bool, str]:
+               added_deleted: set[str] | None = None, traced: bool = False) -> tuple[bool, str]:
     """(run, reason) for one selectable step. DECLARED (its tooling-step-inputs.json globs) stands in for what the
     walker cannot resolve: with it, a step whose run text names no test or whose closure runs a file from a variable
     runs when a changed path matches a declared glob or any input the walker did resolve, and is skipped otherwise.
@@ -278,7 +299,10 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
         inputs.update(str(p) for p in walker.closure(root, cwd))
     code = sorted(p for p in inputs if is_code(repo, walker, p))
     reaches = {p: reach_of(repo, walker, p) for p in code}
-    unknown = [(p, r.unknown) for p, r in reaches.items() if r.unknown]
+    product_only = bool(changed) and all(PRODUCT_SOURCE.match(name) for name in changed)
+    unknown = [(p, [u for u in r.unknown if not (product_only and u.startswith("runs "))])
+               for p, r in reaches.items()]
+    unknown = [(p, u) for p, u in unknown if u]
     if unknown:
         what = "; ".join(f"{p}: {', '.join(u[:3])}" for p, u in unknown[:3])
         if not declared:
@@ -291,6 +315,9 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     hit = sorted(changed & inputs)
     if hit:
         return True, f"reads {hit[0]}" + (f" and {len(hit) - 1} more" if len(hit) > 1 else "")
+    if traced and declared:
+        return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
+                       f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
     for path, reach in reaches.items():
         for pattern in reach.globs:
             regex = glob_regex(pattern)
@@ -322,8 +349,23 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     return False, f"none of its {len(inputs)} inputs changed ({', '.join(tests[:2])}{' ...' if len(tests) > 2 else ''})"
 
 
+# A reason that selects a step only through how wide its inputs reach: a glob a file lists, a directory it reads, a
+# whole-tree list, a file name some input spells out. Not a changed file the step's tests read, a declared input, or a
+# step the walker cannot read (those keep running on a pull request).
+BROAD_REASON = re.compile(r"^\S+ (?:lists |reads directory |names )")
+DEFERRED = "post-merge batch only (--pr-scope), not by a changed input: "
+
+
+def narrow(decision: Decision) -> Decision:
+    """The pull request's own steps: a step selected only by a broad reason is left to the post-merge batch
+    (cmux-next-tooling-tests-batch.yml runs every step at the merged tip)."""
+    steps = [StepVerdict(s.key, s.name, False, DEFERRED + s.reason) if s.run and s.key and BROAD_REASON.match(s.reason)
+             else s for s in decision.steps]
+    return Decision(decision.all, decision.reason, steps)
+
+
 def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str,
-          added_deleted: list[str] | None = None) -> Decision:
+          added_deleted: list[str] | None = None, pr_scope: bool = False) -> Decision:
     repo = Repo.load(root)
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
@@ -353,6 +395,7 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
                   or mapping(mapping(document.get("defaults")).get("run")).get("working-directory") or "")
     walker = Walker(repo)
     declared = load_declared(repo.root, workflow, job_name)
+    traced = load_traced(repo.root, workflow, job_name)
     verdicts = []
     for key, step in zip(keys, steps):
         name = str(step.get("name") or key)
@@ -360,9 +403,10 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
             verdicts.append(StepVerdict(key, name, True, "no id: it carries no selection and always runs"))
             continue
         run, reason = judge_step(repo, walker, step, env, workdir, changed_set, declared.get(key),
-                                 None if added_deleted is None else set(added_deleted))
+                                 None if added_deleted is None else set(added_deleted), key in traced)
         verdicts.append(StepVerdict(key, name, run, reason))
-    return Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    decision = Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    return narrow(decision) if pr_scope else decision
 
 
 STRACE_CALL = re.compile(r'^(\d+)\s+(?:<\.\.\. )?(\w+)\((.*)\)\s+=\s+(-?\d+(?: \w+)?|\?)')
@@ -516,6 +560,7 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
     declared = load_declared(repo.root, workflow, job_name)
+    traced = load_traced(repo.root, workflow, job_name)
     env = {**literal_env(document.get("env")), **literal_env(job.get("env"))}
     env.pop("BASH_ENV", None)
     walker = Walker(repo)
@@ -535,7 +580,7 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
         for path in sorted(trace.files):
             if declared_hit(globs, {path}):
                 continue
-            ran, _ = judge_step(repo, walker, step, env, "", {path}, globs)
+            ran, _ = judge_step(repo, walker, step, env, "", {path}, globs, traced=key in traced)
             if not ran:
                 problems.append(f"{key}: read {path}, outside its declared inputs and its resolved inputs")
         for folder in sorted(trace.dirs):
@@ -543,14 +588,14 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
                 continue  # Python lists a folder on sys.path when it imports a module from it: the module's read counts
             probe = folder + "/__tooling_steps_probe__"
             if not declared_hit(globs, {probe}):
-                ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs)
+                ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs, traced=key in traced)
                 if not ran:
                     problems.append(f"{key}: listed folder {folder}/, which its declared inputs do not cover")
         ignored = set(subprocess.run(["git", "-C", str(repo.root), "check-ignore", "--stdin"], input="\n".join(
             sorted(trace.probes)), capture_output=True, text=True).stdout.split()) if trace.probes else set()
         for path in sorted(trace.probes - ignored):  # a git-ignored path (.build/) is no pull request's change
             if not declared_hit(globs, {path}) and not any(path.startswith(d + "/") for d in trace.dirs) \
-                    and not judge_step(repo, walker, step, env, "", {path}, globs)[0]:
+                    and not judge_step(repo, walker, step, env, "", {path}, globs, traced=key in traced)[0]:
                 problems.append(f"{key}: looked for {path} (not there), outside its declared inputs")
         for read in sorted(set(trace.git)):
             if read.startswith("ls-files ") and "(in " not in read:
@@ -598,6 +643,9 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--event", required=True)
     cmd.add_argument("--github-output", type=Path)
     cmd.add_argument("--summary", type=Path)
+    cmd.add_argument("--pr-scope", action="store_true",
+                     help="leave a step selected only by a broad reason (a listed glob, a directory read, a whole-tree "
+                          "list, a spelled-out name) to the post-merge batch")
     cmd.add_argument("--json", action="store_true")
     ver = sub.add_parser("verify", help="trace each declared step (strace -f) and fail on a read its inputs miss")
     ver.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
@@ -618,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.added_deleted and args.added_deleted.is_file():
         added_deleted = [line.strip() for line in args.added_deleted.read_text(encoding="utf-8").splitlines()
                          if line.strip()]
-    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted)
+    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted, args.pr_scope)
     write_outputs(decision, args.github_output, args.summary, args.job)
     if args.json:
         print(json.dumps({"all": decision.all, "reason": decision.reason,

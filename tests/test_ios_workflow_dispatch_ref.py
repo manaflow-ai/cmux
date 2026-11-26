@@ -222,13 +222,14 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
         self.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
     def admitted(self, job, *, lint="success", should_lint="true", should_run="true",
-                 detect="success", producer="success", package="", test_filter="",
+                 should_build="true", detect="success", producer="success", package="", test_filter="",
                  cancelled=False, event_name="workflow_dispatch", runner="success"):
         return job_admitted(
             self.jobs, job,
             {"runner": runner, "detect-ios-changes": detect, "package-conventions-lint": lint,
              "ios-simulator-build": producer},
-            {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run}},
+            {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run,
+                                    "should_build": should_build}},
             {"swift_package": package, "test_filter": test_filter, "event_name": event_name},
             cancelled=cancelled,
         )
@@ -269,6 +270,12 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                     self.assertEqual(actual, expected)
         self.assertTrue(self.admitted("mobile-core-package", event_name="pull_request",
                                       test_filter="ignored-on-pr"))
+
+    def test_a_package_change_outside_the_app_skips_only_the_simulator_build(self):
+        # scripts/ci/ios_simulator_inputs.py: should_build=false omits the Xcode
+        # app build; the package lane still runs.
+        self.assertTrue(self.admitted("mobile-core-package", should_build="false"))
+        self.assertFalse(self.admitted("ios-simulator-build", should_build="false"))
 
     def test_no_native_work_without_a_picked_pool(self):
         # runs-on reads the runner job's JSON; without it there is no pool.
@@ -329,29 +336,34 @@ class IOSChangeDetectionTests(unittest.TestCase):
 
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["detect-ios-changes"]["steps"]
                     if step.get("id") == "detect")
-        script = step["run"].replace("${{ github.event_name }}", "pull_request")
+        script = (step["run"].replace("${{ github.event_name }}", "pull_request")
+                  .replace("${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", "false")
+                  .replace("python3 scripts/ci/ios_simulator_inputs.py",
+                           f"python3 {ROOT / 'scripts/ci/ios_simulator_inputs.py'}"))
+        self.assertNotIn("${{", script)
         output = temp / "out"
         output.write_text("")
         done = subprocess.run(["bash", "-c", script], cwd=work, capture_output=True, text=True,
-                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output),
+                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(temp),
                                    "GIT_CONFIG_GLOBAL": os.devnull})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
     def test_an_ios_change_runs_tests_and_lint(self) -> None:
-        self.assertEqual(self.detect({"ios/App.swift": "x\n"}), {"should_run": "true", "should_lint": "true"})
+        self.assertEqual(self.detect({"ios/App.swift": "x\n"}),
+                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
 
     def test_a_package_change_runs_only_the_lint(self) -> None:
         self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
-                         {"should_run": "false", "should_lint": "true"})
+                         {"should_run": "false", "should_build": "false", "should_lint": "true"})
 
     def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),
-                         {"should_run": "false", "should_lint": "false"})
+                         {"should_run": "false", "should_build": "false", "should_lint": "false"})
 
     def test_a_checkout_that_is_not_the_pull_requests_merge_runs_everything(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, head_sha="0" * 40),
-                         {"should_run": "true", "should_lint": "true"})
+                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
 
 
 if __name__ == "__main__":

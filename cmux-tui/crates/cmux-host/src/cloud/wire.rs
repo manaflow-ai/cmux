@@ -62,6 +62,14 @@ pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
 /// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
 /// its turns only from a report that advertises this (cmux#34298).
 pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
+/// Advertised with `activity-turns` while every acpmux daemon whose count holds promises, with
+/// `"turn_end": 1` on its `acp_activity` line, that a count of 0 means nothing pending: no turn
+/// running or queued, no permission or question waiting, no continuation, no background task,
+/// process, subagent or sub-session at work (acpmux `daemon/cloud_activity.rs`). The Cloud
+/// pauses a machine whose pause policy asks for it (cmux-platform `turn_end`) right at turn end
+/// only from a report that advertises this; an older acpmux sends no `turn_end`, so its machine
+/// keeps the usual window.
+pub const ACTIVITY_TURN_END_CAPABILITY: &str = "activity-turn-end";
 /// Advertised with `activity` while the agent's workload probe reads (`workload.rs`): the
 /// report's `activity.workload` counts the processes using CPU, the listening sockets and the
 /// timers that are not the system's. The Cloud reads a machine as idle only from a report that
@@ -270,6 +278,21 @@ impl DaemonInfo {
         DaemonInfo { version: self.version.clone(), capabilities }
     }
 
+    /// The same block with `activity-turn-end` on (every acpmux daemon promised it and
+    /// `activity-turns` is on) or off. [`Self::with_activity`] drops it: apply this after.
+    pub fn with_turn_end(&self, on: bool) -> DaemonInfo {
+        let mut capabilities: Vec<String> = self
+            .capabilities
+            .iter()
+            .filter(|c| *c != ACTIVITY_TURN_END_CAPABILITY)
+            .cloned()
+            .collect();
+        if on && capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY) {
+            capabilities.push(ACTIVITY_TURN_END_CAPABILITY.to_owned());
+        }
+        DaemonInfo { version: self.version.clone(), capabilities }
+    }
+
     /// The same block with `activity-workload` on (the workload is known and `activity` is on)
     /// or off. [`Self::with_activity`] drops it: apply this after.
     pub fn with_workload(&self, on: bool) -> DaemonInfo {
@@ -294,6 +317,7 @@ fn is_activity_capability(c: &str) -> bool {
     c == ACTIVITY_CAPABILITY
         || c == ACTIVITY_TURNS_CAPABILITY
         || c == ACTIVITY_PHASES_CAPABILITY
+        || c == ACTIVITY_TURN_END_CAPABILITY
         || c == ACTIVITY_WORKLOAD_CAPABILITY
 }
 
@@ -353,6 +377,9 @@ pub struct Activity {
     /// `machine_config::idle`; a lane: 300 s): the Cloud pauses it this long after its last
     /// activity (cmux-platform `domain/Pause.ts`). None: the file declares none.
     pub idle_window_seconds: Option<u64>,
+    /// What the machine is short of (`pressure.rs`): the Cloud's sizer samples it at once
+    /// (cmux-platform `readReportedPressure`). None: nothing is short.
+    pub pressure: Option<Value>,
 }
 
 impl Activity {
@@ -381,6 +408,9 @@ impl Activity {
         if let Some(seconds) = self.idle_window_seconds {
             out.insert("idle_window_seconds".to_owned(), json!(seconds));
         }
+        if let Some(pressure) = &self.pressure {
+            out.insert("pressure".to_owned(), pressure.clone());
+        }
         Value::Object(out)
     }
 }
@@ -405,6 +435,7 @@ impl Activity {
             last_person_prompt_at: acp_prompt_at,
             workload: self.workload.clone(),
             idle_window_seconds: self.idle_window_seconds,
+            pressure: self.pressure.clone(),
         }
     }
 }

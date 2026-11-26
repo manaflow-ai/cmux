@@ -209,24 +209,41 @@ extension EnvironmentValues {
 public struct TabsKitContentContext {
     /// The full screen size the content is laid out at.
     public var pageSize: CGSize
-    /// Status bar (top) and toolbar (bottom) heights over the content.
+    /// Status bar and toolbar heights over the content, with the toolbar expanded. Steady
+    /// while the person scrolls: size fixed surfaces (a terminal grid, a streamed viewport)
+    /// from these.
     public var safeAreaInsets: EdgeInsets
+    /// Where the status bar and toolbar cover the content this frame: `safeAreaInsets`, less
+    /// the band a collapsed top bar gives back (it changes inside the collapse's animation).
+    /// Content that scrolls under the chrome (a scroll view's content inset, a scroll edge,
+    /// a scrim) follows these, so the page fills up to the pill instead of leaving a strip.
+    public var chromeInsets: EdgeInsets
     /// The page is settled full screen and takes input (no zoom, swipe or menu).
     public var isInteractive: Bool
+    /// The page is full screen, not zoomed out to the tab grid. Unlike
+    /// ``isInteractive`` it stays true while a menu is open, a swipe runs
+    /// or the address bar is edited (the page's orientation follows this).
+    public var isOnPage: Bool
     /// A pinch is driving the tab zoom: stop the content's own pinch zoom
     /// (for a web view, disable its pinch recognizer while this is true).
     public var isZoomGestureActive: Bool
     /// The toolbar is collapsed into the pill.
     public var isToolbarCollapsed: Bool
+    /// The screen edge the toolbar is on (`TabsKitTheme.Metrics.barEdge`).
+    public var toolbarEdge: TabsKitBarEdge
     let onScroll: @MainActor (CGFloat) -> Void
 
-    init(pageSize: CGSize, safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool,
+    init(pageSize: CGSize, safeAreaInsets: EdgeInsets, chromeInsets: EdgeInsets? = nil, isInteractive: Bool,
+         isOnPage: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool, toolbarEdge: TabsKitBarEdge = .bottom,
          onScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.pageSize = pageSize
         self.safeAreaInsets = safeAreaInsets
+        self.chromeInsets = chromeInsets ?? safeAreaInsets
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage
         self.isZoomGestureActive = isZoomGestureActive
         self.isToolbarCollapsed = isToolbarCollapsed
+        self.toolbarEdge = toolbarEdge
         self.onScroll = onScroll
     }
 

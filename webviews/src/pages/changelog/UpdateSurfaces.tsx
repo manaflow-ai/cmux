@@ -352,8 +352,10 @@ export function UpdatedCard({
       aria-label={strings.t("updates.card.dismiss")}
       onClick={actions.dismiss}
     >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2 2l6 6M8 2l-6 6" />
+      {/* The app's one card x (ui/DismissButton.tsx): 12 by 12, a 6 px cross at 1.25 (Leo 2026-11-23:
+          "strange proportioned close symbol" for the old 8 px one at 1.4). */}
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M3 3l6 6M9 3l-6 6" />
       </svg>
     </button>
   );
@@ -366,7 +368,6 @@ export function UpdatedCard({
       <p className="wn-card-note">
         <button type="button" className="wn-card-seenew" onClick={openWhatsNew}>
           {strings.t("updates.card.seeWhatsNew")}
-          <span aria-hidden="true"> ↗</span>
         </button>
       </p>
     ) : notesLoading ? (
@@ -376,7 +377,7 @@ export function UpdatedCard({
         {top ? (
           <>
             <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
-            {top.phrases[0]}
+            {top.full[0] ?? top.phrases[0]}
           </>
         ) : (
           strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
@@ -437,7 +438,6 @@ export function UpdatedCard({
           {placement === "top-right" && (
             <button type="button" className="wn-card-link" onClick={openWhatsNew}>
               {strings.t("changelog.page.title")}
-              <span aria-hidden="true"> ↗</span>
             </button>
           )}
         </div>

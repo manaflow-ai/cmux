@@ -53,7 +53,8 @@ final class AppSceneProgressNSView: AppSceneNodeNSView {
     override func layoutContent(in rect: CGRect) {
         let bar = CGRect(x: rect.minX, y: rect.midY - Self.barHeight / 2, width: rect.width, height: Self.barHeight)
         track.frame = bar
-        done.frame = CGRect(x: bar.minX, y: bar.minY, width: bar.width * (value ?? 0), height: bar.height)
+        // A new `value` with an `animation` grows or shrinks the done part from its width on screen.
+        animateFrame(done, CGRect(x: bar.minX, y: bar.minY, width: bar.width * (value ?? 0), height: bar.height))
         let side = Self.spinnerSide
         spinner.frame = CGRect(x: rect.minX, y: rect.midY - side / 2, width: side, height: side).integral
     }

@@ -346,6 +346,13 @@
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
 }
+/* An agent reports as many modes as it has: a list taller than this scrolls inside, as the + menu's
+   does (styles.css), and only its rows near view draw (menuWindow.tsx). --popup-scroll-cap is the
+   bound for popupHost.ts. Claude Code's and Codex's few modes never reach it. */
+.ui-popup.acpmux-access-menu {
+  --popup-scroll-cap: 420px;
+  max-height: min(420px, var(--available-height, 420px));
+}
 .ui-menu-item.acpmux-access-item {
   display: grid;
   /* Claude Code's mode menu (Leo 2026-10-19): the mode's shield, its name and description, then a
@@ -460,6 +467,17 @@
   width: var(--acpmux-composer-glyph);
   height: var(--acpmux-composer-glyph);
 }
+/* The provider mark fills its whole box, where a line glyph's ink fills about 13 of its 16 px, so at the
+   glyph's size it read bigger than the shield, the folder and the mic (Lucas 2026-11-23). It draws at that
+   ink, 13/16 of the glyph, centered in the glyph's box (a project's picture does the same, newtab/screen.css).
+   The box steps back by the room on its leading side, so the ink still starts on the chip's padding and
+   the pill is as wide before the ink as after the text. Only the drawn marks: a monogram fills its box. */
+:is(.acpmux-composer, .nt-composer) .acpmux-picker-button > svg.agent-mark:first-child {
+  --acpmux-mark-room: calc(var(--acpmux-composer-glyph) * 3 / 32);
+  box-sizing: border-box;
+  padding: var(--acpmux-mark-room);
+  margin-inline-start: calc(-1 * var(--acpmux-mark-room));
+}
 :is(.acpmux-composer, .nt-composer) .acpmux-picker-button > .acpmux-icon:last-child:not(:first-child),
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .ui-ghost-icon:last-child > .acpmux-icon {
   width: var(--acpmux-composer-chevron);
@@ -503,11 +521,29 @@
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
 }
-/* Continue's ▶ (SendSlotGlyph media.play, 14 px) draws at 14/16 of the trailing glyph, so it grows and shrinks with
-   the density as Send's ↑ does (Lucas 2026-11-14: it stayed 14 px at Spacious). */
+/* Resume's ▶ is a plain line glyph beside the mic, never a filled disc (cmux#51039; the person,
+   2026-11-22: "i dont like how jarring this button is here for resuming the session? we should make
+   it sure it matches the other icons here"): the mic's size, stroke, colour, box and quiet hover pill,
+   in every look and at every density. test/composer-resume-quiet.test.ts measures it. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume {
+  border-radius: 50%;
+  background: transparent;
+  color: var(--agent-muted);
+}
 :is(.acpmux-composer, .nt-composer) .acpmux-send.acpmux-resume svg {
-  width: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
-  height: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
+  width: var(--acpmux-composer-trail-glyph);
+  height: var(--acpmux-composer-trail-glyph);
+  stroke-width: var(--acpmux-composer-trail-stroke);
+}
+/* Keyboard focus draws the mic's pill, beside the send slot's outline. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:focus-visible {
+  background: var(--acpmux-row-hover);
+}
+/* Its hover is the mic's pill (the quiet controls' rule below). A press keeps the pill; it changes the
+   background only, the ink staying the hover's. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:not(:disabled):active {
+  background: var(--acpmux-row-hover);
+  transition-duration: 0s;
 }
 /* Interrupt (or Steer) and Plan: the chips' inset and radius. */
 .acpmux-composer-bar .acpmux-steer,
@@ -570,6 +606,7 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-send.acpmux-resume:not(:disabled):hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-fast:hover {
     background: var(--acpmux-row-hover);
     color: var(--agent-text);
@@ -1435,9 +1472,11 @@
 }
 /* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
-   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
-   the floating chat dock: a fresh chat's hero layout keeps its padding. */
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
+   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). The open
+   chat's dock, floating or in flow (`data-dock="flow"`: a handoff review, the inspector), drops it
+   alike, so the composer does not jump 16 px as the stage over it switches (Leo, 2026-11-24: "we need
+   to have more things decoupled from posisble shifts"); a fresh chat's hero layout keeps its padding. */
+.acpmux-main:is([data-dock="float"], [data-dock="flow"]) > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
    before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }
@@ -1475,7 +1514,7 @@
    (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
    own ink, never the bright shared ring; Increase Contrast keeps the shared ring. The step back is 88%, the
    most it can be and keep 4.5:1 (68% drew "High" at 3.03:1 light, 3.99:1 dark). */
-.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 88%, transparent); }
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor var(--instrument-ink-effort-label, 88%), transparent); }
 /* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
    button narrows them on itself. */
 @media not (prefers-contrast: more) {
@@ -1975,9 +2014,6 @@
   font-weight: inherit;
   line-height: 16px;
 }
-/* The GitHub group's placeholder while its repositories load (FolderPopover GITHUB_LOADING): a row of
-   a repository's height in the muted ink, so the repositories take its place with no jump. */
-.acpmux-location-row[data-github-loading] { color: var(--agent-muted); }
 /* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
 .acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
   flex: none;
@@ -2132,9 +2168,6 @@
   max-height: 100%;
   overflow: auto;
 }
-/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
-   grips on the popup's edges stay put while the rows scroll. */
-.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
 /* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
 .acpmux-folder-popover,
 .acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }
