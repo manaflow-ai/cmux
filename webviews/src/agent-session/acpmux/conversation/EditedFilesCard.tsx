@@ -30,7 +30,7 @@ import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/mo
 import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
-import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { useDisclosure } from "./useDisclosure";
 import { TurnFramesStrip } from "../liveFrames/TurnFramesStrip";
 import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
@@ -80,8 +80,9 @@ function Card({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const t = useT();
-  // Derived on every render: the store outlives the card leaving the virtualized transcript.
-  const userOpened = useCardOpen(row.id);
+  // The store outlives the card leaving the virtualized transcript; one open-state store
+  // (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: userOpened, set: setOpen } = useDisclosure({ card: row.id });
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -161,7 +162,7 @@ function Card({
   // head where it is (useAnchoredCollapse).
   const fold = useAnchoredCollapse({
     open: total > 0 && userOpened,
-    onOpenChange: (value) => setCardOpen(row.id, value),
+    onOpenChange: setOpen,
   });
   const headClick = total > 0 ? headerToggleClick(fold.toggle) : undefined;
   const fullPath = single ? fromRoot(single.path) : undefined;
