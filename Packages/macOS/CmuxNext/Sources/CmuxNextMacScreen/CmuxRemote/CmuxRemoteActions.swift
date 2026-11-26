@@ -156,6 +156,7 @@ extension CmuxRemoteActionEnvironment {
                 let device = request["device"] as? String ?? ""
                 let scope = (request["scope"] as? String).flatMap(DeviceScope.init(rawValue:))
                 let ticket = request["ticket"] as? String
+                let redeemsTicket = request["redeemsTicket"] as? Bool == true
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
                 if kind == "allowAgents" {
                     return Self.allowAgents(request["on"] as? Bool ?? true, hub: hub, window: environment.window())
@@ -186,7 +187,7 @@ extension CmuxRemoteActionEnvironment {
                         apply: {})
                 }
                 return .followUp {
-                    if let ticket, request["redeemsTicket"] as? Bool == true,
+                    if let ticket, redeemsTicket,
                        let grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote) {
                         // The daemon decided for the ticket's own change: make that one (its timer waits for the write).
                         guard grant.action == action else {
