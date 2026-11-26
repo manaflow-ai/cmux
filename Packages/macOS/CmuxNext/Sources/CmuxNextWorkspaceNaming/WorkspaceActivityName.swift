@@ -7,20 +7,11 @@ import Foundation
 /// renamed based off that existing tabs there, the recent activity that's there. You know, just
 /// run it on the cheapest model."
 ///
-/// Pure, so every case is tested: the App reads the tabs (``read(_:turns:page:)``), sends
-/// ``prompt`` through acpmux's one-shot completion (`_acpmux/complete`, the path made for
-/// auto-naming, hq#1957) and applies ``name(fromReply:)`` as a user rename. Only titles and short
-/// snippets go out, never a transcript.
+/// The rules are Rust's (`cmux-workspace-naming` `activity`): the App reads the tabs
+/// (``read(_:turns:page:)``), sends ``prompt`` through acpmux's one-shot completion
+/// (`_acpmux/complete`, the path made for auto-naming, hq#1957) and applies ``name(fromReply:)`` as
+/// a user rename. Only titles and short snippets go out, never a transcript.
 public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
-    /// The cheapest model; the completion runs on the person's own Claude login.
-    public static let model = "claude-haiku-5-5"
-    public static let harness = "claude"
-    /// Enough for five words; the reply is cut to ``maxWords`` anyway.
-    public static let maxTokens = 24
-    /// The daemon's own limit is at most 60 s.
-    public static let timeoutMs = 20_000
-    /// The most words a name keeps.
-    public static let maxWords = 5
     /// The most characters a snippet keeps (a prompt, a title, a folder).
     public static let snippetLimit = 120
     /// The most prompts one chat sends: its newest.
@@ -31,7 +22,7 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
     public static let tabLimit = 12
 
     /// What one tab shows, already trimmed.
-    public enum Tab: Equatable, Sendable {
+    public nonisolated enum Tab: Equatable, Sendable, Codable {
         case chat(title: String?, prompts: [String])
         case terminal(folder: String?, title: String?)
         case browser(title: String?)
@@ -39,9 +30,18 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
 
     /// What the workspace's tabs show, front first, at most ``tabLimit``, none empty.
     public let tabs: [Tab]
+    /// The completion's prompt: the instruction, then each tab's lines while they fit in
+    /// ``promptByteLimit`` (`_acpmux/complete` refuses a prompt over 4096 bytes).
+    public let prompt: String
+    private let params: Params
+    private let fallbackParams: Params
 
     public init(tabs: [Tab]) {
-        self.tabs = Array(tabs.filter { !$0.isEmpty }.prefix(Self.tabLimit))
+        let reply = WorkspaceNamingRules().call("activity", ["tabs": tabs], as: Reply.self)
+        self.tabs = reply?.tabs ?? []
+        prompt = reply?.prompt ?? ""
+        params = reply?.params ?? Params()
+        fallbackParams = reply?.fallbackParams ?? Params()
     }
 
     /// Whether nothing would tell the model what the workspace is about.
@@ -57,7 +57,7 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
         var read: [Tab] = []
         for tab in workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs) {
             guard read.count < tabLimit else { break }
-            if let item = Self.tab(tab, turns: turns, page: page), !item.isEmpty { read.append(item) }
+            if let item = Self.tab(tab, turns: turns, page: page) { read.append(item) }
         }
         return WorkspaceActivityName(tabs: read)
     }
@@ -70,82 +70,63 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
                 .compactMap(\.text).prefix(promptsPerChat).reversed()
             // Another machine's title never steers a name kept as the person's own (cmux#55668).
             let title = turns.namesAreRemote(session) ? nil : turns.generatedTitle(for: session)
-            return .chat(title: snippet(title ?? tab.name), prompts: prompts.compactMap(snippet))
+            return snipped(.chat(title: title ?? tab.name, prompts: Array(prompts)))
         }
         switch tab.kind {
-        case .pty, .remoteTerminal: return .terminal(folder: snippet(tab.cwd), title: snippet(tab.titleText))
-        case .browser: return .browser(title: snippet(page(tab)))
+        case .pty, .remoteTerminal: return snipped(.terminal(folder: tab.cwd, title: tab.titleText))
+        case .browser: return snipped(.browser(title: page(tab)))
         case .conversation, .other: return nil
         }
+    }
+
+    /// `tab`'s texts as snippets; nil when none is left.
+    private static func snipped(_ tab: Tab) -> Tab? {
+        WorkspaceNamingRules().call("activity_tab", ["tab": tab], as: [String: Tab?].self)?["tab"] ?? nil
     }
 
     /// One line of at most ``snippetLimit`` characters; nil when empty.
     public static func snippet(_ text: String?) -> String? {
         guard let text else { return nil }
-        let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard !line.isEmpty else { return nil }
-        return line.count > snippetLimit ? String(line.prefix(snippetLimit - 1)) + "…" : line
+        return WorkspaceNamingRules().string("snippet", TextRequest(text: text), key: "snippet")
     }
 
-    /// The completion's prompt: the instruction, then each tab's lines while they fit in
-    /// ``promptByteLimit`` (`_acpmux/complete` refuses a prompt over 4096 bytes).
-    public var prompt: String {
-        var text = [
-            "Name this workspace in 2 to 5 words from what its tabs show.",
-            "Reply with the name only: no quotes, no punctuation at the end, no explanation.",
-            "",
-            "Tabs:",
-        ].joined(separator: "\n")
-        for tab in tabs {
-            let lines: [String]
-            switch tab {
-            case let .chat(title, prompts):
-                lines = ["- Agent chat" + (title.map { ": \($0)" } ?? "")] + prompts.map { "  - asked: \($0)" }
-            case let .terminal(folder, title):
-                lines = ["- Terminal" + (folder.map { " in \($0)" } ?? "") + (title.map { ": \($0)" } ?? "")]
-            case let .browser(title):
-                lines = ["- Web page" + (title.map { ": \($0)" } ?? "")]
-            }
-            let next = text + "\n" + lines.joined(separator: "\n")
-            guard next.utf8.count <= Self.promptByteLimit else { break }
-            text = next
-        }
-        return text
-    }
-
-    /// The `_acpmux/complete` request: ``prompt`` on ``model`` through the Claude Code harness, short
-    /// and bounded.
-    public var completionParams: [String: any Sendable] {
-        completionFallbackParams.merging(["harness": Self.harness, "model": Self.model]) { $1 }
-    }
+    /// The `_acpmux/complete` request: ``prompt`` on the cheapest model (`claude-haiku-5-5`) through
+    /// the Claude Code harness, short and bounded.
+    public var completionParams: [String: any Sendable] { params.dictionary }
 
     /// The request when this machine has no Claude Code harness by that id: the default harness on
     /// its own small model (acpmux picks it: Claude's haiku alias, Codex's mini, and so on).
-    public var completionFallbackParams: [String: any Sendable] {
-        ["prompt": prompt, "maxTokens": Self.maxTokens, "timeoutMs": Self.timeoutMs]
-    }
+    public var completionFallbackParams: [String: any Sendable] { fallbackParams.dictionary }
 
     /// The name in the model's reply: its first line, without quotes, a "Name:" label or a final
-    /// period, at most ``maxWords`` words; nil when nothing is left.
+    /// period, at most five words; nil when nothing is left.
     public static func name(fromReply reply: String) -> String? {
-        guard var line = reply.split(whereSeparator: \.isNewline).lazy
-            .map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) else { return nil }
-        if let colon = line.firstIndex(of: ":"), line[..<colon].lowercased() == "name" {
-            line = String(line[line.index(after: colon)...])
-        }
-        let trimmed = line.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`“”‘’*#").union(.whitespaces))
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".!"))
-        let words = trimmed.split(whereSeparator: \.isWhitespace).prefix(maxWords)
-        return NewWorkspaceName.clean(words.joined(separator: " "))
+        WorkspaceNamingRules().string("activity_name", ["reply": reply], key: "name")
     }
-}
 
-nonisolated extension WorkspaceActivityName.Tab {
-    var isEmpty: Bool {
-        switch self {
-        case let .chat(title, prompts): title == nil && prompts.isEmpty
-        case let .terminal(folder, title): folder == nil && title == nil
-        case let .browser(title): title == nil
+    /// The `activity` op's answer.
+    private nonisolated struct Reply: Decodable {
+        var tabs: [Tab]
+        var prompt: String
+        var params: Params
+        var fallbackParams: Params
+
+        enum CodingKeys: String, CodingKey { case tabs, prompt, params, fallbackParams = "fallback_params" }
+    }
+
+    /// `_acpmux/complete`'s parameters.
+    private nonisolated struct Params: Decodable, Equatable, Sendable {
+        var prompt = ""
+        var maxTokens = 0
+        var timeoutMs = 0
+        var harness: String?
+        var model: String?
+
+        var dictionary: [String: any Sendable] {
+            var params: [String: any Sendable] = ["prompt": prompt, "maxTokens": maxTokens, "timeoutMs": timeoutMs]
+            if let harness { params["harness"] = harness }
+            if let model { params["model"] = model }
+            return params
         }
     }
 }

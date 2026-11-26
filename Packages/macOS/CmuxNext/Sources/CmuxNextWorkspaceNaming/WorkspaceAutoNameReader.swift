@@ -208,17 +208,22 @@ public struct WorkspaceAutoNameReader {
     /// its page title (live, else recorded) unless it only repeats the
     /// address, else its host without `www.` (`NewWorkspaceName.forTab`).
     private func pageTitle(_ tab: TabModel) -> String? {
-        func clean(_ text: String?) -> String? {
-            let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        if let name = clean(tab.name) { return name }
         let page = livePage(tab)
-        let url = page?.url ?? tab.url.flatMap(URL.init(string:))
-        for candidate in [page?.title, tab.titleText] {
-            guard let title = clean(candidate), title != clean(url?.absoluteString), title != clean(tab.url) else { continue }
-            return title
-        }
-        return url?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
+        let facts = PageTitleRequest.Page(name: tab.name, liveTitle: page?.title, liveUrl: page?.url?.absoluteString,
+                                          titleText: tab.titleText, url: tab.url)
+        return WorkspaceNamingRules().string("page_title", PageTitleRequest(page: facts), key: "title")
     }
+}
+
+/// The `page_title` op's facts: a browser tab's name, live page and record.
+private nonisolated struct PageTitleRequest: Encodable {
+    nonisolated struct Page: Encodable {
+        var name: String?
+        var liveTitle: String?
+        var liveUrl: String?
+        var titleText: String?
+        var url: String?
+    }
+
+    var page: Page
 }
