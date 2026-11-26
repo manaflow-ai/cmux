@@ -2,7 +2,7 @@
 //! owns it (review of #37284 at 4dcbe192, F1 to F3: a seq taken while a restore owns the chat,
 //! one path at a time, made the restore diverge or wrote into the seqs it needed).
 //!
-//! Every record of a chat's journal is appended by `Hub::append_record_locked` (`hub/mod.rs`),
+//! Every record of a chat's journal is appended by `Hub::append_record_locked` (`hub/append.rs`),
 //! under the chat's `append_lock`: turns, recovery (a cut turn's continuation, its unknown
 //! outcome), `queued` and every `queue_*` record, admissions, forwarded prompts, an agent's own
 //! updates. A restore's own records go in by `journal_restore.rs` under the same lock, at the seqs
@@ -801,7 +801,7 @@ mod tests {
         // `hub/transfer_precopy.rs` `copy_bundle_events` is the import's, moved out of
         // `hub/transfer.rs` with the staged prefix it writes after.
         let allowed = [
-            "hub/mod.rs",
+            "hub/append.rs",
             "hub/journal_restore.rs",
             "hub/transfer.rs",
             "hub/transfer_precopy.rs",
