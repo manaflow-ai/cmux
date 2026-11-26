@@ -37,6 +37,8 @@
 //! - [`keybind_route`]: which registry action a Ghostty keybind runs.
 //! - [`server`]: Add Server…'s headless approval (the code and the four
 //!   words) and the helper fix ledger Stop Serving reverts.
+//! - [`cloud_pairing`]: the cloud pairing calls' Worker bodies, how their
+//!   replies read, the hosts paging bound and which refusal a failure shows.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
@@ -47,6 +49,7 @@ pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod cloud_pairing;
 pub mod editors;
 pub mod files;
 pub mod history;

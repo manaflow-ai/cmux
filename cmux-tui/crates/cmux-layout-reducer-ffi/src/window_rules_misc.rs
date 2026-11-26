@@ -4,8 +4,8 @@
 //! `window_update_*`, `window_editors_*`, `window_keybind_*`, `window_server_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, editors, files, history, keybind_route, launch, launch_recovery,
-    notifications, remote, restore, screen_share, server, update_idle,
+    appearance, browser, cloud_pairing, editors, files, history, keybind_route, launch,
+    launch_recovery, notifications, remote, restore, screen_share, server, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -351,6 +351,57 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             }
             let request: Request = read(request)?;
             json!({ "text": server::ledger_edit(request.text.as_deref(), request.edit, &request.fix, request.now_ms) })
+        }
+        // A cloud pairing call's Worker path and body (`cloud_pairing::call`).
+        b"window_server_pairing_call" => {
+            let request: cloud_pairing::Request = read(request)?;
+            value(cloud_pairing::call(&request))?
+        }
+        // How a Worker reply reads: its value, or the owner's error; `teamEnsures`: a forbidden team read
+        // runs `user.ensure` once and reads again.
+        b"window_server_pairing_reply" => {
+            let reply = cloud_pairing::reply(&read::<Value>(request)?);
+            let ensures = matches!(&reply, cloud_pairing::Reply::Owner { code, .. } if cloud_pairing::team_read_ensures(code));
+            let mut answer = value(reply)?;
+            answer["teamEnsures"] = json!(ensures);
+            answer
+        }
+        // The team a team read names (`team` null: a bad reply).
+        b"window_server_pairing_team" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                value: Value,
+                #[serde(default)]
+                account: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "team": cloud_pairing::team(&request.value, &request.account) })
+        }
+        // An approve's enrolled host (`approved` null: a bad reply).
+        b"window_server_pairing_approved" => {
+            json!({ "approved": cloud_pairing::approved(&read::<Value>(request)?) })
+        }
+        // After `team.hosts.list` page `index`: read `next`, done, or too many pages.
+        b"window_server_pairing_hosts_next" => {
+            #[derive(Deserialize)]
+            struct Request {
+                index: u32,
+                #[serde(default)]
+                next: Option<String>,
+            }
+            let request: Request = read(request)?;
+            value(cloud_pairing::hosts_next(request.index, request.next.as_deref()))?
+        }
+        // The refusal a failed pairing call shows.
+        b"window_server_pairing_refusal" => {
+            #[derive(Deserialize)]
+            struct Request {
+                stage: cloud_pairing::Stage,
+                failure: cloud_pairing::Failure,
+            }
+            let request: Request = read(request)?;
+            value(cloud_pairing::refusal(request.stage, &request.failure))?
         }
         b"window_launch_snapshot_verdict" => {
             let facts: launch::SnapshotFacts = read(request)?;

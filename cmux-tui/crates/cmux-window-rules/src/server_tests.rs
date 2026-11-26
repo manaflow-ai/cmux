@@ -162,9 +162,9 @@ fn name_and_chief() {
         ("build-01".into(), false)
     );
     // No runChief follows the server's capability; an explicit one wins.
-    assert_eq!(name(&run(CODE, typed, None, None, Some(chief.clone())).0).1, true);
-    assert_eq!(name(&run(CODE, typed, None, Some(false), Some(chief)).0).1, false);
-    assert_eq!(name(&run(CODE, typed, None, Some(true), Some(candidate())).0).1, true);
+    assert!(name(&run(CODE, typed, None, None, Some(chief.clone())).0).1);
+    assert!(!name(&run(CODE, typed, None, Some(false), Some(chief)).0).1);
+    assert!(name(&run(CODE, typed, None, Some(true), Some(candidate())).0).1);
 }
 
 #[test]
