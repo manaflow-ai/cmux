@@ -45,6 +45,10 @@ extension UpdaterService {
                 json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
             }
             actions = [.install]
+            // "What's in this build": the PRs since the installed build, grouped by area.
+            if let prs = stagedPullRequests, !prs.isEmpty, let value = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+                json["prs"] = value
+            }
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
             let shown = card.presentation(version: identity.shortVersion, build: identity.build,

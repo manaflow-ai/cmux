@@ -166,6 +166,11 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// "What's in this build": the PRs of every build from the installed one up to the staged one
+    /// (``UpdatePullRequests``), read with the staged notes; nil until they load.
+    public internal(set) var stagedPullRequests: UpdatePullRequests?
+    /// Reads the notes index (``releaseNotes``' cached copy, else the feed's; replaced by tests).
+    @ObservationIgnored var indexLoader: (@Sendable () async -> [ReleaseNotesIndexEntry])?
     /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
     @ObservationIgnored var prewarmRun: StagedPrewarmRun?
     /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.

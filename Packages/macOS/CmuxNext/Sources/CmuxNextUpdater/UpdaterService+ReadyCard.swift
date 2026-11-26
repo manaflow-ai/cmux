@@ -68,6 +68,7 @@ extension UpdaterService {
             stagedNotesTask = nil
             if stagedVersion != nil { stagedVersion = nil }
             if stagedNotes != nil { stagedNotes = nil }
+            if stagedPullRequests != nil { stagedPullRequests = nil }
         }
     }
 
@@ -76,11 +77,29 @@ extension UpdaterService {
         guard let build = stagedBuild(), stagedNotesTask?.build != build else { return }
         stagedNotesTask?.task.cancel()
         let load = notesLoader ?? { [releaseNotes] build in await releaseNotes?.notes(for: build) }
+        let index = indexLoader ?? { [releaseNotes] in
+            guard let releaseNotes else { return [] }
+            let cached = await releaseNotes.cachedIndex()
+            return cached.isEmpty ? await releaseNotes.index() : cached
+        }
+        let installed = identity.build
         let task = Task { [weak self] in
             let notes = await load(build)
             guard let self, !Task.isCancelled, self.stagedNotesTask?.build == build else { return }
             self.stagedNotes = notes
             self.log.append("staged notes: \(build) \(notes == nil ? "none" : "\(notes?.changeItems.count ?? 0) changes")")
+            // "What's in this build": the staged build's PRs now, every skipped build's once read.
+            if let notes { self.stagedPullRequests = UpdatePullRequests(notes: [notes]) }
+            let span = UpdatePullRequests.span(index: await index(), installed: installed, offered: build)
+            var spanned = notes.map { [$0] } ?? []
+            for other in span where other != build {
+                if Task.isCancelled { return }
+                if let read = await load(other) { spanned.append(read) }
+            }
+            guard !Task.isCancelled, self.stagedNotesTask?.build == build, !spanned.isEmpty else { return }
+            let prs = UpdatePullRequests(notes: spanned)
+            self.stagedPullRequests = prs
+            self.log.append("staged prs: \(span.count) builds \(prs.count) prs")
         }
         stagedNotesTask = (build, task)
     }
@@ -106,5 +125,6 @@ extension UpdaterService {
         }
         debugIndicatorPhase = .ready(version: version)
         stagedNotes = notes
+        stagedPullRequests = notes.map { UpdatePullRequests(notes: [$0]) }
     }
 }

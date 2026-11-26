@@ -74,6 +74,10 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
     /// whole list (2026-10-20). Nil in a record saved before this field existed.
     public var rest: [Item]?
     public var changelog: Changelog
+    /// "What's in this build": the PRs merged since the installed build, every skipped build's
+    /// included, grouped by area (``UpdatePullRequests``). Nil until the span's notes load, and in
+    /// a record saved before this field existed.
+    public var prs: UpdatePullRequests?
 
     /// Picks the first source with at least one item: the notes' What's New
     /// document, their highlights, their summary, then the appcast lines.

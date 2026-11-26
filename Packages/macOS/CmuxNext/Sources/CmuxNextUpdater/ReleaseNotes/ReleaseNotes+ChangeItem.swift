@@ -14,18 +14,41 @@ nonisolated extension ReleaseNotes {
         /// `tooling_only`): the page and the Updated card leave it out whatever its subject says.
         /// Nil in notes published before the flag.
         public var isInternal: Bool?
+        /// The product area the PR touches (`sidebar`, `terminal`, ...), when the notes name one.
+        /// Nil in notes published before the field: "What's in this build" files it under Other.
+        public var area: String?
+        /// The PR's page as the notes give it (`url`); nil falls back to the manaflow-ai/cmux pull page (``url``).
+        public var link: URL?
 
         enum CodingKeys: String, CodingKey {
-            case title, author, description, pr
+            case title, author, description, pr, area
             case isInternal = "internal"
+            case link = "url"
         }
 
-        public init(title: String, author: String? = nil, description: String? = nil, pr: Int? = nil, isInternal: Bool? = nil) {
+        public init(title: String, author: String? = nil, description: String? = nil, pr: Int? = nil, isInternal: Bool? = nil,
+                    area: String? = nil, link: URL? = nil) {
             self.title = title
             self.author = author
             self.description = description
             self.pr = pr
             self.isInternal = isInternal
+            self.area = area
+            self.link = link
+        }
+
+        /// Tolerant of the newer optional fields: a bad `url` or `area` drops that field, never the notes.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            title = try container.decode(String.self, forKey: .title)
+            author = try container.decodeIfPresent(String.self, forKey: .author)
+            description = try container.decodeIfPresent(String.self, forKey: .description)
+            pr = try container.decodeIfPresent(Int.self, forKey: .pr)
+            isInternal = try container.decodeIfPresent(Bool.self, forKey: .isInternal)
+            let area = (try? container.decodeIfPresent(String.self, forKey: .area))?.trimmingCharacters(in: .whitespaces)
+            self.area = area?.isEmpty == false ? area : nil
+            link = (try? container.decodeIfPresent(String.self, forKey: .link)).flatMap { URL(string: $0) }
+                .flatMap { $0.scheme == "https" ? $0 : nil }
         }
 
         /// A commit subject: "Title (#1234)" gives the title and PR 1234;
@@ -45,9 +68,9 @@ nonisolated extension ReleaseNotes {
             self.init(title: title.isEmpty ? text : title, pr: number)
         }
 
-        /// The pull request page, or nil without a PR number.
+        /// The pull request page: the notes' own `url`, else the manaflow-ai/cmux pull page; nil without either.
         public var url: URL? {
-            pr.flatMap { URL(string: "https://github.com/manaflow-ai/cmux/pull/\($0)") }
+            link ?? pr.flatMap { URL(string: "https://github.com/manaflow-ai/cmux/pull/\($0)") }
         }
 
         /// The PR's short label ("#1234"), or nil.
