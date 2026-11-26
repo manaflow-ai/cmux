@@ -1,4 +1,4 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 /// The call sites the main thread has seen, by ``BlockingSiteKey``: a fixed open-addressing table
 /// (twice the site limit, so a probe stays short) that never allocates after its init. Main
 /// thread only.
