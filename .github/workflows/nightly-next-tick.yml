@@ -232,7 +232,10 @@ jobs:
       # read-only route App token (its own budget; main's promote job reads on it too), so a dry
       # github.token and cmux-bot budget do not cost the tick its answer. Ticks 45118875109 and
       # 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both builds
-      # had left their slots, and the promotion waited until 05:52.
+      # had left their slots, and the promotion waited until 05:52. Refused on both, the read goes out
+      # once with no token (the repository is public; that budget is the runner address's), and a
+      # secondary-limit refusal waits 60 s once and reads again: ticks 45700034320 to 45706304238
+      # (2026-11-25 18:12 to 21:43Z) all waited on a secondary-limit 403 on both tokens.
       - name: Mint the rolling rule's spare read token
         id: spare-read-token
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == '' && vars.GLAEDA_ROUTE_APP_ID != ''
