@@ -169,6 +169,10 @@ class ChannelOnlyThinTest(unittest.TestCase):
             run_ids = [step["with"].get("run-id") for step in job["steps"]
                        if "download-artifact" in str(step.get("uses", ""))]
             self.assertEqual(run_ids, ["${{ needs.plan.outputs.from_run || github.run_id }}"])
+            # This run's own artifacts take no token (the runtime service, not REST: run 45730730942).
+            tokens = [step["with"].get("github-token") for step in job["steps"]
+                      if "download-artifact" in str(step.get("uses", ""))]
+            self.assertEqual(tokens, ["${{ needs.plan.outputs.from_run != '' && github.token || '' }}"])
         both = jobs["point-linux"]
         self.assertIn("build-x86_64", both["needs"])
         self.assertIn("build-aarch64", both["needs"])
