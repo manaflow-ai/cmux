@@ -19,6 +19,10 @@ from cmux_next_screen_sharing_proof import Phone as ScreenProofPhone, positive_f
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# How long Settings may take to show its Screen Sharing row (it needs the account's live data).
+SETTINGS_ROW_WAIT = 240
+
+
 class PairShareFailure(RuntimeError):
     """A fixed, private diagnostic for a failed share leg."""
 
@@ -251,7 +255,8 @@ class PairSharePhone(ScreenProofPhone):
         # Back button and the tab bar, no heading). The row appears only once the service does.
         self.ui.launch(["-cmux-mobile-no-restore", "-cmux-mobile-tab", "settings",
                         "-cmux-mobile-browser-meter"])
-        deadline = time.monotonic() + 90
+        # Live data can come minutes after launch (run 45784488782 paired 181 s after its launch).
+        deadline = time.monotonic() + SETTINGS_ROW_WAIT
         while (row := self._screen_sharing_row()) is None and time.monotonic() < deadline:
             time.sleep(1)
         if row is None:
@@ -263,7 +268,7 @@ class PairSharePhone(ScreenProofPhone):
             settings_ids = sorted({str(node.get("AXIdentifier") or node.get("AXUniqueId") or "") for node in nodes}
                                   - {""})
             settings_ids = [i for i in settings_ids if i.startswith("settings.")]
-            raise PairShareFailure("Settings showed no Screen Sharing row in 90 s, so the app built no "
+            raise PairShareFailure(f"Settings showed no Screen Sharing row in {SETTINGS_ROW_WAIT} s, so the app built no "
                                    f"Screen Sharing service ({len(nodes)} nodes; settings rows: "
                                    f"{', '.join(settings_ids) or 'none'}{_screen_summary(nodes)})")
         self.ui.tap(row)

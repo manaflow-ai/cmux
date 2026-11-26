@@ -722,7 +722,12 @@ def run_pair(a, note, share):
                     rpc("action.run", {"action": "quitKeepSessions"})
                     app.wait(timeout=30)
                     cursor = host.detached_baseline()
-                    phone.launch()
+                    launched = time.monotonic()
+                    try:
+                        phone.launch()
+                    except RuntimeError as error:
+                        # The row needs live data (ShellModel.attach): say whether this launch reached it.
+                        raise RuntimeError(f"{error}; {launch_live_state(phone_log, launched)}") from error
                     before_tap = time.monotonic()
                     phone.request_share(target["deviceName"], target["deviceId"])
                     share.pass_step()
@@ -790,6 +795,18 @@ def run_pair(a, note, share):
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
     return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok and share.passed else 1
+
+
+LIVE_DATA_LINE = re.compile(r"live data on ")
+STACK_LINE = re.compile(r"Stack project ")
+
+
+def launch_live_state(phone_log, since):
+    """Whether the phone, since `since`, logged its sign-in config and its live data (fixed text)."""
+    def seen(pattern):
+        hit = phone_log.wait_at(pattern, 0, since=since)
+        return f"after {hit[0] - since:.0f} s" if hit else "not logged"
+    return f"phone since launch: auth config {seen(STACK_LINE)}, live data {seen(LIVE_DATA_LINE)}"
 
 
 # The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks

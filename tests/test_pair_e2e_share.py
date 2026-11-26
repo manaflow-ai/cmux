@@ -167,9 +167,9 @@ class MacRowTests(unittest.TestCase):
         phone.ui = FakeUI([{"type": "Heading", "AXLabel": "Settings"}])
         phone.ui.launch = lambda args: None
         phone.screenshot = lambda name: None
-        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
                 patch("cmux_next_pair_share_phone.time.sleep"):
-            with self.assertRaisesRegex(PairShareFailure, "no Screen Sharing row in 90 s.*headings: Settings"):
+            with self.assertRaisesRegex(PairShareFailure, "no Screen Sharing row in 240 s.*headings: Settings"):
                 phone.launch()
 
     def test_launch_taps_a_screen_sharing_row_its_label_repeats(self):
@@ -188,7 +188,7 @@ class MacRowTests(unittest.TestCase):
         phone.ui = FakeUI([{"type": "Button", "AXUniqueId": "settings.devices"}])
         phone.ui.launch = lambda args: None
         phone.screenshot = lambda name: None
-        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
                 patch("cmux_next_pair_share_phone.time.sleep"):
             with self.assertRaisesRegex(PairShareFailure, "settings rows: settings.devices"):
                 phone.launch()
@@ -198,7 +198,7 @@ class MacRowTests(unittest.TestCase):
         phone.ui = FakeUI([{"AXIdentifier": "screenSharing.failed"}])
         phone.ui.run = lambda *args, **kwargs: None
         phone.ui.udid = "sim"
-        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 300]), \
                 patch("cmux_next_pair_share_phone.time.sleep"):
             with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0; wanted "):
                 phone.request_share("rig", "abc-1")
@@ -263,3 +263,23 @@ class ViewerLogTests(unittest.TestCase):
 
     def test_no_lines_says_so(self):
         self.assertEqual(viewer_log(["live data on\n"]), "no viewer session lines")
+
+
+class LaunchLiveStateTests(unittest.TestCase):
+    """The share launch's failure says whether the phone reached live data after that launch."""
+
+    @staticmethod
+    def log(rows):
+        import threading
+        import cmux_next_pair_e2e
+        log = type("Log", (), {"wait_at": cmux_next_pair_e2e.Stream.wait_at})()
+        log.times, log.lines, log.cond = [t for t, _ in rows], [l for _, l in rows], threading.Condition()
+        return cmux_next_pair_e2e.launch_live_state, log
+
+    def test_names_when_each_line_came(self):
+        state, log = self.log([(5, "Stack project p (development)"), (12, "live data on api.example")])
+        self.assertEqual(state(log, 2), "phone since launch: auth config after 3 s, live data after 10 s")
+
+    def test_live_data_from_an_earlier_launch_does_not_count(self):
+        state, log = self.log([(1, "live data on api.example"), (5, "Stack project p")])
+        self.assertEqual(state(log, 2), "phone since launch: auth config after 3 s, live data not logged")
