@@ -26,8 +26,8 @@ const PAGE = 100;
 /// How long the search field stays still before its query is read: one read per settled query,
 /// not one per key (each read ranks every chat).
 export const SEARCH_SETTLE_MS = 150;
-/// How long a first read may go unanswered before the list says it couldn't load and offers Try
-/// again: a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
+/// How long a first read may go unanswered before the list asks again on its own (AllChatsList,
+/// autoRetry.ts): a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
 export const CHATS_READ_CEILING_MS = 15_000;
 type State = {
   query: string;
@@ -37,9 +37,9 @@ type State = {
   loaded: boolean;
   /// The daemon's index has finished its first scan (`ready`); before that an empty page is not "No chats".
   ready: boolean;
-  /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
+  /// The last first-page read failed (the daemon did not answer): the list asks again on its own.
   failed: boolean;
-  /// The cursor page that last failed. The loader stays in place, so it must expose its own retry.
+  /// The cursor page that last failed. The loader stays in place, so the list asks for it again itself.
   failedCursor?: string;
   /// The query `rows` answer; a failed read for another query drops them rather than show them under it.
   rowsQuery: string;
@@ -147,7 +147,7 @@ export function useChatPages(load: LoadChatsPage) {
         if (ticket !== generation.current) return;
         if (inFlight.current === marker) inFlight.current = undefined;
         setState((s) => {
-          // A failed page keeps the cursor. The loader may still be in view, so the row exposes Retry.
+          // A failed page keeps the cursor. The loader may still be in view, so the list asks again.
           if (!page)
             return {
               ...s,
