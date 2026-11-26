@@ -4,7 +4,7 @@
 //!
 //! | op | request | reply |
 //! | --- | --- | --- |
-//! | `tab_discard_setting` | `{setting}` | `{enabled, mode, hidden_seconds}`: the setting in force |
+//! | `tab_discard_setting` | `{setting}` | `{enabled, mode, hidden_seconds, discards_automatically}`: the setting in force |
 //! | `tab_discard_threshold` | `{setting, pressure}` | `{seconds}`: seconds hidden before a page is discarded (null: never) |
 //! | `tab_discard_plan` | `{setting, pressure, candidates}` | [`Plan`]: the pages to discard now |
 //! | `tab_discard_freeze_plan` | `{setting, candidates}` | [`Plan`]: the pages to freeze now |
@@ -105,6 +105,7 @@ impl TabDiscard {
                     "enabled": setting.is_enabled(),
                     "mode": setting.effective_mode(),
                     "hidden_seconds": plan::threshold(&setting, Pressure::Normal),
+                    "discards_automatically": setting.discards_automatically,
                 }))
             }
             "tab_discard_threshold" => {

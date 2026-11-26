@@ -294,6 +294,49 @@ fn a_freeze_keeps_only_what_stops_while_frozen() {
     assert_eq!(keep(&mut rules, json!({"playing_media": true})), json!({"keep": true}));
     assert_eq!(keep(&mut rules, json!({"edited_form": true})), json!({"keep": false}));
     assert_eq!(keep(&mut rules, json!({"before_unload": true})), json!({"keep": false}));
+    // A paused media session the person resumes from outside the page (issue 51079).
+    assert_eq!(keep(&mut rules, json!({"media_session": true})), json!({"keep": true}));
+}
+
+/// A media session keeps a page from a freeze only: a discard ends the session with the page, and
+/// a page that last said it holds one keeps the freeze's doubt while it does not answer.
+#[test]
+fn a_media_session_keeps_a_page_from_a_freeze_not_a_discard() {
+    let probe = PageProbe { media_session: true, ..PageProbe::default() };
+    assert!(probe.stops_when_frozen());
+    assert_eq!(probe.exemption(), None);
+    let mut history = ProbeHistory::default();
+    history.record(probe, "page", Step::Freeze);
+    let silent = PageProbe { answered: false, ..PageProbe::default() };
+    for _ in 0..ProbeHistory::UNANSWERED_LIMIT + 2 {
+        assert!(history.record(silent, "page", Step::Freeze));
+    }
+}
+
+/// Without `discards_automatically` hidden pages only freeze: none is due at any pressure, each
+/// keeps its own exemption or `keeps_state`, and freezing goes on.
+#[test]
+fn a_setting_that_keeps_state_never_discards_on_its_own() {
+    let setting = Setting { discards_automatically: false, ..moderate() };
+    let pinned = Candidate { is_pinned: true, ..page("pinned", 120.0) };
+    for pressure in PRESSURES {
+        let result = plan(&setting, pressure, &[page("old", 120.0), pinned.clone()]);
+        assert!(result.due.is_empty(), "{pressure:?}");
+        assert_eq!(result.next_check, None);
+        assert_eq!(result.exemptions["old"], Exemption::KeepsState);
+        assert_eq!(result.exemptions["pinned"], Exemption::Pinned);
+    }
+    assert_eq!(freeze_plan(&setting, &[page("old", 120.0)]).due, vec!["old".to_owned()]);
+    let off =
+        Setting { mode: Some(Mode::Off), discards_automatically: false, ..Setting::default() };
+    assert_eq!(
+        plan(&off, Pressure::Normal, &[page("old", 120.0)]).exemptions["old"],
+        Exemption::Disabled
+    );
+    let wire = TabDiscard::new()
+        .call("tab_discard_plan", json!({"setting": {"mode": "moderate", "discards_automatically": false}, "candidates": [{"key": "a", "hidden_for": 9000.0}]}))
+        .unwrap();
+    assert_eq!(wire["exemptions"], json!({"a": "keeps_state"}));
 }
 
 // MARK: The wire
@@ -314,9 +357,15 @@ fn the_wire_reads_cmux_json_values_and_answers_snake_case() {
     assert_eq!(reply["due"], json!(["a"]));
     assert_eq!(reply["exemptions"], json!({"b": "devtools"}));
     let setting = rules.call("tab_discard_setting", json!({"setting": {}})).unwrap();
-    assert_eq!(setting, json!({"enabled": true, "mode": "moderate", "hidden_seconds": 1800.0}));
+    assert_eq!(
+        setting,
+        json!({"enabled": true, "mode": "moderate", "hidden_seconds": 1800.0, "discards_automatically": true})
+    );
     let off = rules.call("tab_discard_setting", json!({"setting": {"mode": "off"}})).unwrap();
-    assert_eq!(off, json!({"enabled": false, "mode": "off", "hidden_seconds": null}));
+    assert_eq!(
+        off,
+        json!({"enabled": false, "mode": "off", "hidden_seconds": null, "discards_automatically": true})
+    );
     let warning =
         rules.call("tab_discard_threshold", json!({"setting": {}, "pressure": "warning"})).unwrap();
     assert_eq!(warning, json!({"seconds": 600.0}));
