@@ -46,7 +46,8 @@ public final class HangReportCollector: Sendable {
     /// Runs a resolution job instead of ``wake`` (tests run it inline or hold it).
     private let schedule: (@Sendable (@escaping @Sendable () -> Void) -> Void)?
     /// Starts the resolution job on a utility queue: one `or` from the main thread, no allocation.
-    nonisolated(unsafe) private let wake: (any DispatchSourceUserDataOr)? // crash-allow: dispatch sources are thread-safe; the main thread only ors data in
+    /// Nil when `schedule` was given. Under a lock only for `Sendable`: the main thread takes it uncontended.
+    private let wake: Mutex<(any DispatchSourceUserDataOr)?>
 
     /// Makes the value from its parts. `schedule`, when given, runs each resolution job in place of
     /// the default utility queue.
@@ -54,15 +55,16 @@ public final class HangReportCollector: Sendable {
                 schedule: (@Sendable (@escaping @Sendable () -> Void) -> Void)? = nil) {
         self.resolve = resolve
         self.schedule = schedule
-        wake = schedule == nil
+        let source = schedule == nil
             ? DispatchSource.makeUserDataOrSource(queue: DispatchQueue(label: "com.cmuxterm.app.next.hang-resolve", qos: .utility))
             : nil
-        wake?.setEventHandler { [weak self] in self?.resolvePending() }
-        wake?.activate()
+        wake = Mutex(source)
+        source?.setEventHandler { [weak self] in self?.resolvePending() }
+        source?.activate()
     }
 
     deinit {
-        wake?.cancel()
+        wake.withLock { $0?.cancel() }
     }
 
     /// Whether stalls are recorded.
@@ -150,10 +152,10 @@ public final class HangReportCollector: Sendable {
 
     /// Starts the resolution job: an `or` into the source (no allocation), or a test's scheduler.
     private func startJob() {
-        if let wake {
-            wake.or(data: 1)
+        if let schedule {
+            schedule { [self] in resolvePending() }
         } else {
-            schedule?({ [self] in resolvePending() })
+            wake.withLock { $0?.or(data: 1) }
         }
     }
 
