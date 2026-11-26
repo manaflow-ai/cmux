@@ -3,4 +3,4 @@
 Above the step `Cache cargo build` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
-Skipped when the warm target above is linked.
+Skipped when the warm target above is linked, and on the pool (keep=true), which takes R2 instead.
