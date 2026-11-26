@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "sessionInfo.alsoHere" : {
-      "comment" : "Agent pane: who else works on these files",
+    "settings.layout.fadeInactivePanes" : {
+      "comment" : "Settings > General > Scrolling and Focus: title of the toggle that fades every pane except the focused one.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fade Inactive Panes"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يعمل هنا أيضًا"
+            "value" : "تلاشي الأجزاء غير النشطة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Takođe radi ovdje"
+            "value" : "Izblijedi neaktivna okna"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arbejder også her"
+            "value" : "Ton inaktive ruder ned"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arbeitet auch hier"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Also working here"
+            "value" : "Inaktive Bereiche abblenden"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "También trabajan aquí"
+            "value" : "Atenuar paneles inactivos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Travaille aussi ici"
+            "value" : "Estomper les panneaux inactifs"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lavorano anche qui"
+            "value" : "Attenua i riquadri inattivi"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ここで作業中の他のセッション"
+            "value" : "非アクティブなペインを薄く表示"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ក៏កំពុងធ្វើការនៅទីនេះ"
+            "value" : "ធ្វើឱ្យផ្ទាំងអសកម្មស្រអាប់"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "여기서 함께 작업 중"
+            "value" : "비활성 패널 흐리게"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Jobber også her"
+            "value" : "Ton ned inaktive ruter"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pracują tu także"
+            "value" : "Przygaszaj nieaktywne panele"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Também trabalhando aqui"
+            "value" : "Esmaecer painéis inativos"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Также работают здесь"
+            "value" : "Затемнять неактивные панели"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ทำงานที่นี่ด้วย"
+            "value" : "จางบานหน้าต่างที่ไม่ได้ใช้งาน"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Burada da çalışıyor"
+            "value" : "Etkin olmayan bölmeleri soldur"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Також працюють тут"
+            "value" : "Приглушувати неактивні панелі"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cũng đang làm việc ở đây"
+            "value" : "Làm mờ các ngăn không hoạt động"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "也在这里工作"
+            "value" : "淡化非活动窗格"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "也在這裡工作"
+            "value" : "淡化非作用中窗格"
           }
         }
       }
