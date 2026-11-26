@@ -507,6 +507,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -1831,6 +1832,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -4042,6 +4044,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -5467,6 +5470,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
@@ -5974,6 +5978,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           CI_POOL_PERMISSIONS: '{"actions":"write","contents":"read","pull_requests":"read"}'
         run: python3 scripts/ci/ci_pool_tokens.py
 
