@@ -2573,3 +2573,32 @@ class CutShortWordsAreWords(unittest.TestCase):
                      "##[error]2 test(s) never finished"):
             with self.subTest(line=line):
                 self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])
+
+
+class UnittestOutputQuotingADiagnosticIsNotACrash(unittest.TestCase):
+    """hq#26226, run 45717138906 job 139565977393: parallel_suite printed 4 FAILED modules, but a test's own output
+    on its `name (mod.Cls.name) ... ` line quoted `crash report cmux-1.ips: EXC_BAD_ACCESS`, and the log read as
+    "the test process crashed (no signal named)", so land-judge refused a normal exit 1 with named failures."""
+
+    QUOTE = ("test_a_gone_app (m.RelaunchTests.test_a_gone_app) ...            ok fresh/first-launch 1 ms\n"
+             "           ok library/base 0 ms: relaunched (was gone: crash report cmux-1.ips: EXC_BAD_ACCESS)\n"
+             "ok\n")
+    FAILS = ("FAIL: test_b (m.T.test_b)\nTraceback (most recent call last):\nAssertionError: 1 != 2\n"
+             "FAILED module m: failures=1\n##[error]Process completed with exit code 1.\n")
+
+    def test_a_quoted_diagnostic_in_a_tests_output_is_no_crash(self):
+        found = reds.read(self.QUOTE + self.FAILS)
+        self.assertEqual(found.crashes, [])
+        self.assertIn("test_b (m.T.test_b)", " ".join(found.failed))
+
+    def test_the_same_line_outside_a_test_still_crashes(self):
+        found = reds.read("crash report cmux-1.ips: EXC_BAD_ACCESS\n" + self.FAILS)
+        self.assertTrue(found.crashes)
+
+    def test_a_fatal_python_error_in_a_tests_output_still_crashes(self):
+        found = reds.read("test_a (m.T.test_a) ... Fatal Python error: Segmentation fault\n" + self.FAILS)
+        self.assertTrue(found.crashes)
+
+    def test_a_signal_exit_after_named_failures_still_crashes(self):
+        found = reds.read(self.QUOTE + self.FAILS.replace("exit code 1", "exit code 139"))
+        self.assertTrue(found.crashes)
