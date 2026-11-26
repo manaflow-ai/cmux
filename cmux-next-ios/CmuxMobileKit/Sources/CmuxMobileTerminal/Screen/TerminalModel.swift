@@ -59,7 +59,18 @@ public final class TerminalModel {
     public func offlineSubtitle(_ base: String?, now: Date = Date()) -> String? {
         guard let base else { return nil }
         guard drewLiveOutput || seeded || coldFrame != nil, let at = savedCopyAt else { return base }
-        return "\(base) · \(TerminalSavedCopyAge.phrase(since: at, now: now))"
+        return "\(base) · \(savedCopyAgePhrase(since: at, now: now))"
+    }
+
+    /// How old the saved copy on the page is, in a few words: "updated just now", "updated 3 min ago".
+    public func savedCopyAgePhrase(since date: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        switch seconds {
+        case ..<60: return String(localized: "updated just now")
+        case ..<3600: return String(localized: "updated \(seconds / 60) min ago")
+        case ..<86_400: return String(localized: "updated \(seconds / 3600) h ago")
+        default: return String(localized: "updated \(seconds / 86_400) d ago")
+        }
     }
 
     /// The link's own status line for this page's Mac (the shell sets it): a network that

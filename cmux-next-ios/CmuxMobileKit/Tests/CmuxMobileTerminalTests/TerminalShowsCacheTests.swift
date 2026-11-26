@@ -63,10 +63,10 @@ import UIKit
     /// The offline subtitle says how old the saved copy is, and only when the page shows one.
     @Test func theOfflineLineSaysHowOldTheSavedCopyIs() {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        #expect(TerminalSavedCopyAge.phrase(since: now.addingTimeInterval(-20), now: now) == "updated just now")
-        #expect(TerminalSavedCopyAge.phrase(since: now.addingTimeInterval(-185), now: now) == "updated 3 min ago")
-        #expect(TerminalSavedCopyAge.phrase(since: now.addingTimeInterval(-7300), now: now) == "updated 2 h ago")
         let model = makeModel()
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-20), now: now) == "updated just now")
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-185), now: now) == "updated 3 min ago")
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-7300), now: now) == "updated 2 h ago")
         #expect(model.offlineSubtitle(nil) == nil)
         // Nothing of the Mac's on the page: no age to tell.
         model.restoreSavedAt(now.addingTimeInterval(-185))

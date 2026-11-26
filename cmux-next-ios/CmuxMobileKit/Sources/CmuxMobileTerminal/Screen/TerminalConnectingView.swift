@@ -165,19 +165,6 @@ public struct TerminalUnreachable: Equatable, Sendable {
     }
 }
 
-/// How old the saved copy on a page is, in a few words: "updated just now", "updated 3 min ago".
-public enum TerminalSavedCopyAge {
-    public static func phrase(since date: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(date)))
-        switch seconds {
-        case ..<60: return String(localized: "updated just now")
-        case ..<3600: return String(localized: "updated \(seconds / 60) min ago")
-        case ..<86_400: return String(localized: "updated \(seconds / 3600) h ago")
-        default: return String(localized: "updated \(seconds / 86_400) d ago")
-        }
-    }
-}
-
 /// The no-cache state: nothing (the page's own background) during the quiet bound, then
 /// ``TerminalUnreachable`` with Retry. Never fake rows.
 struct TerminalUnreachableView: View {
