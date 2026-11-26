@@ -6,6 +6,9 @@
 //!
 //! One test: the methods read acpmux's home from ACPMUX_HOME, a process-wide setting.
 
+#[path = "support/quiet_restart.rs"]
+mod quiet_restart;
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -117,6 +120,7 @@ async fn a_failed_codex_route_moves_onto_the_signed_in_codex_login() {
         std::env::set_var("ACPMUX_HOME", root.join("home"));
     }
     let hub = hub(&root);
+    let clock = quiet_restart::clock(&hub);
     let mut local = client(&hub, Origin::Local);
     local
         .ok(
@@ -142,6 +146,7 @@ async fn a_failed_codex_route_moves_onto_the_signed_in_codex_login() {
     let fallback = &failed["error"]["data"]["fallback"];
     assert_eq!(fallback["routeId"], "codex-login", "{failed}");
     assert_eq!(fallback["applied"], true, "{failed}");
+    quiet_restart::hibernate(&hub, &id, &clock).await;
     let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
     assert_eq!(active["active"], json!({"routeId": "codex-login", "scope": "chat"}), "{active}");
     assert_eq!(local.env_of(&id, "OPENAI_BASE_URL").await, "OPENAI_BASE_URL=");
