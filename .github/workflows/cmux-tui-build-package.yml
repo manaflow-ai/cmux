@@ -617,6 +617,19 @@ jobs:
           path: /home/runner/cmux-tui-fat-warm
           commit: on-change
 
+      # The darwin cross leg needs more disk than the pool admits a job with (17 GiB): the R2 target, the
+      # cross toolchain and the build. The pool's start hook cleans in line only under 17 GiB and sweeps idle
+      # runners' state only under that too, so a host between 17 GiB and its floor built on what was left
+      # and died "No space left on device" in cargo (run 45793848138, 2026-11-26: 31.5 GiB free at the
+      # start, 15.1 GiB at the build). This runs the pool's beside-a-job prune in line with the leg's own
+      # need, the warm script's pool floor (40 GiB), bounded at 120 s; it never fails the job.
+      - name: Make room on the pool host (aarch64 macOS on Linux)
+        if: matrix.darwin_on_linux && runner.os == 'Linux' && startsWith(runner.name, 'cmux-runner-pool-') && matrix.target == 'aarch64-apple-darwin'
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: scripts/ci/pool-make-room.sh "$((40 * 1024 * 1024 * 1024))" 120
+
       # Pool runners mount no sticky disk but keep HOME across jobs, so the darwin cross leg keeps
       # its warm target in the runner slot's own directory (scripts/ci/machine-channel-warm-target.sh
       # pool-dir; bounded, and removed when the host runs short of disk). It built cold on every
@@ -1282,7 +1295,7 @@ jobs:
     name: cross-build x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows
     continue-on-error: ${{ inputs.windows_optional }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -1423,7 +1436,7 @@ jobs:
     needs: cross-build-windows
     if: inputs.include_windows && needs.cross-build-windows.result == 'success'
     continue-on-error: ${{ inputs.windows_optional }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
