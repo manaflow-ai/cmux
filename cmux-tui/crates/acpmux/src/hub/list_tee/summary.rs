@@ -135,7 +135,7 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
                 // off default is what a reader assumes when it is absent, and its ~90 bytes in
                 // both forms push a full row past MAX_SUMMARY_BYTES.
                 && !(key.as_str() == "autoSession"
-                    && *value == crate::auto_session::record::AutoRecord::row_of(None))
+                    && **value == crate::auto_session::record::AutoRecord::row_of(None))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
