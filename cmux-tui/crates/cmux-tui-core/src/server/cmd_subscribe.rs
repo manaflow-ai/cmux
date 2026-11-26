@@ -131,7 +131,6 @@ pub(super) fn subscribe_command(
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
         let _permit = permit;
-        eprintln!("DBG2 t={} start client={client}", crate::server::dbg2_ms());
         let mut transport_overflow = false;
         // Replay the current authenticated worker identity before consuming
         // live events. This closes the identify -> subscribe race and also
@@ -162,7 +161,6 @@ pub(super) fn subscribe_command(
                 break;
             }
         }
-        eprintln!("DBG2 t={} loop client={client}", crate::server::dbg2_ms());
         let interrupt = StreamInterrupt::new();
         writer.register_interrupt(&interrupt);
         outbound_stream.register_interrupt(&interrupt);
@@ -179,11 +177,7 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            eprintln!(
-                "DBG2 t={} next client={client} {:?}",
-                crate::server::dbg2_ms(),
-                subscribed_event_name(&event)
-            );
+            eprintln!("DBG2 next client={client} {:?}", subscribed_event_name(&event));
             let mut value = match &event {
                 // The client applies none (SWITCH FRAMES SF-5); attach streams still carry it.
                 MuxEvent::ScrollChanged { .. } if scroll_on_attach => continue,
@@ -449,9 +443,9 @@ pub(super) fn subscribe_command(
                 MuxEvent::GitHubChanged { .. } => continue,
                 _ => subscribed_event_json(&event),
             };
-            eprintln!("DBG2 t={} value client={client} {value}", crate::server::dbg2_ms());
+            eprintln!("DBG2 value client={client} {value}");
             if incognito.hides(&event_mux, client, &event, &mut value) {
-                eprintln!("DBG2 t={} hidden client={client}", crate::server::dbg2_ms());
+                eprintln!("DBG2 hidden client={client}");
                 continue;
             }
             // The mailbox filter named it by `subscribed_event_name`: the two agree.
@@ -468,19 +462,15 @@ pub(super) fn subscribe_command(
             {
                 continue;
             }
-            eprintln!(
-                "DBG2 t={} sending client={client} page={:?}",
-                crate::server::dbg2_ms(),
-                page_events.map(|p| p.len())
-            );
+            eprintln!("DBG2 sending client={client} page={:?}", page_events.map(|p| p.len()));
             let sent = writer.send_stream_backpressured(&value, &outbound_stream);
-            eprintln!("DBG2 t={} sent client={client} {sent:?}", crate::server::dbg2_ms());
+            eprintln!("DBG2 sent client={client} {sent:?}");
             if let Err(error) = sent {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                 break;
             }
         }
-        eprintln!("DBG2 t={} exit client={client}", crate::server::dbg2_ms());
+        eprintln!("DBG2 exit client={client}");
         if events.overflowed() || transport_overflow {
             let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
         }

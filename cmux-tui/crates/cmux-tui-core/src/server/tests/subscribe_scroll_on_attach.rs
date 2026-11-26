@@ -26,12 +26,7 @@ fn until_marker(conn: &Conn, marker: &str) -> Vec<String> {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut seen = Vec::new();
     while !seen.iter().any(|message: &String| message.contains(marker)) {
-        assert!(
-            Instant::now() < deadline,
-            "the marker never arrived t={} client={}: {seen:?}",
-            crate::server::dbg2_ms(),
-            conn.0
-        );
+        assert!(Instant::now() < deadline, "the marker never arrived: {seen:?}");
         match conn.2.try_pop() {
             Some(message) => seen.push(message),
             None => std::thread::sleep(Duration::from_millis(2)),
@@ -63,7 +58,6 @@ fn a_connection_that_reads_scroll_on_attach_gets_no_scroll_changed_on_subscribe(
     for offset in 1..=20 {
         mux.emit(MuxEvent::ScrollChanged { surface: 7, offset, at_bottom: true });
     }
-    eprintln!("DBG2 t={} emit marker", crate::server::dbg2_ms());
     mux.emit(MuxEvent::Status("scroll-marker".into()));
 
     let app_seen = until_marker(&app, "scroll-marker");
@@ -121,7 +115,6 @@ fn screen_identity_replay_and_live_events_are_opt_in() {
     }
 
     mux.emit(MuxEvent::ScreenDeviceChanged(Some("550e8400-e29b-41d4-a716-446655440000".into())));
-    eprintln!("DBG2 t={} emit marker", crate::server::dbg2_ms());
     mux.emit(MuxEvent::Status("screen-identity-marker".into()));
 
     let opted_seen = until_marker(&opted, "screen-identity-marker");
