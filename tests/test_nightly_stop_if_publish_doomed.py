@@ -111,10 +111,14 @@ class StepsAreWired(unittest.TestCase):
         return next(i for i, s in enumerate(self.steps) if s.get("name") == name)
 
     def test_checks_precede_the_compile_and_the_upload(self):
-        for check, target in (("Stop when the run can no longer publish (before the compile)", "Build nightly app (Release)"),
-                              ("Stop when the run can no longer publish (before the upload)", "Upload unsigned nightly app")):
+        # Only the join of the background acpmux build (#56668) may sit between the compile check and the
+        # compile: it waits on a build, so the check runs before it and a doomed run never waits.
+        for check, target, between in (
+                ("Stop when the run can no longer publish (before the compile)", "Build nightly app (Release)",
+                 ["Finish building in-tree acpmux for the compilation cache"]),
+                ("Stop when the run can no longer publish (before the upload)", "Upload unsigned nightly app", [])):
             i, j = self.index(check), self.index(target)
-            self.assertEqual(i + 1, j, f"{check} runs right before {target}")
+            self.assertEqual([s.get("name") for s in self.steps[i + 1:j]], between, f"{check} runs right before {target}")
             step = self.steps[i]
             self.assertEqual(step["if"], self.steps[j]["if"])
             self.assertIn('check=scripts/ci/stop_if_publish_doomed.py', step["run"])
