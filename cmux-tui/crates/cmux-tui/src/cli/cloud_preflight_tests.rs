@@ -37,7 +37,7 @@ fn teams_are_the_gates_teams() {
     assert!(teams(&[], (None, None), true).is_empty());
 }
 
-fn status(mode: &str, online: bool) -> serde_json::Value {
+fn status(mode: &str, online: bool) -> Value {
     let body = json!({"ok": true, "gateway": {"mode": mode, "online": online}});
     super::super::inference_gateway_admin::status_answer(false, &body)
 }

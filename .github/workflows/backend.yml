@@ -90,7 +90,7 @@ permissions:
 # The `-push` key keeps a dispatch (staging, promote, rollback) out of the pushes' group.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   # A pull request's newer push supersedes its running tests (CI cut 2026-11-24: 12 api-workerd shards kept running for
   # every superseded head); a started push run on a base branch finishes (a cancelled deploy-staging is a red deploy).
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -115,8 +115,8 @@ jobs:
   # of this suite were 12,170 runner-min in 24 h, 98% on pull requests). A push, a dispatch or a diff git cannot
   # list runs them.
   workerd-changes:
-    if: ${{ (github.event.action != 'closed') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event.action != 'closed') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.route.outputs.run }}
@@ -145,9 +145,9 @@ jobs:
 
   api-workerd:
     needs: workerd-changes
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && github.event.action != 'closed' && needs.workerd-changes.outputs.run != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.workerd-changes.result == 'success' || needs.workerd-changes.result == 'skipped') }}
     name: api-workerd (${{ matrix.shard }}/12)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -230,11 +230,11 @@ jobs:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
     # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
     needs: [api-workerd, workerd-changes]
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && github.event.action != 'closed') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && github.event.action != 'closed') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
     # skipped LINUX_RUNNER: staging's test sat queued 25+ min (run 44637914493 attempt 3) with no 8 vCPU job running.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 55 for its own steps, plus up to 40 to rerun API Worker shards whose runner died (see that step).
     timeout-minutes: 95
     services:
@@ -429,7 +429,7 @@ jobs:
   # development branch on test-only keys. Pushes to feat-cmux-next only (environment branch policy).
   vitess-development:
     needs: test
-    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment: cmux-next-vitess-ci
     # These suites clean up fixed test keys on one shared branch. Keep the serialization
@@ -472,7 +472,7 @@ jobs:
 
   migrations-development:
     needs: test
-    if: ${{ (vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     environment: cmux-next-development
@@ -509,7 +509,7 @@ jobs:
   preview:
     environment: cmux-next-preview-deploy
     needs: migrations-development
-    if: ${{ (vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     concurrency:
@@ -573,7 +573,7 @@ jobs:
   # The chat runs on the shared model stub (tests/fixtures/model-stub) with a made-up login: no Claude secret.
   journey-preview:
     needs: [preview]
-    if: ${{ (always() && needs.preview.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && needs.preview.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
       name: cmux-next-vm-image-dev
@@ -608,8 +608,8 @@ jobs:
   # Pushes are never rejected (agents push straight to feat-cmux-next); a bad migration push
   # turns red here, after the fact. No secrets: it compares the pushed tree with the previous head.
   migrations-push-guard:
-    if: ${{ (github.event_name == 'push') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event_name == 'push') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -693,7 +693,7 @@ jobs:
   deploy-staging:
     # G1 of the production promotion counts a staging deploy only when the tests passed (cx-w1ald review P1).
     needs: [test]
-    if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # 30, not 15: on a slow runner the history fetch below alone took 11.5 min (job 138185910029, a Freestyle
     # runner; 34 s on the owned pool), the job was cancelled at 15 before any deploy step ran, and a cancelled
@@ -711,7 +711,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -722,6 +724,25 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+      # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
+      # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
+      # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
+      # production on an old commit for about 10 hours. A failed checkout is finished here through the
+      # repository's git retry layer: transport failures are tried again (3 tries, 180 s each), refusals are not.
+      - name: Finish the checkout when its blob download dropped (retried)
+        if: steps.checkout.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null || [ "$(git config --bool core.sparseCheckout || true)" != true ]; then
+            echo "::error title=checkout::actions/checkout failed before its working-tree step (its fetch spent its own three tries); see that step's error"
+            exit 1
+          fi
+          helper="$RUNNER_TEMP/git_fetch_retry.py"
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+            || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
+          if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
+          python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -791,7 +812,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$VITESS_STAGING_URL" ]; then
-            if [ -n "$BEFORE" ] && git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
+            # The fetch goes through the repository's git retry layer (transport failures tried again, refusals not).
+            if [ -n "$BEFORE" ] && python3 "$GITHUB_WORKSPACE/scripts/ci/git_fetch_retry.py" --stop-on-refusal --tries 3 --timeout 120 \
+                -- git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
               echo "::notice title=Vitess staging migrations not checked::cmux-next-staging has no CMUX_NEXT_VITESS_STAGING_ADMIN_URL; this push does not change drizzle-mysql"
               exit 0
             fi
@@ -866,7 +889,7 @@ jobs:
   # ships). Every Vercel deploy counts against the team's 6000-a-day cap, which also serves console.cmux.dev.
   deploy-dashboard-staging:
     needs: [deploy-staging]
-    if: ${{ (needs.deploy-staging.result == 'success' && needs.deploy-staging.outputs.deployed == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (needs.deploy-staging.result == 'success' && needs.deploy-staging.outputs.deployed == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # 30, not 15: the history fetch below took 6 to 8 min on a slow runner (jobs in runs 45306859441, 45310842160).
     timeout-minutes: 30
@@ -882,7 +905,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -893,6 +918,25 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+      # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
+      # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
+      # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
+      # production on an old commit for about 10 hours. A failed checkout is finished here through the
+      # repository's git retry layer: transport failures are tried again (3 tries, 180 s each), refusals are not.
+      - name: Finish the checkout when its blob download dropped (retried)
+        if: steps.checkout.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null || [ "$(git config --bool core.sparseCheckout || true)" != true ]; then
+            echo "::error title=checkout::actions/checkout failed before its working-tree step (its fetch spent its own three tries); see that step's error"
+            exit 1
+          fi
+          helper="$RUNNER_TEMP/git_fetch_retry.py"
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+            || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
+          if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
+          python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -978,7 +1022,7 @@ jobs:
   # cloud-chat-proof.yml uses (cmux-next-vm-image-dev, feat-cmux-next only, like this deploy).
   journey-staging:
     needs: [deploy-staging]
-    if: ${{ (needs.deploy-staging.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (needs.deploy-staging.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
       name: cmux-next-vm-image-dev
@@ -993,8 +1037,13 @@ jobs:
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       # The Zig is the one ghostty-next's build.zig.zon names, the libghostty-vt
@@ -1016,6 +1065,19 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
+      # Without it every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339), which left
+      # the journey 1 min under this job's 50 and cancelled it, so no promote reached production. Same cache
+      # as cloud-journey-prod.yml's identical build.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          workspaces: cmux-tui
+          # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
+          cache-bin: false
+          # Save the build even when the journey goes red: the first run after #56495 built in 13 min but its
+          # journey ran past the job's 50 (job 139905166641), and a cancelled job never runs the save, so the
+          # cache would stay cold forever.
+          cache-on-failure: true
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1046,6 +1108,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
+        # Under the job's 50 so a slow journey fails as a step and rust-cache's post step still saves the build.
+        timeout-minutes: 32
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -1063,20 +1127,22 @@ jobs:
   # var set out of band); a var change made by the pushed commits deploys. Same rails as staging:
   # schema gate, recorded rollback target, smoke, automatic rollback on red.
   deploy-development:
-    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # 30, not 15: the same history fetch as deploy-staging, which took 11.5 min on a slow runner.
     timeout-minutes: 30
     environment: cmux-next-development
     concurrency:
-      group: cmux-next-deploy-development${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+      group: cmux-next-deploy-development${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     defaults:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -1087,6 +1153,25 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+      # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
+      # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
+      # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
+      # production on an old commit for about 10 hours. A failed checkout is finished here through the
+      # repository's git retry layer: transport failures are tried again (3 tries, 180 s each), refusals are not.
+      - name: Finish the checkout when its blob download dropped (retried)
+        if: steps.checkout.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null || [ "$(git config --bool core.sparseCheckout || true)" != true ]; then
+            echo "::error title=checkout::actions/checkout failed before its working-tree step (its fetch spent its own three tries); see that step's error"
+            exit 1
+          fi
+          helper="$RUNNER_TEMP/git_fetch_retry.py"
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+            || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
+          if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
+          python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -1158,16 +1243,29 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Every fetch goes through the repository's git retry layer: a slow transfer, reset or timeout is
+          # tried again (3 tries, 120 s each), a refusal (no such commit, auth) is not.
+          retry_git() { python3 "$GITHUB_WORKSPACE/scripts/ci/git_fetch_retry.py" --stop-on-refusal --tries 3 --timeout 120 -- git "$@"; }
           if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
-            git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
+            retry_git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
             BASE="$(git rev-parse FETCH_HEAD^)"
           else
-            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
+            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || retry_git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
             BASE="$BEFORE"
           fi
           # BEFORE's config, then its 99 first-parent ancestors': a cancelled or superseded deploy leaves
           # an older commit's vars serving, which is not drift (a hand-set var matches none of them).
-          git fetch --quiet --no-tags --depth=100 origin "$BASE" 2>/dev/null || true
+          retry_git fetch --quiet --no-tags --depth=100 origin "$BASE" 2>/dev/null || true
+          # The clone is blobless, so each `git show` below would fetch its wrangler.jsonc from the promisor
+          # remote in its own unretried call, and one dropped call ended the list early. Fetch those blobs
+          # first in one retried call, the way git's own lazy fetch asks for them.
+          mapfile -t blobs < <(for c in $(git rev-list --first-parent --max-count=100 "$BASE"); do
+            git rev-parse --verify --quiet "${c}:backend/apps/api/wrangler.jsonc" || break; done | sort -u)
+          if [ "${#blobs[@]}" -gt 0 ]; then
+            retry_git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head \
+              --recurse-submodules=no --filter=blob:none origin "${blobs[@]}" \
+              || echo "::warning title=Worker vars::could not prefetch the base wrangler.jsonc blobs; reading them one at a time"
+          fi
           bases=()
           i=0
           for c in $(git rev-list --first-parent --max-count=100 "$BASE"); do
@@ -1215,13 +1313,13 @@ jobs:
   # No production secret here.
   promote-gates:
     environment: cmux-next-production
-    if: ${{ (always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     needs: [deploy-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     # One repository-wide queue with promote-production and deploy-production (review P2).
     concurrency:
-      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1322,12 +1420,12 @@ jobs:
 
   promote-production:
     needs: [promote-gates]
-    if: ${{ (always() && needs.promote-gates.outputs.candidate != '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && needs.promote-gates.outputs.candidate != '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1425,12 +1523,12 @@ jobs:
   # that served before the current code deployment. prod-promote.ts refuses across a Durable Object
   # lifecycle change (Cloudflare cannot roll back across one): fix forward, or target=chief-off.
   rollback-production:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.target == 'rollback') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.target == 'rollback') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1482,12 +1580,12 @@ jobs:
   # (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF). Same code, so no lifecycle change: target=rollback turns
   # the brain on again. The smoke runs the always-routes only (no source changed).
   chief-off-production:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.target == 'chief-off') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.target == 'chief-off') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 15
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1583,12 +1681,12 @@ jobs:
           echo "::warning title=Chief brain off::production serves the off switch; automatic promotes hold until an exact-SHA promote (target=promote, candidate=<sha>). target=rollback turns the brain on again."
 
   deploy-production:
-    if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     defaults:
@@ -1676,7 +1774,7 @@ jobs:
   # forward, or target=chief-off for the Chief brain.
   journey-production:
     needs: [promote-gates, deploy-production, promote-production]
-    if: ${{ (always() && (needs.deploy-production.result == 'success' || needs.promote-production.result == 'success')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && (needs.deploy-production.result == 'success' || needs.promote-production.result == 'success')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # cmux-next-cloud-journey holds the production agent test account as CMUX_DOGFOOD_STACK_*, shadowing the
     # repository's pair (the dev Stack account, which production rejects with EMAIL_PASSWORD_MISMATCH).
@@ -1784,7 +1882,7 @@ jobs:
 
   preview-cleanup:
     environment: cmux-next-preview-deploy
-    if: ${{ (vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1' && github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 15
     steps:
