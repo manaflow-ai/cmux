@@ -426,6 +426,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         throwaway: false,
         owner_credential: false,
         create_key: None,
+        placed_by: None,
         agent_behind_seq: None,
         hibernated_ms: 0,
         close: None,
