@@ -533,11 +533,12 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         return result, commit, self.box.r2 / "cmux-tui" / "tree" / ("a" * 40), acpmux
 
     def test_a_new_tree_carries_the_commit_acpmux_in_completion_json(self) -> None:
-        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin, and cmux-rd
-        # with its notices for x86_64/aarch64 glibc.
+        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin, cmux-rd
+        # with its notices for x86_64/aarch64 glibc, and (#59033) cmux-launch-preread
+        # for aarch64/x86_64 darwin.
         result, commit, published, acpmux = self.publish_tree_with_acpmux()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(acpmux), 8)
+        self.assertEqual(len(acpmux), 10)
         gate = json.loads((published / "completion.json").read_text())["binaries"]
         for n in acpmux:
             self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
