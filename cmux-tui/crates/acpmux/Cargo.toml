@@ -76,17 +76,20 @@ cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
-cmux-felt.workspace = true
 # The share host's verified copy of the Screen Sharing helper outside the app.
 cmux-signed-bundle.workspace = true
 cmux-tailnet = { workspace = true, optional = true }
-# The stable node's front and its placement messages (the tsnet part only with `tailnet`).
-cmux-tailnet-front.workspace = true
 # The join request and its checks (`tailnet/embedded_join.rs`).
 cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+# Felt-latency metrics (`server/felt.rs`); portable, so every OS builds it.
+cmux-felt.workspace = true
+# The stable node's front and its placement messages (the tsnet part only with `tailnet`, and only
+# on unix); the placement table is portable, so every OS builds it.
+cmux-tailnet-front.workspace = true
+cmux-presence.workspace = true
 # A hybrid start's tool calls: held, then routed (`hub/hybrid_hold.rs`); the Cloud account and hybrid
 # rule a new chat's place weighs (place_mode.rs). One dependency, named once: the base merge that
 # brought both comments in also brought the line twice, which is a TOML duplicate key.
@@ -287,6 +290,8 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 cmux-build-space = { workspace = true, features = ["testing"] }
+# Seeded-secret tests: gated clients send to a local capture server (hub/forum_hosted.rs).
+cmux-egress = { workspace = true, features = ["capture"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
@@ -298,6 +303,8 @@ cmux-auto-session = { workspace = true, features = ["test-support"] }
 cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
+# The protocol IR's compat gate (`protocol::tests::protocol_abi_breaks_have_rules`, RFD hq 0178).
+cmux-api-compat = { workspace = true }
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
