@@ -1,14 +1,14 @@
 # The Cloud machine channel's journey verdict and its rollback to the last proven build, called twice by
-# cmux-tui-artifacts.yml for each feat-cmux-next push whose run builds the tree: phase baseline while the commit
+# cmux-machine-channel.yml for each feat-cmux-next push whose run points the channel: phase baseline while the commit
 # builds (scripts/cmux-next/cloud-journey-ci.sh JOURNEY_PHASE=baseline on staging, the channel's previous build),
-# and phase after once point-machine-channel-early has moved the channel (JOURNEY_PHASE=after, its "Cloud journey
+# and phase after once point-x86_64 has moved the channel (JOURNEY_PHASE=after, its "Cloud journey
 # verdict": pass, red, regressed, not-run). Phase after then settles the channel with the signing key:
 #   pass      the channel's signed file is copied to cmux-tui/channels/cloud-machine-proven.json, the last proven
 #             build;
 #   regressed (a step green on the baseline is red now, and not capacity: cloud-journey.ts capacityOnly) the
 #             channel moves back to that proven build (scripts/ci/cmux-machine-channel.py rollback: its own commit
 #             and URLs, retold one second past this commit's commit time, so the forward-only channel and the
-#             machines' updaters take it); this run's later fat point (point-machine-channel) then finds the
+#             machines' updaters take it); cmux-tui-artifacts.yml's later fat point (point-machine-channel) then finds the
 #             channel newer and keeps it, and the next push moves it forward again.
 # Any other verdict, or a channel that names another commit by then (a newer push judges itself), changes
 # nothing. A delivery step, not a gate: continue-on-error keeps every job out of the caller's result.
