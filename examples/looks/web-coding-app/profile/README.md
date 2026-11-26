@@ -8,14 +8,14 @@ It is built only from public surfaces (`docs/cmux-next/look-addons.md`, `cmux se
 below that is not matched names the cmux change it waits on.
 
 ```sh
-cmux setup install github:manaflow-ai/cmux/examples/looks/web-coding-app/profile
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/web-coding-app/profile@feat-cmux-next
 cmux setup check examples/looks/web-coding-app/profile   # offline check of this folder
 ```
 
 | File | What it sets |
 | --- | --- |
 | `cmux-setup.json` | sidebar, tabs, chat column, diff and attention settings, the motion switches |
-| `themes/web-coding-app.json` | the colors: white page, `#f1f1f1` prompt bubble, hairline `#e5e5e5` edges |
+| `themes/web-coding-app.json` | page and frame colors, plus 150 ms hover fades |
 | `agent-pane/theme.css` | the chat's paint (cmux.agentPane.style/1 tokens), no size or spacing changes |
 | `keybindings.json` | new chat, step sessions, reopen, unread, model, effort, mode, shortcut search |
 
@@ -119,13 +119,12 @@ reopen has a key, and the mode menu has one.
 | --- | --- | --- | --- |
 | Streaming text reveal | word by word, each word fades in over about 200-300 ms | characters, 120 ms fade | partial: waits on `agentPane.display.streaming` |
 | Diff / file card enter | within one frame | 80 ms fade | matched |
-| Collapsible row hover | background 150 ms ease | 80 ms | partial: waits on profile-level motion tokens |
-| Collapsible chevron rotate | 150 ms ease | 180 ms | partial: waits on profile-level motion tokens |
-| List header / icon fade | opacity 150 ms ease | 80-120 ms | partial: waits on profile-level motion tokens |
+| Collapsible row hover | background 150 ms ease | theme requests 150 ms on hover entry and exit | partial: row timing unverified |
+| Collapsible chevron rotate | 150 ms ease | the transcript uses the shared fold duration | partial: no per-chevron timing |
+| List header / icon fade | opacity 150 ms ease | 150 ms for controls using the theme hover fade | partial: individual controls unverified |
 | Popover / model picker open | no transition | no transition | matched |
 | Spinner | dot grid, still under reduced motion | status spinner, still under reduced motion | partial: shape differs |
 | Reduced motion | animations off | follows the system setting, plus `ui.animations.enabled` | matched |
 | Message send, dialog open, button press | not measured | 120 ms, 180 ms, 80 ms | unmeasured |
 
-Every motion switch stays on (`ui.animations.enabled`). The timings a profile cannot set yet are listed in
-`docs/cmux-next/extensions/behavior-motion-gaps.md` under "Gaps from the profiles lane".
+The theme sets `motion.fades.hover` and `motion.fades.hoverOut` in seconds. Streaming and transcript folds use separate timing controls. See `docs/cmux-next/extensions/behavior-motion-gaps.md` for the available profile controls.

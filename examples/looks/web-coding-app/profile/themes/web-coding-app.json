@@ -26,5 +26,9 @@
   "sidebar.sectionLook": "quiet",
   "appearance.statusIndicator.style": "dot",
 
-  "appearance.density": "compact"
+  "appearance.density": "compact",
+
+  "motion": {
+    "fades": { "hover": 0.15, "hoverOut": 0.15 }
+  }
 }

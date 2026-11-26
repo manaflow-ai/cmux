@@ -38,12 +38,7 @@
     "diff.layout": "unified",
     "notifications.attention.agentChats": "ring",
 
-    // Motion. The reference's file cards land in one frame, its popovers open with no transition and
-    // its hovers take about 150 ms; cmux's own timings are already that quick, so every switch stays
-    // on at the normal speed. What a profile cannot set yet (docs/cmux-next/extensions/behavior-motion-gaps.md):
-    // the word-by-word streaming fade (pending agentPane.display.streaming) and its own hover and
-    // chevron timings (pending profile-level motion tokens).
-    // "agentPane.display.streaming": "words",
+    // The theme sets hover entry and exit to 150 ms. Keep system Reduce Motion effective.
     "ui.animations.enabled": true
   }
 }

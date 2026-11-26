@@ -2,8 +2,8 @@
 // `cmux customize discard` puts your own keys back.
 [
   { "key": "cmd+n", "command": "palette.newAgentChat" },
-  { "key": "cmd+shift+leftbracket", "command": "prevSidebarTab" },
-  { "key": "cmd+shift+rightbracket", "command": "nextSidebarTab" },
+  { "key": "cmd+shift+leftbracket", "command": "prevSidebarTab", "args": { "scope": "workspaces" } },
+  { "key": "cmd+shift+rightbracket", "command": "nextSidebarTab", "args": { "scope": "workspaces" } },
   // Sessions are workspaces in this profile, so reopening a closed session reopens its workspace.
   { "key": "cmd+shift+t", "command": "reopenClosedWorkspace" },
   { "key": "cmd+shift+u", "command": "jumpToUnread" },
