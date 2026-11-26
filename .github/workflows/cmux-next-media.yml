@@ -554,14 +554,15 @@ jobs:
         run: |
           set -euo pipefail
           ci="$GITHUB_WORKSPACE/scripts/ci"
-          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ]; then
+          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ] ||
+              [ ! -f "$ci/media_tree_submodules.sh" ]; then
             git fetch --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-tour-ci"
             mkdir -p "$ci"
-            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py; do
+            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py media_tree_submodules.sh; do
               git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
             done
-            chmod +x "$ci/media_build_app.sh"
+            chmod +x "$ci/media_build_app.sh" "$ci/media_tree_submodules.sh"
           fi
           # The workflow itself comes from GITHUB_SHA (the merge ref of a pull request).
           git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
@@ -619,7 +620,9 @@ jobs:
           # mid-add leaves the entry locked, which prune skips: -f -f takes it.
           git worktree prune
           git worktree add -f -f --detach "$RUNNER_TEMP/cmux-next-base" "$MERGE_BASE"
-          git -C "$RUNNER_TEMP/cmux-next-base" submodule update --init --recursive
+          # ghostty and ghostty-next only, from this checkout's clones when the
+          # pin matches, one commit deep, three tries (media_tree_submodules.sh).
+          "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$RUNNER_TEMP/cmux-next-base"
           (cd "$RUNNER_TEMP/cmux-next-base" && \
             GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh)
 
@@ -881,7 +884,7 @@ jobs:
             # in job 140119006420, and a stalled one must not run the step into the job's cap.
             bounded git fetch --no-tags --quiet --depth=1 origin "$sha" \
               && git worktree add -f -f --detach "$tree" "$sha" \
-              && bounded git -C "$tree" submodule update --init --recursive \
+              && bounded "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$tree" \
               && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" bounded ./scripts/download-prebuilt-ghosttykit.sh) \
               && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
                 bounded "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \

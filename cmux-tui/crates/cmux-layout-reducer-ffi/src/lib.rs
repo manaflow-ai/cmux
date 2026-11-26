@@ -20,6 +20,8 @@
 //! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
+//! the onboarding tool window's rules (`onboarding_*`: its footer, Import
+//! from Browser's selection rules),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
@@ -103,6 +105,7 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 mod notification_rings;
+mod onboarding;
 mod pane_focus;
 mod pane_placement;
 mod screen;
@@ -647,6 +650,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
             operation if pane_placement::handles(operation) => {
                 pane_placement::respond(operation, request)?
             }

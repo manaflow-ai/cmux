@@ -54,7 +54,7 @@ class TourTimeoutTest(unittest.TestCase):
     def test_before_tree_network_steps_run_on_the_clock(self):
         _, clip = tour_and_clip()
         run = clip["run"]
-        for cmd in ("git fetch --no-tags", "git -C \"$tree\" submodule update",
+        for cmd in ("git fetch --no-tags", "\"$MEDIA_TOUR_CI/media_tree_submodules.sh\"",
                     "./scripts/download-prebuilt-ghosttykit.sh"):
             line = next(l for l in run.splitlines() if cmd in l)
             self.assertIn(f"bounded {cmd}", line, f"{cmd} is not under bounded")
