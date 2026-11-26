@@ -13,6 +13,8 @@ step on the same worker had already built.
     ios_ffi_cache.py probe   INPUTS TIP        write the same paths' trees on feat-cmux-next's tip to
                                                TIP (run beside the build on a miss)
     ios_ffi_cache.py store   ROOT INPUTS TIP   publish ROOT's fresh build under its key
+    ios_ffi_cache.py build   ROOT RC CMD...    run the build CMD (on a miss) in a warm cargo target dir and
+                                               write its exit code to RC (no RC: the step builds itself)
 
 The key is a sha256 over:
   - the git tree id at HEAD of every directory cargo builds from: the cmux-next-ios/rust
@@ -49,9 +51,25 @@ landed-only rule never kept a step's own code out: a step whose FFI inputs match
 could already publish whatever its own scripts built.) Publication is one rename of a private
 temp dir, so two steps that miss one key never mix.
 
+A miss no longer builds cold. The key names ~45 input trees, and feat-cmux-next changed one of them
+in 263 of its commits over three days (2026-11-23..26, about one every 16 minutes), so a PR's base
+rarely matches a key any step on its worker built: fleet step 3f53ebc7e5c403d3b5af5d55, a one-file
+Swift edit on feat-cmux-next ab0103ac, missed and paid 227 s (Aziz's earlier steps 416 s) because
+the tip had already moved past its base's FFI inputs. Each step's cargo target dir was inside its
+fresh checkout, so every miss recompiled all ~445 registry crates for three targets. `build` runs
+the build with CARGO_TARGET_DIR in one of TARGET_SLOTS warm per-worker dirs
+(CACHE/ios-ffi-target/<n>, held by an exclusive flock for the whole build, so two steps never share
+one; with every slot busy the step builds in its checkout as before). Cargo's own fingerprints
+decide what is fresh, so a slot only saves work: registry crates compile once per worker and
+toolchain, and a miss rebuilds just the path crates. Every step's checkout is a new path, so after
+the build `build` removes the path crates' artifacts the build superseded (their names, older than
+the build), and empties a slot past TARGET_CAP_BYTES.
+
 Exit codes: 0 done (restore: hit), 1 restore: miss (probe: no tip), 2 usage, 3 no key for an
 expected reason (no cache, inputs differ from HEAD), 4 no key because a command it needs failed,
-5 any other error, 6 restore: an entry that did not verify, removed. The step builds on every code but 0 from restore, and warns
+5 any other error, 6 restore: an entry that did not verify, removed; build exits with CMD's code
+and writes it to RC, and the step reads RC, so a helper that fails without running CMD only costs
+the warm dir. The step builds on every code but 0 from restore, and warns
 (log and SUMMARY.md) on everything but a hit, a miss and 3.
 
 CMUX_CI_CACHE_DIR is the cache root (the fleet worker sets it on every step); unset, there is
@@ -83,6 +101,9 @@ SHA_CHARS = KEY_CHARS
 KEEP_ENTRIES = 16  # branch builds are stored too: room for the branches in flight on a worker
 MAX_AGE_SECONDS = 7 * 86400
 BUSY_SECONDS = 3600
+TARGET_SLOTS = 2  # warm cargo target dirs per worker: two steps on one worker each get one
+TARGET_CAP_BYTES = 24 << 30  # a slot past this is emptied after its build (one cold build)
+TARGET_ARTIFACT_DIRS = ("deps", ".fingerprint", "build", "incremental")
 # Build settings that change the FFI's bytes besides the sources and the toolchain.
 # Build settings that change the FFI's bytes besides the sources and the toolchain: every
 # variable cargo, rustc or the C toolchain reads for a build (CARGO_*, RUST*, the iOS target and
@@ -469,11 +490,152 @@ def store(root, inputs_file, tip_file):
     return 0
 
 
-USAGE = """usage: ios_ffi_cache.py key ROOT INPUTS | restore ROOT KEY | probe INPUTS TIP | store ROOT INPUTS TIP"""
+def tree_bytes(base):
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(base):
+        for name in filenames:
+            try:
+                total += os.lstat(os.path.join(dirpath, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def crate_of(entry):
+    """The crate an artifact under deps/, .fingerprint/, build/ or incremental/ belongs to,
+    '-' as '_' (libcmux_wg-0123abcd.rlib, cmux-wg-0123abcd -> cmux_wg); "" for other names."""
+    name = entry.split(".", 1)[0] if not entry.startswith(".") else ""
+    if name.startswith("lib"):
+        name = name[3:]
+    if "-" not in name:
+        return ""
+    return name.rsplit("-", 1)[0].replace("-", "_")
+
+
+def local_crates(root):
+    """The names of the path packages the FFI workspace builds ('-' as '_')."""
+    names = set()
+    for d in path_packages(root):
+        try:
+            text = (root / d / "Cargo.toml").read_text()
+        except OSError:
+            continue
+        section = ""
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("["):
+                section = line
+            elif section == "[package]" and line.startswith("name") and "=" in line:
+                names.add(line.split("=", 1)[1].strip().strip('"\'').replace("-", "_"))
+                break
+    return names
+
+
+def trim_target(slot, root, started):
+    """Remove the path crates' artifacts this build superseded: every step's checkout is a new
+    path, so cargo builds them under a new hash each step and the old ones are never used again.
+    Registry crates' artifacts stay (that is the point of the slot). Then empty a slot past
+    TARGET_CAP_BYTES. Returns (files removed, slot bytes after)."""
+    names = local_crates(root)
+    removed = 0
+    for dirpath, dirnames, _ in os.walk(slot):
+        if os.path.basename(dirpath) not in TARGET_ARTIFACT_DIRS:
+            continue
+        dirnames[:] = []  # an artifact dir's entries are artifacts, not more profile dirs
+        entries = []
+        for name in os.listdir(dirpath):
+            crate = crate_of(name)
+            if crate in names:
+                try:
+                    entries.append((crate, name, os.lstat(os.path.join(dirpath, name)).st_mtime))
+                except OSError:
+                    pass
+        fresh = {crate for crate, _, mtime in entries if mtime >= started}
+        for crate, name, mtime in entries:
+            if crate in fresh and mtime < started:
+                p = os.path.join(dirpath, name)
+                if os.path.isdir(p) and not os.path.islink(p):
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    with contextlib.suppress(OSError):
+                        os.unlink(p)
+                removed += 1
+    size = tree_bytes(slot)
+    if size > TARGET_CAP_BYTES:
+        for child in list(slot.iterdir()):
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child, ignore_errors=True)
+            elif child.name != "toolchain.txt":
+                with contextlib.suppress(OSError):
+                    child.unlink()
+        print("ios-ffi target: emptied %s (%d GiB, past %d GiB)" % (slot.name, size >> 30, TARGET_CAP_BYTES >> 30))
+        size = 0
+    return removed, size
+
+
+def run_build(argv, rc_file, env=None):
+    """Run the build and record its exit code at once, before anything else can fail."""
+    rc = subprocess.call(argv, env=env)
+    pathlib.Path(rc_file).write_text("%d\n" % rc)
+    return rc
+
+
+def build(root, rc_file, argv):
+    """Run the FFI build ARGV with CARGO_TARGET_DIR in a free warm slot (see the module doc)."""
+    base = os.environ.get("CMUX_CI_CACHE_DIR")
+    if not base:
+        return run_build(argv, rc_file)
+    slots = pathlib.Path(base) / "ios-ffi-target"
+    slots.mkdir(parents=True, exist_ok=True)
+    for n in range(TARGET_SLOTS):
+        with open(slots / ("%d.lock" % n), "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
+            slot = slots / str(n)
+            slot.mkdir(exist_ok=True)
+            # cargo's fingerprints name rustc but not Xcode or the SDKs the C code builds against.
+            try:
+                tools = toolchain(root)
+            except ToolFailed as e:
+                print("ios-ffi target: no toolchain (%s), building in the checkout" % e, flush=True)
+                return run_build(argv, rc_file)
+            stamp = slot / "toolchain.txt"
+            try:
+                same = stamp.read_text() == tools
+            except OSError:
+                same = False
+            if not same:
+                for child in list(slot.iterdir()):
+                    if child.is_dir() and not child.is_symlink():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink()
+                stamp.write_text(tools)
+            warm = any(c.name != "toolchain.txt" for c in slot.iterdir())
+            print("ios-ffi target: slot %d (%s)" % (n, "warm" if warm else "cold"), flush=True)
+            started = time.time() - 2  # mtime granularity
+            rc = run_build(argv, rc_file, env=dict(os.environ, CARGO_TARGET_DIR=str(slot)))
+            try:
+                removed, size = trim_target(slot, root, started)
+                print("ios-ffi target: slot %d holds %.1f GiB after removing %d superseded artifacts"
+                      % (n, size / (1 << 30), removed))
+            except Exception as e:  # trimming only bounds the slot; never fail the build for it
+                print("ios-ffi target: trim failed: %s: %s" % (type(e).__name__, e))
+            return rc
+    print("ios-ffi target: every slot busy, building in the checkout", flush=True)
+    return run_build(argv, rc_file)
+
+
+USAGE = """usage: ios_ffi_cache.py key ROOT INPUTS | restore ROOT KEY | probe INPUTS TIP | store ROOT INPUTS TIP
+       | build ROOT RC CMD..."""
 
 
 def main(argv):
     arity = {"key": 3, "restore": 3, "probe": 3, "store": 4}
+    if argv and argv[0] == "build" and len(argv) >= 4:
+        return build(pathlib.Path(argv[1]).resolve(), argv[2], argv[3:])
     if not argv or arity.get(argv[0]) != len(argv):
         print(USAGE, file=sys.stderr)
         return 2
