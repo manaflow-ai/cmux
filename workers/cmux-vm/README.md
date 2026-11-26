@@ -201,8 +201,12 @@ confirmed ownership row repairs an uncertain completion, including a tombstone:
 retrying a deleted allocation cannot create another VM.
 A provider 4xx create answer other than 408 or 409, confirmed by a 404 at the
 exact slug, frees the slot at once; the same key may retry under quota. A send
-whose outcome is unknown (5xx, timeout, transport) is resent, or its
-cancellation settles, only after a 10-minute grace window and another empty
+whose outcome is unknown (5xx, timeout, transport) is resent only after 150
+seconds (`CREATE_RESEND_AFTER_MS`: the 120-second create timeout plus 30) and
+another empty exact-slug lookup, under the same slug: the provider refuses a
+second VM at a slug with 409, and the read after that 409 adopts the first
+send's VM, so a resend never makes a second VM. Its cancellation settles only
+after the 10-minute grace window (`CREATE_SEND_GRACE_MS`) and another empty
 exact-slug lookup.
 
 Unresolved allocation intents do not expire at the ordinary 24-hour key or
@@ -219,9 +223,9 @@ and live-provider validation remain separate work.
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429). A production product tenant has no machine-count
 cap: its machines are metered and cmux-platform's team spending cap is the stop.
-Dev/test tenants (every tenant off production) keep 300 live VMs (NEXT Max's
-machines kept, so a plan is the stop there), paused ones
-too; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
+Dev/test tenants (every tenant off production) have no count cap either: idle
+pause, the agent reaper, cmux-platform's test reaper and the team's Cloud plan
+and spending cap reclaim or stop a leak; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
@@ -449,17 +453,17 @@ ids), remove all but the create for those services. Unset, nothing changes.
   408 or 409, then 404 at the exact slug) marks the send rejected and frees
   the slot, and a retry sends at once; a 5xx, a timeout or a VM booted from
   another snapshot leaves the send uncertain, and retries under that key
-  answer 503 without sending until the 10 minute send grace has passed
-  (`CREATE_SEND_GRACE_MS`), each later round that boots another snapshot
+  answer 503 without sending until 150 seconds have passed
+  (`CREATE_RESEND_AFTER_MS`), each later round that boots another snapshot
   making and deleting one VM. What the provider answers for a snapshot it no
-  longer has is not confirmed; confirm it before listing a caller other than
-  cmux-platform development. A mismatched VM whose delete fails runs
+  longer has is not confirmed; confirm it before listing production. A mismatched VM whose delete fails runs
   unrecorded until the orphan sweep; it is logged as
   `vm_create_discard_failed` (public VM id, `reason` `receipt` or
   `oversized`, the delete's `status`).
 
-The staging Worker lists `cloud-platform-dev` in both (it also serves
-cmux-platform staging, which stays as before); production lists none. The
+The staging Worker lists `cloud-platform-dev` and `cloud-platform-staging` in
+both; production lists none. Staging takes the unconfirmed missing-snapshot
+case above: at worst a staging create answers 503 for 150 seconds. The
 `vm_create` line (Operations) says what each create did: `imageVariant`, and
 null `recoverMs`, `verifyImageMs` and `resizeMs` for a call that was not made.
 
@@ -670,6 +674,16 @@ commands are available through `cmux vm client-session ...`.
 Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
+
+## Dated API versions
+
+A client pins the API it was written against with `Cmux-Api-Version: YYYY-MM-DD` (the base is 2026-11-24). The
+Worker serves the newest version dated on or before the pin, translates the request up and the JSON reply down, and
+names the version served in the reply's `Cmux-Api-Version`. A malformed pin or one older than the base gets 400
+`UnsupportedApiVersion`. No header: the current API, untouched. A breaking change to a route appends a dated
+version to `API_VERSIONS` in `src/api-version.ts` describing the change old to new (`rename`, `add`, `remove`);
+each dated version stays served for at least 12 months after the next one ships
+(`cmux-tui/spec/api-versioning.md`). Cost: `bun scripts/bench-api-version.ts`.
 
 ## Layout
 

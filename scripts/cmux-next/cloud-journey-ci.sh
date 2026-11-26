@@ -6,7 +6,8 @@
 # misnamed secret, as backend.yml journey-preview's CMUX_JOURNEY_DEV_STACK_* was, cmuxterm-hq#8702) is an
 # error and exit 1, verdict not-run: a journey never skips silently. A baseline (below) still exits 0.
 #
-# Around a deploy (cmux-vm.yml): JOURNEY_PHASE=baseline before it (never fails the job), then
+# Around a deploy (cmux-vm.yml; cloud-machine-channel-journey.yml for the Cloud machine
+# channel): JOURNEY_PHASE=baseline before it (never fails the job), then
 # JOURNEY_PHASE=after: exit 3 when a step that passed on the baseline fails now (the deploy's own red,
 # which rolls the Worker back), 1 for a red that was already red before, 0 when green.
 #
@@ -89,6 +90,8 @@ run() { # label, extra args...
   # by the guest chat (the staging smoke uses the local model stub, never a real credential).
   if [ -n "${CMUX_PATH:-}" ]; then args+=(--cmux "$CMUX_PATH"); else args+=(--skip sync); fi
   if [ -n "${JOURNEY_MODEL:-}" ]; then args+=(--model "$JOURNEY_MODEL"); fi
+  # cmux-autocloud (RFD 0139) chats over the carrier after the journey's own dial; needs --cmux.
+  if [ -n "${AUTOCLOUD_TUI_PATH:-}" ] && [ -n "${CMUX_PATH:-}" ]; then args+=(--autocloud-tui "$AUTOCLOUD_TUI_PATH"); fi
   if ! bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
     { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
     echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
@@ -97,14 +100,24 @@ run() { # label, extra args...
     if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
   fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+  # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the
+  # test team's run, send-trace-<phase-label>.json for the others. Tracing never fails the journey.
+  if [ -f "$dir/send-trace.json" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+    local name=send-trace.json
+    [ "${phase:+$phase-}$label" = test-team ] || name="send-trace-${phase:+$phase-}$label.json"
+    { mkdir -p "$RUNNER_TEMP/$TARGET" && cp "$dir/send-trace.json" "$RUNNER_TEMP/$TARGET/$name"; } || true
+  fi
   if [ "${JOURNEY_RUST:-}" = 1 ] && [ -n "${CMUX_PATH:-}" ]; then rust_run "$label" "$dir" "$@"; fi
   if [ "$phase" = after ]; then
-    # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,
-    # which is reported and never rolls the Worker back.
+    # Only exit 3 is a proven green-to-red step. Exit 4 is a capacity-only red (no machine available, or rate
+    # limited: cloud-journey.ts capacityOnly), the platform's load and never the deploy's; any other nonzero exit
+    # is the compare itself failing. Neither rolls the deploy back.
     local rc=0
     bun "$here/cloud-journey.ts" --compare "$out/baseline-$label/journey.json" "$dir/journey.json" > "$dir/compare.txt" 2>&1 || rc=$?
     cat "$dir/compare.txt" >> "$summary"
-    if [ "$rc" = 3 ]; then regressed=1; elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
+    if [ "$rc" = 3 ]; then regressed=1
+    elif [ "$rc" = 4 ]; then echo "::warning title=Cloud journey::capacity-only red (no machine available or rate limited); not rolling back"
+    elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
   fi
 }
 run test-team

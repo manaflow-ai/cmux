@@ -5,4 +5,9 @@
 set -euo pipefail
 root="${1:?usage: check-connection-notices.sh ROOT}"
 here="$(cd "$(dirname "$0")" && pwd)"
+# First the report of views disabled or dimmed while the link connects (Leo, 2026-11-24: "the entire thing is somehow
+# grayed out and I can't interact with anything at all"). It prints and never fails the check: a blocking rule needs
+# Leo's own word.
+python3 -I "$here/check-connection-notices.py" --root "$root" --input-block || echo "input-block report did not run (exit $?)"
+# Then the check, which fails a new unbounded connection state.
 python3 -I "$here/check-connection-notices.py" --root "$root" --base HEAD^1

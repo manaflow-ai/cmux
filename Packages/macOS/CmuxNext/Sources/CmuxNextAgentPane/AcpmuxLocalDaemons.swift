@@ -64,6 +64,24 @@ public nonisolated final class AcpmuxLocalDaemons: Sendable {
         personStops.withLock { $0[path] = now }
     }
 
+    /// The panes that listen for this app's acpmux answering (``answers()``), by listener.
+    private let answerListeners = Mutex<[UUID: AsyncStream<Void>.Continuation]>([:])
+
+    /// One event each time a lookup of this app's acpmux answers (``noteAnswered()``), newest only:
+    /// a stopped pane asks again on it, never on a tick (hostRetry.ts `HOST_WAKE_EVENTS`).
+    func answers() -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        answerListeners.withLock { $0[id] = continuation }
+        continuation.onTermination = { [weak self] _ in _ = self?.answerListeners.withLock { $0.removeValue(forKey: id) } }
+        return stream
+    }
+
+    /// A lookup of this app's acpmux answered: tells every listener (``answers()``).
+    func noteAnswered() {
+        for continuation in answerListeners.withLock({ Array($0.values) }) { continuation.yield() }
+    }
+
     /// Whether a person's restart stopped the daemon of `home` within ``personRestartWindow``.
     func stoppedByPerson(home: URL, at now: ContinuousClock.Instant = .now) -> Bool {
         let path = home.standardizedFileURL.path

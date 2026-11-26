@@ -193,3 +193,16 @@ async fn bulk_reserve_keeps_tunnel_control_and_interactive_available() {
              interactive={interactive_result:?}"
     );
 }
+
+#[test]
+fn bulky_streams_default_off_the_interactive_lane() {
+    // Process event replays and computer-use screenshots never queue ahead of
+    // keystrokes; the tombstone of a closed process stream guards the lane its
+    // frames really use.
+    assert_eq!(default_lane(Service::ProcessStream), Lane::Bulk);
+    assert_eq!(default_lane(Service::ComputerUse), Lane::Control);
+    assert_eq!(default_lane(Service::MuxControl), Lane::Interactive);
+    assert_eq!(default_lane(Service::TerminalBytes), Lane::Interactive);
+    assert_eq!(default_lane(Service::WorkspaceRpc), Lane::Control);
+    assert_eq!(legal_tombstone_lane_mask(Service::ProcessStream), lane_bit(Lane::Bulk));
+}

@@ -18,8 +18,12 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
 
     let joined = std::thread::Builder::new()
         .name("worker".into())
-        // crash-allow: the panic under test
-        .spawn(|| panic!("comparison is not a total order"))
+        .spawn(|| {
+            cmux_flow_trace::hop("daemon.send.read", 41, "");
+            cmux_flow_trace::hop_id("host.pty.write", 0, &[0xab; 16]);
+            // crash-allow: the panic under test
+            panic!("comparison is not a total order")
+        })
         .unwrap()
         .join();
     assert!(joined.is_err());
@@ -40,6 +44,12 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
     assert_eq!(lines[0]["test"], false);
     assert!(lines[0]["location"].as_str().unwrap().contains("hook.rs:"));
     assert!(lines[0]["backtrace"].is_string());
+    let recent = lines[0]["recent"].as_array().expect("recent hops");
+    let names: Vec<&str> = recent.iter().map(|hop| hop["hop"].as_str().unwrap()).collect();
+    assert_eq!(names, ["daemon.send.read", "host.pty.write"], "{text}");
+    assert_eq!(recent[0]["flow"], 41);
+    assert_eq!(recent[1]["terminal"], "ab".repeat(16));
+    assert!(recent[1]["ago_ms"].as_f64().unwrap() >= 0.0);
     assert_eq!(lines[1]["test"], true);
     assert!(PREVIOUS_RAN.load(Ordering::SeqCst));
     let _ = std::fs::remove_dir_all(&dir);

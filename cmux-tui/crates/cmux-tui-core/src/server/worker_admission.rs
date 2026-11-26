@@ -58,6 +58,22 @@ impl Drop for ResourceWorkerPermitLease {
 }
 
 impl ResourceWorkerAdmission {
+    /// Counts permits and never refuses one: work whose cost is bounded per
+    /// item (resource streams, detached waits). The count is for draining.
+    pub(super) fn counting() -> Arc<Self> {
+        Self::new(usize::MAX, usize::MAX)
+    }
+
+    /// A permit of a [`Self::counting`] admission, which never refuses.
+    pub(super) fn reserve(self: &Arc<Self>, client: u64) -> ResourceWorkerPermit {
+        let mut state = self.state.lock().recover_poison();
+        state.active += 1;
+        *state.active_by_client.entry(client).or_default() += 1;
+        ResourceWorkerPermit {
+            _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
+        }
+    }
+
     pub(super) fn new(per_client_capacity: usize, server_capacity: usize) -> Arc<Self> {
         Arc::new(Self {
             per_client_capacity,

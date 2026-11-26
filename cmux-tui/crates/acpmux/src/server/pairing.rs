@@ -110,7 +110,7 @@ pub async fn serve_connection_device(
         origin,
         auth,
         None,
-        false,
+        super::Transport::Messages,
         crate::sender_harness::SocketPeer::Unknown,
         Some(device.id),
         None,

@@ -8,14 +8,21 @@ const newTab = readFileSync(resolve(src, "newtab/screen.css"), "utf8").replace(/
 const chatGallery = readFileSync(resolve(src, "composerHeight.gallery.ts"), "utf8");
 const newTabGallery = readFileSync(resolve(src, "newtab/ComposerHeight.gallery.ts"), "utf8");
 
-// Leo 2026-11-22: "look at how big claude code can grow" (Claude Code desktop's composer, his reference).
-test("all composer fields share the thirty-line, sixty-percent cap", () => {
-  expect(chat).toContain("*var(--acpmux-composer-max-lines,30)+var(--cmux-control-height,23px)");
-  expect(chat).toContain("60vh");
-  expect(newTab).toContain("60vh");
-  expect(chat).toContain("min(calc(");
-  expect(newTab).toContain("var(--acpmux-composer-max-lines,30)*1lh+2*var(--nt-input-pad-block)");
-  expect(newTab).toContain("min(calc(");
+// Leo 2026-11-24: follow Claude desktop's composer max (its prompt stops at 384 px, max-h-96).
+const CAP = "var(--acpmux-composer-max-height,calc(384px*var(--cmux-interface-scale,1)))";
+const CAP_HEIGHT = `min(${CAP},50vh)`;
+const ATTACHED_CAP_HEIGHT = `calc(${CAP_HEIGHT}-var(--acpmux-attach-band,0px))`;
+test("all composer fields share Claude desktop's 384 px cap", () => {
+  const styles = readFileSync(resolve(src, "styles.css"), "utf8").replace(/\s+/g, "");
+  expect(styles).toContain(".acpmux-shell{--acpmux-composer-max-height:calc(384px*var(--cmux-interface-scale,1))}");
+  expect(chat).toContain(`--acpmux-md-max-height:${CAP_HEIGHT}`);
+  expect(chat).toContain("max-height:calc(var(--acpmux-md-max-height)-var(--acpmux-attach-band,0px))");
+  expect(newTab).toContain(`max-height:${ATTACHED_CAP_HEIGHT}`);
+  expect(styles).toContain(`max-height:${ATTACHED_CAP_HEIGHT}`);
+  for (const css of [chat, newTab, styles]) {
+    expect(css).not.toContain("composer-max-lines");
+    expect(css).not.toContain("60vh);margin");
+  }
 });
 
 test("height comparison fixtures use the production typography and padding tokens", () => {

@@ -92,9 +92,10 @@ pub fn nested_in_app(bundle: &Path) -> bool {
     bundle.parent().is_some_and(|parent| outermost_app(parent).is_some())
 }
 
-/// The copy of an app's embedded helper bundle that the launcher stages.
+/// The copy of an app's embedded helper bundle that the launcher stages: in cmux NEXT's own
+/// `Application Support/cmux-next`, never cmux Classic's `cmux`.
 pub fn staging_root(home: &Path) -> PathBuf {
-    home.join("Library/Application Support/cmux/files-host/app")
+    home.join("Library/Application Support/cmux-next/files-host/app")
 }
 
 /// The code requirement every staged copy satisfies: the helper's bundle id, signed by an

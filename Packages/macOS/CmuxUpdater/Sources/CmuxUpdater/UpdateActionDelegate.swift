@@ -43,6 +43,13 @@ public protocol UpdateActionDelegate: AnyObject {
     /// update as the app exits, with no relaunch of its own. False lets Sparkle install and
     /// relaunch, as a click does.
     func updaterQuitsForAutomaticInstall(build: String) -> Bool
+
+    /// A click's install (Restart to Update, the CLI's install) is about to hand `build` to
+    /// Sparkle. True when the host quits now and reopens itself, so Sparkle installs as the app
+    /// exits with no relaunch of its own: an app launched in a custom home must come back in it,
+    /// and Sparkle's relaunch through LaunchServices drops the launch environment. False lets
+    /// Sparkle install and relaunch.
+    func updaterQuitsForInstall(build: String) -> Bool
 }
 
 extension UpdateActionDelegate {
@@ -60,4 +67,7 @@ extension UpdateActionDelegate {
 
     /// Hosts that do not reopen themselves let Sparkle relaunch.
     public func updaterQuitsForAutomaticInstall(build: String) -> Bool { false }
+
+    /// Hosts that do not reopen themselves let Sparkle relaunch.
+    public func updaterQuitsForInstall(build: String) -> Bool { false }
 }

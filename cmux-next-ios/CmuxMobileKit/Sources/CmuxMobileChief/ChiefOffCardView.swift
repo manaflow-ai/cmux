@@ -39,12 +39,12 @@ public struct ChiefOffCardView: View {
     var message: LocalizedStringKey {
         switch card {
         case .off, .turningOn: "It doesn't answer messages until you turn it on."
-        case .failed: "It couldn't be turned on. Check your connection and try again."
+        case .failed: "It couldn't be turned on yet. It keeps trying."
         case .unavailable: "Chief isn't available on this account."
         }
     }
 
-    var buttonTitle: LocalizedStringKey { card == .failed ? "Try Again" : "Turn On" }
+    var buttonTitle: LocalizedStringKey { "Turn On" }
 
     public var body: some View {
         Group {
@@ -59,7 +59,8 @@ public struct ChiefOffCardView: View {
     }
 
     @ViewBuilder private var button: some View {
-        if card != .unavailable {
+        // A failed Turn On has no button: Home turns it on again on its own.
+        if card == .off || card == .turningOn {
             PrimaryCapsule(buttonTitle, size: .inline, isLoading: card == .turningOn) {
                 guard card.offersTurnOn else { return }
                 theme.haptics.selection()

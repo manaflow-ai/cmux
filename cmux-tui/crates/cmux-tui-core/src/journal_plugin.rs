@@ -221,6 +221,30 @@ fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
     result
 }
 
+/// See [`JournalPluginRuntime::hold_waiter`].
+pub(crate) struct JournalPluginHoldWaiter {
+    state: Arc<(Mutex<SupervisorState>, Condvar)>,
+}
+
+impl JournalPluginHoldWaiter {
+    /// Block until an `on_demand` plugin is configured and held (true), or
+    /// until it can never be: it was demanded or the runtime shut down
+    /// (false). Configuration changes wake it; nothing else does.
+    pub(crate) fn wait_until_held(&self) -> bool {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        loop {
+            if state.demanded || state.stopping {
+                return false;
+            }
+            if state.options.as_ref().is_some_and(|options| options.on_demand) {
+                return true;
+            }
+            state = changed.wait(state).unwrap_or_else(|error| error.into_inner());
+        }
+    }
+}
+
 /// A configured userland journal plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalPluginOptions {
@@ -234,6 +258,11 @@ pub struct JournalPluginOptions {
     /// Artifact revision. A changed revision restarts a running child even
     /// when its command and working directory stay the same.
     pub revision: Option<String>,
+    /// Start the process only once the daemon calls
+    /// [`JournalPluginRuntime::demand`]: the bundled screen detector, which
+    /// reads only the screens of running programs, waits for the first one
+    /// (`mux/journal_plugin_demand.rs`). `false` starts it with the socket.
+    pub on_demand: bool,
 }
 
 impl JournalPluginOptions {
@@ -306,6 +335,9 @@ struct SupervisorState {
     restarts: u64,
     child_started_at: Option<Instant>,
     started: bool,
+    /// [`JournalPluginRuntime::demand`] was called: an `on_demand` plugin
+    /// may start. It stays set for the daemon's life.
+    demanded: bool,
     stopping: bool,
     generation: u64,
     child_generation: Option<u64>,
@@ -399,6 +431,43 @@ impl JournalPluginRuntime {
         let (lock, _) = &*self.state;
         let state = lock.lock().unwrap_or_else(|error| error.into_inner());
         state.child.as_ref().map(|child| child.process_group_id).filter(|group| *group > 0)
+    }
+
+    /// Let an `on_demand` plugin start (no-op for any other, and after the
+    /// first call). Returns whether this call released a held plugin.
+    pub fn demand(&self) -> bool {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        if state.demanded {
+            return false;
+        }
+        state.demanded = true;
+        let released = state.options.as_ref().is_some_and(|options| options.on_demand);
+        changed.notify_all();
+        released
+    }
+
+    /// Whether an `on_demand` plugin is configured and still held (not
+    /// yet demanded, the runtime not shut down).
+    pub fn held(&self) -> bool {
+        let (lock, _) = &*self.state;
+        let state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        !state.demanded
+            && !state.stopping
+            && state.options.as_ref().is_some_and(|options| options.on_demand)
+    }
+
+    /// Whether [`JournalPluginRuntime::demand`] was called.
+    pub fn demanded(&self) -> bool {
+        let (lock, _) = &*self.state;
+        lock.lock().unwrap_or_else(|error| error.into_inner()).demanded
+    }
+
+    /// A handle that blocks until an `on_demand` plugin is held, for the
+    /// daemon's demand watch (`mux/journal_plugin_demand.rs`). It holds the
+    /// supervisor's state, not the runtime.
+    pub(crate) fn hold_waiter(&self) -> JournalPluginHoldWaiter {
+        JournalPluginHoldWaiter { state: Arc::clone(&self.state) }
     }
 
     /// Starts supervision after the local socket has been bound. This ordering
@@ -597,6 +666,12 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             drop(changed.wait(state));
             continue;
         };
+        if options.on_demand && !state.demanded {
+            // Held until the daemon sees a program to read
+            // (`JournalPluginRuntime::demand` notifies `changed`).
+            drop(changed.wait(state));
+            continue;
+        }
         if let Some(wait) =
             state.restart_at.and_then(|at| at.checked_duration_since(Instant::now()))
             && !wait.is_zero()

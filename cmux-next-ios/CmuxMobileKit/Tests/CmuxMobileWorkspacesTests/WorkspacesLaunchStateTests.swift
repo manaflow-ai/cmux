@@ -47,11 +47,25 @@ import Testing
         #expect(state(.failed, macs: true, workspaces: false) == .content(refreshFailed: true))
     }
 
-    @Test func updatingSubtitleOnlyOverRows() {
-        #expect(!WorkspacesLaunchState.firstLoad(offline: false).allowsUpdatingSubtitle)
-        #expect(!WorkspacesLaunchState.failed(offline: false).allowsUpdatingSubtitle)
-        #expect(!WorkspacesLaunchState.noMacs.allowsUpdatingSubtitle)
-        #expect(!WorkspacesLaunchState.content(refreshFailed: true).allowsUpdatingSubtitle)
-        #expect(WorkspacesLaunchState.content(refreshFailed: false).allowsUpdatingSubtitle)
+    @Test func cachedRowsDrawNoPlaceholderRows() {
+        // Leo, 2026-11-24: "wer need to chase all these placeholders doen and prevent them".
+        // A launch or a team switch with cached rows: the rows, never placeholders over them.
+        let cached = state(.loading, macs: true, workspaces: true)
+        #expect(!cached.showsPlaceholderRows(hasMacs: true, listLoading: false, hasMacLines: false))
+        #expect(!cached.showsPlaceholderRows(hasMacs: true, listLoading: false, hasMacLines: true))
+        let failed = state(.failed, macs: true, workspaces: true)
+        #expect(!failed.showsPlaceholderRows(hasMacs: true, listLoading: false, hasMacLines: false))
+        // A Mac line on screen: the page's rows never cover it (the list's own go below it).
+        #expect(!cached.showsPlaceholderRows(hasMacs: true, listLoading: true, hasMacLines: true))
+    }
+
+    @Test func placeholderRowsOnlyWhenNothingWasEverListed() {
+        // An install that never loaded the team: the labelled placeholder rows.
+        #expect(state(.loading, macs: false, workspaces: false).showsPlaceholderRows(hasMacs: false, listLoading: false, hasMacLines: false))
+        // Macs known, no row and no Mac line yet.
+        #expect(state(.loaded, macs: true, workspaces: false).showsPlaceholderRows(hasMacs: true, listLoading: true, hasMacLines: false))
+        // No Mac: the connect page, not placeholders; a failed first load: the error page.
+        #expect(!WorkspacesLaunchState.noMacs.showsPlaceholderRows(hasMacs: false, listLoading: false, hasMacLines: false))
+        #expect(!WorkspacesLaunchState.failed(offline: true).showsPlaceholderRows(hasMacs: false, listLoading: false, hasMacLines: false))
     }
 }

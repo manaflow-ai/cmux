@@ -65,12 +65,16 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     /// This ring's half (``maximumBytes``; tests pass a small one).
     nonisolated let bound: Int
     private nonisolated let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-page.flicker-log", qos: .utility)
+    private nonisolated let writer: CoalescingFileWriter
     /// Whether a pane asked for window occlusion lines (``watchWindows()``).
     private(set) var watchingWindows = false
 
     nonisolated init(directory: URL, bound: Int = AgentPageFlickerLog.maximumBytes) {
         self.directory = directory
         self.bound = bound
+        writer = CoalescingFileWriter(queue: queue, window: 1, onError: { _, error in
+            flickerLogger.error("agent page flicker log write failed: \(String(describing: error), privacy: .public)")
+        })
     }
 
     nonisolated var url: URL { directory.appending(path: Self.fileName) }
@@ -94,7 +98,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     }
 
     /// Waits for every queued write (tests).
-    nonisolated func flush() { queue.sync {} }
+    nonisolated func flush() { writer.flush() }
 
     nonisolated static func pageLines(_ params: [String: Any]?, page: String, pid: Int32) -> [Data] {
         guard let events = params?["events"] as? [Any] else { return [] }
@@ -128,31 +132,9 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     }
 
     private nonisolated func append(_ lines: [Data]) {
-        let directory = directory, url = url, older = directory.appending(path: Self.olderName), limit = UInt64(bound)
-        queue.async {
-            do {
-                try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
-                if !FileManager.checked.fileExists(atPath: url.path) {
-                    _ = FileManager.checked.createFile(atPath: url.path, contents: nil)
-                }
-                // The bound holds after the write: lines that would take the file past it start a
-                // new one, and the full one becomes the older half of the ring.
-                let added = lines.reduce(Data(), +)
-                let handle = try FileHandle(forWritingTo: url)
-                let size = try handle.seekToEnd()
-                if size > 0, size + UInt64(added.count) > limit {
-                    try handle.close()
-                    try? FileManager.checked.removeItem(at: older)
-                    try FileManager.checked.moveItem(at: url, to: older)
-                    _ = FileManager.checked.createFile(atPath: url.path, contents: added)
-                    return
-                }
-                try handle.write(contentsOf: added)
-                try handle.close()
-            } catch {
-                flickerLogger.error("agent page flicker log write failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        // One coalesced append per window, bounded in memory (CoalescingFileWriter), so a chatty
+        // page costs a few writes a second instead of one open/seek/write/close per event.
+        writer.append(lines.reduce(Data(), +), to: url, rotatingTo: directory.appending(path: Self.olderName), limit: UInt64(bound))
     }
 
     /// Records every window's occlusion flip from now on (each agent pane calls it; the first turns it on).

@@ -72,6 +72,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// `sidebar.folderlessUngrouped`: under Group by Folder, rows with no folder sit at the end of the list with no
+    /// No Folder header. Off by default (the header shows).
+    public var folderlessUngrouped = false
     /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
     /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
     /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).
@@ -84,6 +87,12 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.showLiveToggle`: the footer's Live button after the profile avatar (Leo 2026-11-24: "an icon
+    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). Off by default
+    /// (Lawrence 2026-11-25: "keep things as minimal as possible"); off hides the button only.
+    public var showLiveToggle = false
+    /// `presence.live`: whether this Mac is live to teammates and agents. The Live button shows and flips it.
+    public var presenceLive = false
     /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
     /// Workspace chooser. Off by default (Lawrence 2026-10-30: "by default i dont want to have
     /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
@@ -135,10 +144,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
     /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
     public var settleFinished = false
-    /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
-    /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
-    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
-    public var showAutomaticSessions = false
+    /// `sidebar.showAgentSessions`: sessions another session's agent started list in the sidebar, each nested under
+    /// the row of the session that started it. Off by default: they draw no row (Leo 2026-11-25 about the nested
+    /// helper sessions: "idk who asked for those in teh sidebar. it's weird"), except one that waits on the person
+    /// (a permission or a question) and one the person opened (selected); the parent chat lists them all.
+    public var showAgentSessions = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
@@ -159,10 +169,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
-    /// `sidebar.groupHeader.background`: a group draws as a plain folder (the default, `folder`: David Beyer
-    /// 2026-11-20, groups as plain folders with every thread in the one list), as glass, solid, or `auto` (glass where
-    /// the sidebar is see-through and solid where it is opaque), or as a plain section heading.
-    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .folder
+    /// `sidebar.groupHeader.background`: Automatic draws a visible header band and a rail beside the members.
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass
@@ -191,6 +199,15 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.priorityView.shown`: the bell's state, whether the installed Priority view shows
     /// at the top of the sidebar. Off, the sidebar is unchanged.
     public var priorityViewShown = true
+    /// `sidebar.priorityView.filters`: All, Waiting, Unread and Running chips with counts under the
+    /// Priority header, and Mark All as Read (the Codex app's activity list). Off by default.
+    public var priorityViewFilters = false
+    /// `sidebar.priorityView.showIdle`: idle chats list under the others (default). Off, the view
+    /// lists only chats that need the person or run a turn, pinned and dragged ones aside.
+    public var priorityViewShowIdle = true
+    /// `sidebar.priorityView.statusWords`: each Priority row says its state in words ("Needs you",
+    /// "Done", "Working 5m"). Off by default: the status mark alone.
+    public var priorityViewStatusWords = false
     /// `sidebar.sessionTree` (Claude desktop's Code tab): a workspace started by another
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.

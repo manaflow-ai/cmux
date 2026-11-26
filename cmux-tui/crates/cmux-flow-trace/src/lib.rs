@@ -7,8 +7,8 @@
 //! thread on a request or PTY path.
 //!
 //! The hop path does no allocation, takes no lock and makes no system call:
-//! - off: one load of a `OnceLock` (never initialised when [`init`] found no
-//!   variable);
+//! - off: the flight recorder's write (below), then one load of a `OnceLock` (never
+//!   initialised when [`init`] found no variable);
 //! - on: a `clock_gettime_nsec_np` read of the clock (a commpage read on macOS,
 //!   no kernel entry), the thread id (`pthread_threadid_np`, read from the thread
 //!   itself), and a push into a fixed ring of plain records (atomic slots; the
@@ -30,7 +30,17 @@
 //! back): trace.py places it in the press whose window on the same terminal
 //! holds it.
 //!
+//! Every [`hop`] and [`hop_id`] also lands in the flight recorder, on or off: the newest
+//! [`RECENT_EVENTS`] hops in a fixed in-memory ring that a panic or hang report reads with
+//! [`dump_recent`] (see `flight.rs`). With marks off that is the hop's whole cost: a clock read and
+//! a few atomic stores, still no allocation, lock or system call.
+//!
 //! std and libc only: the holder (`cmux-holder`) links it too.
+
+mod flight;
+pub use flight::{
+    RECENT_EVENTS, RECENT_PER_SHARD, RECENT_SHARDS, RecentEvent, dump_recent, write_json_array,
+};
 
 use std::cell::UnsafeCell;
 use std::io::Write;
@@ -293,11 +303,19 @@ pub fn enabled() -> bool {
 /// No allocation, lock or system call (see the module doc). A hop with a flow id
 /// and a terminal opens that terminal's window for [`hop_on_traced`].
 pub fn hop(name: &'static str, flow: u64, terminal: &str) {
+    let now = now_ns();
+    let bytes = terminal.as_bytes();
+    flight::record(
+        name,
+        flow,
+        bytes.get(..bytes.len().min(TERMINAL_BYTES)).unwrap_or_default(),
+        now,
+    );
     let Some(sink) = sink() else { return };
     if flow != 0 && !terminal.is_empty() {
-        note_traced(terminal_key(terminal), now_ns());
+        note_traced(terminal_key(terminal), now);
     }
-    record_hop(sink, name, flow, terminal);
+    record_hop(sink, name, flow, terminal, now);
 }
 
 /// [`hop`] (flow 0) for a busy path that every terminal takes (each output transition, each attach broadcast): it
@@ -316,7 +334,7 @@ pub fn hop_on_traced(name: &'static str, terminal: &str) {
             && slot.until_ns.load(Ordering::Relaxed) > *now.get_or_insert_with(now_ns)
     });
     if traced {
-        record_hop(sink, name, 0, terminal);
+        record_hop(sink, name, 0, terminal, now.unwrap_or_else(now_ns));
     }
 }
 
@@ -342,7 +360,7 @@ fn terminal_key(terminal: &str) -> u64 {
     }) | 1
 }
 
-fn record_hop(sink: &Sink, name: &'static str, flow: u64, terminal: &str) {
+fn record_hop(sink: &Sink, name: &'static str, flow: u64, terminal: &str, t_ns: u64) {
     let bytes = terminal.as_bytes();
     let len = bytes.len().min(TERMINAL_BYTES);
     let mut record = Record {
@@ -351,7 +369,7 @@ fn record_hop(sink: &Sink, name: &'static str, flow: u64, terminal: &str) {
         terminal: [0; TERMINAL_BYTES],
         terminal_len: len as u8,
         tid: thread_id(),
-        t_ns: now_ns(),
+        t_ns,
     };
     if let (Some(into), Some(from)) = (record.terminal.get_mut(..len), bytes.get(..len)) {
         into.copy_from_slice(from);
@@ -362,22 +380,27 @@ fn record_hop(sink: &Sink, name: &'static str, flow: u64, terminal: &str) {
 /// [`hop`] for a terminal named by its 16 raw id bytes (the holder, the terminal
 /// host): hex-encoded into the record, no allocation.
 pub fn hop_id(name: &'static str, flow: u64, terminal: &[u8; 16]) {
-    let Some(sink) = sink() else { return };
-    let mut record = Record {
-        name,
-        flow,
-        terminal: [0; TERMINAL_BYTES],
-        terminal_len: TERMINAL_BYTES as u8,
-        tid: thread_id(),
-        t_ns: now_ns(),
-    };
-    for (pair, byte) in record.terminal.chunks_exact_mut(2).zip(terminal) {
+    let t_ns = now_ns();
+    let mut hex = [0; TERMINAL_BYTES];
+    for (pair, byte) in hex.chunks_exact_mut(2).zip(terminal) {
         if let [high, low] = pair {
             *high = hex_digit(byte >> 4);
             *low = hex_digit(byte & 0x0f);
         }
     }
-    push(sink, record);
+    flight::record(name, flow, &hex, t_ns);
+    let Some(sink) = sink() else { return };
+    push(
+        sink,
+        Record {
+            name,
+            flow,
+            terminal: hex,
+            terminal_len: TERMINAL_BYTES as u8,
+            tid: thread_id(),
+            t_ns,
+        },
+    );
 }
 
 const HEX: &[u8; 16] = b"0123456789abcdef";

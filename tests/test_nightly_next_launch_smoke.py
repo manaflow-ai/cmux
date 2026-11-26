@@ -589,6 +589,48 @@ class InFlightTests(unittest.TestCase):
             self.assertIn("in-flight state unknown", summary.read_text(encoding="utf-8"))
             self.assertIn("next scheduled tick", summary.read_text(encoding="utf-8"))
 
+    def test_a_refused_token_falls_back_to_an_anonymous_read(self) -> None:
+        import urllib.error
+        from email.message import Message
+        seen: list[str] = []
+
+        class Answer(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+
+        def urlopen(request, timeout=0):
+            token = request.headers.get("Authorization", "")
+            seen.append(token)
+            if token == "Bearer job":
+                headers = Message(); headers["x-ratelimit-remaining"] = "0"
+                raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", headers,
+                                             io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+            if "/runs?" in request.full_url:
+                return Answer(json.dumps({"workflow_runs": [{"id": 7, "status": "in_progress"}]}).encode())
+            return Answer(json.dumps({"jobs": [{"name": "smoke 200", "conclusion": None}]}).encode())
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "9", "GH_TOKEN": "job"}
+        with mock.patch.object(smoke.urllib.request, "urlopen", side_effect=urlopen):
+            self.assertEqual(smoke.read_in_flight(200, env), 7)
+        self.assertEqual(seen[0], "Bearer job")
+        self.assertEqual(set(seen[1:]), {""})
+
+    def test_every_read_refused_names_why(self) -> None:
+        import urllib.error
+        from email.message import Message
+
+        def urlopen(request, timeout=0):
+            headers = Message(); headers["x-ratelimit-remaining"] = "0"
+            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", headers,
+                                         io.BytesIO(b'{"message": "API rate limit exceeded for installation"}'))
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "job"}
+        with mock.patch.object(smoke.urllib.request, "urlopen", side_effect=urlopen):
+            with self.assertRaises(RuntimeError) as caught:
+                smoke.read_in_flight(200, env)
+        self.assertIn("HTTP 403: API rate limit exceeded for installation: rate limit remaining 0", str(caught.exception))
+        self.assertEqual(str(caught.exception).count("HTTP 403"), 2)
+
 
 class PrePublishGateTests(unittest.TestCase):
     """nightly.yml smokes the DMG it would publish before an appcast names it."""

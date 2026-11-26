@@ -6311,137 +6311,6 @@
         }
       }
     },
-    "remote.terminal.reconnecting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reconnecting to %@…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "جارٍ إعادة الاتصال بـ %@…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovno povezivanje na %@…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Genopretter forbindelse til %@…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verbindung zu %@ wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectando con %@…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconnexion à %@…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riconnessione a %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ に再接続しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងភ្ជាប់ឡើងវិញទៅ %@…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@에 다시 연결하는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kobler til %@ igjen…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponowne łączenie z %@…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectando a %@…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторное подключение к %@…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กำลังเชื่อมต่อกับ %@ อีกครั้ง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ile yeniden bağlanılıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторне підключення до %@…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang kết nối lại với %@…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在重新连接 %@…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在重新連線 %@…"
-          }
-        }
-      }
-    },
     "remote.terminal.offline": {
       "extractionState": "manual",
       "localizations": {
@@ -8800,137 +8669,6 @@
         }
       }
     },
-    "remote.machineBrowser.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្យាយាមម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重試"
-          }
-        }
-      }
-    },
     "remote.machineBrowser.thisMac": {
       "extractionState": "manual",
       "localizations": {
@@ -9461,127 +9199,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux on %@ is too old for browser tabs. Update it, then try again."
+            "value": "cmux on %@ is too old for browser tabs. Once it is updated there, this tab opens."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه، ثم أعد المحاولة."
+            "state": "translated",
+            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. بعد تحديثه هناك، تُفتح علامة التبويب هذه."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+            "state": "translated",
+            "value": "cmux na %@ je prestar za kartice preglednika. Kada se tamo ažurira, ova kartica se otvara."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+            "state": "translated",
+            "value": "cmux på %@ er for gammel til browserfaner. Når den er opdateret der, åbner denne fane."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+            "state": "translated",
+            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Sobald es dort aktualisiert ist, öffnet sich dieser Tab."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Actualízalo y vuelve a intentarlo."
+            "state": "translated",
+            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Cuando se actualice allí, esta pestaña se abre."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+            "state": "translated",
+            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Une fois mis à jour là-bas, cet onglet s’ouvre."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+            "state": "translated",
+            "value": "cmux su %@ è troppo vecchio per le schede del browser. Una volta aggiornato lì, questa scheda si apre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux はブラウザタブには古すぎます。アップデートしてから再試行してください。"
+            "value": "%@ の cmux はブラウザタブには古すぎます。そちらでアップデートされると、このタブが開きます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ អាប់ដេតវា រួចព្យាយាមម្តងទៀត។"
+            "state": "translated",
+            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ នៅពេលវាត្រូវបានអាប់ដេតនៅទីនោះ ផ្ទាំងនេះនឹងបើក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 업데이트한 다음 다시 시도하세요."
+            "state": "translated",
+            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 그곳에서 업데이트되면 이 탭이 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+            "state": "translated",
+            "value": "cmux på %@ er for gammel for nettleserfaner. Når den er oppdatert der, åpnes denne fanen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux na %@ jest za stary na karty przeglądarki. Zaktualizuj go, a potem spróbuj ponownie."
+            "state": "translated",
+            "value": "cmux na %@ jest za stary na karty przeglądarki. Gdy zostanie tam zaktualizowany, ta karta się otworzy."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux em %@ é antigo demais para abas do navegador. Atualize-o e tente de novo."
+            "state": "translated",
+            "value": "O cmux em %@ é antigo demais para abas do navegador. Quando for atualizado lá, esta aba abre."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+            "state": "translated",
+            "value": "cmux на %@ слишком старый для вкладок браузера. Когда его там обновят, эта вкладка откроется."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+            "state": "translated",
+            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ เมื่ออัปเดตที่นั่นแล้ว แท็บนี้จะเปิดขึ้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Güncelleyin, sonra yeniden deneyin."
+            "state": "translated",
+            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Orada güncellendiğinde bu sekme açılır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux на %@ застарий для вкладок браузера. Оновіть його і спробуйте ще раз."
+            "state": "translated",
+            "value": "cmux на %@ застарий для вкладок браузера. Щойно його там оновлять, ця вкладка відкриється."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+            "state": "translated",
+            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Khi được cập nhật ở đó, thẻ này sẽ mở."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。请更新后重试。"
+            "state": "translated",
+            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。在那里更新后，此标签页会打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。請更新後再試。"
+            "state": "translated",
+            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。在那裡更新後，此分頁會開啟。"
           }
         }
       }

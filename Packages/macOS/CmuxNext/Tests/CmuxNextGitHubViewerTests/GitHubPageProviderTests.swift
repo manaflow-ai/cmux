@@ -138,4 +138,58 @@ struct GitHubPageProviderTests {
                                         context: Self.click)
         }
     }
+
+    @Test func theIssuesListLeavesOutPullRequestsAndPassesGitHubFieldsThrough() async throws {
+        let provider = GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, openWeb: { _, _ in true }, openDiff: { _, _, _, _ in true })
+        let body = """
+        [{"number": 7, "title": "Crash", "state": "open", "state_reason": null, "comments": 2, "updated_at": "2026-11-05T00:00:00Z",
+          "html_url": "https://github.com/a/b/issues/7", "user": {"login": "mona", "id": 1}, "labels": [{"name": "bug", "color": "d73a4a", "id": 3}]},
+         {"number": 8, "title": "A pull request", "state": "open", "comments": 0, "updated_at": "2026-11-05T00:00:00Z",
+          "html_url": "https://github.com/a/b/pull/8", "pull_request": {"url": "x"}, "labels": []}]
+        """
+        provider.restGet = { repo, path in
+            #expect(repo == "a/b")
+            #expect(path == "issues?state=all&per_page=50&sort=updated")
+            return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(body.utf8))
+        }
+        let reply = try await provider.call("cmux.github.issues.list", params: ["repo": "a/b"], context: Self.page)
+        let issues = try #require(reply["issues"]?.arrayValue)
+        #expect(issues.count == 1)
+        #expect(issues[0]["number"]?.intValue == 7)
+        #expect(issues[0]["user"]?["login"]?.stringValue == "mona")
+        #expect(issues[0]["user"]?["id"] == nil)
+        #expect(issues[0]["labels"]?.arrayValue?.first?["color"]?.stringValue == "d73a4a")
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.issues.list", params: ["repo": "../etc"], context: Self.page)
+        }
+        provider.restGet = { _, _ in AgentPaneGitHubREST.Answer(ok: false, status: 404, message: "Not Found") }
+        do {
+            _ = try await provider.call("cmux.github.issues.list", params: ["repo": "a/b"], context: Self.page)
+            Issue.record("a refused read answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.github.issues_unavailable")
+            #expect(error.message == "Not Found")
+        }
+    }
+
+    @Test func anIssueComesWithItsComments() async throws {
+        let provider = GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, openWeb: { _, _ in true }, openDiff: { _, _, _, _ in true })
+        provider.restGet = { repo, path in
+            #expect(repo == "a/b")
+            let body = path == "issues/7"
+                ? #"{"number": 7, "title": "Crash", "state": "closed", "state_reason": "completed", "body": "**why**", "comments": 1, "updated_at": "x", "html_url": "https://github.com/a/b/issues/7", "labels": ["old"]}"#
+                : #"[{"body": "same here", "created_at": "2026-11-05T00:00:00Z", "html_url": "https://github.com/a/b/issues/7#issuecomment-1", "user": {"login": "hubot"}}]"#
+            return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(body.utf8))
+        }
+        let reply = try await provider.call("cmux.github.issue.details", params: ["url": "https://github.com/a/b/issues/7"], context: Self.page)
+        #expect(reply["issue"]?["state_reason"]?.stringValue == "completed")
+        #expect(reply["issue"]?["body"]?.stringValue == "**why**")
+        #expect(reply["issue"]?["labels"]?.arrayValue?.first?["name"]?.stringValue == "old")
+        #expect(reply["comments"]?.arrayValue?.first?["user"]?["login"]?.stringValue == "hubot")
+        for other in ["https://github.com/a/b/pull/7", "https://github.com/a/b/issues/7#x", "http://github.com/a/b/issues/7", "https://gitlab.com/a/b/issues/7"] {
+            await #expect(throws: PageError.self) {
+                _ = try await provider.call("cmux.github.issue.details", params: ["url": .string(other)], context: Self.page)
+            }
+        }
+    }
 }

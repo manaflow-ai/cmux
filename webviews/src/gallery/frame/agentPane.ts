@@ -140,7 +140,6 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
     if (!bridge) return;
     bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: state.userCSS });
-    bridge.applySessionStatus?.(state.sessionStatus === true);
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
@@ -227,6 +226,9 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
+  // Settings > Advanced > Experiments switches on, as the app's `applyExperiments` push sends them.
+  if (state.experimentSwitches)
+    (await import("../../experiments/switches")).setExperimentSwitches(state.experimentSwitches);
   // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
   if (state.sessionInfoOpen)
     (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
@@ -240,10 +242,8 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
       : undefined;
   if (initialChat) {
     const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
-    const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(state.userCSS);
-    setSessionStatus(state.sessionStatus === true);
     setChatDisplay(state.display ?? {});
   }
   // mount.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,

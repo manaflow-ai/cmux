@@ -71,6 +71,11 @@ final class AddMachineDialog {
     init(runs: AddMachineRuns) {
         self.runs = runs
         panel.takesKeyboardOnShow = true
+        // A card the person opened: it drags like a window and goes away when they work elsewhere, as a popover
+        // does; a run keeps going and a reopen shows it (Leo: "you can't drag it around like one and it sticks
+        // around").
+        panel.isMovableByPerson = true
+        panel.hidesWhenInactive = true
         panel.onHide = { [weak self] in self?.isOpen = false }
         runs.changed = { [weak self] in self?.draw() }
     }
