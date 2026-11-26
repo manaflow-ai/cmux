@@ -168,6 +168,9 @@ jobs:
           # branches, and rc/cnx-ios-builder (the iPhone INTERNAL builder runs
           # its own frozen copy of ios-internal-nightly.yml).
           ROUTE_BRANCHES: main feat-cmux-next nightly-next rc/cnx-ios-builder
+          # Every repository variable, so a runs-on variable a branch adds needs no line below
+          # (runs_on_values.py ALL_VARIABLES_ENV); the list keeps the defaults some reads carry.
+          CMUX_CI_RUNS_ON_ALL_VARIABLES: ${{ toJSON(vars) }}
           CMUX_CI_RUNS_ON_VARIABLES: |
             CI_BLACKSMITH_MACOS=${{ vars.CI_BLACKSMITH_MACOS }}
             CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
@@ -192,6 +195,7 @@ jobs:
             CI_NIGHTLY_MINI_SIGNER=${{ vars.CI_NIGHTLY_MINI_SIGNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
             CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}

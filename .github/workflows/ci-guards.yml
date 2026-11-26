@@ -198,6 +198,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
+      - name: Validate the CI overflow switch routes
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_overflow_switch_routes.py
+
       - name: Validate the runner pools and their reconciler
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
@@ -205,6 +209,10 @@ jobs:
       - name: Validate the App spend lines and budget floor of minting jobs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_spend_mark.py
+
+      - name: Validate every recurring github.token spender stops at a floor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_job_token_floor.py
 
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
@@ -225,6 +233,10 @@ jobs:
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
+
+      - name: Validate the production Cloud journey keeps its environment and signs in by OIDC
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_journey_prod_oidc_sign_in.py
 
       - name: Validate each Cloud journey cron starts only its own rows
         if: ${{ matrix.group == 'ci' }}
@@ -577,6 +589,7 @@ jobs:
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
           python3 tests/test_localization_defaults.py
+          python3 tests/test_localization_fill.py
 
       - name: Test fake-socket CLI test helpers
         if: ${{ matrix.group == 'preflight' }}
@@ -873,6 +886,10 @@ jobs:
       - name: Validate the GITHUB_TOKEN budget warning
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_github_token_budget.py
+
+      - name: Validate scheduled workflows dispatch on the cmux bot App token
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cron_dispatch_token_lint.py
 
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
