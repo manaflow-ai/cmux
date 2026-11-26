@@ -4,6 +4,7 @@ import type { ManagedBannerDesignsProps } from "./ManagedBannerDesigns";
 import type { PromptRow } from "./managedBy";
 
 const manager = { kind: "agent", name: "claude-sr2-coord", sessionId: "s-coord" } as const;
+const chief = { kind: "chief" } as const;
 const now = Date.UTC(2026, 10, 3, 0, 5);
 const minutes = (count: number) => now - count * 60_000;
 const fromCoord = {
@@ -24,11 +25,43 @@ export default componentEntry<ManagedBannerDesignsProps>({
   area: "Agent pane",
   experimental: true,
   pane: true,
-  height: 120,
+  height: 150,
   covers: ["agent-session/acpmux/ManagedBannerDesigns.tsx#ManagedBannerDesigns"],
   styles: () => import("./styles.css"),
   load: () => import("./ManagedBannerDesigns").then((module) => module.ManagedBannerDesigns),
   variants: {
+    "pill": {
+      note: "Floating pill, centered over the composer, with the reassurance after a dot.",
+      props: { design: "pill", manager: chief },
+    },
+    "pill-dot": {
+      note: "Pill with a live dot that pulses while the Chief is sending; × hides it.",
+      props: { design: "pill-dot", manager: chief },
+    },
+    "pill-avatar": {
+      note: "Pill led by the Chief's monogram badge; × hides it.",
+      props: { design: "pill-avatar", manager: chief },
+    },
+    "pill-straddle": {
+      note: "Pill sitting on the composer's top edge, half over the card.",
+      props: { design: "pill-straddle", manager: chief },
+    },
+    "pill-glass": {
+      note: "Translucent blurred pill floating over the transcript.",
+      props: { design: "pill-glass", manager: chief },
+    },
+    "pill-accent": {
+      note: "Accent-tinted pill, louder, with the badge and Hide.",
+      props: { design: "pill-accent", manager: chief },
+    },
+    "pill-left": {
+      note: "Pill anchored to the composer's left edge, like a reply chip.",
+      props: { design: "pill-left", manager: chief },
+    },
+    "pill-mini": {
+      note: "Smallest: badge, 'Chief is sending', ×.",
+      props: { design: "pill-mini", manager: chief },
+    },
     sending: {
       note: "Picked, and the one that ships: who is sending messages here, that your typing still sends as you, and Hide.",
       props: { design: "sending", manager },
