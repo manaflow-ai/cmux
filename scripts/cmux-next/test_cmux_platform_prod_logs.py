@@ -387,6 +387,14 @@ class ProjectionTests(unittest.TestCase):
                                       "op": "start", "ms": 25001})
         self.assertNotIn("vm_cutoff", json.dumps(row))
 
+    def test_a_behind_ledger_wake_keeps_how_long_it_was_paused(self):
+        # cmux-platform CloudDO reconcileWokenPaused: how soon after its pause an inbound wake landed tells a client's
+        # redial (seconds) from a person's return (hours), the census's inbound_soon share.
+        row = logs.line(event({"msg": "cloud.machine.woken_behind_ledger", "team": TEAM, "machine": VM,
+                               "paused_for_ms": 4200}))
+        self.assertEqual(row["log"]["paused_for_ms"], 4200)
+        self.assertNotIn(VM, json.dumps(row))
+
     def test_a_work_machine_line_keeps_its_size_policy_and_why(self):
         # RFD agent-work-placement (cmux-platform#2099 start size, #2108 turn_end pause): worker-log-read.yml gets 403
         # on production, so only this persisted read can count work VMs by size and pause policy before and after.
