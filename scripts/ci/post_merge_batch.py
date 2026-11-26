@@ -61,6 +61,14 @@ PROBE = "probe"
 RUNS_PAGE = 100
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
+# At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
+# run, after the new reds. Before 2026-11-26 a red that outlived one batch run was "a known red, no bisect" forever: the
+# 06:29Z batch run 45768539377 skipped 43 of its 48 reds that way, and live base reds went 62 to 91 in 22 h (cmuxterm-hq
+# goals/base-batch-reverts-culprit.md).
+MAX_STUCK_CHAINS = 4
+# A stuck red is bisected again at most this many times after the bisect its first red batch run started, so a red no
+# bisect can pin (an outside service, a red on every commit) costs a bounded number of probe chains.
+MAX_REBISECTS = 2
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -556,6 +564,66 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
     return found, notes
 
 
+def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
+               suites: dict[str, "Suite"]) -> list[tuple[str, str, str, str]]:
+    """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
+
+    A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
+    run further back (good) and a first red one after it (bad): the culprit is in good..bad. It is bisected there,
+    with no confirming probe (two batch runs already agree it is red), unless a probe of the same suite job started
+    after the first red batch run is still running, or it was already bisected MAX_REBISECTS times since. Matrix legs
+    of one suite job with the same good and bad are one bisect (gallery-health's 21 shards were 21 known reds).
+    runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
+    runs (cmd_judge, before its origin) agrees with the batch run that dispatched it."""
+    reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    probes = [r for r in runs if (r.get("display_title") or "").split(" ", 1)[0] == PROBE]
+    cache: dict[int, object] = {}
+    out: list[tuple[str, str, str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for name in reds:
+        suite = verdicts[name][0]
+        first = green = None
+        red_runs = 0
+        for run in earlier:
+            if run["id"] not in cache:
+                cache[run["id"]] = jobs_of(run["id"])
+            got, judged = cache[run["id"]] if isinstance(cache[run["id"]], tuple) else (cache[run["id"]], True)
+            before = got.get(name)
+            if not before or before[1] not in ("success", "failure"):
+                continue
+            if before[1] == "failure":
+                if judged:
+                    first, red_runs = run, red_runs + 1
+                continue
+            green = run
+            break
+        if first is None or green is None:
+            continue  # a new red (new_reds bisects it) or no green in reach
+        only = suites[suite].job_id(name.partition(" / ")[2]) if suite in suites else ""
+        key = (suite, only, green["head_sha"], first["head_sha"])
+        if key in seen:
+            continue
+        prefix = f"{PROBE} {suite} {only or 'all'} at "
+        mine = [p for p in probes if (p.get("display_title") or "").startswith(prefix)
+                and (p.get("created_at") or "") > (first.get("created_at") or "")]
+        if any(p.get("status") != "completed" for p in mine):
+            continue
+        if mine and red_runs > MAX_REBISECTS:
+            continue
+        seen.add(key)
+        out.append((name, suite, green["head_sha"], first["head_sha"]))
+    return out
+
+
+def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str]) -> Probe:
+    """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
+    re-confirms it: next_step reads a pass there as a flake)."""
+    span = commits_between(commits, good, bad)
+    mid = span[(len(span) - 1) // 2] if span else bad
+    return Probe(suite, name, only, mid, good, bad, origin)
+
+
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
     ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
@@ -565,6 +633,8 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
         return "lost", None
     good, bad = probe.good, probe.bad
+    if bad and probe.sha == bad and conclusion == "success":  # a stuck red's one-commit range, re-confirmed: it passed
+        return "flake", None
     if not bad:  # the confirming probe, on the batch's own commit
         if conclusion == "success":
             return "flake", None
@@ -691,14 +761,23 @@ def cmd_judge(args: argparse.Namespace) -> int:
     jobs = run_jobs(args.repo, args.run_id)
     verdicts = suite_verdicts(jobs, suites)
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": "", "pieces": "", "piece": ""}
+    memo: dict[int, tuple[dict[str, tuple[str, str]], bool]] = {}
+
     def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
-        earlier = run_jobs(args.repo, rid)
-        judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
-        return suite_verdicts(earlier, suites), judged
+        # new_reds and stuck_reds walk the same earlier runs: read each run's jobs once.
+        if rid not in memo:
+            earlier = run_jobs(args.repo, rid)
+            judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
+            memo[rid] = (suite_verdicts(earlier, suites), judged)
+        return memo[rid]
 
     if args.mode != PROBE:
-        runs = list_runs(args.repo, args.branch)
+        # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
+        runs = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < int(args.run_id or 0) or not args.run_id]
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
+        stuck_names = {name for name, *_ in stuck}
+        notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
             summary(args.summary, f"- {note}")
         if not found:
@@ -711,6 +790,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 dispatch_probe(args.repo, args.branch, probe)
         for name, _, good in found[MAX_CHAINS:]:
             summary(args.summary, f"- New red `{name}` (green on `{good[:11]}`): over the {MAX_CHAINS}-bisect cap, named only.")
+        for name, suite, good, bad in stuck[:MAX_STUCK_CHAINS]:
+            inner = name.partition(" / ")[2]
+            probe = stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), first_parent_range(good, bad))
+            summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; bisecting there from `{probe.sha[:11]}`.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, probe)
+        for name, _, good, bad in stuck[MAX_STUCK_CHAINS:]:
+            summary(args.summary, f"- Stuck red `{name}` (green on `{good[:11]}`, red since `{bad[:11]}`): over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
         write_outputs(args.github_output, out)
         return 0
 
@@ -722,7 +809,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
     found: list[tuple[str, str, str]] = []
     if origin and is_batch(origin):
         before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
-        found, _ = new_reds(origin.get("head_sha") or "", jobs_of(origin["id"])[0], before, jobs_of)
+        origin_verdicts = jobs_of(origin["id"])[0]
+        found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+        found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
     state = None
     if probe.pieces:
         try:
