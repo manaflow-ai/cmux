@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 public import QuartzCore
 
 /// Single-line chrome text on a layer, drawn the way AppKit draws labels.
@@ -72,6 +73,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
     private let fill = CALayer()
     private let glyphs = GlyphLayer()
     private var cachedLine: CTLine?
+    private var cachedWordStarts: [TitleFadeGeometry.WordStart]?
     /// The stem weight of the ink ``glyphs`` shows.
     private var drawnWeight: Int?
     /// The line's glyph image per stem weight: a color change between two weights (a tab's selected
@@ -115,6 +117,32 @@ nonisolated public final class ChromeTextLayer: CALayer {
     /// Typographic width of `string` in points.
     public var textWidth: CGFloat {
         CGFloat(CTLineGetTypographicBounds(line(), nil, nil, nil))
+    }
+
+    /// Where each word after a space starts on the line, and where its first glyph ends (its next composed
+    /// character's offset): what a trailing fade must not cut (``TitleFadeGeometry/fadeEnd``). Measured once per
+    /// string and font.
+    public var wordStarts: [TitleFadeGeometry.WordStart] {
+        if let cachedWordStarts { return cachedWordStarts }
+        let starts = Self.wordStarts(in: string as NSString, line: line())
+        cachedWordStarts = starts
+        return starts
+    }
+
+    static func wordStarts(in text: NSString, line: CTLine) -> [TitleFadeGeometry.WordStart] {
+        let spaces = CharacterSet.whitespacesAndNewlines
+        func isSpace(_ index: Int) -> Bool { UnicodeScalar(text.character(at: index)).map(spaces.contains) ?? false }
+        var starts: [TitleFadeGeometry.WordStart] = []
+        var index = 1
+        while index < text.length {
+            let glyph = text.rangeOfComposedCharacterSequence(at: index)
+            defer { index = glyph.upperBound }
+            guard isSpace(index - 1), !isSpace(index) else { continue }
+            let x = CTLineGetOffsetForStringIndex(line, index, nil)
+            let end = CTLineGetOffsetForStringIndex(line, glyph.upperBound, nil)
+            if end > x { starts.append(.init(x: x, firstGlyphEnd: end)) }
+        }
+        return starts
     }
 
     /// Redraws the glyphs (the color needs no redraw).
@@ -189,6 +217,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
 
     private func invalidate() {
         cachedLine = nil
+        cachedWordStarts = nil
         redraw()
     }
 
