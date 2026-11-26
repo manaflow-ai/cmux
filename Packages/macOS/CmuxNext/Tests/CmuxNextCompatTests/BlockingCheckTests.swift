@@ -1,3 +1,4 @@
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin) // the detector it tests is Darwin-only
 @testable import CmuxNextCompat
 #if canImport(Darwin)
 import Darwin
@@ -560,4 +561,5 @@ private nonisolated final class ReentrantSink: BlockingViolationSink {
         seen.withLock { $0.append(count) }
     }
 }
+#endif
 #endif
