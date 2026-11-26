@@ -182,7 +182,13 @@ impl HubCarrier {
                 .await
                 .ok()
                 .and_then(Result::ok)
-                .and_then(|mut all| all.find(|a| private_address(a.ip()) && !a.ip().is_loopback()));
+                .and_then(|mut all| {
+                    all.find(|a| {
+                        private_address(a.ip())
+                            && !a.ip().is_loopback()
+                            && !super::punch::own_address(a.ip())
+                    })
+                });
         match found {
             Some(address) => {
                 self.direct
