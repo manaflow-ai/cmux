@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CryptoKit
 import Foundation
 import LocalAuthentication
 import Security
@@ -170,5 +171,122 @@ nonisolated let testLoginKeychain = LoginKeychain()
         recorder.refuseReads(nil)
         #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
         #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
+    }
+
+    // MARK: A tagged dev build republished (one tag, one identity)
+
+    /// What a phone checks on every link (cmux-next-ios PROTOCOL.md "Mac identity"): the Mac signs the
+    /// phone's challenge with its identity key, and the phone verifies it with the key it pinned at
+    /// pairing. A different key is `mac_identity_changed`.
+    static func phoneConnects(pinned: Data, to mac: MobileHostMacIdentity) throws -> Bool {
+        let challenge = Data(UUID().uuidString.utf8)
+        let signature = try P256.Signing.PrivateKey(rawRepresentation: mac.privateKey).signature(for: challenge)
+        let pin = try P256.Signing.PublicKey(x963Representation: pinned)
+        return pin.isValidSignature(signature, for: challenge)
+    }
+
+    /// Tag drawn-tabs, 2026-11-25: the tag's build 3d2199bb made the identity in the Keychain and the
+    /// phone pinned it; republished as 9f0b804d (same tag, signed again) the Keychain refused the item,
+    /// the retries ran out and a new file key was proved, so the phone refused the Mac as
+    /// `mac_identity_changed`. With the file copy, every republish proves the key the phone pinned, at
+    /// once: no refused-read wait, no second identity.
+    @Test func aRepublishedTagKeepsItsIdentityAndThePhoneStillConnects() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bundleID = "com.cmuxterm.app.debug.drawn.tabs"
+        // The tag's first build: its signature made the Keychain item, which answers it.
+        let firstBuild = Recorder()
+        let first = MobileHostMacIdentityStore(bundleID: bundleID, stateDirectory: directory, keepsFileCopy: true,
+                                               keychain: firstBuild.calls, loginKeychain: testLoginKeychain)
+        let identity = try first.loadOrCreate(fileStoreOnRefusal: false)
+        let pinned = identity.publicKey  // the phone pairs and pins it
+        #expect(try Self.phoneConnects(pinned: pinned, to: identity))
+        // Republished three times, each signed again: the Keychain refuses each one's read.
+        for status in [errSecInteractionNotAllowed, errSecAuthFailed, OSStatus(-25293)] {
+            let republished = Recorder(copyStatus: status)
+            let store = MobileHostMacIdentityStore(bundleID: bundleID, stateDirectory: directory, keepsFileCopy: true,
+                                                   keychain: republished.calls, loginKeychain: testLoginKeychain)
+            // fileStoreOnRefusal false: the first launch, before any retry ran out.
+            let proved = try store.loadOrCreate(fileStoreOnRefusal: false)
+            #expect(proved == identity)
+            #expect(try Self.phoneConnects(pinned: pinned, to: proved))
+            #expect(republished.interactionDuringCalls.allSatisfy { !$0 })
+        }
+        #expect(!FileManager.default.fileExists(atPath: first.fallbackFile.appendingPathExtension("superseded").path))
+    }
+
+    /// The bug, kept as the contrast: a store without the file copy (nightly, stable, the old DEV
+    /// path) waits on the refused item, and the DEV retries' end makes a key the phone refuses.
+    @Test func withoutTheFileCopyARepublishMakesAKeyThePhoneRefuses() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory,
+                                               keychain: Recorder().calls, loginKeychain: testLoginKeychain)
+        let pinned = try first.loadOrCreate().publicKey
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory,
+                                               keychain: Recorder(copyStatus: errSecInteractionNotAllowed).calls,
+                                               loginKeychain: testLoginKeychain)
+        #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecInteractionNotAllowed)) {
+            try store.loadOrCreate(fileStoreOnRefusal: false)
+        }
+        #expect(try !Self.phoneConnects(pinned: pinned, to: store.loadOrCreate(fileStoreOnRefusal: true)))
+    }
+
+    /// A tag whose first build predates the file copy: the Keychain item has no copy yet, so a refused
+    /// read still waits (a locked Keychain at login must not mint a key), and after the retries the
+    /// file key is made once and kept by every later republish.
+    @Test func aTagWithNoCopyYetWaitsThenKeepsOneFileKey() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsFileCopy: true,
+                                               keychain: Recorder(copyStatus: errSecInteractionNotAllowed).calls,
+                                               loginKeychain: testLoginKeychain)
+        #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecInteractionNotAllowed)) {
+            try store.loadOrCreate(fileStoreOnRefusal: false)
+        }
+        #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
+        let made = try store.loadOrCreate(fileStoreOnRefusal: true)
+        let next = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsFileCopy: true,
+                                              keychain: Recorder(copyStatus: errSecAuthFailed).calls, loginKeychain: testLoginKeychain)
+        #expect(try next.loadOrCreate(fileStoreOnRefusal: false) == made)
+    }
+
+    /// A tag's first launch with the copy: no Keychain item, so the new key goes to the file only (the
+    /// Keychain item would refuse the next republish anyway), 0600.
+    @Test func aNewTagKeepsItsKeyInTheFileOnly() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = Recorder()
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsFileCopy: true,
+                                               keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let made = try store.loadOrCreate(fileStoreOnRefusal: false)
+        #expect(MobileHostMacIdentity.restore(try Data(contentsOf: store.fallbackFile)) == made)
+        let mode = try FileManager.default.attributesOfItem(atPath: store.fallbackFile.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        #expect(!recorder.queries.contains { $0[kSecValueData as String] != nil })  // no Keychain add
+        #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == made)
+    }
+
+    /// A tag already split before the fix (Keychain key pinned, a file key beside it from an earlier
+    /// republish): a read that answers makes the file the Keychain key's copy and sets the other aside,
+    /// so the next republish proves the pinned key.
+    @Test func aSplitTagHealsToTheKeychainKeyWhenTheKeychainAnswers() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = Recorder()
+        let plain = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory,
+                                               keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try plain.loadOrCreate()
+        let second = MobileHostMacIdentity.generate()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try second.privateKey.write(to: plain.fallbackFile)
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keepsFileCopy: true,
+                                               keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
+        #expect(MobileHostMacIdentity.restore(try Data(contentsOf: store.fallbackFile)) == pinned)
+        let aside = try Data(contentsOf: store.fallbackFile.appendingPathExtension("superseded"))
+        #expect(MobileHostMacIdentity.restore(aside) == second)
+        recorder.refuseReads(errSecInteractionNotAllowed)
+        #expect(try store.loadOrCreate(fileStoreOnRefusal: false) == pinned)
     }
 }

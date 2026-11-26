@@ -59,11 +59,20 @@ public enum MobileHostMacIdentityError: Error, Equatable {
 /// login keychain password. That read is refused instead and the caller retries; only a DEV build
 /// uses the file store (its key, or a new one) after its retries (phones paired with the old build
 /// pair again).
+///
+/// A tagged dev build keeps its key in the file too (``keepsFileCopy``): each republish of a tag is
+/// signed again, so the Keychain item the tag's first build made refuses every later one, and the
+/// retries above used to end in a new file key the phone refused as `mac_identity_changed` (tag
+/// drawn-tabs, 2026-11-25). The file lives in the tag's own state folder, which a republish keeps, so
+/// one tag proves one identity across rebuilds.
 public struct MobileHostMacIdentityStore: Sendable {
     public let service: String
     public let fallbackFile: URL
     /// Off in tests: only the file is used.
     let useKeychain: Bool
+    /// A tagged dev build: the file holds a copy of the key the Keychain answered (or the only key), and
+    /// a refused Keychain read proves that copy at once instead of waiting.
+    public let keepsFileCopy: Bool
     let keychain: MobileHostSecItems
     /// The app's one guard of the Keychain UI switch.
     let loginKeychain: LoginKeychain
@@ -78,14 +87,18 @@ public struct MobileHostMacIdentityStore: Sendable {
         return context
     }
 
-    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, loginKeychain: LoginKeychain) {
-        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain, keychain: .system, loginKeychain: loginKeychain)
+    public init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keepsFileCopy: Bool = false,
+                loginKeychain: LoginKeychain) {
+        self.init(bundleID: bundleID, stateDirectory: stateDirectory, useKeychain: useKeychain, keepsFileCopy: keepsFileCopy,
+                  keychain: .system, loginKeychain: loginKeychain)
     }
 
-    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
+    init(bundleID: String, stateDirectory: URL, useKeychain: Bool = true, keepsFileCopy: Bool = false,
+         keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
         service = Self.service(bundleID: bundleID)
         fallbackFile = stateDirectory.appendingPathComponent("mac-identity", isDirectory: false)
         self.useKeychain = useKeychain
+        self.keepsFileCopy = keepsFileCopy
         self.keychain = keychain
         self.loginKeychain = loginKeychain
     }
@@ -108,7 +121,13 @@ public struct MobileHostMacIdentityStore: Sendable {
     ///   beside a Keychain item that refuses is the second identity (phones pinned the Keychain's), so
     ///   the caller waits and reads again. A build that can never read the item (a re-signed DEV app)
     ///   passes `fileStoreOnRefusal` after its retries and keeps one key of its own in the file.
+    ///
+    /// With ``keepsFileCopy`` (a tagged dev build) the file is the key's copy, not a second identity:
+    /// a Keychain key that answers is written to the file when the file differs (an older file key is
+    /// set aside), a refused read proves the file key without waiting, and a new key goes to the file
+    /// only. So the next republish of the tag, which the Keychain refuses, proves the same key.
     public func loadOrCreate(fileStoreOnRefusal: Bool = true) throws -> MobileHostMacIdentity {
+        if keepsFileCopy { return try loadOrCreateKeepingFileCopy(fileStoreOnRefusal: fileStoreOnRefusal) }
         let fileKey = (try? Data(contentsOf: fallbackFile)).flatMap(MobileHostMacIdentity.restore)
         var refused: OSStatus?
         if useKeychain {
@@ -130,6 +149,39 @@ public struct MobileHostMacIdentityStore: Sendable {
         if !(useKeychain && refused == nil && keychainAdd(identity.privateKey)) {
             try writeFallback(identity.privateKey)
         }
+        return identity
+    }
+
+    /// ``loadOrCreate(fileStoreOnRefusal:)`` for a tagged dev build.
+    private func loadOrCreateKeepingFileCopy(fileStoreOnRefusal: Bool) throws -> MobileHostMacIdentity {
+        let fileKey = (try? Data(contentsOf: fallbackFile)).flatMap(MobileHostMacIdentity.restore)
+        if useKeychain {
+            switch keychainRead() {
+            case .found(let data):
+                if let stored = MobileHostMacIdentity.restore(data) {
+                    // The key this build (or an earlier one of its signature) made: phones pinned it.
+                    if fileKey != stored {
+                        if fileKey != nil { setAsideFileKey() }
+                        do { try writeFallback(stored.privateKey) } catch {
+                            // The Keychain key still serves this launch; the next one writes the copy again.
+                            Self.logger.error("iPhone host identity: could not copy the key to the file (\(String(describing: error), privacy: .public))")
+                        }
+                    }
+                    return stored
+                }
+            case .notFound:
+                break
+            case .refused(let status):
+                // A republished tag: the item an earlier signature made. The file holds its copy.
+                if let fileKey { return fileKey }
+                // No copy yet (the tag's first build predates it): wait for the Keychain as before, and
+                // only after the retries make the file key (phones paired with the old build pair again).
+                if !fileStoreOnRefusal { throw MobileHostMacIdentityError.keychainRefused(status) }
+            }
+        }
+        if let fileKey { return fileKey }
+        let identity = MobileHostMacIdentity.generate()
+        try writeFallback(identity.privateKey)
         return identity
     }
 

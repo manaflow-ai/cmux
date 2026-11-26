@@ -107,4 +107,18 @@ import Testing
         // locked-keychain wait is gone once the supervisor's state stream delivers it.
         await Self.until { host.phase != .waiting(IPhoneHostStrings.keychainLocked) }
     }
+
+    /// A tagged dev build keeps its identity's file copy (so a republish of the tag proves the key its
+    /// phones pinned); nightly and stable (no tag) keep the Keychain only.
+    @Test func onlyATaggedDevBuildKeepsTheFileCopy() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        var dependencies = Self.host(reads: Reads(), clock: ManualClock(), directory: directory).dependencies!
+        dependencies.keychainName = "com.cmuxterm.app.debug.drawn.tabs"
+        #expect(!IPhoneHostService.identityStore(dependencies, loginKeychain: LoginKeychain()).keepsFileCopy)
+        dependencies.macDevTag = "drawn-tabs"
+        let store = IPhoneHostService.identityStore(dependencies, loginKeychain: LoginKeychain())
+        #expect(store.keepsFileCopy)
+        #expect(store.service == "com.cmuxterm.app.debug.drawn.tabs.iphone-host.identity")
+        #expect(store.fallbackFile == directory.appendingPathComponent("mac-identity"))
+    }
 }

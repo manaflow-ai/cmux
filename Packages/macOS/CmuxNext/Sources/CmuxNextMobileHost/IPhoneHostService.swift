@@ -251,6 +251,15 @@ public final class IPhoneHostService {
     /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
     /// or busy Keychain: it waits for it however long, and never makes a second identity.
     static let identityRefusalsBeforeFileKey = 6
+    /// Where this build keeps its identity key. A tagged dev build (`macDevTag`) keeps a file copy: each
+    /// republish of the tag is signed again and may not read the Keychain item the tag's first build made,
+    /// so the copy in the tag's state folder keeps one key the tag's phones pinned (2026-11-25, drawn-tabs).
+    static func identityStore(_ dependencies: Dependencies, loginKeychain: LoginKeychain) -> MobileHostMacIdentityStore {
+        MobileHostMacIdentityStore(bundleID: dependencies.keychainName
+                                   ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                                   stateDirectory: dependencies.stateDirectory,
+                                   keepsFileCopy: dependencies.macDevTag != nil, loginKeychain: loginKeychain)
+    }
     #if DEBUG
     static let mayUseFileStoreOnRefusal = true
     #else
@@ -740,9 +749,7 @@ public final class IPhoneHostService {
                 // Named for this build (keychainName), never for the folder above the state folder: with a
                 // backend namespace that folder is the namespace, one login item every dev build on that
                 // backend shared, readable only by the build that made it (-25293 for the others).
-                let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
-                                                       ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
-                                                stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
+                let store = Self.identityStore(dependencies, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
                 let fileStore = Self.mayUseFileStoreOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
