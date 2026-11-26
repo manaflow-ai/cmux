@@ -702,9 +702,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         Some(Command::Exec(crate::cli::command::ExecCmd::Conformance { cases, dir, keep })) => {
             match crate::placement::exec_conformance::main(&cases, dir, keep, cli.json).await {
-                Ok(true) => Ok(()),
-                // crash-allow: a conformance run that differed (or was not routed) fails its caller's check
-                Ok(false) => std::process::exit(1),
+                Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
             }
         }

@@ -171,11 +171,12 @@ pub const NORMALIZED: &[&str] =
 
 /// The rewrite [`NORMALIZED`] names.
 pub fn normalize(bytes: &[u8]) -> Vec<u8> {
-    static DURATION: std::sync::OnceLock<regex::bytes::Regex> = std::sync::OnceLock::new();
-    let re = DURATION.get_or_init(|| {
-        regex::bytes::Regex::new(r"\b[0-9]+\.[0-9]+s\b").expect("the duration pattern compiles")
-    });
-    re.replace_all(bytes, &b"<t>s"[..]).into_owned()
+    static DURATION: std::sync::OnceLock<Option<regex::bytes::Regex>> = std::sync::OnceLock::new();
+    let re = DURATION.get_or_init(|| regex::bytes::Regex::new(r"\b[0-9]+\.[0-9]+s\b").ok());
+    match re {
+        Some(re) => re.replace_all(bytes, &b"<t>s"[..]).into_owned(),
+        None => bytes.to_vec(),
+    }
 }
 
 /// What one side of a case did.
@@ -763,7 +764,7 @@ impl Runner for ProcessRunner {
 }
 
 /// `acpmux exec-router conformance`: run the corpus (or the `only` cases) here and routed,
-/// print one row per case and the summary, and answer whether it passed. The work copies are
+/// print one row per case and the summary; an error when it did not pass. The work copies are
 /// written under `dir` (default `$ACPMUX_HOME/exec-conformance/run-PID`), on the disk a fork
 /// copies, and removed afterwards unless `keep`.
 pub async fn main(
@@ -771,7 +772,7 @@ pub async fn main(
     dir: Option<PathBuf>,
     keep: bool,
     json: bool,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let cases: Vec<Case> = CORPUS
         .iter()
         .filter(|c| only.is_empty() || only.iter().any(|o| o == c.name))
@@ -826,7 +827,24 @@ pub async fn main(
     } else if made {
         let _ = crate::home_fs::remove_dir_all(&root);
     }
-    Ok(summary.ok)
+    anyhow::ensure!(
+        summary.ok,
+        "exec-router conformance failed: identical {}, on a run VM {}/{}{}{}",
+        summary.identical,
+        summary.on_run_vm,
+        summary.total,
+        if summary.unexpected.is_empty() {
+            String::new()
+        } else {
+            format!("; differ: {}", summary.unexpected.join(", "))
+        },
+        if summary.not_routed.is_empty() {
+            String::new()
+        } else {
+            format!("; routed side ran here: {}", summary.not_routed.join(", "))
+        },
+    );
+    Ok(())
 }
 
 #[cfg(all(test, unix))]
