@@ -1503,9 +1503,10 @@ class ClaimInvocationTests(unittest.TestCase):
         grow a form that runs something else without this failing."""
         for command in keychain_guard.CLAIM_COMMANDS:
             with self.subTest(command=command):
-                self.assertRegex(command, r"^(?:\./|bash (?:\.nightly-signing-control/|\.publish-tooling/)?)?"
+                self.assertRegex(command, r"^(?:\./|bash (?:\.nightly-signing-control/|\.publish-tooling/|"
+                                 r"\.nightly-next-deltas/\.publish-tooling/)?)?"
                                  + re.escape(CLAIM) + r"$")
-        self.assertLessEqual(len(keychain_guard.CLAIM_COMMANDS), 5)
+        self.assertLessEqual(len(keychain_guard.CLAIM_COMMANDS), 6)
 
     def test_rule_7a_refuses_a_claim_that_may_not_run_or_may_fail_quietly(self) -> None:
         gate = {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
