@@ -1,5 +1,5 @@
 import { reconcileForkCapture } from "./fork-capture.ts";
-import { scopedCreationKey } from "../auth/idempotency-key.ts";
+import { scopedCreationKey, type CreationKey } from "../auth/idempotency-key.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect } from "effect";
 import type { Principal } from "../domain/principal.ts";
@@ -14,7 +14,7 @@ import { withCaller } from "./common.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 
 /** A prior cancellation is advanced only by verified identity, deletion and a durable tombstone. */
-export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string) => Effect.gen(function* () {
+export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: CreationKey) => Effect.gen(function* () {
   const fork = yield* reconcileForkCapture(caller, scope, key);
   if (fork !== null) return fork;
   const status = yield* readVmCreation(caller, key);
@@ -60,7 +60,8 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
   }));
 });
 
-export const cancelVmCreation = (key: string) => withCaller("vm:write", "write", (caller, scope) => Effect.gen(function* () {
+/** Cancels the caller's own pending creation: a fence first, then the verified cleanup of continueCancellation. */
+export const cancelCreationAs = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: CreationKey) => Effect.gen(function* () {
   const status = yield* readVmCreation(caller, key);
   if (status.state === "deleted") return status;
   if (status.state === "cancelling" || status.state === "cancelled") return yield* continueCancellation(caller, scope, key);
@@ -82,4 +83,6 @@ export const cancelVmCreation = (key: string) => withCaller("vm:write", "write",
 
   }));
   return yield* continueCancellation(caller, scope, key);
-})).pipe(Effect.uninterruptible);
+});
+
+export const cancelVmCreation = (key: string) => withCaller("vm:write", "write", (caller, scope) => cancelCreationAs(caller, scope, key)).pipe(Effect.uninterruptible);

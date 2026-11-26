@@ -62,7 +62,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n12", "children": ["n13"] },
-      { "op": "create", "id": "n14", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n14", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n15",
@@ -105,7 +105,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n20", "children": ["n21"] },
-      { "op": "create", "id": "n22", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n22", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n23",
@@ -148,7 +148,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n28", "children": ["n29"] },
-      { "op": "create", "id": "n30", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n30", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n31",
@@ -271,7 +271,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n16", "children": ["n17"] },
-      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
@@ -314,7 +314,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n24", "children": ["n25"] },
-      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n27",
@@ -357,7 +357,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n32", "children": ["n33"] },
-      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n35",
@@ -470,7 +470,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n16", "children": ["n17"] },
-      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
@@ -513,7 +513,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n24", "children": ["n25"] },
-      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n27",
@@ -556,7 +556,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n32", "children": ["n33"] },
-      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n35",
@@ -599,7 +599,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n40", "children": ["n41"] },
-      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n43",
@@ -642,7 +642,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n48", "children": ["n49"] },
-      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n51",
@@ -685,7 +685,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n56", "children": ["n57"] },
-      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n59",
@@ -819,7 +819,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n16", "children": ["n17"] },
-      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
@@ -862,7 +862,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n24", "children": ["n25"] },
-      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n27",
@@ -905,7 +905,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n32", "children": ["n33"] },
-      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n35",
@@ -948,7 +948,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n40", "children": ["n41"] },
-      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n43",
@@ -991,7 +991,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n48", "children": ["n49"] },
-      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n51",
@@ -1034,7 +1034,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n56", "children": ["n57"] },
-      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n59",
@@ -1104,7 +1104,7 @@
       { "op": "create", "id": "n74", "type": "Group", "props": {} },
       { "op": "create", "id": "n75", "type": "Circle", "props": { "fill": "#007AFF", "size": 19 } },
       { "op": "children", "id": "n74", "children": ["n75"] },
-      { "op": "create", "id": "n76", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n76", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n77",
@@ -1142,7 +1142,7 @@
       { "op": "create", "id": "n82", "type": "Group", "props": {} },
       { "op": "create", "id": "n83", "type": "Circle", "props": { "fill": "#007AFF", "size": 19 } },
       { "op": "children", "id": "n82", "children": ["n83"] },
-      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n85",
@@ -1285,7 +1285,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n16", "children": ["n17"] },
-      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
@@ -1328,7 +1328,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n24", "children": ["n25"] },
-      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n27",
@@ -1371,7 +1371,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n32", "children": ["n33"] },
-      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n34", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n35",
@@ -1414,7 +1414,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n40", "children": ["n41"] },
-      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n42", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n43",
@@ -1457,7 +1457,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n48", "children": ["n49"] },
-      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n50", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n51",
@@ -1500,7 +1500,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n56", "children": ["n57"] },
-      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n58", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n59",
@@ -1570,7 +1570,7 @@
       { "op": "create", "id": "n74", "type": "Group", "props": {} },
       { "op": "create", "id": "n75", "type": "Circle", "props": { "fill": "#FF9500", "size": 19 } },
       { "op": "children", "id": "n74", "children": ["n75"] },
-      { "op": "create", "id": "n76", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n76", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n77",
@@ -1608,7 +1608,7 @@
       { "op": "create", "id": "n82", "type": "Group", "props": {} },
       { "op": "create", "id": "n83", "type": "Circle", "props": { "fill": "#FF9500", "size": 19 } },
       { "op": "children", "id": "n82", "children": ["n83"] },
-      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n84", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n85",
@@ -1761,7 +1761,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n16", "children": ["n17"] },
-      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n18", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n19",
@@ -1804,7 +1804,7 @@
         "props": { "stroke": "tertiary", "strokeWidth": 1.5, "size": 19 }
       },
       { "op": "children", "id": "n24", "children": ["n25"] },
-      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 1, "alignment": "leading" } },
+      { "op": "create", "id": "n26", "type": "VStack", "props": { "spacing": 2, "alignment": "leading" } },
       {
         "op": "create",
         "id": "n27",

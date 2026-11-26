@@ -20,6 +20,8 @@ import {
   type PullRequestDetails,
   type PullRequestReply,
   type RerunState,
+  type ReviewEvent,
+  type WriteState,
 } from "./types";
 import { failedRuns } from "./checksModel";
 
@@ -52,12 +54,15 @@ export interface GitHubSnapshot {
   /** The CI dashboard's jobs (`checks.read`), once the host has them. */
   checks?: DashboardChecks;
   rerun: RerunState;
+  /** The person's last review or thread write (ReviewBox.tsx). */
+  write: WriteState;
 }
 
 const EMPTY = {
   patches: {},
   merge: { phase: "idle" },
   rerun: { phase: "idle" },
+  write: { phase: "idle" },
 } as const satisfies Partial<GitHubSnapshot>;
 
 export class GitHubStore {
@@ -298,6 +303,51 @@ export class GitHubStore {
     }
     if (generation !== this.generation) return;
     this.set({ ...this.snapshot, merge: next });
+  }
+
+  /** The person's review of the pull request shown, pinned to the head the page shows. */
+  submitReview(event: ReviewEvent, body: string): Promise<boolean> {
+    const head = this.snapshot.details?.headCommit;
+    return this.write("review", GitHubOps.reviewSubmit, { event, body, ...(head ? { head } : {}) });
+  }
+
+  /** A reply on one of the pull request's review threads. */
+  replyThread(thread: string, body: string): Promise<boolean> {
+    return this.write(thread, GitHubOps.threadReply, { thread, body });
+  }
+
+  /** Resolves (or reopens) one of the pull request's review threads. */
+  resolveThread(thread: string, resolved: boolean): Promise<boolean> {
+    return this.write(thread, GitHubOps.threadResolve, { thread, resolved });
+  }
+
+  /** One write through the host; on success the conversation is read again. True when GitHub took it. */
+  private async write(what: string, op: string, params: Record<string, unknown>): Promise<boolean> {
+    const target = this.snapshot.target;
+    if (!target || !this.client || this.snapshot.write.phase === "sending") return false;
+    const generation = this.generation;
+    this.set({ ...this.snapshot, write: { phase: "sending", what } });
+    let next: WriteState;
+    try {
+      await this.client.call(op, { url: target.url, ...params });
+      next = { phase: "sent", what };
+    } catch (error) {
+      // A click the host did not count is no failure: the person clicks again.
+      next =
+        isPageError(error) && error.code === "cmux.github.gesture_required"
+          ? { phase: "idle" }
+          : {
+              phase: "failed",
+              what,
+              message: userMessage(error, SENTENCES),
+              // Only the person approves or requests changes, never the App: the host found no gh login.
+              personOnly: isPageError(error) && error.code === "cmux.github.person_only",
+            };
+    }
+    if (generation !== this.generation) return false;
+    this.set({ ...this.snapshot, write: next });
+    if (next.phase === "sent") void this.loadDetails(this.snapshot.pullRequest?.updatedAt ?? "");
+    return next.phase === "sent";
   }
 
   /** Steps back from the confirm. */

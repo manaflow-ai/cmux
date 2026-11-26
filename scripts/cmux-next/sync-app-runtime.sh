@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # Copies the app platform files the Swift module CmuxNextApps still needs
 # from their owners into Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform:
-#   cmux-tui/crates/cmux-app-host/generated/scopes.json      -> scopes.json (permission policy)
-#   cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json -> scope-classes.json (risk class per scope)
 #   first-party-apps/<name>/{cmux-app.v2.json (else cmux-app.json),dist/,assets/,catalog/} -> first-party/<name>/
 #     (only apps with a BUNDLED marker: whole packages, because the App points the
 #     local daemon's app supervisor at this directory as CMUX_APPS_FIRST_PARTY_DIR;
@@ -25,13 +23,12 @@
 #   --check          exit 1 when a committed copy differs from its source (store/ is not looked at)
 #   --store          write store/ only
 #   --store --check  exit 1 when store/ is missing or differs from its sources
-# CMUX_APP_HOST_DIR, CMUX_APP_SAMPLES_DIR and CMUX_APP_FIRST_PARTY_DIR override the source
+# CMUX_APP_SAMPLES_DIR and CMUX_APP_FIRST_PARTY_DIR override the source
 # directories, CMUX_APP_PLATFORM_DIR the destination (tests).
 # Usage: scripts/cmux-next/sync-app-runtime.sh [--store] [--check]
 set -euo pipefail
 # From the script's own place, not the working directory: the Xcode build phase runs it too.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-host="${CMUX_APP_HOST_DIR:-$root/cmux-tui/crates/cmux-app-host}"
 samples="${CMUX_APP_SAMPLES_DIR:-$root/samples/apps}"
 first_party="${CMUX_APP_FIRST_PARTY_DIR:-$root/first-party-apps}"
 dest="${CMUX_APP_PLATFORM_DIR:-$root/Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform}"
@@ -55,11 +52,12 @@ copy() { # source relative-destination
   cp -R "$from" "$to"
 }
 
-# The committed copies: the scope tables, the sample manifests and the BUNDLED first-party apps.
+# The committed copies: the sample manifests and the BUNDLED first-party apps. The scope tables
+# (generated/scopes.json, schema/v2/scope-classes.json) are not copied: the daemon compiles them in
+# (cmux-pane-protocol scope_class.rs, cmux-extension-sdk build.rs) and nothing in the app read the copies, so
+# a scope change rides the daemon's hot apply instead of needing a new app.
 stage_committed() {
   local app name
-  copy "$host/generated/scopes.json" scopes.json
-  copy "$host/schema/v2/scope-classes.json" scope-classes.json
   mkdir -p "$stage/samples"
   if [[ -d "$samples" ]]; then
     for app in "$samples"/*/; do
@@ -145,8 +143,8 @@ same() {
   [[ -d "$b" ]] || { echo "sync-app-runtime: $b is missing" >&2; return 1; }
   while IFS= read -r name; do
     [[ -n "$name" && "$name" != "$skip" ]] || continue
-    if ! diff -r "$a/$name" "$b/$name" >/dev/null 2>&1; then
-      diff -rq "$a/$name" "$b/$name" >&2 || true
+    if ! diff -r -x STORE.sig "$a/$name" "$b/$name" >/dev/null 2>&1; then
+      diff -rq -x STORE.sig "$a/$name" "$b/$name" >&2 || true
       ok=1
     fi
   done < <({ ls -A "$a"; ls -A "$b"; } | sort -u)
@@ -157,6 +155,15 @@ if [[ "$scope" == "all" ]]; then
   stage_committed
 fi
 stage_store
+# cmux's own store packages get STORE.sig (store-package-sign.py) when the build holds the store key
+# (CMUX_STORE_SIGNING_KEY_FILE, CI secret CMUX_STORE_SIGNING_KEY); unsigned ones list as Unverified.
+# --check never signs, and `same` leaves STORE.sig out of its comparison.
+if [[ "$mode" != "check" && -n "${CMUX_STORE_SIGNING_KEY_FILE:-}" ]]; then
+  for app in "$stage/store"/*/; do
+    [[ -d "$app" ]] || continue
+    python3 "$root/scripts/cmux-next/store-package-sign.py" --key "$CMUX_STORE_SIGNING_KEY_FILE" "$app"
+  done
+fi
 
 if [[ "$mode" == "check" && "$scope" == "store" ]]; then
   if ! same "$stage/store" "$dest/store"; then

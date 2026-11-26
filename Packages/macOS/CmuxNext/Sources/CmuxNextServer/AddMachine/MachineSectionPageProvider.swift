@@ -21,9 +21,10 @@ public extension PageDescriptor {
 ///   once it closes (`row`: New Workspace on This Machine; `joined`: Check, Rotate Credential, Revoke…);
 /// - `remove {row}` → a joined machine's Remove, after the page's own question: revoked if it still
 ///   can join, and off every machine list (`cmux device remove`, whose record is cmux-tui's).
-/// - `openJoined {row, again?}` → ``JoinedDialAnswer``: New Workspace on an online joined Mac the app
-///   reaches only through the hub (a `joined:<id>` row): ask it, and once its person allows this
-///   account's other Macs, open the workspace on it (hq#11046). `again` asks once more, with no click,
+/// - `openJoined {row, again?}` → ``JoinedDialAnswer``: New Workspace on an online joined machine (Mac
+///   or Linux) the app reaches only through the hub (a `joined:<id>` row): ask it, and once it admits
+///   (its person allowed this account's other machines, or its join from another device did), open the
+///   workspace on it (hq#11046). `again` asks once more, with no click,
 ///   only for a row whose ask a click started and that Mac has not answered.
 /// Every op but `snapshot` (and `openJoined`'s `again`) runs only on the person's own input, on a row the section shows.
 /// The layout (groups, order, words) is the page's.
@@ -152,11 +153,10 @@ public final class MachineSectionPageProvider: PageProvider {
             }
             return ["removed": .bool(await joined.perform(.remove, machine.id))]
         case Self.openJoinedOp:
-            // Only an online joined Mac the section shows with no link of its own (its row is `joined:<id>`).
+            // Only an online joined machine (Mac or Linux) the section shows with no link of its own (its row is `joined:<id>`).
             guard let id = params["row"]?.stringValue, let row = dependencies.rows().first(where: { $0.id == id }),
-                  let machine = row.joined, row.id == JoinedMachine.healthID(machine.id), machine.state == .online,
-                  machine.isMac else {
-                throw PageError.invalidParams("row is not an online joined Mac of the section")
+                  let machine = row.joined, row.id == JoinedMachine.healthID(machine.id), machine.opensOverHub else {
+                throw PageError.invalidParams("row is not an online joined machine of the section")
             }
             if params["again"]?.boolValue == true {
                 guard let since = waitingRows[id], since.duration(to: .now) < Self.waitLimit else {

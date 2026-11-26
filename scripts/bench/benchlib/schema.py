@@ -29,7 +29,7 @@ import statistics
 from typing import Any, Iterable
 
 SCHEMA = "cmux-bench/v1"
-UNITS = {"ms", "s", "us", "MB", "KB", "GB", "bytes", "kbps", "Mbps", "fps", "%", "count", "mW", "W", "per_s", "x"}
+UNITS = {"ms", "s", "us", "MB", "KB", "GB", "bytes", "kbps", "Mbps", "fps", "%", "count", "mW", "W", "per_s", "x", "px"}
 BETTER = {"lower", "higher", "none"}
 CHANNELS = {"nightly", "DEV", "sha", "release", "local", "other"}
 ROLES = {"fleet", "local-readonly", "anywhere"}

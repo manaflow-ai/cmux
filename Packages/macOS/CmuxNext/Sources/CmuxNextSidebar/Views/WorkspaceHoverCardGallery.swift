@@ -85,7 +85,71 @@ public struct WorkspaceHoverCardGallery {
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
-        return tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + closeAndSpinnerCards(now: now) + workCards(now: now) + richCards
+        return layoutCards(now: now) + tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + portCards(now: now)
+            + closeAndSpinnerCards(now: now) + workCards(now: now) + originCards(now: now) + richCards
+    }
+
+    /// A workspace whose terminal serves a dev server (its `ports` entry, ":5173"): one row per port under the tab
+    /// list, with details shut or open, that opens the port in a browser tab of the workspace; on another machine the
+    /// same row opens that machine's localhost (the header names the machine once). Hovered: the tab rows' fill.
+    @MainActor static func portCards(now: Date) -> [(name: String, view: NSView)] {
+        // Made-up machine names: the capture's privacy check refuses a real host's.
+        let local = SidebarMachine(id: .local, name: "studio", kind: .local)
+        let remote = SidebarMachine(id: MachineID("dev-mini"), name: "dev-mini", kind: .ssh, status: .connected)
+        var shell = SidebarTab(id: TabID("dev"), title: "~/Projects/web", kind: .terminal, folder: "~/Projects/web")
+        shell.command = "npm run dev"
+        let states: [(String, SidebarMachine, String, Bool, Bool)] = [
+            ("Ports · this Mac · one port", local, ":5173", false, false),
+            ("Ports · this Mac · two ports · details open", local, ":3000, :5173", true, false),
+            ("Ports · another machine · its localhost", remote, ":5173", false, false),
+            ("Ports · port row hovered", local, ":5173", false, true),
+        ]
+        return states.map { name, machine, ports, expanded, hovered in
+            var workspace = SidebarWorkspace(id: WorkspaceID("ports-\(machine.id.rawValue)"), machineID: machine.id, title: "web")
+            workspace.tabs = [shell]
+            workspace.ports = ports
+            let card = WorkspaceHoverCardView()
+            card.configure(.make(workspace, machine: machine, now: now), now: now)
+            card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now, machine: machine)
+            card.onOpenPort = { _, _ in }
+            if expanded { card.detailsToggle.performClick(nil) }
+            if hovered { card.portViews.first?.isHovered = true }
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
+    }
+
+    /// One workspace with a long history, as the Timeline layout (the default until 2026-11-20) and as
+    /// Compact, the default since (Lawrence 2026-11-20: "drastically simplify all parts of the UI"):
+    /// both through `WorkspaceHoverCardContent.make(options:)`, the path a hovered row takes.
+    @MainActor static func layoutCards(now: Date) -> [(name: String, view: NSView)] {
+        var workspace = SidebarWorkspace(id: WorkspaceID("layouts"), machineID: .local, title: "Simplify the UI")
+        workspace.tabs = [SidebarTab(id: TabID("chat"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .success)]
+        let moments: [(SidebarTimelineEntry.Kind, TimeInterval, String?)] = [
+            (.finished, 60, nil), (.prompt, 420, "Take the before and after shots"), (.finished, 900, nil),
+            (.prompt, 1_500, "Make the hover card compact"), (.waiting, 2_100, nil), (.prompt, 2_700, "Cut the tip card"),
+            (.finished, 3_300, nil), (.prompt, 3_900, "Hide the sidebar search button"), (.finished, 4_500, nil),
+            (.prompt, 5_100, "Map every surface"),
+        ]
+        let timeline = moments.map { kind, ago, text in
+            SidebarTimelineEntry(kind: kind, date: now.addingTimeInterval(-ago), text: text, agent: "Claude Code")
+        }
+        let local = SidebarMachine(id: .local, name: "studio", kind: .local)
+        // Each layout as a hovered row opens it (details folded), then with Show details open: the gallery window
+        // takes no clicks, so a capture can only show the history the Compact layout cuts from an open pair.
+        let pairs: [(WorkspaceHoverCardOptions.Layout, String, Bool)] = [
+            (.timeline, "Layout · Timeline (before 2026-11-20)", false), (.compact, "Layout · Compact · chosen", false),
+            (.timeline, "Layout · Timeline · details open", true), (.compact, "Layout · Compact · details open", true),
+        ]
+        return pairs.map { layout, name, open in
+            var options = WorkspaceHoverCardOptions()
+            options.layout = layout
+            let content = WorkspaceHoverCardContent.make(workspace, machine: local, now: now, options: options, timeline: timeline)
+            let card = WorkspaceHoverCardView()
+            card.configure(content, now: now)
+            card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now, machine: local)
+            if open { card.detailsToggle.performClick(nil) }
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
     }
 
     /// A Cloud workspace with one terminal (Leo 2026-11-02, on a card that said Cloud four times: "isn't this
@@ -199,6 +263,53 @@ public struct WorkspaceHoverCardGallery {
             let shipped = style == WorkspaceHoverCardWork.shipped ? " · chosen" : ""
             return ("Running work · \(style.rawValue)\(shipped)", HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
+    }
+
+    /// Who made the workspace and why, in each `WorkspaceHoverCardOrigin.Style` (Leo 2026-11-19:
+    /// "acpmux should expose these a lot better"): an agent with every field, an agent with no purpose, a
+    /// script, and a workspace the person made, which shows nothing new. The shipped style says so in its name.
+    @MainActor static func originCards(now: Date) -> [(name: String, view: NSView)] {
+        let made = WorkspaceHoverCardOrigin.Style.allCases.flatMap { style in
+            originStates.filter { $0.1 != nil }.map { state, origin in
+                let shipped = style == WorkspaceHoverCardOrigin.shipped ? " · chosen" : ""
+                return card("Origin · \(style.rawValue) · \(state)\(shipped)", originView(origin, style, now: now))
+            }
+        }
+        return made + originStates.filter { $0.1 == nil }.map { state, _ in
+            card("Origin · \(state) · nothing new", originView(nil, WorkspaceHoverCardOrigin.shipped, now: now))
+        }
+    }
+
+    @MainActor private static func card(_ name: String, _ view: WorkspaceHoverCardView) -> (name: String, view: NSView) {
+        (name, HoverCardGalleryHost(body: view) { [weak view] in view?.applyColors() })
+    }
+
+    /// The origin gallery's states. Made-up session and machine names: the capture's privacy check refuses a real
+    /// host's.
+    static let originStates: [(String, SidebarWorkspaceOrigin?)] = [
+        ("agent", SidebarWorkspaceOrigin(kind: .agent, sessionName: "desktop-helper", sessionID: "5f2c9a7e-81d4-4b6a-9e1f",
+                                         host: "dev-mini", purpose: "Demo project for the weather widget")),
+        ("agent, no purpose", SidebarWorkspaceOrigin(kind: .agent, sessionID: "5f2c9a7e-81d4-4b6a-9e1f", host: "dev-mini")),
+        ("script", SidebarWorkspaceOrigin(kind: .script, host: "dev-mini", purpose: "Nightly example.com smoke test")),
+        ("person", nil),
+    ]
+
+    /// The expanded card of a workspace `origin` made, its origin drawn in `style`.
+    @MainActor static func originView(_ origin: SidebarWorkspaceOrigin?, _ style: WorkspaceHoverCardOrigin.Style,
+                                      now: Date) -> WorkspaceHoverCardView {
+        typealias Fact = WorkspaceHoverCardContent.Fact
+        let folder = Fact(icon: .folder, text: "tiny-weather", kind: "folder")
+        let reply = Fact(icon: .agentChatList, text: "Done: the widget shows the forecast for the next six hours.",
+                         lines: 2, kind: Fact.lastReplyKind, isPreview: true)
+        var detail = SidebarWorkspaceDetail()
+        detail.origin = origin
+        let lines = WorkspaceHoverCardOrigin.facts(detail, style: style)
+        let facts = WorkspaceHoverCardOrigin.isFooter(style) ? [folder, reply] + lines : [folder] + lines + [reply]
+        let content = WorkspaceHoverCardContent(title: "Weather widget", icon: .agentChat, age: "2h", facts: facts)
+        let view = WorkspaceHoverCardView()
+        view.configure(content, now: now)
+        view.detailsToggle.performClick(nil)
+        return view
     }
 
 }

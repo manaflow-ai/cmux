@@ -5,6 +5,29 @@
 /// the motion renders it again.
 export const FIELD_GROWTH_EVENT = "acpmux-field-growth";
 
+/// An attachment tile in the text took a new shape with no edit (its header read, its loading tile
+/// turned into its chip, its chip dropped before its node goes): dispatched on the tile's node, bubbling,
+/// in the render's own commit (inlineAttachments.tsx), so the field's move (fieldGrowth.ts) starts
+/// before the frame lays out, as an edit's does.
+export const TILE_SHAPE_EVENT = "acpmux-tile-shape";
+
+/// Fields whose edit waits for their own ResizeObserver to start the growth (fieldGrowth.ts, the
+/// deferred path since #48134). In that frame's observer round the dock may be told first, with the
+/// field already at its natural height: what moves with the field leaves that change to the growth
+/// event, which comes in the same round, instead of moving on a curve of its own (a 5 px lead).
+const pendingGrowth = new Set<Element>();
+
+export function markGrowthPending(field: Element, pending: boolean): void {
+  if (pending) pendingGrowth.add(field);
+  else pendingGrowth.delete(field);
+}
+
+/// Whether a field inside `root` has an edit whose growth has yet to start.
+export function growthPendingIn(root: Element): boolean {
+  for (const field of pendingGrowth) if (root.contains(field)) return true;
+  return false;
+}
+
 export type FieldGrowthDetail = {
   /// The height the field lands on (px); its drawn height minus this is what the stack has yet to grow.
   to: number;
@@ -15,6 +38,10 @@ export type FieldGrowthDetail = {
   duration: number;
   /// The field's own animation: what moves with it starts on its start time (the same frame).
   animation: Animation;
+  /// Set for a change of the value from outside (a send clearing a tall prompt): the field lands at
+  /// once, as such a change always did, unless a listener calls `claim` during the dispatch and plays
+  /// `animation` on its own clock (VirtualTranscript: the send's one motion, motionTransaction.ts).
+  outside?: { claim: () => void };
 };
 
 export type FieldGrowthEvent = CustomEvent<FieldGrowthDetail>;

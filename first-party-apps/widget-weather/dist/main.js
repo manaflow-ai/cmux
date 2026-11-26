@@ -590,42 +590,6 @@
         scope: "codemirror:write",
         class: "mutation"
       },
-      "coderouter.accounts.list": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.app.connect_account": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.create_key": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.open": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.run_test": {
-        scope: "coderouter:execute",
-        class: "mutation"
-      },
-      "coderouter.app.start_onboarding": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.detect": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.status": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.usage.get": {
-        scope: "coderouter:read",
-        class: "read"
-      },
       "column.update": {
         scope: "column:write",
         class: "mutation"
@@ -901,6 +865,18 @@
       "group.list": {
         scope: "group:read",
         class: "read"
+      },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
       },
       "group.rename": {
         scope: "group:write",
@@ -1830,6 +1806,38 @@
         scope: "team:read",
         class: "read"
       },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
+      },
       "team.device.compliance": {
         scope: "team:read",
         class: "read"
@@ -2169,6 +2177,8 @@
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",
       "cloud.owner.github_app",
+      "cloud.owner.github_connect",
+      "cloud.owner.github_repos",
       "cloud.owner.handoff_begin_turn",
       "cloud.owner.handoff_open",
       "cloud.owner.handoff_wait",
@@ -2293,6 +2303,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2301,6 +2314,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2367,6 +2382,8 @@
     Rectangle,
     RoundedRectangle
   } = g;
+  var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
+  var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));
   var EVENT_STREAMS = Object.keys(events_default.events);
   var HOURS_SHOWN = 6;
   var DAYS_SHOWN = 6;
@@ -2723,7 +2740,7 @@
       Text(message ?? t("loading", "Finding the weather near you…")).font(12).weight("medium").color(look.secondary).lineLimit(3)
     ]);
   }
-  var renderWeather = widget((ctx = {}) => {
+  var drawWeather = widget((ctx = {}) => {
     const size = ctx.size ?? "small";
     const preview = ctx.preview === true;
     const settings = computed(() => ({ ...cmux.app.settings(), ...ctx.settings ?? {} }));
@@ -2767,5 +2784,8 @@
       }
     ]).padding(ctx.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab).frame({ maxWidth: "infinity", maxHeight: "infinity" }).background(sky).contextMenu(() => preview ? [] : [Button(t("refresh", "Refresh weather"), () => load(settings(), true))]);
   });
+  function renderWeather(ctx) {
+    return drawWeather(ctx);
+  }
   globalThis.__cmuxAppExports = { ...exports_main };
 })();

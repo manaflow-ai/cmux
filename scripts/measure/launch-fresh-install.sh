@@ -3,7 +3,7 @@
 # point is a fresh launch somebody installing and launching from scratch"). On a fleet Mac's console session, one DMG:
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-fresh-install.sh --ref <sha> [--arg=dmg=nightly|URL|sha256:HEX] [--arg=reps=5] \
-#     [--arg=rows=n,q,m,p] [--arg=trace=1] --artifact .build/launch-fresh-install/report.tgz --timeout 5400
+#     [--arg=rows=n,q,m,p,k] [--arg=trace=1] [--arg=load=N] --artifact .build/launch-fresh-install/report.tgz --timeout 5400
 # dmg= is as launch-premain.sh takes it (sha256:HEX: the fleet store, a pull request's signed candidate). Rows, each
 # launch the first open of a copy nothing has run, with an empty home (a person's first launch), opened through
 # LaunchServices as a double-click opens it:
@@ -13,6 +13,11 @@
 #   m   the same quarantined DMG, the app opened from the mounted volume
 #   p   as n, then the updater pre-warm's first step run on the copy before the open (its executable with
 #       --cmux-prewarm-launch, StagedUpdatePrewarm: exec and dyld, then exit), as an installer of ours could run it
+#   k   as n, then the installer package's own postinstall (scripts/cmux-next/pkg/postinstall: the exec pre-warm, the
+#       CLIs and Chromium helpers, Chromium's first start, every framework file read) run on the copy as the console
+#       user, as `installer -pkg` would run it after laying the copy down (RFD 0134 Table 4 row 1). No root: the
+#       script's launchctl asuser, sudo -u and chown are replaced by shims that run as this user; prewarm_ms is the
+#       whole postinstall, its lines are in the report (postinstall-REP.log)
 #   s   as n, the executable started directly (posix_spawn, suspended) and stopped at main: spawn_ms is the kernel's
 #       exec of the image (its signature and policy check), resume_to_main is dyld, the frameworks it links and
 #       initializers. Splits a new copy's wait between exec and dyld with no root and no prompt.
@@ -29,19 +34,22 @@
 # checkers, reduced to LF-TRACE: when the app's process made its first file call (dyld's first look: everything
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
-# Prints LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# Prints LF-LAYOUT once (the build's layout; layout.txt in the report has the ls, otool -L and codesign -dv it rests
+# on), LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
 # With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
 # /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
 # anything on a keychain or password panel; each launch's home gets its own login keychain so none comes up.
 set -uo pipefail
 
 LF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# load=N (duress): N busy-loop processes run across every launch (no load wait; each row carries its load1), for the
+# same rows on a busy Mac. 0, the default, measures an idle one.
 # store_fetch, gate, checker_cpu, load1, wait_load from the pre-main study's harness (its main does not run).
 source "$LF_DIR/launch-premain.sh"
 
 main() {
   cd "$LF_DIR/../.." || exit 3
-  local out="$PWD/.build/launch-fresh-install" dmg=nightly reps=5 rows="n,q,m,p" trace=0 arg rc=0 rep row
+  local out="$PWD/.build/launch-fresh-install" dmg=nightly reps=5 rows="n,q,m,p" trace=0 load=0 arg rc=0 rep row
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -49,11 +57,13 @@ main() {
       reps=*) reps="${arg#reps=}" ;;
       rows=*) rows="${arg#rows=}" ;;
       trace=0|trace=1) trace="${arg#trace=}" ;;
+      load=*) load="${arg#load=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$rows" =~ ^[nqmpsx](,[nqmpsx])*$ ]] || { echo "rows= takes n,q,m,p,s,x" >&2; exit 2; }
+  [[ "$rows" =~ ^[nqmpksx](,[nqmpksx])*$ ]] || { echo "rows= takes n,q,m,p,k,s,x" >&2; exit 2; }
+  [[ "$load" =~ ^([0-9]|[12][0-9]|3[0-2])$ ]] || { echo "load= must be 0 to 32" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LF root yes" || echo "LF root no (trace=1 needs it for fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -74,8 +84,16 @@ main() {
   gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
+  # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
+  mkdir -p "$out/mnt-layout"
+  if hdiutil attach "$out/app.dmg" -nobrowse -readonly -noautofsck -mountpoint "$out/mnt-layout" >/dev/null; then
+    bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
+    hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
+  else
+    echo "LF-LAYOUT unknown: attach failed"
+  fi
   OUT="$out"
-  CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
+  cua_pick "$out"
   [[ -x "$CUA" ]] && echo "LF cua $(console "$CUA" permissions status 2>&1 | tr '\n' ' ' | head -c 200)" || echo "LF cua none: a prompt cannot be pressed"
   # Where q drags the app: /Applications when the console user may write it, as on a person's Mac; else ~/Applications.
   APPS=/Applications
@@ -87,9 +105,17 @@ main() {
   PROMPT_BASELINE="$(prompts ids 2>/dev/null)"
   # Rows q and m raise Gatekeeper's prompt on purpose: say so to the fleet's dialog alarm for this run, and take the
   # word back on every exit, after a last sweep of any prompt the job left.
-  trap 'sweep_prompts Cancel exit; marker_remove' EXIT
+  LOAD_PIDS=""
+  # shellcheck disable=SC2086 # LOAD_PIDS is a space-separated pid list.
+  trap 'sweep_prompts Cancel exit; marker_remove; [[ -n "$LOAD_PIDS" ]] && kill $LOAD_PIDS 2>/dev/null' EXIT
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   [[ ",$rows," == *,q,* || ",$rows," == *,m,* ]] && marker_write
+  if [[ "$load" -gt 0 ]]; then
+    local j; for ((j = 0; j < load; j++)); do (while :; do :; done) & LOAD_PIDS="$LOAD_PIDS $!"; done
+    wait_load() { :; }
+    sleep 5
+    echo "LF load $load busy loops, load1 $(load1)"
+  fi
   if [[ "$trace" == 1 ]]; then
     for row in "${list[@]}"; do wait_load "$row" T; first "$row" T || rc=1; done
   fi
@@ -177,6 +203,23 @@ marker_refresh() { [[ -n "$MARKER" ]] && (($(date +%s) + 900 > MARKER_EXPIRES)) 
 
 marker_remove() { [[ -n "$MARKER" ]] && rm -f "$MARKER"; MARKER=""; }
 
+# cua_pick DIR: CUA, the console's CuaDriver as a shim in DIR that reaches its daemon. cua-driver finds the daemon's
+# socket under $HOME/Library/Caches/cua-driver, and a fleet step's HOME is the step's own home, so every press there
+# failed with "Cua Driver daemon is not running" (cmux21, rows q and m, 2026-11-22). The shim runs it with the HOME
+# whose socket exists: this HOME, this user's own home, or the console user's.
+cua_pick() {
+  local real=/Applications/CuaDriver.app/Contents/MacOS/cua-driver home="" h u
+  CUA="$real"
+  [[ -x "$real" ]] || return 0
+  for u in "" "$(id -un)" "$(stat -f %Su /dev/console 2>/dev/null)"; do
+    if [[ -z "$u" ]]; then h="$HOME"; else h="$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"; fi
+    [[ -n "$h" && -S "$h/Library/Caches/cua-driver/cua-driver.sock" ]] && { home="$h"; break; }
+  done
+  [[ -n "$home" ]] || { echo "cua: no daemon socket under $HOME or the console user's home; CuaDriver calls may fail" >&2; return 0; }
+  mkdir -p "$1" && printf '#!/bin/sh\nHOME=%q exec %q "$@"\n' "$home" "$real" >"$1/cua-driver" && chmod +x "$1/cua-driver" \
+    && CUA="$1/cua-driver"
+}
+
 # prompts ARGS...: launch-fresh-install-prompts.py in the console session, with the console's CuaDriver.
 prompts() {
   [[ -x "${CUA:-}" ]] || return 1
@@ -224,7 +267,7 @@ first() {
   hdiutil attach "$dmgfile" -nobrowse -readonly -noautofsck -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
-    n|p|s|x) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
+    n|p|k|s|x) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     q) dir="$APPS/cmux-fresh-install-$RUN_ID-$tag"
        console /bin/mkdir -p "$dir"
@@ -242,6 +285,11 @@ first() {
     t_warm="$(now_ms)"
     console /usr/bin/perl -e 'alarm 60; exec @ARGV' "$exe" --cmux-prewarm-launch >/dev/null 2>&1
     prewarm_ms=$(($(now_ms) - t_warm))
+  elif [[ "$name" == k ]]; then
+    local t_warm
+    t_warm="$(now_ms)"
+    pkg_postinstall "$app" "$tag" >"$OUT/postinstall-$tag.log" 2>&1
+    prewarm_ms=$(($(now_ms) - t_warm))
   fi
   # What the checkers spent while the DMG was mounted and the copy made (and pre-warmed, row p): before the open.
   local prepare_checker_ms; prepare_checker_ms="$(cpu_delta "$cpu_prepare" "$(checker_cpu)")"
@@ -257,7 +305,13 @@ first() {
     # shellcheck disable=SC2024
     sudo -n /usr/bin/fs_usage -w -t 70 -f filesys -f exec >"$OUT/fs-$tag.txt" 2>&1 &
     trace_pid=$!
-    sleep 1
+    # Until fs_usage is tracing: its first event is in the file (the system always has file activity), 10 s.
+    for _ in $(seq 100); do
+      [[ -s "$OUT/fs-$tag.txt" ]] && break
+      kill -0 "$trace_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    [[ -s "$OUT/fs-$tag.txt" ]] || echo "LF-WARN fs_usage logged nothing within 10 s for $tag" >&2
   fi
   # The probe makes $OUT/home-$tag/h the app's HOME (launch-premain.swift environment).
   fresh_keychain "$OUT/home-$tag/h"
@@ -301,7 +355,14 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   ran="$(printf '%s' "$json" | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ran_from") or "")')"
   pids="$(ps -axo pid=,command= | LF_A="$app/" LF_B="${ran:-$app}/" awk 'index($0, ENVIRON["LF_A"]) || index($0, ENVIRON["LF_B"]) { print $1 }')"
   [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
-  sleep 1
+  # Until those processes have exited (ps, not kill -0: some run as root), 10 s.
+  if [[ -n "$pids" ]]; then
+    for _ in $(seq 100); do
+      ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+    ps -p "$(echo $pids | tr ' ' ',')" >/dev/null 2>&1 && echo "LF-WARN processes of $tag still up 10 s after the signal: $(echo $pids)" >&2
+  fi
   # The measured open is over: a prompt still up (a press that missed, one a copy's helper raised) is not needed.
   # Cancel it now, while its copy exists; with the copy deleted under it, it stays as '"(null)" is an app downloaded
   # from the Internet'.
@@ -310,7 +371,7 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
-    n|p|s|x) rm -rf "$OUT/copy-$tag" ;;
+    n|p|k|s|x) rm -rf "$OUT/copy-$tag" "$OUT/pkgscripts-$tag" ;;
     q) console /bin/rm -rf "$dir" ;;
     m) hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 ;;
   esac
@@ -318,6 +379,29 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   rm -rf "$OUT/home-$tag"
   [[ "$json" != *'"error"'* ]] && return "$rc"
   return 1
+}
+
+# pkg_postinstall APP TAG: the installer package's postinstall run on APP as `installer -pkg` runs it (its folder, the
+# boot volume), with the pkg.env build-pkg.sh writes beside it, as the console user. Shims stand in for root's steps:
+# launchctl asuser UID CMD and sudo -u USER -H CMD run CMD as this user, chown does nothing (the copy is already this
+# user's, as the postinstall's chown leaves it).
+pkg_postinstall() {
+  local app="$1" tag="$2" d="$OUT/pkgscripts-$2" plist="$1/Contents/Info.plist" pb="${LF_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+  mkdir -p "$d/shim"
+  cp "$LF_DIR/../cmux-next/pkg/postinstall" "$d/postinstall" && chmod 0755 "$d/postinstall" || return 1
+  printf 'APP_NAME=%q\nEXECUTABLE=%q\nBUNDLE_ID=%q\nBUILD=%q\n' "$(basename "$app")" \
+    "$("$pb" -c 'Print :CFBundleExecutable' "$plist")" \
+    "$("$pb" -c 'Print :CFBundleIdentifier' "$plist")" "$("$pb" -c 'Print :CFBundleVersion' "$plist")" >"$d/pkg.env"
+  # shellcheck disable=SC2016 # the shims' own "$@", expanded when they run
+  printf '#!/bin/sh\nshift 2\nexec "$@"\n' >"$d/shim/launchctl"
+  printf '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do case "$1" in -u) shift 2 ;; -H) shift ;; *) break ;; esac; done\nexec "$@"\n' >"$d/shim/sudo"
+  printf '#!/bin/sh\nexit 0\n' >"$d/shim/chown"
+  chmod 0755 "$d/shim/"*
+  # The probe's HOME for this launch, so the postinstall's launch marker lands where the measured open reads it.
+  # Through console as every step here (the env rides inside it: the console session starts clean).
+  console /usr/bin/env HOME="$OUT/home-$tag/h" CFFIXED_USER_HOME="$OUT/home-$tag/h" CMUX_PKG_CONSOLE_USER="$(id -un)" \
+    CMUX_PKG_LAUNCHCTL="$d/shim/launchctl" CMUX_PKG_SUDO="$d/shim/sudo" CMUX_PKG_CHOWN="$d/shim/chown" \
+    /bin/bash "$d/postinstall" "$OUT/pkg-$tag.pkg" "$(dirname "$app")" /
 }
 
 # trace_row TAG APP RUNJSON: fs-TAG.txt and log-TAG.txt reduced to one LF-TRACE row (launch-fresh-install-trace.py).

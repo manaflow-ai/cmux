@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.rateLimited" : {
+      "comment" : "Agent pane: a failed turn's note (cx-w10a)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} محدود المعدل أو بلا سعة. حاول مجددًا بعد قليل أو بدّل النموذج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} je ograničen ili bez kapaciteta. Pokušaj ponovo uskoro ili promijeni model."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} er begrænset eller uden kapacitet. Prøv igen om lidt, eller skift model."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ist gedrosselt oder ausgelastet. Versuche es gleich noch einmal oder wechsle das Modell."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} is rate limited or out of capacity. Try again in a moment, or switch model."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} tiene límite de uso o no tiene capacidad. Inténtalo en un momento o cambia de modelo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} est limité ou saturé. Réessaie dans un instant ou change de modèle."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} è limitato o senza capacità. Riprova tra poco o cambia modello."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} はレート制限中か、容量が不足しています。少し待って再試行するか、モデルを切り替えてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ត្រូវបានកំណត់អត្រា ឬអស់សមត្ថភាព។ សាកម្ដងទៀតបន្តិចទៀត ឬប្ដូរម៉ូដែល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}이(가) 속도 제한에 걸렸거나 용량이 부족합니다. 잠시 후 다시 시도하거나 모델을 바꾸세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} er begrenset eller uten kapasitet. Prøv igjen om litt, eller bytt modell."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ma limit lub brak przepustowości. Spróbuj za chwilę albo zmień model."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} está com limite de uso ou sem capacidade. Tente de novo em instantes ou troque de modelo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} упёрся в лимит или перегружен. Повторите чуть позже или смените модель."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ถูกจำกัดอัตราหรือเต็มความจุ ลองอีกครั้งในอีกสักครู่หรือเปลี่ยนโมเดล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} hız sınırında veya kapasitesi dolu. Birazdan tekrar dene ya da modeli değiştir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} упирається в ліміт або перевантажений. Спробуйте трохи згодом або змініть модель."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} đang bị giới hạn hoặc hết dung lượng. Thử lại sau giây lát hoặc đổi mô hình."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 已限流或容量不足。请稍后重试，或切换模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 已限流或容量不足。請稍後重試，或切換模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

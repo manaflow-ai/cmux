@@ -6,12 +6,16 @@
 // - the header bar's icon buttons (Viewed's eye, the collapse caret) round as every other button
 //   (`--ds-radius-control`, the toolbar pill's buttons), where they had their own 5 px;
 // - copying code rows gives the code only: no +/- signs (bars, classic or none) and no line numbers, also
-//   when the drag starts on a line's first character, where the hover comment button once sat.
+//   when the drag starts on a line's first character, where the hover comment button once sat;
+// - the +N -N counts (file header bar, toolbar) read over a see-through window, as code does (appearance.ts
+//   `syntaxBackdrops`): fleet capture of a1eec60d, dark over a picture, the header's "+11 -4" read 1.1 to 1.7:1.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { DESKTOP_LEVELS, parseComputedColor } from "../src/backdrop";
+import { contrastBetween, defaultSyntaxPalettes, SYNTAX_MIN_CONTRAST } from "../src/syntax-colors";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -101,6 +105,79 @@ await requireBrowserLane("diff-chrome-browser.test.ts", async () => {
       expect(standalone.caret).toBe(standalone.button);
       // The host's button corner (Metrics.buttonCornerRadius) reaches them too.
       expect(await corners("6px")).toEqual({ button: "6px", eye: "6px", caret: "6px" });
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("the +N -N counts read over a see-through window, and keep their look in an opaque one", async () => {
+    const page = await open("", ".file-header-additions");
+    try {
+      await page.emulateMedia({ colorScheme: "dark" });
+      // What the host sends (WebTheme.swift): its variables on the root, then `cmux-theme`. The default dark
+      // terminal theme, and the window tint the capture's window laid over its picture.
+      const tint = "rgba(0, 0, 0, 0.573)";
+      const counts = (seeThrough: boolean) =>
+        page.evaluate(
+          ([seeThrough, tint, palette]) => {
+            const variables: Record<string, string> = {
+              "--cmux-surface-background": seeThrough ? "rgba(0, 0, 0, 0)" : "rgba(0, 0, 0, 1)",
+              "--cmux-window-tint": tint as string,
+            };
+            const terminal = { type: "dark", background: "#000000", foreground: "#ffffff", palette };
+            const payload = { variables, colorScheme: "dark", scrollers: "overlay", terminal };
+            const root = document.documentElement;
+            for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
+            root.style.colorScheme = "dark";
+            (window as unknown as { cmuxTheme: { current: unknown } }).cmuxTheme = { current: payload };
+            window.dispatchEvent(new CustomEvent("cmux-theme", { detail: payload }));
+            // The header bar always draws its counts; the toolbar's source pill only for a page with a source.
+            const color = (selector: string) => {
+              const element = document.querySelector(selector);
+              return element ? getComputedStyle(element).color : null;
+            };
+            const drawn = {
+              "header +": color(".file-header-additions"),
+              "header -": color(".file-header-deletions"),
+              "toolbar +": color(".source-pill-stats:not(.invisible) .source-pill-additions"),
+              "toolbar -": color(".source-pill-stats:not(.invisible) .source-pill-deletions"),
+            };
+            return Object.fromEntries(Object.entries(drawn).filter(([, value]) => value !== null)) as Record<
+              string,
+              string
+            >;
+          },
+          [seeThrough, tint, defaultSyntaxPalettes.dark] as const,
+        );
+      const hex = (css: string) => {
+        const color = parseComputedColor(css);
+        if (!color) throw new Error(`unparsed color ${css}`);
+        return `#${[color.r, color.g, color.b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+      };
+      const opaque = await counts(false);
+      expect(Object.keys(opaque)).toEqual(expect.arrayContaining(["header +", "header -"]));
+      const seeThrough = await counts(true);
+      // The window's tint over every desktop from black to white.
+      const [, , , alpha] = tint.match(/[\d.]+/g)!.map(Number);
+      const backdrops = DESKTOP_LEVELS.map((level) => {
+        const gray = Math.round(level * 255 * (1 - alpha!))
+          .toString(16)
+          .padStart(2, "0");
+        return `#${gray}${gray}${gray}`;
+      });
+      const weak = Object.entries(seeThrough).flatMap(([name, css]) =>
+        backdrops
+          .map((backdrop) => {
+            // Held to 3:1, or to two thirds of what white text gets where a faint tint leaves it under that.
+            const floor = Math.min(SYNTAX_MIN_CONTRAST, ((contrastBetween("#ffffff", backdrop) ?? 0) * 2) / 3);
+            return { name, color: hex(css), backdrop, ratio: contrastBetween(hex(css), backdrop) ?? 0, floor };
+          })
+          .filter(({ ratio, floor }) => ratio < floor - 0.01)
+          .map(({ name, color, backdrop, ratio }) => `${name} ${color} on ${backdrop}: ${ratio.toFixed(2)}:1`),
+      );
+      expect(weak).toEqual([]);
+      // Back to an opaque window: the counts are as before, the theme's colors softened toward the page.
+      expect(await counts(false)).toEqual(opaque);
     } finally {
       await page.context().close();
     }

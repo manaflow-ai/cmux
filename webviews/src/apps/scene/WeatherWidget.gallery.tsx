@@ -35,7 +35,7 @@ function WeatherWidget({ state = "small-clear-day" }: Props) {
   return (
     <div
       className="weather-gallery-tile"
-      style={{ ...size, minWidth: size.width, flexShrink: 0, borderRadius: 22, overflow: "hidden", display: "flex" }}
+      style={{ ...size, minWidth: size.width, flexShrink: 0, borderRadius: 16, overflow: "hidden", display: "flex" }}
     >
       <style>{TILE_CSS}</style>
       <SceneRenderer store={store} dispatch={() => {}} />

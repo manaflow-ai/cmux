@@ -5,6 +5,7 @@
 // locale and time zone format it; a Text's `timeZone` (an IANA name) overrides the zone.
 // The native twin is AppSceneDateText (Packages/macOS/CmuxNext/.../NativeRender).
 import { useSyncExternalStore } from "react";
+import { intl } from "../../ui/intl";
 
 export type SceneDateStyle = "time" | "timer" | "relative" | "date" | "offset";
 const STYLES = new Set<string>(["time", "timer", "relative", "date", "offset"]);
@@ -21,7 +22,7 @@ export function sceneDateStyle(props: Readonly<Record<string, unknown>>): SceneD
 function zone(timeZone: unknown): string | undefined {
   if (typeof timeZone !== "string" || !timeZone) return undefined;
   try {
-    new Intl.DateTimeFormat(undefined, { timeZone });
+    intl.DateTimeFormat(undefined, { timeZone });
     return timeZone;
   } catch {
     return undefined;
@@ -37,12 +38,14 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
 ];
 
 function unit(value: number, name: string, display: "short" | "long", locale?: string, sign = false): string {
-  return new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit: name,
-    unitDisplay: display,
-    signDisplay: sign ? "always" : "auto",
-  }).format(value);
+  return intl
+    .NumberFormat(locale, {
+      style: "unit",
+      unit: name,
+      unitDisplay: display,
+      signDisplay: sign ? "always" : "auto",
+    })
+    .format(value);
 }
 
 /**
@@ -64,9 +67,9 @@ export function formatSceneDate(
   const timeZone = zone(options.timeZone);
   switch (style) {
     case "time":
-      return new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone }).format(date);
+      return intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone }).format(date);
     case "date":
-      return new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone }).format(date);
+      return intl.DateTimeFormat(locale, { dateStyle: "long", timeZone }).format(date);
     case "timer": {
       const total = Math.floor(Math.abs(date - now) / SECOND);
       const hours = Math.floor(total / 3_600);
@@ -114,7 +117,8 @@ function schedule() {
 function tick() {
   timer = undefined;
   now = Date.now();
-  for (const listener of [...listeners]) listener();
+  // A snapshot: a listener may subscribe or unsubscribe while the tick runs.
+  for (const listener of Array.from(listeners)) listener();
   schedule();
 }
 

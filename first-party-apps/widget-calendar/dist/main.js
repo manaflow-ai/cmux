@@ -594,42 +594,6 @@
         scope: "codemirror:write",
         class: "mutation"
       },
-      "coderouter.accounts.list": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.app.connect_account": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.create_key": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.open": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.app.run_test": {
-        scope: "coderouter:execute",
-        class: "mutation"
-      },
-      "coderouter.app.start_onboarding": {
-        scope: "coderouter:write",
-        class: "mutation"
-      },
-      "coderouter.detect": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.status": {
-        scope: "coderouter:read",
-        class: "read"
-      },
-      "coderouter.usage.get": {
-        scope: "coderouter:read",
-        class: "read"
-      },
       "column.update": {
         scope: "column:write",
         class: "mutation"
@@ -905,6 +869,18 @@
       "group.list": {
         scope: "group:read",
         class: "read"
+      },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
       },
       "group.rename": {
         scope: "group:write",
@@ -1842,6 +1818,38 @@
         scope: "team:read",
         class: "read"
       },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
+      },
       "team.device.compliance": {
         scope: "team:read",
         class: "read"
@@ -2146,6 +2154,9 @@
       "agent.message.send",
       "agent.message.unsend",
       "automation.delete",
+      "automation.secret.list",
+      "automation.secret.remove",
+      "automation.secret.set",
       "automation.settings.set",
       "automation.webhook.get",
       "browser.attach",
@@ -2181,6 +2192,8 @@
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",
       "cloud.owner.github_app",
+      "cloud.owner.github_connect",
+      "cloud.owner.github_repos",
       "cloud.owner.handoff_begin_turn",
       "cloud.owner.handoff_open",
       "cloud.owner.handoff_wait",
@@ -2305,6 +2318,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2313,6 +2329,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2377,6 +2395,8 @@
     RoundedRectangle,
     Line
   } = g;
+  var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
+  var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));
   var EVENT_STREAMS = Object.keys(events_default.events);
   var localOffset = (at) => -new Date(at).getTimezoneOffset();
   var DAY = 24 * 60 * 60 * 1000;
@@ -2549,7 +2569,7 @@
     ];
   }
   var TYPE = { heading: 11, day: 32, title: 13, detail: 12, label: 11, hour: 11 };
-  var GRID = { hour: 36, gutter: 20, label: 16, hours: 7 };
+  var GRID = { hour: 36, gutter: 20, label: 24, hours: 7, minBlock: 20 };
   var BLOCKS = {
     small: { left: 2, right: 0 },
     medium: { left: 1, right: 2 },
@@ -2658,9 +2678,9 @@
     }
     const children = [VStack({ spacing: 0, alignment: "leading" }, rows).frame({ maxWidth: "infinity" })];
     if (empty)
-      children.push(HStack({ spacing: 0 }, [VStack([]).frame({ width: GRID.gutter }), Text(empty).font(TYPE.title).color("secondary").lineLimit(2), Spacer()]).frame({ maxWidth: "infinity" }));
+      children.push(HStack({ spacing: 0 }, [VStack([]).frame({ width: GRID.gutter }), Text(empty).font(TYPE.title).color("secondary").lineLimit(2), Spacer()]).frame({ maxWidth: "infinity" }).offset({ y: (column.endHour - column.startHour) % 2 === 0 ? GRID.hour / 2 : 0 }));
     for (const b of column.blocks) {
-      const h = Math.max(16, (b.to - b.from) * GRID.hour - 2);
+      const h = Math.max(GRID.minBlock, (b.to - b.from) * GRID.hour - 2);
       const lanes = [];
       for (let lane = 0;lane < b.lanes; lane++)
         lanes.push(lane === b.lane ? gridBlock(b.e, h, twelve, off) : VStack([]).frame({ maxWidth: "infinity", height: h }));
@@ -2686,7 +2706,7 @@
       VStack([]).frame({ width: 3, maxHeight: "infinity" }).background(color).cornerRadius(1.5),
       VStack({ spacing: 0, alignment: "leading" }, lines),
       Spacer()
-    ]).padding({ top: 3, bottom: 3, leading: 4, trailing: 4 }).background(tintOf(e.color)).cornerRadius(5).frame({ maxWidth: "infinity", height, alignment: "topLeading" });
+    ]).padding({ top: height < 30 ? 1 : 3, bottom: height < 30 ? 1 : 3, leading: 4, trailing: 4 }).background(tintOf(e.color)).cornerRadius(5).frame({ maxWidth: "infinity", height, alignment: "topLeading" });
   }
   function accessNotice(load, allow) {
     const note = (text) => Text(text).font(TYPE.detail).color("secondary").lineLimit(4);

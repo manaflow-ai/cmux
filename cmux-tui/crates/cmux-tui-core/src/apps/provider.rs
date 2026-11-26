@@ -58,7 +58,6 @@ pub const FAMILIES: &[&str] = &[
     "integration",
     "team",
     "app",
-    "coderouter",
     // Session-host-owned agent environment operations. A host must still
     // register this family through the verified app/provider boundary.
     "agent_cli",
@@ -75,15 +74,15 @@ pub const FAMILIES: &[&str] = &[
     // `page.follow`): reader-mode extraction and link hints, run as page
     // scripts in the app's WebKit or CEF tab, which the daemon cannot reach.
     "page",
+    // What plays in cmux (`media.get`) and its transport (`media.control`), answered by the Mac
+    // app from the Now Playing card's sources; `apps-provider-changed {family: media}` tells
+    // `media.changed` subscribers when it changes.
+    "media",
     // The person's system calendar on the Mac (`system_calendar.events`,
     // `system_calendar.request_access`), read through EventKit in the Mac app, which
     // holds the calendar permission; the daemon has none. Not `calendar.*`,
     // the Cloud's Google Calendar ops.
     "system_calendar",
-    // What plays in cmux (`media.get`) and its transport (`media.control`), answered by the Mac
-    // app from the Now Playing card's sources; `apps-provider-changed {family: media}` tells
-    // `media.changed` subscribers when it changes.
-    "media",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
@@ -93,6 +92,8 @@ const WAITS_FOR_USER: &[&str] = &["fs.pick", system_calendar::REQUEST_ACCESS];
 /// bounded; an untrusted app must not be able to overflow it).
 pub(super) const MAX_PARAMS_BYTES: usize = 64 * 1024;
 /// Calls one provider may have outstanding across every app.
+/// Measured: the cmux app's bounded control queue; 64 × MAX_PARAMS_BYTES (64 KiB) is at most
+/// 4 MiB of params untrusted apps can hold queued there.
 pub(super) const MAX_OUTSTANDING: usize = 64;
 
 /// Who waits for a provider call's answer.
@@ -583,43 +584,5 @@ pub(super) fn deadline_ms(deadline: Duration) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn families_and_methods() {
-        assert_eq!(family_of("app.settings.set"), "app.settings");
-        assert_eq!(family_of("fs.pick"), "fs");
-        assert!(FAMILIES.contains(&family_of("agent_cli.list")));
-        assert!(FAMILIES.contains(&family_of("agent_chat.list")));
-        assert_eq!(family_of("system_calendar.request_access"), "system_calendar");
-        assert!(
-            WAITS_FOR_USER.contains(&"system_calendar.request_access"),
-            "the macOS prompt gets the user deadline, not a read's"
-        );
-        assert!(FAMILIES.contains(&family_of("system_calendar.events")));
-        assert!(
-            !FAMILIES.contains(&family_of("calendar.events.list")),
-            "Google Calendar is not the Mac's"
-        );
-        assert!(!FAMILIES.contains(&family_of("agent.list")), "the daemon owns agent.*");
-        let mut params = json!({ "provider": "github" });
-        normalize_method(&mut params);
-        assert_eq!(params["method"], "GET");
-        let mut post = json!({ "method": "post" });
-        normalize_method(&mut post);
-        assert_eq!(post["method"], "POST");
-    }
-
-    /// A new `app.*` op must be a decision: the supervisor keeps
-    /// `app.storage.*`; anything else in the catalog would silently go to
-    /// the provider's `app` family.
-    #[test]
-    fn every_app_op_in_the_scope_table_has_a_known_owner() {
-        for op in super::super::grants::ScopeTable::get().known_ops() {
-            if family_of(&op) == "app" {
-                assert!(op.starts_with("app.storage."), "{op}: decide its owner before adding it");
-            }
-        }
-    }
-}
+#[path = "provider_tests.rs"]
+mod tests;

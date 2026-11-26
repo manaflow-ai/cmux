@@ -73,6 +73,13 @@ public nonisolated struct ScreenshotFolderReader: Sendable {
         return newest.map { $0.parent.appendingPathComponent($0.name) }
     }
 
+    /// The newest picture in the macOS screenshot folder (`com.apple.screencapture location`, else
+    /// Desktop): Paste Last Screenshot's file.
+    @concurrent
+    public func newestSystemScreenshot() async -> URL? {
+        await newestPicture(in: ScreenshotSourceDetector(environment: SystemScreenshotEnvironment()).systemFolder())
+    }
+
     /// The item an entry is listed as, nil when the rule leaves it out.
     static func item(_ entry: FileEntry, in source: ScreenshotSource) -> FileGridItem? {
         guard entry.kind == .file, !entry.isHidden, let kind = source.rule.kind(ofFileNamed: entry.name) else { return nil }

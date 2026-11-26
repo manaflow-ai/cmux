@@ -123,7 +123,8 @@ pub fn launch_agent_plist(layout: &Layout) -> Result<String, UnitError> {
 }
 
 /// `~/Library/LaunchAgents/com.cmux.server.plist` for the session service:
-/// `<binary> daemon start --session <session>`, kept alive by launchd, with
+/// `<binary> daemon start --session <session>` (with the reap grace,
+/// `session::SESSION_REAP_GRACE_SECONDS`), kept alive by launchd, with
 /// its output in `<state>/logs/server.log`. Runs while the user is logged in.
 pub fn session_launch_agent_plist(
     layout: &Layout,

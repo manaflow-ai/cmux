@@ -33,13 +33,19 @@ for key in sys.argv[2].split("."):
 print("" if value is None else value)' "$1" "$2"
 }
 
+# The host claims images the way the app does (Resources/Info.plist's "Image" document type): a sandboxed
+# extension may open files only with an app that claims their type, else Launch Services refuses with
+# kLSAppDoesNotClaimTypeErr (-10820, "sandboxed callers only") and the host never launches.
 write_app_plist() { # <app> <id> <name> <executable>
   mkdir -p "$1/Contents"
   python3 -I -c '
 import plistlib, sys
+images = {"CFBundleTypeName": "Image", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.png", "public.jpeg", "public.image"]}
 plistlib.dump({"CFBundleIdentifier": sys.argv[2], "CFBundleName": sys.argv[3], "CFBundleExecutable": sys.argv[4],
                "CFBundlePackageType": "APPL", "CFBundleVersion": "4242", "CFBundleShortVersionString": "0.99.1",
-               "LSMinimumSystemVersion": "14.0", "LSUIElement": True}, open(sys.argv[1], "wb"))' \
+               "LSMinimumSystemVersion": "14.0", "LSUIElement": True, "CFBundleDocumentTypes": [images]},
+              open(sys.argv[1], "wb"))' \
     "$1/Contents/Info.plist" "$2" "$3" "$4"
 }
 
@@ -88,6 +94,11 @@ mkdir -p "$host_app/Contents/MacOS"
 cat > "$TMP/host.swift" <<'SWIFT'
 import AppKit
 final class Host: NSObject, NSApplicationDelegate {
+    // Written at launch, so a missing opened.txt says whether the host never started or started without the files.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let out = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("launched.txt")
+        try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(to: out, atomically: true, encoding: .utf8)
+    }
     func application(_ application: NSApplication, open urls: [URL]) {
         let out = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("opened.txt")
         try? (urls.map(\.path).joined(separator: "\n") + "\n").write(to: out, atomically: true, encoding: .utf8)
@@ -160,15 +171,32 @@ exit(FileManager.default.fileExists(atPath: opened) ? 0 : 4)
 SWIFT
 xcrun swiftc "$TMP/perform.swift" -o "$TMP/perform" || fail "the performer did not compile"
 ext_id="com.cmuxterm.test.share-host.$suffix.share"
+# Shared but no PNG at the host: whether the host launched, and what the extension, the sandbox and
+# LaunchServices logged while it ran.
+handoff_trace() {
+  local launched="never launched"
+  [[ -f "$TMP/build/launched.txt" ]] && launched="launched, pid $(cat "$TMP/build/launched.txt")"
+  printf 'host: %s\nlog:\n' "$launched"
+  /usr/bin/log show --last 2m --style compact --predicate \
+    'process == "CmuxShare" OR process == "ShareHost" OR eventMessage CONTAINS "CmuxShare" OR eventMessage CONTAINS "share-host"' \
+    2>&1 | grep -v '^Timestamp\|^Filtering' | tail -60 || true
+  # ShareViewController's own steps (loadView, beginRequest, each loadItem, the open and its answer): none at all
+  # means the extension's principal class never loaded.
+  printf 'extension steps (%s):\n' "$ext_id"
+  /usr/bin/log show --last 2m --style compact --info --predicate "subsystem == \"$ext_id\"" \
+    2>&1 | grep -v '^Timestamp\|^Filtering' | tail -30 || true
+}
 said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) || {
   status=$?
   # Not offered: say whether macOS registered it switched off (pluginkit's "-" or no mark), then switch it on
   # (pluginkit -e use, what System Settings' Extensions pane does) and ask again.
-  [[ $status == 2 ]] || fail "performing the Share service did not hand the PNG to the host within 15 s" "$said"
+  [[ $status == 2 ]] ||
+    fail "performing the Share service did not hand the PNG to the host within 15 s" "$said"$'\n'"$(handoff_trace)"
   election=$(/usr/bin/pluginkit -m -v -i "$ext_id" 2>&1 || true)
   /usr/bin/pluginkit -e use -i "$ext_id" || fail "pluginkit -e use refused the extension" "$said"$'\n'"$election"
   said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) ||
-    fail "not offered as registered, nor after pluginkit -e use" "registered as: $election"$'\n'"$said"
+    fail "not offered as registered, nor after pluginkit -e use" \
+      "registered as: $election"$'\n'"$said"$'\n'"$(handoff_trace)"
   echo "NOTE: offered only after pluginkit -e use; registered as: $election"
 }
 grep -qx "$(cd "$TMP" && pwd -P)/shot.png\|$TMP/shot.png" "$TMP/build/opened.txt" ||

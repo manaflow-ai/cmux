@@ -18,13 +18,12 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "doc.text": "file.text",
   "doc.text.fill": "file.text",
   checkmark: "action.confirm",
-  "checkmark.circle": "status.success",
-  "checkmark.circle.fill": "status.success",
+  "checkmark.circle": "action.confirm",
+  "checkmark.circle.fill": "action.confirm",
   "checkmark.square": "checkbox.on",
   "checkmark.square.fill": "checkbox.on",
   square: "checkbox.off",
-  checklist: "tunable.tasks",
-  circle: "radio.off",
+  checklist: "view.list",
   "circle.fill": "color.swatch",
   "largecircle.fill.circle": "radio.on",
   xmark: "action.close",
@@ -36,16 +35,11 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   plus: "action.add",
   "plus.circle": "action.add.circle",
   "plus.circle.fill": "action.add.circle",
-  "chevron.right": "disclosure.collapsed",
   "chevron.down": "disclosure.expanded",
   "chevron.left": "nav.previous",
   "chevron.up": "nav.previous.match",
-  "list.bullet": "view.list",
-  star: "bookmark",
-  "star.fill": "bookmark",
   heart: "heart",
   "heart.fill": "heart",
-  bell: "notification",
   "bell.fill": "notification",
   flag: "flag",
   "flag.fill": "flag",
@@ -113,20 +107,68 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "square.stack": "apps.stack",
   link: "link",
   "arrow.up.right": "link.external",
+  "arrow.triangle.2.circlepath": "action.sync",
+  gauge: "context.usage",
+  "gauge.with.needle": "context.usage",
+  "gauge.with.needle.fill": "context.usage",
+  // The symbols `cmux ext new`'s templates and its design defaults (templates/common/DESIGN.md) use.
+  circle: "task.status.todo",
+  sparkles: "task.ai",
+  rectangle: "workspace",
+  "rectangle.inset.filled": "workspace",
+  "chevron.right": "disclosure.collapsed",
+  house: "home",
+  timer: "time.waiting",
+  bell: "notification",
+  gearshape: "settings",
+  magnifyingglass: "search",
+  "chart.bar": "agent.activity",
+  star: "bookmark",
+  "star.fill": "bookmark.active",
+  tray: "inbox",
+  person: "account",
+  globe: "link.web",
+  "play.fill": "media.play",
+  "pause.fill": "media.pause",
+  "list.bullet": "view.list",
+  "square.grid.2x2": "view.grid",
+  "bubble.left": "agent.chat",
+  "arrow.clockwise": "action.reload",
 };
 
 /** Drawn for a name neither the pack nor SCENE_SF_SYMBOLS knows: a small dot, so an app that names a
  *  symbol this table lacks shows a quiet bullet rather than the pack's "?" box. */
 export const SCENE_FALLBACK_ICON = "status.dot";
 
-function resolve(pack: IconPack, value: string): string {
-  const mapped = Object.hasOwn(pack.icons, value) ? value : SCENE_SF_SYMBOLS[value];
-  return mapped && Object.hasOwn(pack.icons, mapped) ? mapped : SCENE_FALLBACK_ICON;
+/** The pack has a sun, a crescent and a cloud but no compound weather glyphs, so a weather SF name
+ * draws its nearest one: the stand-in's pack name and the SF name its layers paint as (a sun is
+ * yellow in multicolor; a cloud standing in for `cloud.sun.rain.fill` keeps the tint, since the rain
+ * and sun layers it would color are not drawn). */
+const SUN = ["appearance.light", "sun.max"] as const;
+const MOON = ["appearance.dark", "moon"] as const;
+const CLOUD = ["cloud", "cloud"] as const;
+const WEATHER_CLOUD =
+  /^cloud(\.(sun|moon))?(\.(rain|drizzle|heavyrain|bolt|bolt\.rain|hail|sleet|snow|fog))?(\.fill)?$/;
+
+function weatherStandIn(name: string): readonly [string, string] | undefined {
+  if (/^(sun\.(max|min)|sunrise|sunset)(\.fill)?$/.test(name)) return SUN;
+  if (/^moon(\.stars)?(\.fill)?$/.test(name)) return MOON;
+  if (WEATHER_CLOUD.test(name)) return CLOUD;
+  return undefined;
 }
 
-/** The pack name a scene symbol draws (the neutral fallback when unknown). */
+/** `value`'s glyph in `icons` and the SF name its layer paint keys on (sceneSymbolRendering.ts). */
+export function resolveSceneSymbol(icons: IconPack["icons"], value: string): { name: string; paintAs: string } {
+  if (Object.hasOwn(icons, value)) return { name: value, paintAs: value };
+  const mapped = SCENE_SF_SYMBOLS[value];
+  if (mapped && Object.hasOwn(icons, mapped)) return { name: mapped, paintAs: value };
+  const standIn = weatherStandIn(value);
+  if (standIn && Object.hasOwn(icons, standIn[0])) return { name: standIn[0], paintAs: standIn[1] };
+  return { name: SCENE_FALLBACK_ICON, paintAs: value };
+}
+
 export function appSceneIcon(value: unknown): string {
-  return resolve(bundledIconPack, sceneText(value));
+  return resolveSceneSymbol(bundledIconPack.icons, sceneText(value)).name;
 }
 
 /** `.fill` names whose glyph is already filled in Line; their Solid form means something else (a
@@ -165,8 +207,8 @@ export function SceneSymbol({
 }) {
   const { pack } = useIcons();
   const value = sceneText(symbol);
-  const name = resolve(pack, value);
-  const layerPaint = name === SCENE_FALLBACK_ICON ? undefined : symbolLayerPaint(value, rendering, palette);
+  const { name, paintAs } = resolveSceneSymbol(pack.icons, value);
+  const layerPaint = name === SCENE_FALLBACK_ICON ? undefined : symbolLayerPaint(paintAs, rendering, palette);
   return (
     <Icon
       name={name}

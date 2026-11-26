@@ -10,8 +10,6 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
-        // Its own layer: a content transition rolls or crossfades the label alone.
-        label.wantsLayer = true
         addSubview(label)
     }
 
@@ -27,7 +25,12 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         dateText = AppSceneDateText(node)
         updateTicking()
         let text = shownText
-        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile { transitionContent(from: before, to: text) }
+        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile {
+            transitionContent(from: before, to: text)
+        } else if let motion = changeMotion, previousNode?.props["text"] != node.props["text"] || previousNode?.props["color"] != node.props["color"] {
+            // With an `animation`, a new text or color crossfades in place (a label's color is no layer property).
+            Motion.appScenes.sceneCrossfade(motion, on: label.layer, in: window)
+        }
         label.stringValue = text
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0
@@ -147,39 +150,24 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         return padding.bottom + ceil(-font.descender)
     }
 
-    /// The node's font: a text style name (chrome sizes for body, caption and headline) or a point size.
+    /// The node's font: a type role or Apple text style name from the one scene type table
+    /// (`SceneType`, generated from schemas/type-scale/scene-type.json, which the web renderer reads
+    /// too), grown with Text Size; or a point size. An unknown name draws as `body`.
     @MainActor
     static func font(_ node: AppSceneNode) -> NSFont {
-        let base: NSFont = switch node.props["font"] {
-        case .number(let size)?: Typography.system(.default, size: CGFloat(max(6, min(size, 64))))
-        case .string(let name)?: textStyle(name)
-        default: Typography.body
+        let named: SceneType.Style? = switch node.props["font"] {
+        case .number?: nil
+        case .string(let name)?: SceneType.styles[name] ?? SceneType.styles["body"]
+        default: SceneType.styles["body"]
         }
-        var font = base
-        let chosen = Self.weight(node.string("weight"))
-        let design = Self.design(node)
-        if chosen != nil || design != .default {
-            let fallback: NSFont.Weight = node.string("font") == "headline" ? .semibold : .regular
-            font = Typography.system(design, size: base.pointSize, weight: chosen ?? fallback)
+        let size: CGFloat = switch node.props["font"] {
+        case .number(let points)?: CGFloat(max(6, min(points, 64)))
+        default: (named?.size ?? TypeScale.Base.body) * Typography.userScale
         }
+        let weight = Self.weight(node.string("weight")) ?? named?.weight ?? TypeScale.regular
+        var font = Typography.system(Self.design(node), size: size, weight: weight)
         if node.flag("italic") { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
         return font
-    }
-
-    @MainActor
-    private static func textStyle(_ name: String) -> NSFont {
-        switch name {
-        case "largeTitle": NSFont.preferredFont(forTextStyle: .largeTitle)
-        case "title": NSFont.preferredFont(forTextStyle: .title1)
-        case "title2": NSFont.preferredFont(forTextStyle: .title2)
-        case "title3": NSFont.preferredFont(forTextStyle: .title3)
-        case "headline": Typography.header
-        case "subheadline": NSFont.preferredFont(forTextStyle: .subheadline)
-        case "callout": NSFont.preferredFont(forTextStyle: .callout)
-        case "caption": Typography.caption
-        case "caption2": NSFont.preferredFont(forTextStyle: .caption2)
-        default: Typography.body
-        }
     }
 
     /// `fontDesign` (`rounded`, `serif`, `monospaced`), else `monospaced`; the type scale keeps the size.

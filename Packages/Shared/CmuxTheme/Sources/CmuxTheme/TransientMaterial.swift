@@ -23,8 +23,10 @@ public nonisolated struct TransientMaterial: Sendable, Equatable {
     public let hostVeil: Double = 0.4
     /// Shared native tint strength.
     public let nativeTintStrength: Double = 1.25
-    /// Shared web tint.
-    public let webTint: Double = 78
+    /// Shared web tint, light (design-scale.json glass `menu` `tint`).
+    public let webTint: Double = 80
+    /// Shared web tint, dark (design-scale.json glass `menu` `darkTint`): dark glass reads denser.
+    public let webTintDark: Double = 72
     /// Shared web blur.
     public let webBlur: Double = 32
     /// Shared web saturation.

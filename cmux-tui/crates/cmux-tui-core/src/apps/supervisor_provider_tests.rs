@@ -137,7 +137,7 @@ fn cmux_next_memory_search_routes_a_scoped_read_to_the_verified_provider() {
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/demo");
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    let rx = provider(&f, &["coderouter", "memory"]);
+    let rx = provider(&f, &["agent_cli", "memory"]);
     let params = json!({"roots":["root_home"],"query":"deploy key","limit":5});
     f.supervisor
         .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"memory.search", "params":params}), false)
@@ -171,7 +171,7 @@ fn a_toast_routes_to_the_provider_for_an_app_with_no_scopes() {
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/demo");
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    let rx = provider(&f, &["coderouter", "memory", "toast"]);
+    let rx = provider(&f, &["agent_cli", "memory", "toast"]);
     let params = json!({"title":"Focus for 25 minutes"});
     f.supervisor
         .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"toast.show", "params":params}), false)
@@ -397,6 +397,70 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
     );
 }
 
+/// A media player extension reads what plays and drives it through the Mac app: `media` is a
+/// provider family (registering it beside the others keeps them), `media.get` needs only
+/// `media:read`, and `media.control` needs `media:control` and a tap, so no extension starts,
+/// pauses or skips sound on its own.
+#[test]
+fn cmux_next_media_routes_reads_and_only_tapped_controls_to_the_verified_provider() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"media:read":"show what plays","media:control":"play and skip"}),
+    );
+    write_app(&root.0.join("bundled"), "reader", "cmux/reader", json!({"media:read":"show"}));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.install("cmux/reader");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    f.mount("m2", "cmux/reader", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["agent_cli", "memory", "toast", "media"]);
+
+    f.supervisor
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"media.get", "params":{}}), false)
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "media.get");
+    let value = json!({"track":{"title":"Song","artist":"Band","playing":true,"rate":1,
+        "position_ms":1,"can_previous":true,"can_next":true}});
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            request["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":value}),
+        )
+        .unwrap();
+    let update = f.wait("media.get result", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "update"
+    });
+    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
+
+    // No tap: refused before the provider sees it.
+    let refused = f.call("m1", "media.control", json!({"command":"next"}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+    // Read only: the control scope is missing.
+    let refused = f.call("m2", "media.control", json!({"command":"next"}), true);
+    assert_ne!(refused["ok"], true, "{refused}");
+    assert_ne!(refused["body"]["code"], "gesture.required", "{refused}");
+    // A tap with the scope reaches the Mac app.
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"media.control", "params":{"command":"play_pause"}}),
+            true,
+        )
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "media.control");
+    assert_eq!(request["params"], json!({"command":"play_pause"}));
+}
+
 /// The Mac's calendars (`system_calendar`, EventKit on the Mac): the daemon
 /// bounds and normalizes the read before the Mac app sees it, answers repeat
 /// reads from its cache only once access is granted, and lets the permission
@@ -445,7 +509,7 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
             false,
         )
         .unwrap();
-    let request = answer(&rx, waiting.clone());
+    let request = answer(&rx, waiting);
     assert_eq!(request["params"], json!({"days":2,"limit":20}), "defaults filled in");
     f.wait("first read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
 
@@ -502,70 +566,6 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
             false,
         )
         .unwrap();
-    let request = answer(&rx, events.clone());
+    let request = answer(&rx, events);
     assert_eq!(request["op"], "system_calendar.events", "a change makes the next read fresh");
-}
-
-/// A media player extension reads what plays and drives it through the Mac app: `media` is a
-/// provider family (registering it beside the others keeps them), `media.get` needs only
-/// `media:read`, and `media.control` needs `media:control` and a tap, so no extension starts,
-/// pauses or skips sound on its own.
-#[test]
-fn cmux_next_media_routes_reads_and_only_tapped_controls_to_the_verified_provider() {
-    let root = temp_dir();
-    write_app(
-        &root.0.join("bundled"),
-        "demo",
-        "cmux/demo",
-        json!({"media:read":"show what plays","media:control":"play and skip"}),
-    );
-    write_app(&root.0.join("bundled"), "reader", "cmux/reader", json!({"media:read":"show"}));
-    let f = fixture_with(&[], Duration::from_secs(60), root);
-    f.install("cmux/demo");
-    f.install("cmux/reader");
-    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
-    f.mount("m2", "cmux/reader", "cmux.section/1", json!({}));
-    let rx = provider(&f, &["coderouter", "memory", "toast", "media"]);
-
-    f.supervisor
-        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"media.get", "params":{}}), false)
-        .unwrap();
-    let request = next_request(&rx);
-    assert_eq!(request["op"], "media.get");
-    let value = json!({"track":{"title":"Song","artist":"Band","playing":true,"rate":1,
-        "position_ms":1,"can_previous":true,"can_next":true}});
-    f.supervisor
-        .provider_result(
-            PROVIDER,
-            request["request_id"].as_u64().unwrap(),
-            true,
-            json!({"value":value}),
-        )
-        .unwrap();
-    let update = f.wait("media.get result", |e| {
-        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "update"
-    });
-    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
-
-    // No tap: refused before the provider sees it.
-    let refused = f.call("m1", "media.control", json!({"command":"next"}), false);
-    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
-    // Read only: the control scope is missing.
-    let refused = f.call("m2", "media.control", json!({"command":"next"}), true);
-    assert_ne!(refused["ok"], true, "{refused}");
-    assert_ne!(refused["body"]["code"], "gesture.required", "{refused}");
-    // A tap with the scope reaches the Mac app.
-    f.supervisor
-        .dispatch(
-            CLIENT,
-            "m1",
-            "n1",
-            "tap",
-            json!({"op":"media.control", "params":{"command":"play_pause"}}),
-            true,
-        )
-        .unwrap();
-    let request = next_request(&rx);
-    assert_eq!(request["op"], "media.control");
-    assert_eq!(request["params"], json!({"command":"play_pause"}));
 }

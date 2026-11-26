@@ -69,6 +69,8 @@ cmux-unix-socket = { path = "../../../cmux-tui/crates/cmux-unix-socket" }
 # The settings file's path and JSONC dialect (src/agent_memory/settings.rs),
 # the daemon's own reader.
 cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
+# The machine's cores and load for the helper limit (src/machine_limits.rs); no tokio.
+cmux-host-budget = { path = "../../../cmux-tui/crates/cmux-host-budget", default-features = false }
 # The panic log the cmux-next app sends to Sentry under the telemetry choice
 # (`<optchat root>/panics.jsonl`, RustPanicSource.chief).
 cmux-panic-log = { path = "../../../cmux-tui/crates/cmux-panic-log" }
@@ -99,8 +101,8 @@ codegen-units = 1
 # against 0.398 ms. "z" was -31% for +31% append time. Nothing in Chief runs per frame.
 opt-level = "s"
 
-# optchat-wasm's release build for the hosted placement (experiments/chief-optmem/
-# scripts/build-optchat-wasm.sh: --profile wasm-release): the settings it had as
+# optchat-wasm's release build for the hosted placement (--profile wasm-release,
+# see backend/apps/api/src/chief-brain/optchat-wasm/SOURCE.md): the settings it had as
 # its own workspace (opt-level "s", lto, the default codegen units). A member's
 # own [profile] is ignored, so they live here.
 [profile.wasm-release]

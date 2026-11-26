@@ -261,7 +261,9 @@ function waiting(look: Look, message: string | null): View {
   ])
 }
 
-export const renderWeather = widget((ctx: Partial<WidgetContext> = {}): View => {
+// `widget()` keeps a throwing render to its own tile (let it crash); the named function is the export
+// cmux.widget/1 calls (first-party-apps/build.ts checks dist/main.js defines it).
+const drawWeather = widget((ctx: Partial<WidgetContext> = {}): View => {
   const size: WidgetSize = ctx.size ?? "small"
   const preview = ctx.preview === true
   const settings = computed(() => ({ ...cmux.app.settings(), ...(ctx.settings ?? {}) }))
@@ -311,3 +313,8 @@ export const renderWeather = widget((ctx: Partial<WidgetContext> = {}): View => 
     .background(sky)
     .contextMenu(() => (preview ? [] : [Button(t("refresh", "Refresh weather"), () => load(settings(), true))]))
 })
+
+/** The `cmux.widget/1` export the manifest names. */
+export function renderWeather(ctx: WidgetContext): View {
+  return drawWeather(ctx)
+}

@@ -124,6 +124,9 @@ class Expr:
             if tok == "contains":
                 hay, needle = args
                 return needle in hay if isinstance(hay, (list, str)) else False
+            if tok == "startsWith":
+                value, prefix = args
+                return str(value).startswith(str(prefix))
             raise ValueError(tok)
         if tok in ("true", "false", "null"):
             return {"true": True, "false": False, "null": None}[tok]
@@ -175,7 +178,7 @@ NEXT = "refs/heads/feat-cmux-next"
 def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
     """path_route's own expression context: its route step, the tree probes and the marker upload."""
     return {"github": {"event_name": event, "ref": ref,
-                       "event": {"pull_request": {"labels": [{"name": label} for label in labels]}}},
+                       "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
@@ -216,8 +219,10 @@ class GeneratedFoldTest(unittest.TestCase):
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
-        self.assertEqual(self.daemon["needs"], self.generated["needs"])
-        self.assertEqual(self.swift["needs"], self.generated["needs"])
+        # generated-files also needs the fast tier's fleet client: it checks a fast-tier host's run the fleet reported.
+        own = [need for need in self.generated["needs"] if need != "fast-tier-fleet"]
+        self.assertEqual(self.daemon["needs"], own)
+        self.assertEqual(self.swift["needs"], own)
 
     def test_every_routed_run_builds_once_for_its_generated_files(self):
         """Evaluates path_route's generated_host and the four jobs' conditions over events, routes,
@@ -243,7 +248,7 @@ class GeneratedFoldTest(unittest.TestCase):
                        "tree_state": tree_state, "generated_host": host}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
-                              "event": {"pull_request": {"head": {"repo": {"full_name": head}},
+                              "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "head": {"repo": {"full_name": head}},
                                                          "labels": [{"name": label} for label in labels]}}},
                    "inputs": {}, "cancelled": False,
                    "needs": {"path_route": {"outputs": outputs}, "web-bundles": {"result": web},
@@ -361,17 +366,19 @@ class GeneratedFoldTest(unittest.TestCase):
             self.assertIn(FOLD, give["if"])
             self.assertNotIn("exit 1", give["run"])
             self.assertNotIn("Fail on stale generated files", names)
-        self.assertIn(STALE, self.step(self.generated, "Fail on stale generated files")["run"])
+        self.assertEqual(self.step(self.generated, "Fail on stale generated files")["run"],
+                         "scripts/cmux-next/generated-files-verdict.sh --fail")
+        self.assertIn(STALE, (ROOT / "scripts/cmux-next/generated-files-verdict.sh").read_text())
 
     def test_the_verdict_job_fails_a_stale_file_or_a_missing_verdict(self):
-        self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test"])
+        self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test", "fast-tier", "fast-tier-fleet"])
         self.assertTrue(self.verdict["name"].startswith("cmux-next generated files"))
         self.assertNotIn("macos", workflow_jobs.single_runs_on(self.verdict))
         run = self.verdict["steps"][0]["run"]
         self.assertIn("fresh)", run)
         self.assertEqual(run.count("exit 1"), 3)
         env = self.verdict["steps"][0]["env"]
-        for host in HOSTS:
+        for host in HOSTS + ("fast-tier",):
             self.assertIn(f"needs.{host}.outputs.generated_files", env["VERDICT"])
 
     def run_script(self, script, **env):
@@ -379,7 +386,7 @@ class GeneratedFoldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             summary, output = Path(temp) / "summary", Path(temp) / "output"
             summary.write_text(""); output.write_text("")
-            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True,
+            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True, cwd=ROOT,
                                     env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_OUTPUT": str(output),
                                          **env})
             return result, summary.read_text(), output.read_text()
@@ -388,7 +395,7 @@ class GeneratedFoldTest(unittest.TestCase):
         # 2026-10-29: the action checks failed with fresh exports too (judge-action-exports.sh said "a catalog failure,
         # not a stale file"), but every summary said "Generated cmux-next files are stale" and pointed at the
         # regenerator, which changes nothing there (#27632, the base red of #27245).
-        for host in (self.swift, self.daemon):
+        for host in (self.swift, self.daemon, self.jobs["fast-tier"]):
             give = self.step(host, "Give the generated files verdict")
             self.assertEqual(give["env"]["CATALOG"], "${{ steps.actions.outputs.catalog }}")
             run = give["run"]
@@ -427,6 +434,80 @@ class GeneratedFoldTest(unittest.TestCase):
                          "${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}")
         self.assertEqual(self.daemon["outputs"]["generated_files"], "${{ steps.generated-files-verdict.outputs.verdict }}")
 
+    def test_the_fast_tier_folds_a_same_repository_pull_request_it_builds(self):
+        """The Mac fast tier builds the same package with its tests (fast-tier.py). On a same-repository
+        pull request to feat-cmux-next that it runs on, and that no daemon or swift test build hosts, it
+        checks the generated files on that build, so the head runs one Mac job instead of two. When the
+        build fleet reports the tier (no Mac build), the generated-files job checks them instead."""
+        tier, fleet = self.jobs["fast-tier"], "fast-tier-fleet"
+        pr = {"github": {"event_name": "pull_request", "ref": "refs/pull/1/merge", "base_ref": "feat-cmux-next",
+                         "repository": REPO,
+                         "event": {"pull_request": {"head": {"repo": {"full_name": REPO}}, "labels": []}}},
+              "steps": {"route": {"outputs": {"generated": "true", "swift": "true", "swift_targets": "all",
+                                              "daemon": "false", "macos": "true", "fast_tier": "true"}},
+                        "tree": {"outputs": {"tree_state": ""}}, "tree-final": {"outputs": {}},
+                        "marker-upload": {"outcome": ""}}, "inputs": {}}
+        host = self.route["outputs"]["generated_host"]
+        self.assertEqual(Expr(host, pr).value(), "fast-tier")
+        fork = {**pr, "github": {**pr["github"], "event": {"pull_request": {"head": {"repo": {"full_name": "x/y"}},
+                                                                             "labels": []}}}}
+        self.assertEqual(Expr(host, fork).value(), "generated-files")
+        for key in ("macos", "fast_tier"):
+            off = {**pr, "steps": {**pr["steps"], "route": {"outputs": {**pr["steps"]["route"]["outputs"], key: "false"}}}}
+            self.assertEqual(Expr(host, off).value(), "generated-files", key)
+        other_base = {**pr, "github": {**pr["github"], "base_ref": "main"}}
+        self.assertEqual(Expr(host, other_base).value(), "generated-files")
+        daemon = {**pr, "steps": {**pr["steps"], "route": {"outputs": {**pr["steps"]["route"]["outputs"], "daemon": "true"}},
+                                   "tree": {"outputs": {"tree_state": "ready"}}}}
+        self.assertEqual(Expr(host, daemon).value(), "daemon-test")
+        # Exactly one of the fast tier's fold, generated-files and (no) verdict job checks them, per fleet outcome.
+        for result, verdict in (("skipped", ""), ("success", "pass"), ("failure", "fail"), ("failure", ""),
+                                ("cancelled", ""), ("success", "queued")):
+            needs = {"path_route": {"outputs": {"generated": "true", "generated_host": "fast-tier"}},
+                     "web-bundles": {"result": "success"}, "push-head-preflight": {"outputs": {"current": "true"}},
+                     fleet: {"result": result, "outputs": {"verdict": verdict}},
+                     "fast-tier": {"result": "success"}, "swift-test": {"result": "skipped"},
+                     "daemon-test": {"result": "skipped"}}
+            ctx = {"github": pr["github"], "inputs": {}, "cancelled": False, "needs": needs}
+            folds = Expr(tier["env"]["CMUX_NEXT_FOLD_GENERATED"], ctx).value() is True
+            generated = truthy(Expr(self.generated["if"], ctx).value())
+            reported = truthy(Expr(self.verdict["if"], ctx).value())
+            with self.subTest(result=result, verdict=verdict):
+                self.assertNotEqual(folds, generated)
+                self.assertEqual(reported, folds)
+                self.assertEqual(folds, result == "skipped" or verdict == "queued")
+        # The checks run on the tier's build, in the root it built in, with the generated-files job's commands.
+        for name in CHECKS:
+            ours, theirs = self.step(tier, name), self.step(self.generated, name)
+            self.assertTrue(ours["if"].startswith("${{ " + FOLD), ours["if"])
+            self.assertIn("steps.fast-tier-run.outputs.built == 'true'", ours["if"])
+            self.assertIn("!cancelled()", ours["if"])
+            self.assertTrue(ours["continue-on-error"])
+            self.assertEqual((ours["run"], ours.get("id")), (theirs["run"], theirs.get("id")))
+            self.assertTrue(ours["working-directory"].startswith("${{ steps.spm-root.outputs.root || github.workspace }}"))
+        for name in TAIL[:2]:
+            ours, theirs = self.step(tier, name), self.step(self.generated, name)
+            for key in ("run", "with", "id"):
+                self.assertEqual(ours.get(key), theirs.get(key), f"{name}: {key}")
+        names = self.steps(tier)
+        self.assertLess(names.index("Run the fast tier"), names.index(CHECKS[0]))
+        self.assertLess(names.index(TAIL[-1]), names.index("Stop this job's acpmux daemons and remove its home"))
+        self.assertEqual(self.step(tier, TAIL[-1])["run"], "scripts/cmux-next/generated-files-verdict.sh")
+        # A reused pass stands for the generated files only when the folded run recorded it fresh.
+        key = self.step(tier, "Fingerprint this job's inputs")["run"]
+        self.assertIn('--extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)"', key)
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
+                          self.step(tier, name)["if"])
+        self.assertEqual(tier["outputs"]["generated_files"],
+                         "${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}")
+
+    def test_the_fast_tier_says_when_its_package_built(self):
+        source = (ROOT / "scripts/cmux-next/fast-tier.py").read_text()
+        built = source.index('out.write("built=true\\n")')
+        self.assertLess(source.index("if not build_packages(root, entries, False, builds):"), built)
+        self.assertLess(built, source.index("gating_failed = False"))
+
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]
         self.assertIn("generated-verdict", cache["needs"])
@@ -463,6 +544,8 @@ class GeneratedFoldTest(unittest.TestCase):
         (repo / "Packages/macOS/CmuxNext/Package.swift").write_text("")
         bin_dir.mkdir()
         # A swift that refuses a --package-path that is not a package, as SwiftPM does.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
             "args=(\"$@\"); for ((i = 0; i < ${#args[@]}; i++)); do\n"
