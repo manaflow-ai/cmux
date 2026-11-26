@@ -310,6 +310,36 @@ async fn a_stalled_reader_over_its_fair_share_ends_with_the_total_far_under_its_
     );
 }
 
+/// The duress bigchat leg after the stall cut above: a hundred readers attached to quiet chats
+/// each kept the pages of its replay, since no next line came to end them. The pump, waiting on
+/// a reader that takes nothing, ends it itself once it is stalled over its fair share; one under
+/// its share is kept.
+#[tokio::test]
+async fn a_stalled_reader_over_its_share_ends_with_no_next_line() {
+    const FAIR: usize = 8 << 10;
+    const OWN: usize = 1 << 20;
+    const STALL: Duration = Duration::from_millis(200);
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let pool = own_pool();
+    let limits = || Limits { pool, total_bound: 1 << 40, fair_share: FAIR, reader_stall: STALL };
+    let (t1, _stuck_rx) = mpsc::channel(1);
+    let (t2, _quiet_rx) = mpsc::channel(1);
+    let (stuck, _) = start_limited(&scope, None, t1, OWN, limits());
+    let (quiet, _) = start_limited(&scope, None, t2, OWN, limits());
+    for n in 0..(4 * FAIR / 200) {
+        assert!(stuck.push(note(n)));
+    }
+    assert!(quiet.push(note(0)) && quiet.push(note(1)));
+    assert!(stuck.held() > FAIR);
+    tokio::time::timeout(STALL * 10, stuck.closed())
+        .await
+        .expect("the pump ends a stalled reader over its share with no next line");
+    assert!(stuck.is_closed());
+    tokio::time::sleep(STALL * 2).await;
+    assert!(!quiet.is_closed(), "a stalled reader under its share is kept");
+    assert!(pool.load(Ordering::Relaxed) < 2 * FAIR, "the stalled reader's bytes left the total");
+}
+
 fn list_row(n: usize) -> String {
     row_of(n, 400)
 }
