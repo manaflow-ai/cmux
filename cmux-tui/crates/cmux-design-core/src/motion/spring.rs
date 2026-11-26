@@ -35,18 +35,28 @@ pub fn admitted(p: SpringParameters, velocity: f64, distance: f64) -> f64 {
     }
     let limit = p.omega() * distance.abs();
     if distance > 0. {
-        return velocity.max(0.).min(limit);
+        return swift_min(swift_max(velocity, 0.), limit);
     }
     if distance < 0. {
-        return velocity.min(0.).max(-limit);
+        return swift_max(swift_min(velocity, 0.), -limit);
     }
     0.
+}
+
+/// Swift's `min(x, y)`: `y < x ? y : x` (a NaN limit stays NaN, as Swift's does).
+fn swift_min(x: f64, y: f64) -> f64 {
+    if y < x { y } else { x }
+}
+
+/// Swift's `max(x, y)`: `y >= x ? y : x`.
+fn swift_max(x: f64, y: f64) -> f64 {
+    if y >= x { y } else { x }
 }
 
 /// `settlingTime(within:)`: seconds until a unit step stays within `fraction` of its target
 /// (a `CASpringAnimation`'s duration uses 0.002).
 pub fn settling_time(p: SpringParameters, fraction: f64) -> f64 {
-    let zeta = p.damping_fraction.max(0.05).min(1.);
+    let zeta = p.damping_fraction.clamp(0.05, 1.);
     if zeta >= 0.999 {
         let mut x = 1.0_f64;
         for _ in 0..32 {

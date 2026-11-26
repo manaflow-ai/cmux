@@ -4,7 +4,9 @@
 //!
 //! Ops: `motion.NAME` (see [`call`]).
 
+pub mod color_transition;
 pub mod policy;
+pub mod scene;
 pub mod spring;
 pub mod tokens;
 
@@ -12,7 +14,9 @@ use crate::ops::{OpError, OpResult, parse, reply};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use color_transition::ColorTransition;
 use policy::{MotionPolicy, Side};
+use scene::{SceneLoop, SceneMotion, SceneTransformSpace, SceneTransition};
 use spring::{Spring, SpringState};
 use tokens::{MotionFade, MotionLoop, MotionSpring, MotionTween};
 
@@ -58,6 +62,125 @@ struct SecondsRequest {
     side: Side,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SceneMotionRequest {
+    name: Option<String>,
+    response: Option<f64>,
+    damping_fraction: Option<f64>,
+    seconds: Option<f64>,
+    curve: Option<String>,
+    scale: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SceneLoopRequest {
+    effect: String,
+    period: Option<f64>,
+    amount: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TransformRequest {
+    #[serde(default)]
+    space: SceneTransformSpace,
+    scale: Option<f64>,
+    #[serde(default)]
+    degrees: f64,
+    #[serde(default)]
+    offset: [f64; 2],
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SceneAnimationRequest {
+    #[serde(default)]
+    policy: MotionPolicy,
+    motion: SceneMotion,
+    #[serde(default)]
+    key_path: String,
+    #[serde(default)]
+    from: Value,
+    #[serde(default)]
+    to: Value,
+    #[serde(default)]
+    additive: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoopAnimationRequest {
+    #[serde(default)]
+    policy: MotionPolicy,
+    #[serde(rename = "loop")]
+    scene_loop: SceneLoop,
+    #[serde(default)]
+    space: SceneTransformSpace,
+    #[serde(default)]
+    travel: f64,
+    #[serde(default)]
+    band: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TransitionRequest {
+    #[serde(default)]
+    policy: MotionPolicy,
+    transition: SceneTransition,
+    entering: bool,
+    opacity: f32,
+    #[serde(default)]
+    space: SceneTransformSpace,
+    motion: Option<SceneMotion>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BurstRequest {
+    #[serde(default)]
+    policy: MotionPolicy,
+    lifetime: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RollRequest {
+    #[serde(default)]
+    policy: MotionPolicy,
+    upward: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettleRequest {
+    #[serde(default)]
+    policy: MotionPolicy,
+    key_path: String,
+    #[serde(default)]
+    from: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ColorRequest {
+    #[serde(default)]
+    transition: ColorTransition,
+    #[serde(default)]
+    speed_off: bool,
+    #[serde(default)]
+    system_reduce_motion: bool,
+    #[serde(default)]
+    t: f64,
+    count: Option<usize>,
+    #[serde(default)]
+    from: [f64; 4],
+    #[serde(default)]
+    to: [f64; 4],
+}
+
 /// Runs `motion.NAME`.
 pub fn call(name: &str, request: &Value) -> OpResult {
     match name {
@@ -94,8 +217,109 @@ pub fn call(name: &str, request: &Value) -> OpResult {
             reply(&r.policy.seconds(r.side))
         }
         "pairs" => reply(&policy::pairs()),
+        "scene.motion" => {
+            let r: SceneMotionRequest = parse(request)?;
+            let motion = if let Some(name) = r.name {
+                SceneMotion::named(&name)
+            } else if let (Some(response), Some(damping)) = (r.response, r.damping_fraction) {
+                SceneMotion::custom(response, damping)
+            } else if let Some(seconds) = r.seconds {
+                SceneMotion::timed(seconds, r.curve.as_deref())
+            } else {
+                None
+            };
+            let visible = motion.map(|m| m.visible_duration(r.scale.unwrap_or(1.)));
+            reply(&json!({ "motion": motion, "visibleDuration": visible }))
+        }
+        "scene.loop" => {
+            let r: SceneLoopRequest = parse(request)?;
+            reply(&SceneLoop::new(&r.effect, r.period, r.amount))
+        }
+        "scene.transform" => {
+            let r: TransformRequest = parse(request)?;
+            reply(&r.space.transform(r.scale.unwrap_or(1.), r.degrees, r.offset))
+        }
+        "scene.animation" => {
+            let r: SceneAnimationRequest = parse(request)?;
+            reply(&scene::scene_animation(
+                &r.policy,
+                r.motion,
+                &r.key_path,
+                r.from,
+                r.to,
+                r.additive,
+            ))
+        }
+        "scene.crossfade" => {
+            let r: SceneAnimationRequest = parse(request)?;
+            reply(&scene::scene_crossfade(&r.policy, r.motion))
+        }
+        "scene.loopAnimation" => {
+            let r: LoopAnimationRequest = parse(request)?;
+            reply(&scene::scene_loop_animation(&r.policy, r.scene_loop, r.space))
+        }
+        "scene.shimmer" => {
+            let r: LoopAnimationRequest = parse(request)?;
+            reply(&scene::scene_shimmer_animation(&r.policy, r.scene_loop, r.travel, r.band))
+        }
+        "scene.transition" => {
+            let r: TransitionRequest = parse(request)?;
+            reply(&scene::scene_transition(
+                &r.policy,
+                r.transition,
+                r.entering,
+                r.opacity,
+                r.space,
+                r.motion,
+            ))
+        }
+        "scene.burst" => {
+            let r: BurstRequest = parse(request)?;
+            reply(&scene::scene_burst_animation(&r.policy, r.lifetime))
+        }
+        "rollInPlace" => {
+            let r: RollRequest = parse(request)?;
+            reply(&scene::roll_in_place(&r.policy, r.upward))
+        }
+        "settle" => {
+            let r: SettleRequest = parse(request)?;
+            reply(&scene::settle_animation(&r.policy, &r.key_path, r.from))
+        }
+        "colorTransition.resolve" => {
+            let r: ColorRequest = parse(request)?;
+            reply(&color_reply(&r.transition.resolved(r.speed_off, r.system_reduce_motion)))
+        }
+        "colorTransition.describe" => {
+            let r: ColorRequest = parse(request)?;
+            reply(&color_reply(&r.transition))
+        }
+        "colorTransition.progress" => {
+            let r: ColorRequest = parse(request)?;
+            reply(&r.transition.progress(r.t))
+        }
+        "colorTransition.samples" => {
+            let r: ColorRequest = parse(request)?;
+            reply(&r.transition.progress_samples(r.count.unwrap_or(color_transition::KEYFRAMES)))
+        }
+        "colorTransition.mix" => {
+            let r: ColorRequest = parse(request)?;
+            reply(&r.transition.mix(r.from, r.to, r.t))
+        }
         _ => Err(OpError::Unknown),
     }
+}
+
+/// A color transition's derived values.
+fn color_reply(t: &ColorTransition) -> Value {
+    json!({
+        "transition": t,
+        "seconds": t.seconds(),
+        "isInstant": t.is_instant(),
+        "mixesInSRGB": t.mixes_in_srgb(),
+        "keyframeProgress": t.keyframe_progress(),
+        "cssDuration": t.css_duration(),
+        "cssEasing": t.css_easing(),
+    })
 }
 
 /// Everything a policy decides, per token.
