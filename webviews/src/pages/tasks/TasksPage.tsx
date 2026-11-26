@@ -42,7 +42,16 @@ import {
   type IntentKind,
   type Mirror,
 } from "./model";
-import { AssigneeBadge, AttentionDot, LabelChips, LabelDots, PriorityMark, Progress, StatusMark, ansi } from "./Glyphs";
+import {
+  AssigneeBadge,
+  AttentionDot,
+  LabelChips,
+  LabelDots,
+  PriorityMark,
+  Progress,
+  StatusMark,
+  ansi,
+} from "./Glyphs";
 import type { TasksStore, TasksSnapshot } from "./store";
 import type { Label, Layout, Principal, Session, Status, Task } from "./types";
 

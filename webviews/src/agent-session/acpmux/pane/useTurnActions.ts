@@ -96,7 +96,7 @@ export interface TurnRowsShownDeps {
   /// Only the fields the memo's deps array names.
   snapshot: Pick<
     AcpmuxSnapshot,
-    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers"
+    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers" | "heldFromAt"
   > & {
     summary?: Pick<Summary, "family">;
   };
@@ -237,6 +237,8 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           messageBreaks,
           trayAgents,
           supersededReplyIds,
+          // What the chat let go of stays gone (turns.ts `retainVisibleReplies`).
+          heldFromAt: snapshot.heldFromAt,
         },
         last?.turns,
       );
