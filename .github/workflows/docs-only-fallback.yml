@@ -42,6 +42,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit's parent too: merge_commit_files lists the changed paths with git when the REST reads fail.
+          fetch-depth: 2
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
@@ -55,7 +57,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled","ready_for_review"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review"]},"web-validation.yml":{"branches":["main"],"types":["opened","synchronize","reopened","ready_for_review"]}}'
+          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled","ready_for_review"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","labeled"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review"]},"web-validation.yml":{"branches":["main"],"types":["opened","synchronize","reopened","ready_for_review"]}}'
         run: python3 scripts/ci/docs_only_paths.py --fallback-plan
 
   ci:
