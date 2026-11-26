@@ -1,0 +1,52 @@
+name: private-names
+
+# Fails a pull request whose title, body, added lines or file paths carry the name of a private project, before
+# it merges. Such names reached merged pull requests and a CI script here and were taken out only afterwards
+# (#57782). The list is not public: this job mints the routing App's read token for the private ops repository,
+# fetches its checker (tools/agent-guards/private_names.py) and runs it on this pull request. The log says only
+# where a match sits (title, body line, file:line), never what matched.
+#
+# pull_request, not pull_request_target: no code from the pull request runs (nothing is checked out), and a
+# fork's run has no secrets, so a fork's pull request is skipped. edited reruns it when a title or body changes.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: private-names-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    steps:
+      - name: Mint the private checker read token
+        id: hq-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-contents: read
+      - name: Check the pull request for private names
+        env:
+          HQ_TOKEN: ${{ steps.hq-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/private_names.py"
+          curl -sSf --retry 3 --max-time 60 -H 'accept: application/vnd.github.raw' \
+            -H @<(printf 'authorization: Bearer %s\n' "$HQ_TOKEN") \
+            -o "$checker" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY_OWNER}/cmuxterm-hq/contents/tools/agent-guards/private_names.py?ref=main"
+          python3 -I "$checker" check-pr "$GITHUB_REPOSITORY" "$PR_NUMBER"
