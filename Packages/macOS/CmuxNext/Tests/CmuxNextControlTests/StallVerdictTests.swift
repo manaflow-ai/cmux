@@ -39,6 +39,38 @@ struct StallVerdictTests {
         #expect(HangLoad().lines(duration: .seconds(3)).contains("host load: unknown"))
     }
 
+    @Test func theHangFileNamesTheHostMemory() {
+        let start = HostMemory(swapUsed: 1_900_000_000, compressedPages: 400_000, freePages: 5_000, pageIns: 100_000, pressureLevel: 1)
+        let end = HostMemory(swapUsed: 2_080_000_000, compressedPages: 412_000, freePages: 3_100, pageIns: 109_400, pressureLevel: 2)
+        let memory = HostMemoryDelta(from: start, to: end)
+        #expect(memory.swapGrowth == 180_000_000)
+        #expect(memory.pageIns == 9_400)
+        let lines = HangLoad(mainThreadCPU: .milliseconds(30), pageIns: 3, host: overloaded, memory: memory).lines(duration: .seconds(3))
+        #expect(lines.contains("host memory: swap 2.1 GB (+180.0 MB), compressed 412000, free 3100 pages, host page-ins 9400, pressure warning (pressured)"))
+        #expect(HangLoad().lines(duration: .seconds(3)).contains("host memory: unknown"))
+    }
+
+    @Test func aCalmHostIsNotPressured() {
+        let calmMemory = HostMemory(swapUsed: 0, compressedPages: 10_000, freePages: 90_000, pageIns: 500, pressureLevel: 1)
+        let memory = HostMemoryDelta(from: calmMemory, to: calmMemory)
+        #expect(!memory.isPressured(duration: .seconds(3), processPageIns: 2))
+        // Swap shrinking is not pressure; its line says so without the mark.
+        let shrank = HostMemoryDelta(now: calmMemory, swapGrowth: -50_000_000, pageIns: 0)
+        #expect(shrank.line(duration: .seconds(3), processPageIns: nil)
+            == "host memory: swap 0.0 MB (-50.0 MB), compressed 10000, free 90000 pages, host page-ins 0, pressure normal")
+        // Each trigger alone marks it: this process's own page-ins, or the host paging fast.
+        #expect(memory.isPressured(duration: .seconds(3), processPageIns: 50))
+        let paging = HostMemoryDelta(now: calmMemory, swapGrowth: 0, pageIns: 6_000)
+        #expect(paging.isPressured(duration: .seconds(3), processPageIns: nil))
+        #expect(!paging.isPressured(duration: .seconds(4), processPageIns: nil))
+    }
+
+    @Test func theHostMemoryIsReadable() {
+        let memory = HostMemory.current()
+        #expect(memory != nil)
+        #expect((memory?.freePages ?? 0) > 0)
+    }
+
     @Test func theHostLoadIsReadable() {
         let host = HostLoad.current()
         #expect(host != nil)
