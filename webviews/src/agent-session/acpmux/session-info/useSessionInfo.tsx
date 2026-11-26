@@ -94,7 +94,6 @@ import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
-import { useAlsoHere } from "./alsoHereSectionModel";
 import { agentSideRowsOf } from "./agentSide";
 
 /// How long after an output click a narrowing counts as that diff's split.
@@ -1243,11 +1242,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The rest of what the sections take from the snapshot and the App, kept the same way.
   // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
   // time any chat anywhere changes (its status, its indicator, its time), which drew every section
-  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
-  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) keep their
+  // identity until what they draw changes.
   const everyChat = drawn && !scope ? snapshot.sessions : undefined;
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
-  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
   // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
   const place = useSameValue(chatPlace(snapshot));
@@ -1490,7 +1488,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
         usageSessions={usageSessions}
-        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
