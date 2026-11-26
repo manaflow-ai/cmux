@@ -1275,9 +1275,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         try Task.checkCancellation()
         guard promptPayloads[promptID] != nil else { throw CancellationError() }
-        guard let data = attachment.data, let connection = hub.connection else {
-            throw AgentFeatureUnavailable("Connect to the Mac to send this photo.")
+        guard let data = attachment.data else {
+            throw AgentFeatureUnavailable("The photo has no contents to send. Attach it again.")
         }
+        let connection = try await hub.liveConnection()
         let result = try await Self.uploadPrompt(.data(data), name: attachment.name, sessionID: sessionID,
                                                  over: connection, report: report)
         guard case .prompt(let id, let name, let owner) = result else {
