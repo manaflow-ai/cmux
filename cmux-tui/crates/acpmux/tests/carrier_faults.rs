@@ -510,6 +510,7 @@ async fn world(tag: &str, route: Route) -> World {
                     peer_token: Some(peer_token.clone()),
                     vm_boundary: false,
                     github_broker: false,
+                    group: None,
                 };
             let mut b_wg = config();
             b_wg.transport.wireguard = true;
