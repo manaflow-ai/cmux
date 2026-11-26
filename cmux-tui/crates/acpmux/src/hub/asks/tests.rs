@@ -518,6 +518,113 @@ fn an_explicit_empty_body_unlinks_but_a_state_only_note_preserves_links() {
 }
 
 #[test]
+fn relinking_a_pr_preserves_shared_links_and_cleans_only_removed_asks() {
+    let l = ledger();
+    let one = "ask-0000000001";
+    let two = "ask-0000000002";
+    let three = "ask-0000000003";
+    let unrelated = "ask-0000000004";
+    let first = "https://github.com/a/b/pull/1";
+    let second = "https://github.com/a/b/pull/2";
+    l.note_created(first, vec![one.into(), two.into()], 10);
+    l.note_created(second, vec![one.into(), unrelated.into()], 11);
+    let original = l.lock().by_ask.clone();
+
+    l.note_created(first, vec![one.into(), two.into()], 12);
+    l.note_settled(first, true, 13);
+    {
+        let state = l.lock();
+        assert_eq!(state.by_ask, original, "unchanged links keep PR order and membership");
+        let pr = state.prs.get(first).unwrap();
+        assert_eq!(pr.repo.as_deref(), Some("a/b"));
+        assert_eq!(pr.number, Some(1), "state-only updates retain known metadata");
+        assert_eq!(pr.state, PrState::Merged);
+    }
+
+    l.note_pr(
+        PrNote::from_params(&json!({"url": first, "body": format!("{one} {three}")})).unwrap(),
+        14,
+    );
+    {
+        let state = l.lock();
+        assert_eq!(state.by_ask.get(one), original.get(one), "retained links stay in order");
+        assert!(!state.by_ask.contains_key(two), "the last removed link leaves no empty entry");
+        assert_eq!(state.by_ask.get(three), Some(&vec![first.to_owned()]));
+        assert_eq!(state.by_ask.get(unrelated), original.get(unrelated));
+    }
+
+    l.note_pr(PrNote::from_params(&json!({"url": first, "body": ""})).unwrap(), 15);
+    let state = l.lock();
+    assert_eq!(state.by_ask.get(one), Some(&vec![second.to_owned()]));
+    assert_eq!(state.by_ask.get(unrelated), original.get(unrelated));
+    assert!(!state.by_ask.contains_key(three));
+    assert_eq!(state.by_ask.len(), 2);
+    assert!(state.prs.get(first).unwrap().asks.is_empty());
+    assert_eq!(state.prs.get(second).unwrap().asks, [one, unrelated]);
+}
+
+/// Run this unchanged against the old and new put_pr on the same runner. Setup is outside
+/// the timed regions; no wall-clock threshold makes a busy runner fail the correctness test.
+#[test]
+fn ask_ledger_pr_update_duress_reports_unrelated_index_scaling() {
+    use std::time::Instant;
+
+    const UPDATES: u64 = 500;
+    for unrelated in [0, 20_000] {
+        let mut state = State::default();
+        let mut pr = PullRequest {
+            url: "https://github.com/a/b/pull/1".into(),
+            repo: Some("a/b".into()),
+            number: Some(1),
+            state: PrState::Open,
+            asks: vec!["ask-0000000001".into()],
+            at: 1,
+        };
+        // Seed a consistent large index directly so baseline setup does not itself pay
+        // for the scan being measured. Each unrelated ask has its own known PR.
+        for i in 0..unrelated {
+            let mut other = pr.clone();
+            other.url = format!("https://github.com/a/b/pull/{}", i + 2);
+            other.number = Some(i + 2);
+            other.asks = vec![format!("unrelated-{i}")];
+            state.by_ask.insert(format!("unrelated-{i}"), vec![other.url.clone()]);
+            state.prs.insert(other.url.clone(), other);
+        }
+        state.put_pr(pr.clone());
+
+        let started = Instant::now();
+        for i in 0..UPDATES {
+            pr.at = i + 2;
+            // Pairs of duplicate observations alternate with state-only changes.
+            pr.state = if i % 4 < 2 { PrState::Merged } else { PrState::Open };
+            std::hint::black_box(state.put_pr(pr.clone()));
+        }
+        let unchanged_us = started.elapsed().as_micros();
+
+        let started = Instant::now();
+        for i in 0..UPDATES {
+            pr.at = UPDATES + i + 2;
+            pr.asks = vec![format!("ask-{:010x}", 1 + i % 2)];
+            std::hint::black_box(state.put_pr(pr.clone()));
+        }
+        let relink_us = started.elapsed().as_micros();
+        assert_eq!(state.by_ask.len(), unrelated as usize + 1);
+        assert_eq!(state.prs.len(), unrelated as usize + 1);
+        assert_eq!(state.by_ask.get("ask-0000000002"), Some(&vec![pr.url.clone()]));
+        assert!(!state.by_ask.contains_key("ask-0000000001"));
+        for i in 0..unrelated {
+            assert_eq!(
+                state.by_ask.get(&format!("unrelated-{i}")),
+                Some(&vec![format!("https://github.com/a/b/pull/{}", i + 2)])
+            );
+        }
+        println!(
+            "ask-ledger PR-update duress: unrelated_linked_asks={unrelated} updates_per_phase={UPDATES} unchanged_us={unchanged_us} relink_us={relink_us}"
+        );
+    }
+}
+
+#[test]
 fn capture_masks_credentials_before_truncating() {
     // Use the scanner's established synthetic fixture: repeated-character tokens
     // are intentionally excluded as low-entropy placeholders.
