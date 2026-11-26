@@ -407,7 +407,7 @@ _cmux_private_path_chain() {
         current="${current%/*}"
         [[ -n "$current" ]] || current="/"
     done
-    canonical="$(_cmux_resolve_path "$start")" || return 1
+    canonical="${start:A}"
     [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_resolved "$canonical"
 }
 
@@ -422,38 +422,16 @@ _cmux_private_path_chain_resolved() {
     done
 }
 
+# Runs per path component on every new shell, so it must not spawn processes.
+# Owned by us or root, and a symlink or a directory that only its owner can
+# write to (or that is sticky, like /tmp).
 _cmux_private_path_node() {
     builtin emulate -L zsh
-    local current="$1"
-    local owner=""
-    if [[ -d "$current" && ! -L "$current" ]]; then
-        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
-        [[ "$owner" == "$current" ]] || return 1
-        if [[ "$(/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$current" ]]; then
-            return 0
-        fi
-        [[ "$(/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)" == "$current" ]] || return 1
-        return 0
-    fi
-    if [[ -L "$current" ]]; then
-        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
-        [[ "$owner" == "$current" ]]
-        return $?
-    fi
-    return 1
+    local -a node
+    node=( "$1"(N@U,@u0,/Uf:go-w:,/u0f:go-w:,/Ut,/u0t) )
+    (( ${#node} ))
 }
 
-_cmux_resolve_path() {
-    if [[ -x /usr/bin/realpath ]]; then
-        /usr/bin/realpath -- "$1"
-    elif [[ -x /bin/realpath ]]; then
-        /bin/realpath -- "$1"
-    elif [[ -x /usr/bin/readlink ]]; then
-        /usr/bin/readlink -f -- "$1"
-    else
-        return 1
-    fi
-}
 typeset -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
     local command_name="$1"
