@@ -2477,3 +2477,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_checkout_branch_ref_exact.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_rate_limit.py"
+lane = "linux-guard"
