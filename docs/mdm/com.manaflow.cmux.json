@@ -3777,7 +3777,7 @@
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
-      "default" : true,
+      "default" : false,
       "description" : "customize.doctorNotice",
       "title" : "Customization notices",
       "type" : "boolean"

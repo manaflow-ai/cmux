@@ -105,7 +105,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var pauseAgentMachines = CmuxConfigSnapshot.pauseAgentMachinesDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
-    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); on when unset.
+    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); off when unset (Leo 2026-11-25: "make it stop showing the customization not applied/reviewd and shit popup tosts"), Settings' doctor card lists the findings inline.
     public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
