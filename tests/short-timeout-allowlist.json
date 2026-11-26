@@ -64,7 +64,7 @@
     "cmux-tui/crates/acpmux/src/acpmux_mcp_bg.rs:rust-duration": {"count": 2, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
     "cmux-tui/crates/acpmux/src/acpmux_mcp_pr.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
     "cmux-tui/crates/acpmux/src/acpmux_mcp_send.rs:rust-duration": {"count": 2, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
-    "cmux-tui/crates/acpmux/src/agent.rs:rust-duration": {"count": 13, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
+    "cmux-tui/crates/acpmux/src/agent.rs:rust-duration": {"count": 3, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/agent_host/host.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/agent_host/scope.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/agent_login/github.rs:rust-duration": {"count": 2, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
