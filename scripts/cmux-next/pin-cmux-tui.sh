@@ -1701,10 +1701,69 @@ verify_key_command() {
 # run 40427307041 failed here when the only published tree in the window,
 # fb384d011b85's, had no such job. Every skipped commit and its reason is
 # listed on a miss.
+# The tick's promotion walk (nightly-next-tick.yml) calls this resolver once per
+# commit it walks back, and each call searched the same 50-commit window again:
+# tick 45774766096 (2026-11-26) spent 366 s in its request step for 5 commits,
+# 46-87 s each, almost all of it recomputing three tree keys per commit and probing
+# the same ~39 unpublished trees. CMUX_TUI_TREE_PROBE_CACHE (a directory; set by
+# default only inside that workflow, under its job's RUNNER_TEMP) keeps across the
+# calls of one job:
+#   - every commit's tree keys (a pure function of the commit and of the key script,
+#     whose blob names the file), and
+#   - each probe's verdict: a verified tree for good, "not published" for
+#     CMUX_TUI_TREE_PROBE_CACHE_TTL seconds (default 300), so a tree that publishes
+#     mid-tick is seen by the next tick at the latest. An unverifiable tree is
+#     never kept. The nightly's second search after its wait never reads it.
+if [[ -z "${CMUX_TUI_TREE_PROBE_CACHE+x}" && "${GITHUB_WORKFLOW_REF:-}" == */.github/workflows/nightly-next-tick.yml@* && -n "${RUNNER_TEMP:-}" ]]; then
+  CMUX_TUI_TREE_PROBE_CACHE="$RUNNER_TEMP/cmux-tui-tree-probes"
+fi
+probe_cache_dir() {
+  local dir="${CMUX_TUI_TREE_PROBE_CACHE:-}"
+  [[ -n "$dir" ]] || return 1
+  mkdir -p "$dir" 2>/dev/null || return 1
+  printf '%s' "$dir"
+}
+# probe_cache_keys <rev>: prints the cached "v2 legacy..." keys of <rev>; 1 on a miss.
+probe_cache_keys() {
+  local dir file
+  dir="$(probe_cache_dir)" || return 1
+  file="$dir/keys-$(git -C "$repo_root" hash-object "$repo_root/scripts/ci/cmux_tui_tree_key.py" 2>/dev/null || echo none).tsv"
+  [[ -f "$file" ]] || return 1
+  awk -F '\t' -v r="$1" '$1 == r { print $2; found=1; exit } END { exit !found }' "$file"
+}
+probe_cache_put_keys() { # <rev> <keys...>
+  local dir rev="$1"; shift
+  dir="$(probe_cache_dir)" || return 0
+  printf '%s\t%s\n' "$rev" "$*" >> "$dir/keys-$(git -C "$repo_root" hash-object "$repo_root/scripts/ci/cmux_tui_tree_key.py" 2>/dev/null || echo none).tsv" 2>/dev/null || true
+}
+probe_cache_file() {
+  local dir
+  dir="$(probe_cache_dir)" || return 1
+  printf '%s/probes-%s-%s.tsv' "$dir" "$TARGET" "$(printf '%s' "$BASE" | cksum | cut -d' ' -f1)"
+}
+# probe_cache_get <key>: prints "good <commit>" or "absent" for a usable verdict; 1 on a miss.
+probe_cache_get() {
+  local file now ttl
+  file="$(probe_cache_file)" || return 1
+  [[ -f "$file" ]] || return 1
+  now="$(date +%s)" ttl="${CMUX_TUI_TREE_PROBE_CACHE_TTL:-300}"
+  [[ "$ttl" =~ ^[0-9]+$ ]] || ttl=300
+  awk -F '\t' -v k="$1" -v now="$now" -v ttl="$ttl" '
+    $1 == k && $2 == "good" { v = "good " $3 }
+    $1 == k && $2 == "absent" && now - $4 < ttl && v == "" { v = "absent" }
+    END { if (v == "") exit 1; print v }' "$file"
+}
+probe_cache_put() { # <key> good <commit> | <key> absent
+  local file
+  file="$(probe_cache_file)" || return 0
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-}" "$(date +%s)" >> "$file" 2>/dev/null || true
+}
+
 resolve_newest_published_tree() {
   local limit max_age temp_dir rev rev_time tip_time behind_hours key candidate commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
+  local cached cached_keys legacy_keys
   if [[ -n "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" ]]; then
     echo "notice: CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN is ignored: the nightly's own compile is the gate (#25786), so a published tree needs no Mac Release compile" >&2
   fi
@@ -1762,13 +1821,19 @@ resolve_newest_published_tree() {
       skips+="  ${rev:0:12}: $skewed differs from the tip"$'\n'
       skipped_skew=$((skipped_skew + 1)); behind=$((behind + 1)); continue
     fi
-    key="$(tree_key "$rev" 2>/dev/null)" || { skips+="  ${rev:0:12}: no tree key"$'\n'; behind=$((behind + 1)); continue; }
+    if cached_keys="$(probe_cache_keys "$rev")"; then
+      read -r key legacy_keys <<<"$cached_keys"
+    else
+      key="$(tree_key "$rev" 2>/dev/null)" || { skips+="  ${rev:0:12}: no tree key"$'\n'; behind=$((behind + 1)); continue; }
+      legacy_keys="$(legacy_tree_key "$rev" | tr '\n' ' ')"
+      probe_cache_put_keys "$rev" "$key" $legacy_keys
+    fi
     # The v2 key first, then this commit's compatibility keys (v2-legacy, v1):
     # trees published before docs-only filtering exist only under those, and
     # they stay valid fallbacks for the nightly. key becomes the key actually
     # published, as fetch and resolve-commit report it.
     commit=""
-    for candidate in "$key" $(legacy_tree_key "$rev"); do
+    for candidate in "$key" $legacy_keys; do
       [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
       [[ "$bad_keys" == *" $candidate "* ]] && continue
       # A verified tree is checked once.
@@ -1776,7 +1841,15 @@ resolve_newest_published_tree() {
       [[ -n "$commit" ]] && { key="$candidate"; break; }
       distinct=$((distinct + 1))
       vrc=0
-      verify_published_key "$candidate" "$temp_dir" || vrc=$?
+      if cached="$(probe_cache_get "$candidate")"; then
+        if [[ "$cached" == good\ * ]]; then verified_commit="${cached#good }"; else vrc=1; fi
+      else
+        verify_published_key "$candidate" "$temp_dir" || vrc=$?
+        case "$vrc" in
+          0) probe_cache_put "$candidate" good "$verified_commit" ;;
+          1) probe_cache_put "$candidate" absent ;;
+        esac
+      fi
       if (( vrc == 1 )); then
         echo "tree $candidate (${rev:0:12}): not published" >&2
         bad_keys+="$candidate "; continue
@@ -1866,7 +1939,7 @@ resolve_newest_published_or_await_tip() {
     rm -f "$sha_file"
   fi
   echo "the tip's tree $key is published; resolving again" >&2
-  resolve_newest_published_tree
+  CMUX_TUI_TREE_PROBE_CACHE="" resolve_newest_published_tree
 }
 
 # fetch_pinned <url> <sha256> <destination> <label>
