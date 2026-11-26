@@ -857,6 +857,30 @@
             "helium",
             "labs"
           ]
+        },
+        {
+          "key": "experiments.appStoreFeatures",
+          "note": "App Store Features: the App Store's Features tab, every built-in feature (backgrounds, Chief pet, Now Playing, every Lab and Experiment) as a switch on its own setting (cmux-tui server/app_features.rs, webviews pages/apps/FeaturesView.tsx). Leo, 2026-10-21: \"have that app store area as a sort of way to, like, toggle things on and off\". Off by default (Leo's UI rule: merge default-off); off draws no tab and apps.features.* lists nothing and refuses writes.",
+          "title": {
+            "key": "settings.experiments.appStoreFeatures",
+            "text": "App Store Features"
+          },
+          "help": {
+            "key": "settings.experiments.appStoreFeatures.help",
+            "text": "The App Store gets a Features tab where built-in features turn on and off."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "app",
+            "store",
+            "features",
+            "switches",
+            "toggles"
+          ]
         }
       ]
     }
