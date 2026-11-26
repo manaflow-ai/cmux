@@ -33,7 +33,7 @@ extension MainThreadWatchdog {
             let main = sampler?.sample() ?? []
             let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
             episodes?.begin(beat: NestedRunLoopWatch.episodeKey(id), elapsed: duration, main: main, others: others,
-                            load: HangLoad(host: host, idleWait: true))
+                            load: HangLoad(host: host, idleWait: true, app: TaskRole.current()))
             onHang?(Hang(duration: duration, addresses: main, otherThreads: others))
         }
     }

@@ -57,6 +57,8 @@ extension MainThreadWatchdog {
         guard StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host) == .starved,
               lastHangUptime.load(ordering: .acquiring) < sentAt else { return nil }
         var details: [String: JSONValue] = ["verdict": .string(StallVerdict.starved.rawValue), "source": .string("starvation_probe")]
+        let app = TaskRole.current()
+        if let app { details["app_role"] = .string(app.rawValue) }
         if let host {
             details["host_load_1m"] = .number(host.one)
             details["host_cores"] = .number(Double(host.cores))
@@ -66,7 +68,7 @@ extension MainThreadWatchdog {
         if let recorder = episodes {
             // Below the nested runs' keys (which count down from the top), far above heartbeat beats.
             let key = UInt64.max / 2 - probeSequence.add(1, ordering: .relaxed).newValue
-            let load = HangLoad(mainThreadCPU: cpu, host: host)
+            let load = HangLoad(mainThreadCPU: cpu, host: host, app: app)
             recorder.begin(beat: key, elapsed: duration, main: [], others: [], load: load)
             recorder.update(beat: key, duration: duration, ongoing: false, load: load)
         }

@@ -1,6 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextSettings
+import Darwin
 import Foundation
 import Testing
 
@@ -37,6 +38,19 @@ struct StallVerdictTests {
         #expect(lines.contains("host load: 205.0 / 172.0 / 144.0 on 10 cores (overloaded)"))
         #expect(HangLoad(host: calm, idleWait: true).lines(duration: .seconds(3)).first?.hasPrefix("verdict: waiting") == true)
         #expect(HangLoad().lines(duration: .seconds(3)).contains("host load: unknown"))
+    }
+
+    @Test func theHangFileNamesTheAppsKernelRole() {
+        let background = HangLoad(mainThreadCPU: .milliseconds(30), host: overloaded, app: .background).lines(duration: .seconds(3))
+        #expect(background.last == "app role: background (not frontmost: App Nap and the scheduler may hold it back)")
+        #expect(HangLoad(app: .foreground).lines(duration: .seconds(3)).last == "app role: foreground (frontmost)")
+        #expect(!HangLoad().lines(duration: .seconds(3)).contains { $0.hasPrefix("app role:") })
+        #expect(TaskRole(role: TASK_DARWINBG_APPLICATION) == .darwinBackground)
+    }
+
+    @Test func theTaskRoleIsReadable() {
+        // A test runner has no AppKit role: any value but a failed read.
+        #expect(TaskRole.current() != nil)
     }
 
     @Test func theHostLoadIsReadable() {
