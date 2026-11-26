@@ -95,11 +95,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 });
 
 const { act } = await import("react");
-// The minimap places its band in the frame after a scroll event, as a browser runs it.
+// The minimap places its band in the frame after a scroll event, as a browser runs it, and its list
+// in the frame after that band's commit.
 const scrolledFrame = (target: EventTarget) =>
   act(async () => {
     target.dispatchEvent(new dom.window.Event("scroll"));
-    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    for (let frame = 0; frame < 2; frame++)
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
@@ -421,6 +423,8 @@ test("the rail keeps clear of the transcript's widest fades (the model reads the
 // scrolled from the start. The foot has no band; the mask only cuts the rows under the stack.
 // In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
 // in those fades at every offset short of the chat's two ends.
+// About 590 scroll steps, each moving the list with the band as the app does: past the default
+// timeout on a loaded machine.
 test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
   const document = dom.window.document;
   viewport = 320;
@@ -474,4 +478,4 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
     viewport = 600;
     scope.innerHeight = windowBefore;
   }
-});
+}, 180_000);

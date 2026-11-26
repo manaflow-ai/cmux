@@ -41,6 +41,8 @@ const replacements: Record<string, unknown> = {
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  // The VS Code minimap reads its inks when its first frame paints (chatMinimap/ChatMinimap.tsx).
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 // Pierre's registered elements read their own DOM constructors at import time.
