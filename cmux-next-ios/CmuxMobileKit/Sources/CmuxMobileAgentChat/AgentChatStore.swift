@@ -193,8 +193,9 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
-    /// Messages with files on their way to the Mac, oldest first: each shows at once with its
-    /// upload's progress until the Mac echoes it (`userMessage`) or it comes back (`promptNotSent`).
+    /// Messages on their way to the Mac, oldest first: each shows at once (with files, its
+    /// upload's progress) until the Mac echoes or queues it (`userMessage`, `queued`) or it comes
+    /// back to the composer (`promptNotSent`).
     public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
@@ -618,7 +619,11 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
-        if !attachments.isEmpty, !outgoing.contains(where: { $0.id == promptID }) {
+        // Every message shows the moment Send is tapped, not when the Mac's echo comes back
+        // (Leo, 2026-11-24: "i think the send loading is... hm. i think we can maybe be more
+        // optimistic sometimes. it is a bit slow on ios."). A text-only one draws as a quiet
+        // pending bubble; the transcript's own copy takes its place at the echo.
+        if !outgoing.contains(where: { $0.id == promptID }) {
             outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
         }
         // One of the agent's own slash commands waits for the turn and runs as its own.
@@ -653,6 +658,9 @@ public final class AgentChatStore {
     /// never sent again under that id.
     private func reached(_ promptID: String) {
         seenPromptIDs.insert(promptID)
+        // It shows in the transcript or the queue now: its pending copy goes (a queued or
+        // replayed prompt has no `userMessage` echo yet).
+        if outgoing.contains(where: { $0.id == promptID }) { outgoing.removeAll { $0.id == promptID } }
         guard let pending = resendable, pending.promptID == promptID else { return }
         resendable = nil
         let draft = returnedDraft?.promptID == promptID ? returnedDraft : nil
@@ -1286,8 +1294,9 @@ public final class AgentChatStore {
             outgoing[index].progress = progress
         case .pendingSends(let rows):
             let shown = Dictionary(rows.map { ($0.promptID, $0) }, uniquingKeysWith: { first, _ in first })
-            // A text message's row is the outbox's alone; one with files stays until its echo.
-            outgoing.removeAll { $0.attachments.isEmpty && shown[$0.id] == nil }
+            // Every message stays until the Mac has it (`reached`) or it comes back
+            // (`promptNotSent`): a text one the outbox no longer marks waiting draws as a pending
+            // bubble again rather than leaving a gap until its echo.
             for index in outgoing.indices {
                 let row = shown[outgoing[index].id]
                 outgoing[index].waiting = row?.waiting ?? false
@@ -1995,12 +2004,15 @@ extension AgentChatStore {
     }
 }
 
-/// A message the phone is sending (``AgentChatStore/outgoing``): one with files from the tap, a
-/// text one while it waits.
+/// A message the phone is sending (``AgentChatStore/outgoing``): shown at once, until the Mac has it.
 public struct OutgoingMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public let text: String
     public let attachments: [AgentAttachment]
+    /// No files to upload.
+    public var isTextOnly: Bool { attachments.isEmpty }
+    /// A text message not waiting yet: a quiet pending bubble, with no status line or exits.
+    public var isQuietPending: Bool { isTextOnly && !waiting && !canSendNow && !stopping }
     /// The current file's upload; nil until its first step.
     public var progress: AgentUploadProgress?
     /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
