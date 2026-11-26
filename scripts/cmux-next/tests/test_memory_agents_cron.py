@@ -208,6 +208,44 @@ class SettledPhaseTests(unittest.TestCase):
         self.assertIn("per_chat", written["settled_breakdown"])
 
 
+class ChatCountTests(unittest.TestCase):
+    """memory-per-chat: every run says how many chats opened of how many asked; a short count fails loudly."""
+
+    def test_counts_the_full_sample(self):
+        self.assertEqual(cron.chat_counts({"samples": [EMPTY, TEN]}, "10"),
+                         [{"expected": 10, "opened": 10, "pane_failures": 0}])
+
+    def test_a_run_that_stopped_early_reports_the_most_it_opened(self):
+        partial = dict(TEN, label="idle-7", workspaces=7, pane_failures=2)
+        self.assertEqual(cron.chat_counts({"samples": [EMPTY, partial]}, "10"),
+                         [{"expected": 10, "opened": 7, "pane_failures": 2}])
+
+    def test_no_sample_reads_zero_opened(self):
+        self.assertEqual(cron.chat_counts({}, "10"), [{"expected": 10, "opened": 0, "pane_failures": 0}])
+
+    def test_main_fails_with_the_opened_count(self):
+        import io
+        import json
+        import tempfile
+        short = dict(TEN, workspaces=7, pane_failures=3)
+        with tempfile.TemporaryDirectory() as folder:
+            def bench(cmd, cwd):
+                with open(cmd[cmd.index("--out") + 1], "w") as f:
+                    json.dump({"samples": [EMPTY, short]}, f)
+                return mock.Mock(returncode=0)
+            out_json = os.path.join(folder, "report.json")
+            err = io.StringIO()
+            with mock.patch.object(cron.subprocess, "run", side_effect=bench), mock.patch("builtins.print"), \
+                    mock.patch.object(cron.sys, "stderr", err):
+                self.assertEqual(cron.main(["--app", "/x.app", "--json", out_json, "--settled-at", "0"]), 1)
+            with open(out_json) as f:
+                written = json.load(f)
+        self.assertEqual(written["chats"], [{"expected": 10, "opened": 7, "pane_failures": 3}])
+        self.assertEqual(len(written["incomplete"]), 1)
+        self.assertIn("opened 7 of 10", written["incomplete"][0])
+        self.assertNotIn("memory.app_agents.ratio_vs_empty", {r["name"] for r in written["rows"]})
+
+
 class AppVmTests(unittest.TestCase):
     """ram-baseline (CMUX-571): every memory-agents run stores the empty app process's own split."""
 
