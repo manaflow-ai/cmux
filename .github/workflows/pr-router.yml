@@ -221,16 +221,3 @@ jobs:
       actions: read
       # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
       id-token: write
-
-  # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast
-  pipeline-fail-fast:
-    name: head fail-fast after pr pipeline
-    needs: pipeline
-    if: ${{ failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
-    uses: ./.github/workflows/head-fail-fast.yml
-    with:
-      workflow: pr-router.yml
-    permissions:
-      actions: write
-      contents: read

@@ -106,8 +106,7 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "receipt", "fast-gates", "panic-ratchet", "post",
-                                           "fast-gates-fail-fast"])
+        self.assertEqual(list(doc["jobs"]), ["resolve", "receipt", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): every job names cmux-linux past the
         # fork branches, with no placement job and no dispatch runner input. Fork pull requests keep their ephemeral
@@ -119,9 +118,6 @@ class WorkflowShape(unittest.TestCase):
             # resolve is held to the 2-vCPU pool by fast_check_route.py check: it carries the route (route_job), so
             # the decision takes no pool runner.
             if key == "resolve":
-                continue
-            # A reusable-workflow caller (the head fail-fast job) takes its runner and bound in the called workflow.
-            if "uses" in each:
                 continue
             with self.subTest(runner=key):
                 self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
@@ -142,8 +138,6 @@ class WorkflowShape(unittest.TestCase):
                     self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
-            if "uses" in each:
-                continue
             with self.subTest(job=key):
                 # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once. The gates
                 # job's own budget (--budget-seconds) ends a stalled gate with its reason well inside its 25.
@@ -245,8 +239,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertRegex(resolve["run"], r"\^\[0-9\]")
         # PR-controlled values reach shell through env only, never ${{ }} inside run.
         for key, each in doc["jobs"].items():
-            # A reusable-workflow caller (the head fail-fast job) has no steps of its own.
-            for step in each.get("steps", []):
+            for step in each["steps"]:
                 self.assertNotRegex(step.get("run", ""), r"\$\{\{",
                                     f"{key} step {step.get('name')!r} interpolates an expression into shell")
 

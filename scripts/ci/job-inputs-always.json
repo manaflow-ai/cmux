@@ -252,10 +252,6 @@
         ],
         "suggested_inputs_more": 677
       },
-      "fast-gates-fail-fast": {
-        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
-        "suggested_inputs": []
-      },
       "panic-ratchet": {
         "why": "routed by its workflow's own job (needs.fast-gates.outputs.ratchet in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
         "suggested_inputs": [
@@ -425,10 +421,6 @@
       },
       "security-holes": {
         "why": "gitleaks reads every path a pull request adds (a secret can land in any file), so it runs on every pull request; zizmor's half finishes in a second when no workflow changed",
-        "suggested_inputs": []
-      },
-      "tooling-tests-fail-fast": {
-        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
         "suggested_inputs": []
       }
     },

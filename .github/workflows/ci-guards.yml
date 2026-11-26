@@ -348,10 +348,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_base_red_skip.py
 
-      - name: Validate the head fail-fast of PR runs
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_head_fail_fast.py
-
       - name: Validate the kit's base-red notice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_ios_kit_base_red.py

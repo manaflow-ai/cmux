@@ -109,12 +109,9 @@ public actor AcpmuxConnection {
         let isWrite = !AcpmuxHub.steadyMethods.contains(method)
         if isWrite { writes.insert(id) }
         defer { if isWrite { writes.remove(id) } }
-        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method),
-                                          "params": Self.traced(params)])
+        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
-        let traceStart = PhoneTrace.traceID == nil ? nil : PhoneTrace.Recorder.now()
-        defer { if let traceStart { PhoneTrace.roundTrip(method, start: traceStart) } }
         return try await LinkDeadline.run(
             timeout: timeout,
             timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
@@ -197,13 +194,9 @@ public actor AcpmuxConnection {
         start()
         let id = nextID
         nextID += 1
-        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method),
-                                          "params": Self.traced(params)])
+        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
-        // The write, not the answer (a prompt's comes when its turn ends).
-        let traceStart = PhoneTrace.traceID == nil ? nil : PhoneTrace.Recorder.now()
-        defer { if let traceStart { PhoneTrace.roundTrip(method, start: traceStart, args: ["write": true]) } }
         submitted.insert(id)
         if !AcpmuxHub.steadyMethods.contains(method) {
             writes.insert(id)
@@ -227,18 +220,6 @@ public actor AcpmuxConnection {
         }
         progress.progressed()
         return id
-    }
-
-    /// `params` with the current user action's trace id in `_meta.traceId` (``PhoneTrace``), which
-    /// acpmux's tracer keys its spans by (`perf_trace.rs` `trace_id_of`); unchanged outside an
-    /// action or when `params` is not an object. Other `_meta` keys stay.
-    nonisolated static func traced(_ params: JSONValue) -> JSONValue {
-        guard let traceID = PhoneTrace.traceID, case .object(var fields) = params else { return params }
-        var meta: [String: JSONValue] = [:]
-        if case .object(let existing)? = fields["_meta"] { meta = existing }
-        meta["traceId"] = .string(traceID)
-        fields["_meta"] = .object(meta)
-        return .object(fields)
     }
 
     /// The fixed part of a write's bound: a link that takes no data for this long is down.
