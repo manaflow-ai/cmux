@@ -353,6 +353,10 @@ async function main(): Promise<number> {
     // Mint.
     stage = "mint";
     if (!keep) {
+      // What holds the slots just before the mint, row by row (run 45758368273 swept nothing here yet the mint was
+      // refused at 5/5 with two link snapshots live afterwards: this says whether they were there before it).
+      const pre = await api.read("cloud.snapshot.list", {}).catch(() => null);
+      if (pre) meta.pre_mint_snapshots = snapshotRows(pre).map((r) => `${String(r?.id ?? "").slice(0, 10)} ${String(r?.name ?? "").replace(/user_\w+/, "user").slice(0, 40)} ${r?.status} ${Number.isFinite(createdMs(r)) ? Math.round((Date.now() - createdMs(r)) / 60_000) + "m" : "?"}`);
       const swept = await sweepSnapshots(api, tag, null, cleanup);
       if (swept.length) {
         const settled = await settleSweep(api, swept, 180_000);
