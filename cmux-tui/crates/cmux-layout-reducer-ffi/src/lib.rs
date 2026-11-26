@@ -16,6 +16,8 @@
 //! chats fold behind Settled, and what Archive Settled Chats archives),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
+//! `auto_name_hold_step`: one step of the state the app holds),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
@@ -54,6 +56,7 @@
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
@@ -90,6 +93,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod auto_namer;
 mod browser_rules;
 mod browser_tabs;
 pub mod close_focus;
@@ -104,6 +108,7 @@ mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
 mod cloud_task;
+mod dock_model;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
@@ -656,6 +661,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if auto_namer::handles(operation) => auto_namer::respond(operation, request)?,
             operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
             operation if pane_placement::handles(operation) => {
                 pane_placement::respond(operation, request)?
@@ -679,6 +685,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 browser_tabs::respond(operation, request)?
             }
             operation if tab_rules::handles(operation) => tab_rules::respond(operation, request)?,
+            operation if dock_model::handles(operation) => dock_model::respond(operation, request)?,
             b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
