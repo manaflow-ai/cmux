@@ -659,6 +659,18 @@ the Mac.
   tab stays on the phone (it remembers the last tab per workspace). The phone
   never sends `select-tab` or `report-focus` for its own navigation, because
   both move the Mac's view for the person sitting at it.
+- **Close Tab in one round trip** (trace-ios; Leo, 2026-11-25: "are we also doing more work on
+  perf while we're here? for the app especially?"): `close-tabs {surfaces, end_terminals}` is on
+  the allowlist (hostd's `ALLOWED_COMMANDS` and the Swift mirror, its fields generated from the
+  daemon schema). It is the same authority as `close-surface` followed by `close-terminal` of each
+  terminal whose views all close, which the phone already had, done in one daemon commit
+  (`batch-close-v1`). It names no program, folder or environment; `end_terminals` ends only
+  terminals no other view keeps. A Mac that refuses it gets the old two commands.
+- **Trace id (`_meta`)**: any line command may carry `_meta: {"traceId": ID}`, the W3C trace id
+  that ties the phone's spans to the Mac's (cmux#55505's format). The ID is 1 to 128 ASCII letters,
+  digits or `-`; any other `_meta` member or shape is refused (`trace_meta_refusal` in hostd,
+  `traceMetaRefusal` in the Swift mirror). The daemon ignores it. It grants and reads nothing.
+  Tests: `close_tabs_takes_a_trace_id_only` (policy), `DaemonLanePolicyCloseTabsTests`.
 - **Agent chat tabs:** `new-conversation-tab` is new on the allowlist, and
   `DaemonPolicy::agent_tab_verdict` narrows it to one shape. Rule 2 answers:
 

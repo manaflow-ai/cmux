@@ -345,6 +345,9 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A chat a past capacity switch left on a smaller model runs this prompt on its own one
+        // while switching is off (`auto_resume/capacity_failover.rs`).
+        self.restore_capacity_fallback_if_off(session).await;
         // An Auto chat another holder runs takes the prompt through its Cloud inbox
         // (`auto_hold.rs`); nothing starts here.
         if self.auto_held(session) {
@@ -691,10 +694,26 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        admission.listen();
+        if matches!(unanswered, Unanswered::Defer(_) | Unanswered::Guarded(_)) {
+            admission.listen();
+        }
         tokio::select! {
             biased;
-            answer = &mut setup => return answer,
+            answer = &mut setup => {
+                if admission.defer_requested() {
+                    admission.release();
+                    return match unanswered {
+                        Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, admission.stage_now()).await,
+                        Unanswered::Guarded(guard) => {
+                            guard()?;
+                            Err(super::auto_resume::retry_turn::busy())
+                        }
+                        Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
+                        Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
+                    };
+                }
+                return answer;
+            },
             () = tokio::time::sleep_until(admission.answer_due()) => {}
         }
         // Past a step it must finish, it finishes: its answer is on its way.
@@ -843,14 +862,42 @@ impl Hub {
         // agent: an agent is coming, so no cold check. Unbounded, every later prompt of the chat
         // (an outbox delivery each 120 s) waited behind it.
         admission.enter("agent");
-        let live = tokio::time::timeout(LIVE_CHECK_WITHIN, async {
-            match session.child.lock().await.as_ref() {
+        // A stale host or a teardown may hold either child mutex. Do not let that await keep
+        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
+        // as live so the cold-chat refusal never drops a deliverable prompt.
+        let live = if admission.queue_owned() {
+            let child = session.child.lock().await.clone();
+            match child {
                 Some(child) => child.is_alive().await,
                 None => false,
             }
-        })
-        .await
-        .unwrap_or(true);
+        } else {
+            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+                let child = session.child.lock().await.clone();
+                match child {
+                    Some(child) => child.is_alive().await,
+                    None => false,
+                }
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(_) => {
+                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
+                    if admission.listened() {
+                        // Do not continue into queue_slot: with a free turn lock it would
+                        // start the prompt after the caller's answer deadline. The outer
+                        // admission future owns the durable deferral and will accept queued.
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt live check",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                    true
+                }
+            }
+        };
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
@@ -876,8 +923,9 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                // `inbox_accept` reads the shared config before it calls `accept`, which commits
-                // the admission. Until then the prompt can still be deferred and answered.
+                // `inbox_accept` calls `accept` before it waits for the inbox notice's answer.
+                // Keep this prompt unanswered until that callback so any pre-accept work still
+                // reaches the bounded queue fallback instead of being treated as committed.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -1086,7 +1134,6 @@ impl Hub {
             admitted();
         }
         admission.enter("queue");
-        admission.commit();
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
@@ -2201,9 +2248,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
-        // Its todo calls still held go with it, however the turn ends or is handed off
-        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
-        crate::acp_todo_plan::forget(&session.id);
+        // Its to-do call ids still held go with it, however the turn ends or is handed off
+        // (`todo_tools.rs`): a late result passes through as any other tool's.
+        crate::todo_tools::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
