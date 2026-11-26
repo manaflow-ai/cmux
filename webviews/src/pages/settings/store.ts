@@ -50,8 +50,6 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -61,8 +59,8 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type LooksRun,
-  type Standup,
+  type Checklist,
+  type ChecklistFact,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -95,8 +93,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -106,20 +102,24 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type ArchivedRun,
-  type ArchivedState,
-  type ConnectionsRun,
-  type ConnectionsState,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type Checklist,
-  type ChecklistFact,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
   type PreviousBuild,
+  type Standup,
+  type LooksRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1545,10 +1545,13 @@ export class SettingsStore {
   /** The host holds one live preview at a time, whatever its key: its latest owner. */
   private previewOwner: object | null = null;
 
-  preview(key: string, value: unknown, owner?: object): void {
+  /** `also` previews more keys with `key` as one preview (the whole-app theme preview). */
+  preview(key: string, value: unknown, owner?: object, also?: readonly { key: string; value: unknown }[]): void {
     this.previewOwner = owner ?? {};
     this.setLive({ key, value });
-    if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
+    if (this.ui.connected) {
+      void this.request("cmux.settings.preview", also?.length ? { key, value, also } : { key, value });
+    }
   }
 
   /** With an `owner`, ends the preview only while that owner's is still the one showing. */
