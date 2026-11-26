@@ -101,6 +101,17 @@ fn parse(verb: &str, words: &[String]) -> Result<Ask, String> {
     }
 }
 
+/// The share verbs go through the extension socket (`ext`), which is unix-only.
+#[cfg(not(unix))]
+fn run(global: &GlobalArgs, _ask: &Ask) -> i32 {
+    wire::print_local_error(
+        &json!({"code": "unsupported", "message": "cmux share requests are not on Windows yet"}),
+        global.output,
+        1,
+    )
+}
+
+#[cfg(unix)]
 fn run(global: &GlobalArgs, ask: &Ask) -> i32 {
     let request = match ask {
         Ask::List { .. } => json!({"cmd": "agent-session-share-list"}),

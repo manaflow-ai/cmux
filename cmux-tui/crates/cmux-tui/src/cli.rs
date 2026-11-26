@@ -108,6 +108,7 @@ mod cloud_preflight;
 mod cloud_provider;
 #[cfg(unix)]
 mod cloud_repo;
+#[cfg(unix)]
 mod cloud_retention;
 #[cfg(unix)]
 mod cloud_route;
@@ -175,6 +176,7 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod mcp_loopback;
+#[cfg(unix)]
 mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
@@ -202,6 +204,7 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
@@ -217,12 +220,14 @@ pub(crate) use app::spawn_daemon_updates;
 #[cfg(unix)]
 pub(crate) use auth_token::{app_token, app_token_in};
 
+#[cfg(unix)]
 /// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
 /// read (`cmux spill`'s Cloud place).
 pub(crate) fn app_cloud_machines() -> Option<Vec<serde_json::Value>> {
     cloud_workspaces::read(&GlobalArgs::default())
 }
 
+#[cfg(unix)]
 /// The Cloud machine `selector` names among `machines` (its id, `machine:` target or exact
 /// title); `Err` when a title is ambiguous (`cmux spill --to cloud:NAME`).
 pub(crate) fn find_cloud_machine<'a>(
@@ -273,7 +278,9 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+#[cfg(unix)]
 mod machine_request;
+#[cfg(unix)]
 mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
