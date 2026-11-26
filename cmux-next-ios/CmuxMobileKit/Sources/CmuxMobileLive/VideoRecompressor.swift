@@ -25,11 +25,15 @@ enum VideoRecompressor {
 
     /// The payload and name to upload for `payload`: the export when the policy says so and
     /// it came out clearly smaller, else the original unchanged. Throws only on cancellation.
-    static func prepared(_ payload: LinkUpload.Payload, name: String) async throws -> (LinkUpload.Payload, String) {
+    /// `report` hears the export's progress, 0 to 1, from its start to its end (1 also when the
+    /// export failed or was not kept); `exported` says an export ran, so the send's bar goes on
+    /// from the export's share (Rust's `video_send_fraction`).
+    static func prepared(_ payload: LinkUpload.Payload, name: String, report: (@Sendable (Double) async -> Void)? = nil)
+        async throws -> (payload: LinkUpload.Payload, name: String, exported: Bool) {
         #if os(iOS)
-        guard case .file(let url) = payload, AgentVideo.isVideoName(name) else { return (payload, name) }
+        guard case .file(let url) = payload, AgentVideo.isVideoName(name) else { return (payload, name, false) }
         let enabled = Self.enabled
-        guard enabled else { return (payload, name) }
+        guard enabled else { return (payload, name, false) }
         let access = ScopedFile(url).open()
         defer { access.close() }
         let started = ContinuousClock.now
@@ -46,12 +50,12 @@ enum VideoRecompressor {
         let plan = videoRecompressPlan(enabled: enabled, source: source)
         guard plan.recompress else {
             log.info("recompress skip reason=\(String(describing: plan.reason)) bytes=\(bytes)")
-            return (payload, name)
+            return (payload, name, false)
         }
         try Task.checkCancellation()
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHEVC1920x1080) else {
             log.info("recompress skip reason=noSession bytes=\(bytes)")
-            return (payload, name)
+            return (payload, name, false)
         }
         session.shouldOptimizeForNetworkUse = true
         let stem = (name as NSString).deletingPathExtension
@@ -60,27 +64,40 @@ enum VideoRecompressor {
             .appendingPathComponent("cmux-recompressed-videos", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let out = folder.appendingPathComponent(outName)
+        await report?(0)
+        // The export's progress, a quarter second apart, to the pending bubble's bar.
+        let watcher = report.map { report in
+            Task {
+                for await state in session.states(updateInterval: 0.25) {
+                    if case .exporting(let progress) = state { await report(progress.fractionCompleted) }
+                }
+            }
+        }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             // Cancelling the calling task cancels the export (`export(to:as:)` honours it).
             try await session.export(to: out, as: .mov)
+            watcher?.cancel()
         } catch {
+            watcher?.cancel()
             try? FileManager.default.removeItem(at: folder)
             if Task.isCancelled || error is CancellationError { throw CancellationError() }
             log.info("recompress failed ms=\(AttachmentPrestager.ms(ContinuousClock.now - started)) bytes=\(bytes) error=\(String(describing: error))")
-            return (payload, name)
+            await report?(1)
+            return (payload, name, true)
         }
+        await report?(1)
         let outBytes = UInt64((try? out.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         let ms = AttachmentPrestager.ms(ContinuousClock.now - started)
         guard videoRecompressKeep(sourceBytes: bytes, outputBytes: outBytes) else {
             log.info("recompress kept_original ms=\(ms) bytes=\(bytes) out_bytes=\(outBytes)")
             try? FileManager.default.removeItem(at: folder)
-            return (payload, name)
+            return (payload, name, true)
         }
         log.info("recompress ok ms=\(ms) bytes=\(bytes) out_bytes=\(outBytes) reason=\(String(describing: plan.reason))")
-        return (.file(out), outName)
+        return (.file(out), outName, true)
         #else
-        return (payload, name)
+        return (payload, name, false)
         #endif
     }
 }

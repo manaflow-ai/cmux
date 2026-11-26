@@ -74,7 +74,7 @@ private struct OutgoingMessageRow: View {
                 }
                 Text(status).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                     .contentTransition(.numericText())
-                if let progress = message.progress, progress.phase == .sending {
+                if let progress = message.progress, progress.showsFraction {
                     ProgressView(value: progress.fraction).progressViewStyle(.linear)
                 } else if !message.attachments.isEmpty || message.stopping {
                     ProgressView().progressViewStyle(.linear)

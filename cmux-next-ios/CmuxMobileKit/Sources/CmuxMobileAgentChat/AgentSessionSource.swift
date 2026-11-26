@@ -1,6 +1,9 @@
 import CmuxAgentQuestion
 import CmuxMobileArtifacts
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// What a session looks like in lists and the toolbar (acpmux `SessionSummary` subset).
 public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
@@ -552,6 +555,8 @@ public struct AgentUploadProgress: Hashable, Sendable {
         case saving
         /// The link dropped: waiting for the Mac to come back, then it goes on from there.
         case waitingForLink
+        /// A video is being shrunk to HEVC 1080p before it goes ("Shrink videos before sending").
+        case shrinking
     }
 
     /// The file going now.
@@ -561,16 +566,32 @@ public struct AgentUploadProgress: Hashable, Sendable {
     public var phase: Phase
     /// Attempts so far (more than one after a drop).
     public var attempt: Int
+    /// How far this file's export is, 0 to 1, when it is shrunk before it goes; nil when it goes
+    /// as picked. The bar is then export and upload as one (Rust's `video_send_fraction`).
+    public var export: Double?
 
-    public init(name: String, sent: Int, total: Int, phase: Phase, attempt: Int = 1) {
+    public init(name: String, sent: Int, total: Int, phase: Phase, attempt: Int = 1, export: Double? = nil) {
         self.name = name
         self.sent = sent
         self.total = total
         self.phase = phase
         self.attempt = attempt
+        self.export = export
     }
 
-    public var fraction: Double { total > 0 ? min(1, Double(sent) / Double(total)) : 1 }
+    public var fraction: Double {
+        guard let export else { return total > 0 ? min(1, Double(sent) / Double(total)) : 1 }
+        #if os(iOS)
+        return videoSendFraction(stage: phase == .shrinking ? .exporting : .uploadAfterExport, exportFraction: export,
+                                 sent: UInt64(max(0, sent)), total: UInt64(max(0, total)))
+        #else
+        return phase == .shrinking ? 0 : (total > 0 ? min(1, Double(sent) / Double(total)) : 1)
+        #endif
+    }
+
+    /// Whether the bar shows how far along it is (bytes streaming, or a video's export and
+    /// upload as one), not just that it is busy.
+    public var showsFraction: Bool { phase == .sending || export != nil }
 
     /// The line under the message: "Sending clip.mov · 42 of 100 MB", "Waiting for the Mac…".
     public func text(macName: String) -> String {
@@ -581,6 +602,7 @@ public struct AgentUploadProgress: Hashable, Sendable {
         case .sending: return "Sending \(name) · \(of)"
         case .saving: return "\(macName) is saving \(name)…"
         case .waitingForLink: return "Waiting for \(macName) to resume \(name) · \(of)"
+        case .shrinking: return "Shrinking \(name) to send · \(Int(((export ?? 0) * 100).rounded()))%"
         }
     }
 }
