@@ -70,7 +70,7 @@ def job(name):
 
 
 # The resolved cmux-tui publication includes a checksum-verified acpmux
-# companion. Fetch it before the app job's acpmux step so the existing
+# companion. Fetch it before the app job's acpmux start step so the existing
 # commit-addressed helper cache can reuse it instead of starting Cargo.
 app_job = job("build-nightly-app")
 try:
@@ -78,13 +78,13 @@ try:
 except ValueError:
     tree_fetch_at = -1
 try:
-    acpmux_at = app_job.index("      - name: Build in-tree acpmux for the compilation cache\n")
+    acpmux_at = app_job.index("      - name: Start building in-tree acpmux for the compilation cache\n")
 except ValueError:
     acpmux_at = -1
 if tree_fetch_at < 0:
     failures.append("build-nightly-app must fetch resolved cmux-tui tree companions")
 elif acpmux_at < 0 or tree_fetch_at > acpmux_at:
-    failures.append("resolved cmux-tui tree companions must be fetched before the acpmux cache step")
+    failures.append("resolved cmux-tui tree companions must be fetched before the acpmux start step")
 else:
     fetch_end = app_job.find("\n      - name:", tree_fetch_at + 10)
     fetch_step = app_job[tree_fetch_at:fetch_end if fetch_end >= 0 else None]
@@ -101,8 +101,11 @@ else:
         failures.append("resolved tree companion fetch must hand its verified acpmux path to the app build")
 
 build_step = app_job[acpmux_at:]
-if "Reusing the attested same-tree acpmux companion" not in build_step or "CMUX_NEXT_ACPMUX_BIN:-" not in build_step:
+acpmux_script = (ROOT / "scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh").read_text()
+if "Reusing the attested same-tree acpmux companion" not in acpmux_script or "CMUX_NEXT_ACPMUX_BIN:-" not in acpmux_script:
     failures.append("acpmux build step must reuse a verified companion before its Cargo fallback")
+if "app-build-in-tree-acpmux.sh start" not in build_step or "app-build-in-tree-acpmux.sh join" not in app_job:
+    failures.append("acpmux must start in the background and join before the Release build")
 
 
 def build_env(body, outputs):
@@ -128,6 +131,7 @@ def compile_commands(outputs):
             "bin/python3": 'case "${1:-}" in scripts/ci/nightly_build_state.py) exit 0;; scripts/ci/run-with-helper-prebuild.py) script="$1"; shift; exec "$script" "$@";; --) shift; exec "$@";; *) exec /usr/bin/python3 "$@";; esac',
             "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
             "bin/lipo": 'exit 0',
+            "bin/git": 'if [ "${1:-}" = rev-parse ]; then echo test-head; else exit 0; fi',
             "bin/rustup": 'exit 0',
             "scripts/ci/run-xcodebuild-with-diagnostics.sh": 'shift; exec "$@"',
             "scripts/ci/run-with-helper-prebuild.py": 'while [ "${1:-}" != -- ]; do shift; done; shift; exec "$@"',
@@ -147,6 +151,10 @@ def compile_commands(outputs):
         (root / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
         (root / "cmux-next-ios/rust").mkdir(parents=True)
         (root / "scripts/ci/background_build.py").write_text((ROOT / "scripts/ci/background_build.py").read_text())
+        (root / "scripts/ci/nightly-steps").mkdir(parents=True, exist_ok=True)
+        (root / "scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh").write_text(
+            (ROOT / "scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh").read_text())
+        (root / "scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh").chmod(0o755)
         (root / "scripts/lib").mkdir(parents=True)
         (root / "scripts/lib/rust-targets.sh").write_text((ROOT / "scripts/lib/rust-targets.sh").read_text())
         # The Release step sources the shared cache-failure classifier (#30107).
@@ -158,7 +166,7 @@ def compile_commands(outputs):
             (ROOT / "scripts/cmux-next/lib/swift-size-opt.sh").read_text())
         # It also sources the per-Mac build root (#32514). With no BUILD_TRACK here the script keeps
         # the slot's own tree, so xcodebuild still runs in this recorder root.
-        (root / "scripts/ci/nightly-steps").mkdir(parents=True)
+        (root / "scripts/ci/nightly-steps").mkdir(parents=True, exist_ok=True)
         (root / "scripts/ci/nightly-steps/app-host-build-root.sh").write_text(
             (ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh").read_text())
         # And the SourcePackages preflight; with no .spm-cache in this root it resolves nothing.
@@ -168,7 +176,8 @@ def compile_commands(outputs):
         capture.mkdir()
         steps = (
             ("build-nightly-ghostty-cli-helper", "Build Ghostty CLI helper"),
-            ("build-nightly-app", "Build in-tree acpmux for the compilation cache"),
+            ("build-nightly-app", "Start building in-tree acpmux for the compilation cache"),
+            ("build-nightly-app", "Finish building in-tree acpmux for the compilation cache"),
             ("build-nightly-app", "Build the OptChat Chief (cmux-next)"),
             ("build-nightly-app", "Build the cmux-next iPhone host (cmux-mobile-host)"),
             ("build-nightly-app", "Build nightly app (Release)"),
@@ -178,19 +187,24 @@ def compile_commands(outputs):
             start = body.index(f"      - name: {name}\n")
             next_step = body.find("\n      - name:", start + 10)
             body_step = body[start:] if next_step < 0 else body[start:next_step]
-            script = textwrap.dedent(body_step.split("        run: |\n", 1)[1])
+            if "        run: |\n" in body_step:
+                script = textwrap.dedent(body_step.split("        run: |\n", 1)[1])
+            else:
+                script = body_step.split("        run: ", 1)[1].strip()
             env = {**os.environ, **build_env(body.split("    steps:", 1)[0], outputs),
                    **build_env(body_step, outputs),
                    "PATH": str(root / "bin") + ":/usr/bin:/bin",
                    "CAPTURE": str(capture), "RUNNER_TEMP": str(root),
-                   "GITHUB_ENV": str(root / "github-env"), "CHANNEL_ICON_NAME": "AppIcon-Nightly",
+                   "GITHUB_ENV": str(root / "github-env"), "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                   "CHANNEL_ICON_NAME": "AppIcon-Nightly",
                    "IMPORT_VARIANT": "full", "SWIFT_IMPORT_FLAGS": "", "EMPTY_BROWSER_SOURCES": "false"}
             subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                            capture_output=True, text=True, check=True)
             if "background_build.py start" in script:
+                name = "acpmux" if "acpmux" in script else ("mobile-host" if "build-mobile-host.sh" in script else "optchat-chief")
                 subprocess.run(["/usr/bin/python3", "scripts/ci/background_build.py", "join", "--state",
                                 str(root / "nightly-helper-builds"),
-                                "mobile-host" if "build-mobile-host.sh" in script else "optchat-chief"],
+                                name],
                                cwd=root, env=env, capture_output=True, text=True, check=True)
         return {path.name: path.read_text() for path in capture.iterdir()}
 
