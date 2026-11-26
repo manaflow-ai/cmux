@@ -215,6 +215,7 @@ jobs:
           sparse-checkout: |
             /scripts/ci/nightly_runner_preflight.py
             /scripts/ci/deadline_http.py
+            /.gitmodules
           sparse-checkout-cone-mode: false
       - name: Every routing label has an online runner
         if: github.repository == 'manaflow-ai/cmux'
@@ -307,6 +308,8 @@ jobs:
             /scripts/ci/nightly-publication-marker.py
             /scripts/ci/app_input_digest.py
             /scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh
+            /scripts/ci/timeout.sh
+            /.gitmodules
           sparse-checkout-cone-mode: false
 
       # A second budget for decide's reads: GITHUB_TOKEN draws on the repository's Actions installation, which
@@ -988,6 +991,7 @@ jobs:
             scripts/ci/signing-runner-claim.sh
             .github/release-surface.txt
             scripts/ci/nightly_next_fix_forward.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Decide the promotion
@@ -5147,6 +5151,7 @@ jobs:
             scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
             scripts/ci/nightly-steps/visual-gate-pick-runner.sh
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Resolve the visual gate mode
@@ -5345,6 +5350,7 @@ jobs:
             scripts/ci/nightly_next_canary_mode.py
             scripts/ci/nightly-steps/visual-gate-await.sh
             scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Wait for the visual gate, at most 10 min past the signed build
@@ -6598,6 +6604,7 @@ jobs:
             scripts/ci/signing-runner-claim.sh
             scripts/ci/download-run-artifact.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
@@ -6732,6 +6739,7 @@ jobs:
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
             scripts/ci/signing-runner-claim.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Before any release App secret: the claim again, and a keychain a killed job left is removed.
@@ -6831,12 +6839,28 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts/ci
 
+      # The glaeda-route App's read-only token, as decide mints it on the same runner: its own hourly budget. With
+      # github.token alone the shared budget ran dry and the pick fell back to cmux15 (run 45575194160: HTTP 403), so
+      # a second build waited 10.5 min behind the first. Optional: the pick falls back to github.token without it.
+      - name: Mint a spare read token for the pick
+        id: pick-spare-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/nightly-next'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-contents: read
+          permission-actions: read
+
       - name: Pick an idle signer Mac, else the one whose build ends soonest
         id: pick
         continue-on-error: true
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          SPARE_READ_TOKEN: ${{ steps.pick-spare-token.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 .publish-tooling/scripts/ci/nightly_next_signer_pick.py
 
@@ -6896,6 +6920,11 @@ jobs:
           s=scripts/ci/nightly-steps/next-pkg.sh
           [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
           bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+
+      - name: Cleanup keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+          || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
@@ -7450,6 +7479,18 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
+      # A refused publication is red, not green: run 45607031207 built and signed, its shelf check died (ENOSPC),
+      # the gate refused, and the job showed green with nothing published, so a 3.5 h stall read as healthy
+      # (2026-11-25). A stand-down (writer linux or none, a known-bad commit), a superseded build and a left slot
+      # publish nothing on purpose and stay green.
+      - name: Fail when this build's publication was refused
+        if: "always() && !cancelled() && !env.LEFT_SLOT && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && (steps.gate.outputs.refusal_reason != '' || steps.upload_next_appcasts.outputs.publication_refused == 'true')"
+        env:
+          REASON: ${{ steps.gate.outputs.refusal_reason || 'the R2 feed write refused this build' }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+        run: |
+          echo "::error title=Nothing published::build $NIGHTLY_BUILD ($BUILD_SHA) was not published: $REASON"
+          exit 1
       # The workspace stays (the next build fetches into it); this job's tokens and temp files do not.
       - name: Wipe this job's credentials and temp files
         if: always()

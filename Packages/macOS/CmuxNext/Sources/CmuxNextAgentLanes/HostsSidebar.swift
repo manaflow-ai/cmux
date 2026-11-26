@@ -190,7 +190,13 @@ public final class HostsSidebar {
     /// the graying out of workspaces, nah let's not do that. let's just keep optimistically connecting and
     /// reinforcing the connection"). A resume the person started and a failure are still said.
     nonisolated static func holdsConnect(_ machine: MachineSectionRow) -> Bool {
-        machine.isConnecting && !machine.failed && machine.serverState == nil
+        guard machine.isConnecting, !machine.failed else { return false }
+        // A Cloud machine the person is waking (resuming) or that is paused/failed/deleted still says so.
+        switch machine.serverState {
+        case nil: return true
+        case .some(.resuming), .some(.paused), .some(.failed), .some(.deleted): return false
+        default: return true
+        }
     }
 
     /// Handles the header, Add Host and machine-row clicks. Returns false for another transient item.

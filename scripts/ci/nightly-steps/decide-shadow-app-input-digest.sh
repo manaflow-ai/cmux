@@ -13,12 +13,12 @@ reuse=unknown
 published_digest=
 if [[ -n "$head_sha" ]]; then
   if [[ -n "$published" ]]; then
-    timeout 60 git fetch --no-tags --quiet --depth=1 --filter=blob:none origin "$published" >/dev/null 2>&1 || true
+    bash scripts/ci/timeout.sh 60 git fetch --no-tags --quiet --depth=1 --filter=blob:none origin "$published" >/dev/null 2>&1 || true
   fi
   # A blobless fetch lets git read missing blobs on demand; the timeout bounds that.
-  digest="$(timeout 120 python3 scripts/ci/app_input_digest.py --ref "$head_sha" 2>/dev/null)" || digest=unknown
+  digest="$(bash scripts/ci/timeout.sh 120 python3 scripts/ci/app_input_digest.py --ref "$head_sha" 2>/dev/null)" || digest=unknown
   if [[ -n "$published" ]]; then
-    published_digest="$(timeout 120 python3 scripts/ci/app_input_digest.py --ref "$published" 2>/dev/null)" || published_digest=
+    published_digest="$(bash scripts/ci/timeout.sh 120 python3 scripts/ci/app_input_digest.py --ref "$published" 2>/dev/null)" || published_digest=
   fi
   if [[ "$digest" != unknown && -n "$published_digest" ]]; then
     if [[ "$digest" == "$published_digest" ]]; then reuse=true; else reuse=false; fi
