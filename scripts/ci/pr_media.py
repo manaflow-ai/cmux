@@ -349,11 +349,24 @@ def latest_ci_run(repository: str, head_sha: str) -> dict:
     return max(runs, key=lambda run: run.get("created_at", ""), default={})
 
 
+def source_run(repository: str, run_id: str) -> dict:
+    """The CI run this workflow_run event is about. The event payload carries the whole run, so the
+    API is read only when the payload is missing or names another run (a test, a hand-run plan)."""
+    try:
+        with open(os.environ.get("GITHUB_EVENT_PATH") or "", encoding="utf-8") as handle:
+            run = json.load(handle).get("workflow_run") or {}
+    except (OSError, ValueError, AttributeError):
+        run = {}
+    if isinstance(run, dict) and str(run.get("id", "")) == run_id and "referenced_workflows" in run:
+        return run
+    return gh_json([f"repos/{repository}/actions/runs/{run_id}"]) or {}
+
+
 def plan(repository: str) -> int:
     run_id = os.environ.get("SOURCE_RUN_ID", "")
     attempt = os.environ.get("SOURCE_RUN_ATTEMPT", "1")
     if run_id:
-        run = gh_json([f"repos/{repository}/actions/runs/{run_id}"]) or {}
+        run = source_run(repository, run_id)
         if (run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request"
                 or str((run.get("head_repository") or {}).get("full_name", "")).casefold() != repository.casefold()):
             write_outputs({"tours": "[]", "run": "[]"})
@@ -405,6 +418,37 @@ def plan(repository: str) -> int:
             print(f"CI run {run_id} for {head_sha} is still running; media starts by itself when it completes.",
                   flush=True)
             return 0
+    pages = gh_json([f"repos/{repository}/pulls/{pr}/files?per_page=100", "--paginate", "--slurp"]) or []
+    changed = [entry["filename"] for page in pages for entry in page if isinstance(entry, dict)]
+    # Depth 1 only in a shallow checkout (CI's): in a full clone --depth writes
+    # .git/shallow and truncates history for every worktree sharing it.
+    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=ROOT, check=True,
+                             capture_output=True, text=True).stdout.strip() == "true"
+    depth = ["--depth=1"] if shallow else []
+    subprocess.run(["git", "fetch", "--no-tags", *depth, "origin", head_sha], cwd=ROOT, check=True)
+    scenarios = head_scenarios(head_sha)
+    # A head that predates a tour's `paths` is still picked by main's globs.
+    for name, scenario in scenarios.items():
+        main_copy = ROOT / SCENARIOS_DIR / f"{name}.json"
+        if not tour_globs(scenario) and isinstance(scenario, dict) and main_copy.is_file():
+            try:
+                scenario["paths"] = tour_globs(json.loads(main_copy.read_text()))
+            except json.JSONDecodeError:
+                pass
+    tours, reason = select_tours(scenarios, changed, pull.get("body"))
+    app_change = any(reaches_app(path) for path in changed)
+    if not app_change and not parse_override(pull.get("body")):
+        # No dogfood job to say so any more (it is opt-in): a pull request
+        # that changes nothing a tour shows gets no media section.
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} changes nothing a tour shows.", flush=True)
+        return 0
+    if parse_override(pull.get("body")) is None and not has_ui_surface(scenarios, changed):
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} changes no checked-in UI tour surface; skipping media.", flush=True)
+        return 0
+    # The build state (jobs, fingerprint artifacts, the admitted run) is read only for a head a tour shows:
+    # most CI runs end above on their files alone.
     mode = app_build_gate(repository, run_id, attempt, pr) if run_id else NO_BUILD
     # The run whose app a tour loads: this one, or the earlier run of the same
     # build inputs when this push changed no app input (only a tour, say).
@@ -435,35 +479,6 @@ def plan(repository: str) -> int:
     # Main's build stands in for the merge CI tested, so that merge is what a
     # tour of main's build dispatches (its inputs are the ones CI matched).
     merge_sha = built_merge(run if mains_build else build_run)
-    pages = gh_json([f"repos/{repository}/pulls/{pr}/files?per_page=100", "--paginate", "--slurp"]) or []
-    changed = [entry["filename"] for page in pages for entry in page if isinstance(entry, dict)]
-    # Depth 1 only in a shallow checkout (CI's): in a full clone --depth writes
-    # .git/shallow and truncates history for every worktree sharing it.
-    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=ROOT, check=True,
-                             capture_output=True, text=True).stdout.strip() == "true"
-    depth = ["--depth=1"] if shallow else []
-    subprocess.run(["git", "fetch", "--no-tags", *depth, "origin", head_sha], cwd=ROOT, check=True)
-    scenarios = head_scenarios(head_sha)
-    # A head that predates a tour's `paths` is still picked by main's globs.
-    for name, scenario in scenarios.items():
-        main_copy = ROOT / SCENARIOS_DIR / f"{name}.json"
-        if not tour_globs(scenario) and isinstance(scenario, dict) and main_copy.is_file():
-            try:
-                scenario["paths"] = tour_globs(json.loads(main_copy.read_text()))
-            except json.JSONDecodeError:
-                pass
-    tours, reason = select_tours(scenarios, changed, pull.get("body"))
-    app_change = any(reaches_app(path) for path in changed)
-    if not app_change and not parse_override(pull.get("body")):
-        # No dogfood job to say so any more (it is opt-in): a pull request
-        # that changes nothing a tour shows gets no media section.
-        write_outputs({"tours": "[]", "run": "[]"})
-        print(f"#{pr} changes nothing a tour shows.", flush=True)
-        return 0
-    if parse_override(pull.get("body")) is None and not has_ui_surface(scenarios, changed):
-        write_outputs({"tours": "[]", "run": "[]"})
-        print(f"#{pr} changes no checked-in UI tour surface; skipping media.", flush=True)
-        return 0
     force = os.environ.get("FORCE", "").lower() == "true"
     pending = [tour for tour in tours if force or published(repository, pr, head_sha, tour) is None]
     print(f"#{pr} at {head_sha}: tours {tours or 'none'} ({reason}); to run: {pending or 'none'}", flush=True)

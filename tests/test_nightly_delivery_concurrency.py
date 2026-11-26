@@ -45,7 +45,8 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "only plain drives share it: each plans from the durable verdict to the branch tip when it starts; "
         "a fix-forward or a given tip has a group per run"),
     ("nightly.yml", ""): (
-        "every push run and promotion request is keyed by its run id; the shared lanes are the scheduled "
+        "every push run, 15-minute main tick and promotion request is keyed by its run id (decide caps main "
+        "app builds in flight); the shared lanes are the scheduled "
         "cache seed and manual fast/full dispatches, which build the branch tip when they start "
         "(test_nightly_push_runs_never_share_a_build_group)"),
     ("nightly.yml", "promote-nightly-next"): (
@@ -296,6 +297,9 @@ def test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events() -
     assert "inputs.sha == ''" in rolling["if"], "a dispatch for one commit skips the rule"
     assert rolling.get("continue-on-error") is True, "a failed rule never holds the promotion"
     assert "nightly_next_rolling.py" in rolling["run"]
+    # One build per signer Mac (design manaflow-ai/cmuxterm-hq#17011): the cap is a variable, 1 when unset.
+    assert rolling["env"]["NIGHTLY_NEXT_SLOTS"] == "${{ vars.NIGHTLY_NEXT_SLOTS || '1' }}"
+    assert '--slots "$NIGHTLY_NEXT_SLOTS"' in rolling["run"]
     assert "steps.rolling.outputs.go != 'false'" in request["if"]
     assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
     for name, step in by_name.items():

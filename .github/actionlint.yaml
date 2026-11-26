@@ -18,6 +18,12 @@ self-hosted-runner:
     - blacksmith-8vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
+    # The persistent Linux runner pool every same-repository Linux job names
+    # (cmuxterm-hq decisions/junctions.md, 2026-11-20).
+    - cmux-linux
+    # The shared Mac runners (Xcode 26.6) every own-branch job that needs only
+    # a plain Mac names, behind vars.CI_OVERFLOW_MAC.
+    - cmux-mac
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted. actionlint 1.7.7 ships a fixed list of
     # hosted labels and macos-15-intel postdates it, so the only way to say

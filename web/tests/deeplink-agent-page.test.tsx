@@ -38,6 +38,20 @@ mock.module("next-intl/server", () => ({
 const { default: DeeplinkPage } = await import(
   "../app/[locale]/(landing)/deeplink/[kind]/page"
 );
+const autoOpenModule = await import(
+  "../app/[locale]/(landing)/deeplink/[kind]/auto-open"
+);
+const { AutoOpen } = autoOpenModule;
+
+/** The href of every AutoOpen in the element tree: what the page opens on load. */
+function autoOpened(node: ReactNode): string[] {
+  if (Array.isArray(node)) return node.flatMap(autoOpened);
+  if (isValidElement<{ children?: ReactNode; href?: string }>(node)) {
+    if (node.type === AutoOpen) return [node.props.href ?? ""];
+    return autoOpened(node.props.children);
+  }
+  return [];
+}
 
 /** Every string the element tree renders as text, however deeply nested. */
 function texts(node: ReactNode): string[] {
@@ -49,12 +63,18 @@ function texts(node: ReactNode): string[] {
   return [];
 }
 
-async function render(searchParams: Record<string, string | string[]>) {
-  const element = await DeeplinkPage({
-    params: Promise.resolve({ kind: "agent" }),
+async function page(
+  searchParams: Record<string, string | string[]>,
+  kind = "agent",
+) {
+  return DeeplinkPage({
+    params: Promise.resolve({ kind }),
     searchParams: Promise.resolve(searchParams),
   });
-  return texts(element);
+}
+
+async function render(searchParams: Record<string, string | string[]>) {
+  return texts(await page(searchParams));
 }
 
 describe("agent deeplink page", () => {
@@ -107,15 +127,22 @@ describe("agent deeplink page", () => {
     expect(rendered.join("\n")).not.toContain("does not use");
   });
 
-  test("a private reference says what it is and shows nothing to open", async () => {
-    const rendered = await render({ id: "aid-0123456789abcdef0123" });
+  test("a public footer's private reference opens in the app, which resolves it", async () => {
+    const element = await page({ id: "aid-0123456789abcdef0123" });
+    const rendered = texts(element);
     const text = rendered.join("\n");
 
-    expect(rendered).not.toContain("Open in cmux");
-    expect(text).toContain("by a private reference");
+    expect(rendered).toContain("Open in cmux");
+    expect(rendered).toContain("cmux://agent?id=aid-0123456789abcdef0123");
+    expect(autoOpened(element)).toEqual(["cmux://agent?id=aid-0123456789abcdef0123"]);
     expect(text).not.toContain("missing required parameters");
-    expect(text).not.toContain("cmux://agent");
-    expect(text).not.toContain("aid-0123456789abcdef0123");
+    expect(text).not.toContain("does not use");
+  });
+
+  test("a reference beside a session, or written twice, opens nothing", async () => {
+    expect(autoOpened(await page({ id: "aid-0123456789abcdef0123", harness: "claude", session: "s1" }))).toEqual(["cmux://agent/claude/s1"]);
+    expect(autoOpened(await page({ id: ["aid-0123456789abcdef0123", "aid-0123456789abcdef0123"] }))).toEqual([]);
+    expect(autoOpened(await page({ id: "aid-0123456789ABCDEF0123" }))).toEqual([]);
   });
 
   test("a malformed reference is just a link with no session", async () => {
@@ -134,5 +161,47 @@ describe("agent deeplink page", () => {
       "This link is missing required parameters: session",
     );
     expect(rendered).toContain("cmux://agent");
+  });
+
+  test("a link that can open hands its native URL to the app on load", async () => {
+    const element = await page({ harness: "claude", session: "s1", host: "cosmic-gray" });
+
+    expect(autoOpened(element)).toEqual(["cmux://agent/claude/s1?host=cosmic-gray"]);
+  });
+
+  test("the other link kinds open on load with the URL their Open button carries", async () => {
+    const element = await page({ host: "dev.example.com", user: "alice" }, "ssh");
+
+    expect(autoOpened(element)).toEqual(["cmux://ssh?host=dev.example.com&user=alice"]);
+  });
+
+  test("a link that cannot open opens nothing on load", async () => {
+    expect(autoOpened(await page({ harness: "claude" }))).toEqual([]);
+    expect(autoOpened(await page({ harness: "claude", session: ["s1", "s2"] }))).toEqual([]);
+    expect(autoOpened(await page({ host: "-oProxyCommand=x" }, "ssh"))).toEqual([]);
+  });
+});
+
+describe("canAutoOpen", () => {
+  const { canAutoOpen } = autoOpenModule;
+  const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+  test("a desktop Mac opens the app on load", () => {
+    expect(canAutoOpen({ userAgent: mac, maxTouchPoints: 0 })).toBe(true);
+  });
+  test("an iPhone, an iPad (which reports a Mac user agent) and other desktops do not", () => {
+    const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+    expect(canAutoOpen({ userAgent: iphone, maxTouchPoints: 5 })).toBe(false);
+    expect(canAutoOpen({ userAgent: mac, maxTouchPoints: 5 })).toBe(false);
+    expect(canAutoOpen({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", maxTouchPoints: 0 })).toBe(false);
+  });
+  test("on load a desktop Mac navigates to the link and an iPad stays on the page", () => {
+    const { openOnLoad } = autoOpenModule;
+    const desktop = { navigator: { userAgent: mac, maxTouchPoints: 0 }, location: { href: "https://cmux.com/deeplink/agent" } };
+    openOnLoad("cmux://agent/claude/s1", desktop);
+    expect(desktop.location.href).toBe("cmux://agent/claude/s1");
+
+    const ipad = { navigator: { userAgent: mac, maxTouchPoints: 5 }, location: { href: "https://cmux.com/deeplink/agent" } };
+    openOnLoad("cmux://agent/claude/s1", ipad);
+    expect(ipad.location.href).toBe("https://cmux.com/deeplink/agent");
   });
 });

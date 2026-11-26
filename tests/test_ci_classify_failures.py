@@ -425,8 +425,11 @@ class FakeGitHub:
                  latest: dict | None = None, merged: bool = False, files: list[str] | None = None,
                  main_issue: dict | None = None, main_comments: list[dict] | None = None,
                  files_error: bool = False, closed: list[dict] | None = None,
-                 main_runs: list[dict] | None = None, main_runs_error: bool = False, seen: dict | None = None):
+                 main_runs: list[dict] | None = None, main_runs_error: bool = False, seen: dict | None = None,
+                 check_runs: list[dict] | None = None, statuses: list[dict] | None = None):
         self.head, self.state, self.merged = head, state, merged
+        # The head's check runs and commit statuses: green (none) unless a test says otherwise.
+        self.check_runs, self.statuses = check_runs or [], statuses or []
         self._comments = comments or []
         self.latest = latest or {"run_attempt": 1, "status": "completed"}
         self.files = files or []
@@ -465,6 +468,10 @@ class FakeGitHub:
             return {"workflow_runs": self.main_runs}
         if path == f"repos/{self.repo}/issues/{cf.SEEN_ISSUE}":
             return self.seen
+        if f"/commits/{self.head}/check-runs?" in path:
+            return {"check_runs": self.check_runs if path.endswith("page=1") else []}
+        if f"/commits/{self.head}/status?" in path:
+            return {"statuses": self.statuses}
         raise AssertionError(f"unexpected read {path}")
 
     def comments(self, number: int) -> list[dict]:
@@ -554,6 +561,36 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")])
         self.act(gh, green)
         self.assertEqual(gh.calls, [("PATCH", "repos/manaflow-ai/cmux/issues/comments/99")])
+
+    def test_green_ci_with_another_red_check_on_the_head_is_not_passes(self) -> None:
+        # #50275: a green ci.yml run on 800f012d13 was reported "CI passes" while the head's
+        # cmux-next/compile was red six times. Every check run and status on the head counts.
+        red = [{"name": "Attribute", "status": "in_progress", "conclusion": None},
+               {"name": "build", "status": "completed", "conclusion": "success"}]
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")], check_runs=red,
+                        statuses=[{"context": "cmux-next/compile", "state": "failure"},
+                                  {"context": "cmux-next/compile", "state": "success"}])
+        self.act(gh, self.report([], conclusion="success"))
+        body = gh._comments[0]["body"]
+        self.assertNotIn("CI passes", body)
+        self.assertIn("**Other checks red:**", body)
+        self.assertIn("`cmux-next/compile`", body)
+        self.assertIn("state=failed", body)
+
+    def test_green_ci_with_another_check_running_is_not_verified(self) -> None:
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")],
+                        check_runs=[{"name": "cmux-next / compile", "status": "in_progress", "conclusion": None}])
+        self.act(gh, self.report([], conclusion="success"))
+        body = gh._comments[0]["body"]
+        self.assertNotIn("CI passes", body)
+        self.assertIn("still running", body)
+
+    def test_green_ci_with_every_check_green_passes(self) -> None:
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")],
+                        check_runs=[{"name": "build", "status": "completed", "conclusion": "skipped"}],
+                        statuses=[{"context": "cmux-next/compile", "state": "success"}])
+        self.act(gh, self.report([], conclusion="success"))
+        self.assertIn("CI passes on", gh._comments[0]["body"])
 
     def test_a_superseded_cancelled_run_says_nothing(self) -> None:
         gh = FakeGitHub()

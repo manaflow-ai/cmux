@@ -5,14 +5,19 @@ import { config as proxyConfig } from "../proxy";
 import { GET } from "../app/api/apple-app-site-association/route";
 
 describe("apple-app-site-association", () => {
-  test("names the cmux iOS app for the agent link page", async () => {
+  test("names the App Store and TestFlight cmux iOS apps for the agent and screen link pages", async () => {
     const response = GET();
     expect(response.headers.get("content-type")).toContain("application/json");
     const body = await response.json();
     expect(body.applinks.details).toEqual([
       {
-        appIDs: ["7WLXT3NR37.dev.cmux.app.internal"],
-        components: [{ "/": "/deeplink/agent" }, { "/": "/*/deeplink/agent" }],
+        appIDs: ["7WLXT3NR37.com.cmux.app", "7WLXT3NR37.dev.cmux.app.internal"],
+        components: [
+          { "/": "/deeplink/agent" },
+          { "/": "/*/deeplink/agent" },
+          { "/": "/deeplink/screen" },
+          { "/": "/*/deeplink/screen" },
+        ],
       },
     ]);
   });
@@ -28,5 +33,6 @@ describe("apple-app-site-association", () => {
     const pattern = new RegExp(`^${proxyConfig.matcher[0].replace(/^\//, "\\/")}$`);
     expect(pattern.test("/.well-known/apple-app-site-association")).toBe(false);
     expect(pattern.test("/deeplink/agent")).toBe(true);
+    expect(pattern.test("/deeplink/screen")).toBe(true);
   });
 });

@@ -3,8 +3,8 @@
 
 The same contract as pr_media_ocr.swift, so scripts/ci/pr_media_privacy.py
 takes either as its OCR tool ($PR_MEDIA_PRIVACY_OCR): `pr_media_ocr_tesseract.py
-FILE` prints the text recognized in one image, or in one frame per second (plus
-the last) of a GIF or video, with an `@@frame N` line before each frame's text.
+FILE` prints the text recognized in one image, or in every frame of a GIF or one frame per
+second (plus the last) of a video, with an `@@frame N` line before each frame's text.
 Identical frames are read once. Exit 2 when nothing could be read, which the
 gate holds like a hit.
 
@@ -57,9 +57,12 @@ def read_picture(path: Path) -> list[str]:
 
 
 def frames(media: Path, into: Path) -> list[Path]:
-    """One PNG per second plus the last frame, identical frames dropped."""
+    """Every frame of a GIF, one PNG per second of a video, plus the last frame; identical frames dropped.
+
+    A GIF frame can show for 100 ms, so sampling one a second would skip it."""
     run = ["ffmpeg", "-nostdin", "-v", "error", "-y"]
-    subprocess.run([*run, "-i", str(media), "-vf", "fps=1", str(into / "%05d.png")],
+    sample = ["-fps_mode", "passthrough"] if media.suffix.lower() == ".gif" else ["-vf", "fps=1"]
+    subprocess.run([*run, "-i", str(media), *sample, str(into / "%05d.png")],
                    check=True, capture_output=True, timeout=600, env=TOOL_ENV)
     # The last frame: -update keeps overwriting one file, so it ends as the final frame.
     subprocess.run([*run, "-i", str(media), "-update", "1", str(into / "last.png")],

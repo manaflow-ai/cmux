@@ -67,7 +67,17 @@ const context = {
   repo: { owner: 'manaflow-ai', repo: 'cmux' },
 };
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
-const github = { rest: {
+// scenario.runs (main nightly runs, each with a status) and scenario.jobs (by run id)
+// answer the in-flight read; without them that read fails, and a failed read builds.
+const actions = scenario.runs ? {
+  listWorkflowRuns: async ({ status, branch }) => {
+    if (branch !== 'main') throw new Error(`expected main's runs, got ${branch}`);
+    return { data: scenario.runs.filter((run) => run.status === status) };
+  },
+  listJobsForWorkflowRun: async ({ run_id }) => ({ data: scenario.jobs[String(run_id)] || [] }),
+} : undefined;
+const github = { paginate: async (fn, params) => (await fn(params)).data, rest: {
+  actions,
   git: {
     getRef: async () => {
       if (!scenario.tagSha) throw notFound();
@@ -141,10 +151,15 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
-    schedule: str = "47 8 * * *",
+    schedule: str = "2,17,32,47 * * * *",
     extra_env=None,
     comparison=None,
     classifier=None,
+    now_ms: int = 1700000000000,
+    main_push_builds: str = "1",
+    runs=None,
+    jobs=None,
+    max_in_flight: str = "3",
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -154,10 +169,12 @@ def run_decide(
         "SEED_ONLY": "false",
         "COLD_CACHE": "false",
         "PUSH_MIN_INTERVAL_HOURS": interval,
+        "MAIN_PUSH_BUILDS": main_push_builds,
+        "MAX_IN_FLIGHT": max_in_flight,
         "SCENARIO": json.dumps(
             {
                 "script": decide_script(),
-                "nowMs": 1700000000000,
+                "nowMs": now_ms,
                 "ref": ref,
                 "headSha": HEAD_SHA,
                 "eventName": event,
@@ -168,6 +185,8 @@ def run_decide(
                 "compare": APP_CHANGE if comparison is None else comparison,
                 "classifier": classifier,
                 "root": str(ROOT),
+                "runs": runs,
+                "jobs": jobs or {},
             }
         ),
     }
@@ -244,7 +263,7 @@ def test_cache_only_modes_explain_why_no_app_is_built() -> None:
     assert summary_values(warm)["app build selected"] == "false"
     assert summary_values(warm)["publish app this run"] == "false"
     assert "cache warmup" in summary_values(warm)["reason"]
-    daily = run_decide(event="schedule", schedule="47 8 * * *")
+    daily = run_decide(event="schedule", schedule="2,17,32,47 * * * *")
     assert summary_values(daily)["app build selected"] == "true"
 
 
@@ -313,14 +332,19 @@ def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
     assert summary_values(manual)["app build inputs changed"] == "(not checked)"
 
 
+# 2026-11-25T08:17:00Z and 09:17:00Z.
+AT_0817 = 1795594620000
+AT_0917 = 1795598220000
+
+
 def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
-    """One build a day bounds the cost of a path this check gets wrong."""
-    daily = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
-                       comparison=NEUTRAL_CHANGE)
+    """One build a day (the 08:17 UTC tick) bounds the cost of a path this check gets wrong."""
+    daily = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
+                       comparison=NEUTRAL_CHANGE, now_ms=AT_0817)
     assert should_build(daily)
     assert summary_values(daily)["app build inputs changed"] == "(not checked)"
     # Nothing at all changed: the published-commit check skips it as before.
-    idle = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
+    idle = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
                       tag_sha=HEAD_SHA)
     assert not should_build(idle)
     assert "already published" in summary_values(idle)["reason"]
@@ -454,6 +478,134 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     assert should_build(
         run_decide(event="push", ref="refs/heads/rc/v1.2.3", tag_age_hours=0.1)
     )
+
+
+def test_main_push_builds_nothing_and_the_hourly_tick_publishes() -> None:
+    """Leo, 2026-11-25: NIGHTLY should move at evenly spaced cutovers, not bunch up after a stall."""
+    assert env_value("MAIN_PUSH_BUILDS") == "${{ vars.NIGHTLY_MAIN_PUSH_BUILDS || '0' }}"
+    push = run_decide(event="push", interval="0", tag_age_hours=5, main_push_builds="0")
+    assert not should_build(push)
+    assert push["outputs"]["should_publish"] == "true"
+    assert "15-minute tick" in summary_values(push)["reason"]
+    # RC pushes still publish every push; force and manual dispatch still build.
+    assert should_build(run_decide(event="push", ref="refs/heads/rc/v1.2.3", main_push_builds="0"))
+    assert should_build(run_decide(event="push", interval="0", main_push_builds="0",
+                                   extra_env={"FORCE_BUILD": "true"}))
+    assert should_build(run_decide(event="workflow_dispatch", main_push_builds="0"))
+    tick = run_decide(event="schedule", schedule="2,17,32,47 * * * *", main_push_builds="0", now_ms=AT_0917)
+    assert should_build(tick)
+    assert summary_values(tick)["app build selected"] == "true"
+
+
+def test_the_hourly_tick_skips_when_no_app_input_changed() -> None:
+    tick = run_decide(event="schedule", schedule="2,17,32,47 * * * *", interval="0",
+                      comparison=NEUTRAL_CHANGE, now_ms=AT_0917)
+    assert not should_build(tick)
+    assert "nothing that reaches the app changed" in summary_values(tick)["reason"]
+
+
+def test_the_workflow_runs_main_app_builds_on_the_hourly_tick() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'cron: "2,17,32,47 * * * *"' in text
+    assert "47 8 * * *" not in text
+
+
+TICK = "2,17,32,47 * * * *"
+
+
+def building_run(run_id: int, sha: str, status: str = "in_progress") -> tuple[dict, list]:
+    """A main tick run whose app build is under way, and its jobs."""
+    run = {"id": run_id, "head_branch": "main", "event": "schedule", "head_sha": sha, "status": status}
+    return run, [{"name": "build-nightly-app", "status": "in_progress", "conclusion": None}]
+
+
+def in_flight(*specs) -> dict:
+    runs, jobs = [], {}
+    for run_id, sha in specs:
+        run, run_jobs = building_run(run_id, sha)
+        runs.append(run)
+        jobs[str(run_id)] = run_jobs
+    return {"runs": runs, "jobs": jobs}
+
+
+def tick_minutes() -> list[int]:
+    """The minutes past the hour the main app tick fires, read from the workflow."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert f'cron: "{TICK}"' in text
+    return sorted(int(m) for m in TICK.split()[0].split(","))
+
+
+def main_push_starts_a_run() -> bool:
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index("  push:")
+    block = []
+    for line in lines[start + 1:]:
+        if line and not line.startswith("    "):
+            break
+        block.append(line.strip())
+    return "- main" in block
+
+
+def test_a_burst_of_ten_pushes_in_five_minutes_starts_exactly_one_run() -> None:
+    """Leo, 2026-11-25: "every commit to main starts its own nightly run, so 7 or more run at once.
+    but why? prevent dumb shit like this" and "shouldnt we have like a 10 or 15 or 20 or 30 minute
+    timer per?". A push to main starts no run; the 15-minute tick starts one, for the newest commit."""
+    assert not main_push_starts_a_run(), "a push to main must not start a Nightly run"
+    minutes = tick_minutes()
+    gaps = [(b - a) for a, b in zip(minutes, minutes[1:] + [minutes[0] + 60])]
+    assert gaps == [15] * len(gaps), gaps
+    # Ten pushes from every starting second of the hour, one each 30 s: the runs
+    # started from the first push until the build after them are the pushes'
+    # (none) plus the ticks in that 15-minute window, exactly one, wherever it falls.
+    for first in range(0, 3600, 30):
+        pushes = [first + 30 * i for i in range(10)]
+        assert pushes[-1] - pushes[0] <= 300
+        window = range(first, first + 15 * 60)
+        ticks = [s for s in window if s % 60 == 0 and (s // 60) % 60 in minutes]
+        assert len(ticks) == 1, (first, ticks)
+    # That one tick builds the newest commit.
+    tick = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **in_flight())
+    assert should_build(tick)
+    assert summary_values(tick)["main app builds in flight"] == "0 (at most 3)"
+
+
+def test_a_tick_builds_nothing_while_three_main_builds_are_in_flight() -> None:
+    full = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                      **in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40)))
+    assert not should_build(full)
+    reason = summary_values(full)["reason"]
+    assert "3 main app builds are already in flight" in reason and "runs 1, 2, 3" in reason
+    assert "next 15-minute tick" in reason
+    two = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                     **in_flight((1, "c" * 40), (2, "d" * 40)))
+    assert should_build(two)
+    # The cap is a variable; `0` turns it off.
+    off = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, max_in_flight="0",
+                     **in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40)))
+    assert should_build(off)
+    assert env_value("MAX_IN_FLIGHT") == "${{ vars.NIGHTLY_MAIN_MAX_IN_FLIGHT || '3' }}"
+
+
+def test_a_run_that_built_nothing_or_failed_is_not_in_flight() -> None:
+    runs = in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40))
+    runs["jobs"]["2"] = [{"name": "build-nightly-app", "status": "completed", "conclusion": "skipped"}]
+    runs["jobs"]["3"] = [{"name": "build-nightly-app", "status": "completed", "conclusion": "failure"}]
+    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+
+
+def test_a_tick_of_a_commit_already_building_is_a_duplicate_not_a_cap() -> None:
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **in_flight((7, HEAD_SHA)))
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+
+
+def test_a_failed_in_flight_read_builds() -> None:
+    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917))
+
+
+def test_each_main_tick_has_its_own_concurrency_group() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "github.event_name == 'schedule' && format('main-tick-{0}', github.run_id)" in text
 
 
 def main() -> None:

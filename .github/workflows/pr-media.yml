@@ -45,6 +45,9 @@ on:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
+  # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # `workflows:` spells a display name; this is the file behind it
   # (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
@@ -58,8 +61,11 @@ jobs:
     # vars.CI_QUOTA_HOLD=1 pauses media from CI completions while the
     # GITHUB_TOKEN budget is reserved for the nightly
     # (tests/test_ci_quota_hold_gate.py); a dispatch still runs.
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion != 'cancelled') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # A CI run whose conclusion is skipped skipped every job, the static checks too, so it has no app
+    # build and pr_media.py plan would exit with nothing to tour: the job never asks for a runner. From
+    # 15:33Z to 18:30Z on 2026-11-21 that was 280 of the 672 CI runs this condition let through.
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.conclusion != 'skipped') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks the Blacksmith size
     # CI has completed, so its reads return at once.
     timeout-minutes: 10
     permissions:
@@ -77,9 +83,27 @@ jobs:
     steps:
       # Reads come from the org's route App on its own rate limit when it is
       # configured, as in ci-ui-tests.yml; writes stay on GITHUB_TOKEN.
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: read-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
       - name: Mint the read token
         id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -100,6 +124,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_media.py
             scripts/ci/find_admitted_build.py
+            scripts/ci/api_call_log
             scripts/ci/product_input_identity.py
             dogfood/scenarios
           sparse-checkout-cone-mode: false
@@ -108,11 +133,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.read-token.outputs.token) != '' }}
+        if: ${{ ((steps.read-token-bot.outputs.token || steps.read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/plan/before
         run: >-
           gh api rate_limit --jq
@@ -122,7 +147,7 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           REPOSITORY: ${{ github.repository }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
@@ -131,11 +156,11 @@ jobs:
         run: python3 scripts/ci/pr_media.py plan
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.read-token.outputs.token) != '' }}
+        if: ${{ !cancelled() && ((steps.read-token-bot.outputs.token || steps.read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/plan/after
         run: >-
           gh api rate_limit --jq
@@ -145,7 +170,7 @@ jobs:
     name: Tour ${{ matrix.tour }}
     needs: plan
     if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits for the tour run; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits for the tour run; CI_TRUSTED_RUNNER picks the Blacksmith size
     # CI's build is done, so a tour waits only for its run
     # (pr_media.RUN_WAIT_SECONDS, 90 minutes, most of it queueing).
     timeout-minutes: 120
@@ -163,9 +188,27 @@ jobs:
     steps:
       # Reads come from the org's route App on its own rate limit when it is
       # configured, as in ci-ui-tests.yml; writes stay on GITHUB_TOKEN.
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: read-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
       - name: Mint the read token
         id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -214,11 +257,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.read-token.outputs.token) != '' }}
+        if: ${{ ((steps.read-token-bot.outputs.token || steps.read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/tour/before
         run: >-
           gh api rate_limit --jq
@@ -227,7 +270,7 @@ jobs:
       - name: Run the tour on the pull request's build
         env:
           GH_TOKEN: ${{ github.token }}
-          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          READ_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           REPOSITORY: ${{ github.repository }}
           HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
           # The tour file comes from HEAD_SHA; the app from the build CI made
@@ -256,11 +299,11 @@ jobs:
           --name "$TOUR" --scenario "$RUNNER_TEMP/tour.json" --out "$RUNNER_TEMP/media/$TOUR" --compile "$COMPILE"
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.read-token.outputs.token) != '' }}
+        if: ${{ !cancelled() && ((steps.read-token-bot.outputs.token || steps.read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/tour/after
         run: >-
           gh api rate_limit --jq
@@ -283,7 +326,7 @@ jobs:
     name: Post media
     needs: [plan, tour]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.tours != '' && needs.plan.outputs.tours != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted contents and pull-request write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted contents and pull-request write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Room for the OCR install and a tesseract read of every shot and gif.
     timeout-minutes: 30
     # The private-terms list lives in this environment, which admits only the
@@ -307,6 +350,7 @@ jobs:
           sparse-checkout: |
             .github/actions/pr-media-publish
             scripts/ci/pr_media.py
+            scripts/ci/api_call_log
             scripts/ci/pr_media_gate.py
             scripts/ci/pr_media_ocr.swift
             scripts/ci/pr_media_ocr_tesseract.py
