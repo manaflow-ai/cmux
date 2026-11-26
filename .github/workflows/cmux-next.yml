@@ -1328,6 +1328,8 @@ jobs:
           GUI_LAST_RESORT: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || 'glaeda-gui-std-xcode-26.6' }}
           # Why: note-350
           CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          # Why: note-350
+          CMUX_NEXT_PULL_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && (inputs.same_tree_origin == '' || inputs.same_tree_origin == 'pull_request') && inputs.dev_daily != true && inputs.tip_swift_suite != true && inputs.tip_daemon_suite != true && inputs.base_tier != true && inputs.no_reuse != true && 'true' || '' }}
           # Why: note-426
           FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'release-compile' || '' }}
           # Why: note-394
