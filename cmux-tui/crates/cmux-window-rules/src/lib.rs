@@ -46,6 +46,7 @@ pub mod closed;
 pub mod editors;
 pub mod files;
 pub mod handlers_placement;
+pub mod handlers_close;
 pub mod history;
 pub mod launch;
 pub mod notifications;
