@@ -1908,6 +1908,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_secrets_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/elevation_request",
       "params": true,
       "result": true
