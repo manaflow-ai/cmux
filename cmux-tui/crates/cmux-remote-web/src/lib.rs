@@ -415,35 +415,36 @@ fn encrypt_record(secure: &mut SecureState, plaintext: &[u8]) -> Result<Vec<u8>,
         .send_nonce
         .checked_add(1)
         .ok_or_else(|| RemoteWebError::Protocol("Noise send nonce exhausted".into()))?;
-    let mut output = vec![0; NONCE_BYTES + plaintext.len() + TAG_BYTES];
-    output[..NONCE_BYTES].copy_from_slice(&nonce.to_be_bytes());
+    let mut body = vec![0; plaintext.len().saturating_add(TAG_BYTES)];
     let size = secure
         .transport
-        .write_message(nonce, plaintext, &mut output[NONCE_BYTES..])
+        .write_message(nonce, plaintext, &mut body)
         .map_err(RemoteWebError::Noise)?;
-    output.truncate(NONCE_BYTES + size);
+    body.truncate(size);
+    let mut output = Vec::with_capacity(NONCE_BYTES.saturating_add(body.len()));
+    output.extend_from_slice(&nonce.to_be_bytes());
+    output.extend_from_slice(&body);
     Ok(output)
 }
 
 fn decrypt_record(secure: &mut SecureState, message: &[u8]) -> Result<Vec<u8>, RemoteWebError> {
-    if message.len() < NONCE_BYTES + TAG_BYTES {
+    let Some((nonce_bytes, ciphertext)) = message.split_first_chunk::<NONCE_BYTES>() else {
+        return Err(RemoteWebError::InvalidMessage("encrypted record is truncated".into()));
+    };
+    if ciphertext.len() < TAG_BYTES {
         return Err(RemoteWebError::InvalidMessage("encrypted record is truncated".into()));
     }
-    let nonce = u64::from_be_bytes(
-        message[..NONCE_BYTES]
-            .try_into()
-            .map_err(|_| RemoteWebError::InvalidMessage("invalid record nonce".into()))?,
-    );
+    let nonce = u64::from_be_bytes(*nonce_bytes);
     if nonce != secure.receive_nonce {
         return Err(RemoteWebError::Protocol(format!(
             "encrypted record nonce {nonce} does not follow {}",
             secure.receive_nonce
         )));
     }
-    let mut output = vec![0; message.len() - NONCE_BYTES];
+    let mut output = vec![0; ciphertext.len()];
     let size = secure
         .transport
-        .read_message(nonce, &message[NONCE_BYTES..], &mut output)
+        .read_message(nonce, ciphertext, &mut output)
         .map_err(RemoteWebError::Noise)?;
     secure.receive_nonce = secure
         .receive_nonce
