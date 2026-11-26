@@ -1,12 +1,5 @@
 [
   {
-    "commit": "c764483db0fbafd7ddbd3e7b0ae589930f892369",
-    "result": "pass",
-    "at": "2026-11-21T03:49:26Z",
-    "run": 44861912207,
-    "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/44861912207"
-  },
-  {
     "commit": "4cde87f468bc6f4610b4321e6c91a57d2eaa8777",
     "result": "pass",
     "at": "2026-11-21T04:09:00Z",
@@ -418,5 +411,12 @@
     "at": "2026-11-26T16:17:03Z",
     "run": 45852567739,
     "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/45852567739"
+  },
+  {
+    "commit": "ae5e6c06b04a2665898a06b5ee9c6490c43a4ade",
+    "result": "pass",
+    "at": "2026-11-26T17:05:17Z",
+    "run": 45862774701,
+    "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/45862774701"
   }
 ]
