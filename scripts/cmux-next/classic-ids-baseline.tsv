@@ -483,5 +483,4 @@ cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.app"	1
 cmux-tui/crates/cmux-computer-use/src/platform/macos/roles.rs	com.cmuxterm.app"	1	keep	bundle-id matcher, no read or write: the com.cmuxterm.app family prefix covers NEXT's own ids (com.cmuxterm.app.nightly.cmux-next, .debug.<tag>), asserted in platform/macos/tests.rs
 scripts/cmux-next/terminal-scroll-integrity-live.py	/tmp/cmux-debug-{args.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/acpmux/src/claude_cloud_auth.rs	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	.config/cmux/	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
