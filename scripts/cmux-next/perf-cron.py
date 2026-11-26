@@ -350,7 +350,9 @@ PARTS = [
     # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
     # goal: the rows behind goal god-chat-ratios in cmuxterm-hq's NOW (god_chat_replay_ratio_max reads
     # webui.god_ratio.transcript_replay.long.*), so a due run of it goes first (part_order); they went 4 days unread.
-    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios"},
+    # goal_rows: those rows; a run that stored none of them leaves the part due (goal_rows_missing).
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios",
+     "goal_rows": r"webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)@"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
     # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
@@ -1658,7 +1660,7 @@ def part_order(state, todo, t):
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
         if not at:
             never.append(name)
-        elif hours_between(at, t) > PART_STALE_HOURS:
+        elif hours_between(at, t) > PART_STALE_HOURS or goal_rows_missing(state, name, e):
             stale.append((at, i, name))
     # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
     # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
@@ -1684,6 +1686,21 @@ def part_order(state, todo, t):
     goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
     first = lead + goal + [n for n in first if n not in lead and n not in goal]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+
+
+def goal_rows_missing(state, name, stored):
+    """Whether a part's newest store (state['part_stored'] entry) carried none of its goal's rows (PARTS "goal_rows"),
+    so the part stays due (pure). store_part_rows moves the date of an incomplete part, so that a part failing one
+    bench does not take every Linux turn; but when the failed bench is the one behind the goal, the goal's row goes
+    unread while the part reads fresh: on 2026-11-26 web-ui-god stored 58 rows at 17:22Z without one
+    webui.god_ratio.transcript_replay.long row (transcript-replay-god timed out after 420 s), so NOW's
+    god_chat_replay_ratio_max kept its 5-day-old value and the part sat sixth among the next tip's Linux parts."""
+    pat = PART_BY_NAME.get(name, {}).get("goal_rows")
+    if not pat or not isinstance(stored, dict):
+        return False
+    rows = state.get("part_rows") if isinstance(state.get("part_rows"), dict) else {}
+    return not any(re.match(pat, n) and isinstance(r, dict) and r.get("at") == stored.get("at")
+                   for n, r in rows.items())
 
 
 # A failed_why of a history entry from before ran_failed: run-linux-part's own failure ("NAME: exit N", "NAME: timed
@@ -4120,8 +4137,12 @@ def plan(o):
     linux_request, waiting, runners = "", [], []
     if d.get("linux_parts") and state.get("current"):
         cur = state["current"]
+        starved = linux_starved(state, d["linux_parts"], t)
         runners, linux_request, waiting = linux_picks(cur, d["linux_parts"], t, bool(getattr(o, "linux_controller", False)),
-                                                      commit_has(d["sha"], LINUX_SCRIPT))
+                                                      commit_has(d["sha"], LINUX_SCRIPT), starved)
+        for part in sorted(starved & set(runners)):
+            print(f"perf-cron: Linux part {part}: no rows stored for {LINUX_STARVED_HOURS} h; on the runner, not asked of "
+                  "the controller")
         for part in waiting:
             print(f"perf-cron: Linux part {part}: its request to the build controller waits for an answer")
         if linux_request:
@@ -5198,6 +5219,15 @@ LINUX_POOL_FULL_MINUTES = 60
 # own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
 # windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
 LINUX_RUNNER_ONLY = frozenset({"cloud-claim"})
+# A Linux part whose newest stored rows (state['part_stored']) are older than this, or that has none, runs on the runner
+# job and is not asked of the controller (linux_starved, linux_picks). The controller takes one Linux request a tick,
+# the first in part_order, which puts the stalest part first; its request then waits an answer window (about 2 h) and
+# a second one before the runner, and a request lives only as long as its measurement. From 2026-11-23 to 11-26 the two
+# stalest Linux parts, daemon-restart (NOW restart_chat_attach_daemon_ms) and web-ui-scale, took that one request
+# slot in turn in every measurement, each measurement ended (a failed app build, a newer tip) before either fell back,
+# and neither stored a row in 93 and 128 h while the 22 parts behind them ran on the runner and stored theirs every
+# day. Past this age the row's freshness (a reading a day) is already lost: the route that runs now goes first.
+LINUX_STARVED_HOURS = 24
 
 
 def linux_answer_minutes(part):
@@ -5240,7 +5270,20 @@ def linux_pool_full(cur, t):
     return bool(at) and (t - at).total_seconds() < LINUX_POOL_FULL_MINUTES * 60
 
 
-def linux_picks(cur, order, t, controller, has_script):
+def linux_starved(state, parts, t):
+    """The Linux parts of PARTS whose newest stored rows are older than LINUX_STARVED_HOURS, or that have none (pure):
+    linux_picks runs them on the runner job instead of asking the controller."""
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    out = set()
+    for part in parts:
+        e = stored.get(part)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) and isinstance(e.get("at"), str) else None
+        if not at or hours_between(at, t) > LINUX_STARVED_HOURS:
+            out.add(part)
+    return out
+
+
+def linux_picks(cur, order, t, controller, has_script, starved=()):
     """This tick's Linux parts (runner parts, controller request, parts waiting), taking ORDER's parts in turn: every
     part linux_route sends to the runner joins the linux matrix (one runner each, all at once), the first it sends to
     the controller is asked, and a part whose request is in its answer window (linux_route 'wait') holds back only
@@ -5248,7 +5291,9 @@ def linux_picks(cur, order, t, controller, has_script):
     request kept for it. The linux and linux-request jobs are separate, so one tick may run parts on the runners and
     ask the controller for another. linux_route keeps state, so it runs on a copy to look and on CUR only for the parts
     picked. Before 2026-11-23 the first part in order alone was routed: while coord-sim's request waited (about 3 h a
-    window), no Linux part ran, and a superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
+    window), no Linux part ran, and a superseded measurement (no Mac part) stored 5 Linux parts in 19 h. A STARVED part
+    (linux_starved) the controller would be asked for runs on the runner instead, unasked (LINUX_STARVED_HOURS); one
+    whose request is already in its answer window still waits for it."""
     look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
     runners, request, waiting, unasked = [], "", [], []
     full = linux_pool_full(cur, t)
@@ -5258,6 +5303,9 @@ def linux_picks(cur, order, t, controller, has_script):
             waiting.append(part)
         elif how == "runner":
             runners.append(part)
+        elif how == "request" and part in starved:
+            runners.append(part)
+            unasked.append(part)  # its rows are a day old: the runner now, not another answer window
         elif how == "request" and not request:
             request = part
         elif how == "request" and full:
