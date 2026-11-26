@@ -74,16 +74,15 @@
 .kit-row[data-density="comfortable"] {
   min-height: var(--ds-control-primary);
 }
-button.kit-row:hover {
+button.kit-row:where(:hover) {
   background: var(--ds-color-hover);
+}
+.kit-row[data-selected] {
+  /* A host gives the selection its own fill by setting this on the row; unset, the theme's. */
+  background: var(--kit-row-selected-fill, var(--ds-color-selection));
 }
 button.kit-row:active {
   background: var(--ds-color-pressed);
-}
-.kit-row[data-selected],
-button.kit-row[data-selected]:hover {
-  /* A host gives the selection its own fill by setting this on the row; unset, the theme's. */
-  background: var(--kit-row-selected-fill, var(--ds-color-selection));
 }
 /* A static row's visible text when its label is read instead (Row.tsx). */
 .kit-row-body {

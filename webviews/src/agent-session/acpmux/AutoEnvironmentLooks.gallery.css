@@ -19,8 +19,8 @@
 .auto-env-board {
   --acpmux-base: var(--agent-accent-text, Canvas);
   --acpmux-menu-bg: color-mix(in srgb, var(--agent-text) 9%, var(--agent-page-bg, var(--acpmux-base)));
-  --acpmux-menu-hover: color-mix(in srgb, var(--agent-text) 14%, transparent);
-  --acpmux-pill-hover: color-mix(in srgb, var(--agent-text) 11%, transparent);
+  --acpmux-menu-hover: var(--ds-color-hover);
+  --acpmux-pill-hover: var(--ds-color-hover);
 }
 .auto-env-menu.acpmux-menu {
   position: static;

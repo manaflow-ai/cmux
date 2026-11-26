@@ -206,7 +206,7 @@ export function FilesSidebar({
       />
       {/* The sidebar is the filter field and the tree, nothing else (Lawrence,
           round 2). "Hide viewed files" lives in the "..." menu. */}
-      <div id="files-filter" data-filter-active={filterActive}>
+      <div id="files-filter" data-ink-base="file-filter" data-filter-active={filterActive}>
         <Icon name="search" />
         <input
           id="file-filter-input"

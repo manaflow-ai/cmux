@@ -177,9 +177,10 @@ body {
   --ds-color-fg: var(--cmux-text, var(--cmux-app-text, CanvasText)); /* primary text */
   --ds-color-muted: var(--cmux-text-secondary, var(--cmux-app-text-secondary, color-mix(in srgb, CanvasText 62%, transparent))); /* secondary text */
   --ds-color-faint: var(--cmux-text-tertiary, var(--cmux-app-icon, color-mix(in srgb, CanvasText 45%, transparent))); /* tertiary text, placeholders and quiet glyphs */
-  --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
-  --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
-  --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a selected row or the checked segment */
+  --ds-color-hover: color-mix(in srgb, var(--ds-surface-ink) calc(100% * (0.08 - var(--ds-ink-base, 0)) / (1 - var(--ds-ink-base, 0))), transparent); /* a control under the pointer */
+  --ds-color-pressed: color-mix(in srgb, var(--ds-surface-ink) calc(100% * (0.16 - var(--ds-ink-base, 0)) / (1 - var(--ds-ink-base, 0))), transparent); /* a control while held */
+  --ds-color-selection: color-mix(in srgb, var(--ds-surface-ink) calc(100% * (0.12 - var(--ds-ink-base, 0)) / (1 - var(--ds-ink-base, 0))), transparent); /* a selected control or row */
+  --ds-color-open: var(--ds-color-selection); /* a control while its popup is open */
   --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines inside a page: list rows, cards and fields */
   --ds-color-divider: var(--cmux-chrome-divider, var(--cmux-sidebar-line, var(--ds-color-separator))); /* a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator */
   --ds-color-focus: var(--cmux-focus-ring-color, currentColor); /* the keyboard focus ring (desktop.css: the host's ring at 48%) */
@@ -193,10 +194,19 @@ body {
   --ds-surface-card: color-mix(in srgb, var(--ds-surface-ink) 4%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
   --ds-surface-card-line: color-mix(in srgb, var(--ds-surface-ink) 10%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
   --ds-surface-inset: color-mix(in srgb, var(--ds-surface-ink) 8%, transparent); /* a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control */
-  --ds-surface-hover: color-mix(in srgb, var(--ds-surface-ink) 6%, transparent); /* a control in the page under the pointer: half way from clear to pressed, so it shows over glass and a picture as over an opaque page (the host's chrome hover, ink 4% in light, read ΔL* 2 over a wallpaper) */
+  --ds-surface-hover: var(--ds-color-hover); /* the shared hover wash */
   --ds-surface-control-line: color-mix(in srgb, var(--ds-surface-ink) 16%, transparent); /* the outline of a secondary button at rest; its hover and press take the hover and pressed roles */
   --ds-surface-hover-layer: linear-gradient(var(--ds-surface-hover), var(--ds-surface-hover)); /* hover over a filled rest */
   --ds-surface-pressed-layer: linear-gradient(var(--ds-color-pressed), var(--ds-color-pressed)); /* pressed over a filled rest */
+}
+:where([data-ink-base="frame"]) { --ds-ink-base: 0.04; }
+:where([data-ink-base="pane"], .ui-glass) { --ds-ink-base: 0; }
+:where([data-ink-base], .ui-glass) {
+  --ds-color-hover: color-mix(in srgb, var(--ds-surface-ink) calc(100% * (0.08 - var(--ds-ink-base, 0)) / (1 - var(--ds-ink-base, 0))), transparent);
+  --ds-color-pressed: color-mix(in srgb, var(--ds-surface-ink) calc(100% * (0.16 - var(--ds-ink-base, 0)) / (1 - var(--ds-ink-base, 0))), transparent);
+  --ds-color-selection: color-mix(in srgb, var(--ds-surface-ink) calc(100% * (0.12 - var(--ds-ink-base, 0)) / (1 - var(--ds-ink-base, 0))), transparent);
+  --ds-color-open: var(--ds-color-selection);
+  --ds-surface-hover: var(--ds-color-hover);
 }
 :root[data-borders="none"] {
   --ds-surface-card-line: transparent;

@@ -12,7 +12,7 @@ const Plus = () => (
   </svg>
 );
 
-function ButtonGallery({ variant = "subtle", open = false, disabled = false }: Props) {
+function ButtonGallery({ variant = "ghost", open = false, disabled = false }: Props) {
   const [count, setCount] = useState(0);
   const press = () => setCount((value) => value + 1);
   return (
@@ -60,8 +60,8 @@ export default componentEntry<Props>({
   load: async () => ButtonGallery,
   styles: () => Promise.all([import("./ui.css"), import("./controls.gallery.css")]),
   variants: {
-    subtle: { props: { variant: "subtle" }, note: "The default: a quiet fill reads as a control on glass." },
-    ghost: { props: { variant: "ghost" }, note: "Toolbar and row-trailing buttons: nothing until hover." },
+    subtle: { props: { variant: "subtle" }, note: "A subtle resting fill for an explicitly filled secondary control." },
+    ghost: { props: { variant: "ghost" }, note: "The default button stays clear until hover." },
     solid: { props: { variant: "solid" }, note: "The one primary action of a dialog or sheet." },
     "menu-open": { props: { variant: "ghost", open: true }, note: "Stays lit while the menu it opened is open." },
     disabled: { props: { disabled: true } },

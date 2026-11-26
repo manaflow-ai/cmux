@@ -27,7 +27,7 @@ export interface ButtonProps extends Omit<ComponentProps<typeof BaseButton>, "cl
 }
 
 export function Button({
-  variant = "subtle",
+  variant = "ghost",
   size = "md",
   icon = false,
   danger = false,

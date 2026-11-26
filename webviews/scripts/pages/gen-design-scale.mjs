@@ -144,7 +144,15 @@ function load() {
           `surface ${level.name}.${key} is a small share of the ink, never opaque`,
         );
   for (const color of data.colors)
-    assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
+    if (color.inkShare !== undefined)
+      assert(color.inkShare > 0 && color.inkShare < 100, `valid ink share: ${color.name}`);
+    else if (color.alias)
+      assert(
+        data.colors.some((c) => c.name === color.alias && c.inkShare),
+        `unknown ink role: ${color.alias}`,
+      );
+    else
+      assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
   const type = read(TYPE_SOURCE);
   return { data, type, motion: read(MOTION_SOURCE), roles: loadRoles(data, type) };
 }
@@ -334,11 +342,21 @@ const materialVars = (material) => [
 const ink = (percent) => `color-mix(in srgb, var(--ds-surface-ink) ${percent}%, transparent)`;
 export const surfaceVars = (level) =>
   [
-    level.fill === undefined ? null : [`--ds-surface-${level.name}`, ink(level.fill)],
+    level.role
+      ? [`--ds-surface-${level.name}`, `var(--ds-color-${level.role})`]
+      : level.fill === undefined
+        ? null
+        : [`--ds-surface-${level.name}`, ink(level.fill)],
     level.line === undefined ? null : [`--ds-surface-${level.name}-line`, ink(level.line)],
   ].filter(Boolean);
-const colorValue = (color) =>
-  `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;
+function colorValue(color) {
+  if (color.alias) return `var(--ds-color-${color.alias})`;
+  if (color.inkShare !== undefined) {
+    const base = "var(--ds-ink-base, 0)";
+    return `color-mix(in srgb, var(--ds-surface-ink) calc(100% * (${color.inkShare / 100} - ${base}) / (1 - ${base})), transparent)`;
+  }
+  return `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;
+}
 const shadow = (entry, mode) => `${entry.geometry} color-mix(in srgb, black ${entry[mode]}%, transparent)`;
 
 function rolesBlock(roles) {
@@ -411,6 +429,16 @@ function cssBlock(data, roles) {
   ])
     out.push(`  --ds-surface-${state}-layer: linear-gradient(${fill}, ${fill}); /* ${state} over a filled rest */`);
   out.push("}");
+  // Recompute at the surface boundary: inherited CSS variables otherwise keep the parent’s wash.
+  // Glass has an unknown ground. A custom opaque surface declares its known ink share on its boundary.
+  out.push(
+    ':where([data-ink-base="frame"]) { --ds-ink-base: 0.04; }',
+    ':where([data-ink-base="pane"], .ui-glass) { --ds-ink-base: 0; }',
+    ":where([data-ink-base], .ui-glass) {",
+  );
+  for (const color of data.colors.filter((color) => color.inkShare || color.alias))
+    out.push(`  --ds-color-${color.name}: ${colorValue(color)};`);
+  out.push("  --ds-surface-hover: var(--ds-color-hover);", "}");
   // appearance.borders none clears every line; Increase Contrast draws them in the ink itself, as the
   // page's other hairlines (desktop.css prefers-contrast).
   const lines = data.surfaces.levels.filter((level) => level.line !== undefined);

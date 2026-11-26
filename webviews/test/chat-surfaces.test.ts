@@ -185,14 +185,10 @@ test("a toggle that is on shows the selection fill, not the press", () => {
   expect(togglesOnWithPressedFill()).toEqual([]);
 });
 
-// The scripted move put every chat hover (ink 4 to 12%, most 6%) on the host's chrome hover: ink 4% in a
-// light theme, a step of ΔL* 3.1 over an opaque page and 2.2 over a wallpaper on a fleet Mac (6% read
-// 4.5 and 3.2), so Undo and View changes all but lost their hover in light. A control in the page hovers
-// at the hover level, half way from clear to the press, and never at the host's chrome share.
-test("a control in the page hovers at the hover level, between clear and the press", () => {
-  const share = (name: string) => designScale.surfaces.levels.find((level) => level.name === name)?.fill ?? 0;
-  expect(share("hover")).toBeGreaterThan(share("card"));
-  expect(share("hover")).toBeLessThan(share("inset"));
+test("a control in the page uses the shared absolute hover below selection and press", () => {
+  expect(designScale.surfaces.levels.find((level) => level.name === "hover")?.role).toBe("hover");
+  const share = (name: string) => designScale.colors.find((role) => role.name === name)?.inkShare;
+  expect([share("hover"), share("selection"), share("pressed")]).toEqual([8, 12, 16]);
   const edited = source("agent-session/acpmux/styles.css");
   for (const selector of [".acpmux-edited-undo:hover:not(:disabled)", ".acpmux-review-changes:hover"])
     expect(edited).toContain(`${selector}{background:var(--ds-surface-hover)`);

@@ -31,9 +31,10 @@
 /* Hover: the pill under the pointer only. On (a toggle whose panel is open) or holding its open menu: the filled
    rounded square, hovered or not (as specific as the hover rule and after it, so the pointer never swaps it for the
    pill), with the lit ink while on (PaneToolbarView: Palette.litGlyph). */
-.acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover{background:var(--acpmux-header-tool-hover,var(--ds-surface-inset))}
-.acpmux-header-tools .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
+.acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover{background:var(--acpmux-header-tool-hover,var(--ds-color-hover))}
+.acpmux-header-tools .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,var(--ds-color-open))}
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
+.acpmux-header-tools .acpmux-header-tool:not(:disabled):active,.acpmux-floating-header .acpmux-header-tool:not(:disabled):active,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):active{background:var(--ds-color-pressed)}
 /* A pane without the keyboard (pageKey.ts marks the root data-page-inactive) keeps its tools quiet: an open panel's
    toggle drops its filled square and lit ink at rest, so the selected state shows at rest
    in the focused pane alone (Leo 2026-11-07: "does it make sense for, like, when you're not highlighted on a thing to

@@ -73,7 +73,8 @@
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
   /* The files panel in an opaque window: 3% of the text color over the solid backdrop (over glass
      it paints nothing; see the glass rules below). */
-  --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
+  --cmux-diff-files-share: 0.03;
+  --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) calc(100% * var(--cmux-diff-files-share)), var(--cmux-diff-solid-bg));
   --cmux-diff-files-selected-bg: color-mix(in srgb, var(--cmux-diff-accent) 16%, var(--cmux-diff-files-bg));
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
@@ -954,8 +955,14 @@ body[data-status-only="true"] #files-motion-curtain {
      (the 1 px border and 3 px of room). */
   --concentric-padding: 4px;
   border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
-  background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
+  --filter-fill-share: 0.04;
+  --ds-surface-ink: var(--cmux-diff-fg);
+  --ds-ink-base: calc(var(--filter-fill-share) + (1 - var(--filter-fill-share)) * var(--cmux-diff-files-share));
+  background: color-mix(in srgb, var(--cmux-diff-fg) calc(100% * var(--filter-fill-share)), var(--cmux-diff-files-bg));
   color: var(--cmux-diff-text-dim);
+}
+:root[data-cmux-see-through]:not([data-reduce-transparency]) #files-filter {
+  --ds-ink-base: 0;
 }
 #files-filter:is(:focus-visible, :has(:focus-visible)) {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, transparent);
@@ -999,8 +1006,11 @@ body[data-status-only="true"] #files-motion-curtain {
   cursor: default;
 }
 .files-filter-button:hover {
-  background: var(--cmux-diff-hover-bg);
+  background: var(--ds-color-hover);
   color: var(--cmux-diff-fg);
+}
+.files-filter-button:active {
+  background: var(--ds-color-pressed);
 }
 .files-filter-button svg {
   width: 12px;
