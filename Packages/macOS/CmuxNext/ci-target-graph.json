@@ -60,7 +60,8 @@
       ],
       "packages": [
         "CMUXAuthCore",
-        "CmuxAgentBrands"
+        "CmuxAgentBrands",
+        "CmuxEgress"
       ]
     },
     "CmuxNextActions": {
@@ -1527,6 +1528,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextIcons"
       ],
       "packages": [
@@ -2493,6 +2495,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextTerminalGeometryTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests",
+      "targets": [
+        "CmuxNextTerminalGeometry"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextTerminalTests": {
       "kind": "test",
