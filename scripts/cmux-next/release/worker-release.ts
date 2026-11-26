@@ -35,7 +35,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process"
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs"
-import { relative, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 
 export interface Route {
   readonly name: string
@@ -229,6 +229,33 @@ const changedFiles = (rev: string | undefined, sourceDir: string): Array<string>
   }
 }
 
+/** The repository's one git-fetch retry layer (bounded tries, backoff, low-speed abort, refusals not retried). */
+export const GIT_FETCH_RETRY = join(import.meta.dir, "../../ci/git_fetch_retry.py")
+
+/**
+ * `git fetch ARGS` in `cwd` through scripts/ci/git_fetch_retry.py --stop-on-refusal: a slow transfer, reset,
+ * timeout or name lookup is tried again (3 tries, 10 s then 30 s apart, 180 s each: inside the deploy job's
+ * 30 minutes); a refusal (no such ref, authentication) is not. A single fetch here once failed a deploy on
+ * "Operation too slow". Throws with the helper's last line, which names the tries spent and git's reason.
+ */
+export const gitFetchRetrying = (cwd: string, args: ReadonlyArray<string>, opts: { readonly tries?: number; readonly timeoutSeconds?: number; readonly backoff?: string } = {}) => {
+  const top = execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+  const run = spawnSync(
+    "python3",
+    [GIT_FETCH_RETRY, "--stop-on-refusal", "--tries", String(opts.tries ?? 3), "--timeout", String(opts.timeoutSeconds ?? 180), "--backoff", opts.backoff ?? "10,30", "--repo", top, "--", "git", "-C", cwd, "fetch", ...args],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16 << 20 },
+  )
+  if (run.status === 0) return
+  if ((run.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    // No python3 on this runner: one plain fetch, as before the helper.
+    execFileSync("git", ["-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=60", "-C", cwd, "fetch", ...args], { stdio: ["ignore", "inherit", "inherit"] })
+    return
+  }
+  const lines = `${run.stdout ?? ""}`.split("\n").map((l) => l.trim()).filter(Boolean)
+  const last = lines.at(-1)?.replace(/^::error title=[^:]*::/, "") ?? `${run.error?.message ?? ""} ${`${run.stderr ?? ""}`.trim().split("\n").at(-1) ?? ""}`.trim()
+  throw new Error(`git fetch ${args.join(" ")}: ${last || `exit ${run.status}`}`)
+}
+
 export interface IO {
   readonly log: (line: string) => void
   readonly error: (line: string) => void
@@ -253,7 +280,7 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
       const git = (...args: Array<string>) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
       git("check-ref-format", `refs/heads/${branch}`)
       // Fetch only the protected source branch. No environment/provider credential is needed.
-      git("fetch", "--quiet", "--no-tags", "origin", `refs/heads/${branch}`)
+      gitFetchRetrying(cwd, ["--quiet", "--no-tags", "origin", `refs/heads/${branch}`])
       const tip = git("rev-parse", "--verify", "FETCH_HEAD^{commit}")
       const candidate = git("rev-parse", "--verify", "HEAD^{commit}")
       const ancestry = spawnSync("git", ["-C", cwd, "merge-base", "--is-ancestor", candidate, tip])

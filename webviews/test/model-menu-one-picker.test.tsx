@@ -269,7 +269,8 @@ test("every harness's started chat opens the one shared picker, with every harne
 test("a started Antigravity chat that cannot fork lists Antigravity on the shared rail and switches to another harness's model", async () => {
   const { switched } = await mount(1, false, "antigravity", await everyHarness());
   await open();
-  expect(tabNames()).toContain("Antigravity");
+  // Antigravity is a route of the Gemini tab (Lucas 2026-11-25: "just have the gemini symbol").
+  expect(tabNames()).toContain("Gemini");
   const codex = [...(columns()?.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]') ?? [])].find(
     (tab) => tab.getAttribute("aria-label") === "Codex",
   )!;
@@ -309,7 +310,7 @@ test("a started chat whose host cannot fork in place continues in the picked har
   snapshot.rows = [{ id: "u1", version: 1, kind: "user", text: "1+1" } as Snapshot["rows"][number]];
   const calls = await mountChat(snapshot);
   await open();
-  expect(tabNames()).toContain("Antigravity");
+  expect(tabNames()).toContain("Gemini");
   const codex = [...(columns()?.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]') ?? [])].find(
     (tab) => tab.getAttribute("aria-label") === "Codex",
   )!;
@@ -339,7 +340,10 @@ test("every harness's chat opens the shared picker on its own harness's tab", as
       await mount(1, state.fork, entry.id, catalog, state.sessionId);
       await open();
       // A second account of a harness (claude-work) is a route of its harness's tab.
-      const own = agentName(entry.id.replace(/-work$/, ""), entry.id.endsWith("-work") ? undefined : entry.name);
+      // Gemini CLI and Antigravity are routes of one Gemini tab (Lucas 2026-11-25).
+      const own = ["gemini", "antigravity"].includes(entry.id)
+        ? "Gemini"
+        : agentName(entry.id.replace(/-work$/, ""), entry.id.endsWith("-work") ? undefined : entry.name);
       const selected = selectedTab();
       if (selected.length !== 1 || selected[0] !== own)
         wrong.push(`${entry.id} (${state.name}): opened on ${selected.join(", ") || "no tab"}, not ${own}`);
@@ -399,6 +403,6 @@ test("a picker left open while its chat becomes another harness's moves to that 
   await render("antigravity", "gemini-4-hydrogen");
   await settle();
   expect(columns()).not.toBeNull();
-  expect(selectedTab()).toEqual(["Antigravity"]);
+  expect(selectedTab()).toEqual(["Gemini"]);
   expect(columns()!.querySelector('[role="listbox"]')?.textContent).toContain("Gemini 4 Hydrogen");
 }, 30_000);
