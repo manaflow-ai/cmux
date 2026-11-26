@@ -11,6 +11,9 @@ private let theme = CmuxMobileTheme.standard
 public struct CloudAutomationsScreen: View {
     @State private var model: CloudAutomationsModel
     @State private var deleting: CloudAutomation?
+    /// A failed load reads again on its own (Leo, 2026-11-22: "vacuous decisions like that should
+    /// be just done"): a spinner first, the failure with one quiet line past the quiet bound, no Try Again.
+    @State private var autoRetry = AutoRetry()
 
     public init(model: CloudAutomationsModel = .live()) {
         _model = State(initialValue: model)
@@ -22,27 +25,34 @@ public struct CloudAutomationsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: loadFailed) { await model.load() }
             .modifier(CloudAutomationAlerts(model: model, deleting: $deleting, showsFailure: !model.showsDetail))
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
     }
 
+    /// The list failed to load for a signed-in account: a read to try again on its own.
+    private var loadFailed: Bool {
+        guard case .failed = model.phase else { return false }
+        return model.isSignedIn
+    }
+
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .loading:
-            // placeholder-ok: This personal Cloud list has never answered for this account.
-            CmuxSpinner(label: Text("Loading automations…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("automations.loading")
-                .placeholderBound("cloud.automations.loading", .milliseconds(2000))
-        case .failed(let message):
+        case .failed(let message) where !loadFailed || autoRetry.isQuietLineShown:
             ContentUnavailableView {
                 Label("Couldn't load automations", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
+                AutoRetryQuietLine(autoRetry)
             }
             .accessibilityIdentifier("automations.failed")
+        case .loading, .failed:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
+            CmuxSpinner(label: Text("Loading automations…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("automations.loading")
+                .placeholderBound("cloud.automations.loading", .milliseconds(2000))
         case .loaded:
             list
         }
