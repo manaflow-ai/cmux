@@ -3924,8 +3924,12 @@ async fn dispatch_request_with_identity(
             if view::a_link(conn) {
                 return Err(crate::hub::presence::peer_unsupported());
             }
-            if let Some(live) = params.get("live").and_then(Value::as_bool) {
-                hub.presence.set_live(live);
+            match params.get("live") {
+                None | Some(Value::Null) => {}
+                Some(Value::Bool(live)) => {
+                    hub.presence.set_live(*live);
+                }
+                Some(_) => return Err(RpcError::invalid_params("live must be a boolean")),
             }
             Ok(json!({"live": hub.presence.is_live()}))
         }
