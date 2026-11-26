@@ -117,6 +117,11 @@ async function growLastAnswer(inputPending: boolean, height: number) {
       ),
     );
     await act(nextFrame);
+    // Past the chat's first followed frame (two frames, then a task: VirtualTranscript.tsx
+    // `deferHistory`), whose rows' first sizes are placed before it paints even while input waits
+    // (`attachMount`): a row that grows later is the case here.
+    await act(nextFrame);
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
     const answer = dom.window.document.querySelector<HTMLElement>('.acpmux-row[data-row-id="t2-answer"]')!;
     expect(answer).not.toBeNull();
     const rowObserver = observers.find((observer) => observer.targets.has(answer));

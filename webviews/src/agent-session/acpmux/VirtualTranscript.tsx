@@ -2038,6 +2038,10 @@ function TranscriptView({
   /// frame's React work, then the browser laid them out again for the placement (cmuxterm-hq
   /// docs/findings/2026-11-20-cmux-scroll-frame-cost.md).
   const flingMount = useRef(false);
+  /// This render is a chat's first followed frame (`deferHistory` below), whose rows are measured as a
+  /// fling's are. Their observer places them before the frame paints even while input waits: placed
+  /// by a commit after the paint, the first frame drew every row at its estimate, then moved them all.
+  const attachMount = useRef(false);
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<LastEstimate | undefined>(undefined);
@@ -2840,9 +2844,10 @@ function TranscriptView({
             // out text (from you) and the subequent tool calls/thinking"). A row in sight is placed
             // before paint, as a followed view's is.
             // Not while a key or pointer event waits: a synchronous render here holds the typed
-            // character behind it, so the frame's own commit places the rows instead.
+            // character behind it, so the frame's own commit places the rows instead. Not for a chat's
+            // first followed frame (`attachMount`): its rows were left to this pass, no commit reads them.
             else if (
-              !inputPending() &&
+              (!inputPending() || attachMount.current) &&
               (rode ||
                 followingRef.current ||
                 targets.some(heightFoldInFlight) ||
@@ -4260,7 +4265,6 @@ function TranscriptView({
       ? heldWarmAt.current
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
-  flingMount.current = warmOutrun && !sessionSwitched;
   // A chat's first followed frame (a cold open, at its latest row) mounts only the rows it shows: the
   // history above them (and the warm rows) are stand-ins at their estimated boxes until that frame has
   // painted, then mount in full (the effect below). Built in the first commit they were about 3/4 of
@@ -4268,6 +4272,12 @@ function TranscriptView({
   // into a frame later (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of
   // anything up at all"). A stand-in reports no drawn height, so the estimates above stay as they were.
   const deferHistory = renderFollowing && historySession !== sessionKey && rows.length > 0 && height > 0;
+  // That first frame's rows are measured as a fling's are (`flingMount`): by their observer, in the
+  // browser's own layout pass, which places them before the frame paints (a followed view's report is
+  // a synchronous pass). Read in the commit, they laid the page out inside it (row.measure, about
+  // 22 ms of an attach).
+  attachMount.current = deferHistory;
+  flingMount.current = (warmOutrun && !sessionSwitched) || deferHistory;
   useEffect(() => {
     if (!deferHistory) return;
     // Two frames, then a task: the frame that drew the view paints, the next one starts (where the
