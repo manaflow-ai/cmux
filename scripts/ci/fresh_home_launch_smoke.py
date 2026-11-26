@@ -276,7 +276,37 @@ def copy_app_from_dmg(dmg: Path, root: Path) -> Path:
             raise CannotRun(f"no app in {dmg}")
         return copy_app(apps[0], root)
     finally:
+        forget_apps(mount)  # the mounted app's record, too, before the image goes
         detach(mount)
+
+
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+
+def forget_apps(root: Path) -> list[str]:
+    """Unregister every app bundle under ROOT (nested apps too) from LaunchServices, by path; never raises.
+
+    LaunchServices keeps the record of a copy the run launched after the run deletes it, and a later
+    `open -a "cmux NIGHTLY"` or bundle-id lookup on the Mac could pick the dead copy ("The application
+    can't be opened": cmux12s, 2026-11-16, 22 dead cmux-fresh-* NIGHTLY records). Returns the paths
+    lsregister accepted."""
+    if not os.path.exists(LSREGISTER) or not root.is_dir():
+        return []
+    forgotten = []
+    for dirpath, dirnames, _ in os.walk(root, followlinks=False):
+        for name in dirnames:
+            if not name.endswith(".app"):
+                continue
+            bundle = os.path.join(dirpath, name)
+            if os.path.islink(bundle):  # never take back, through a link, an app the run did not make
+                continue
+            try:
+                if subprocess.run([LSREGISTER, "-u", bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=60).returncode == 0:
+                    forgotten.append(bundle)
+            except (OSError, subprocess.SubprocessError):
+                pass
+    return forgotten
 
 
 def detach(mount: Path) -> None:
@@ -1581,6 +1611,7 @@ def main(argv: list[str] | None = None) -> int:
         left = own_pids(root)
         if left:
             log(f"warning: processes still under {root}: {left}")
+        forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
     return status
 
