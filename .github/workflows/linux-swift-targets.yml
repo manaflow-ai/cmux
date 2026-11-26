@@ -24,6 +24,7 @@ on:
       - '**/Package.resolved'
       - scripts/ci/linux_swift_target_census.py
       - scripts/ci/linux_swift_targets.json
+      - scripts/ci/swiftpm_prefetch_binary_artifacts.py
       - .github/workflows/linux-swift-targets.yml
   workflow_dispatch:
 
@@ -40,7 +41,7 @@ env:
 
 jobs:
   ratchet:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -51,6 +52,10 @@ jobs:
       - name: Install Swift ${{ env.SWIFT_VERSION }}
         run: |
           set -euo pipefail
+          if swift --version 2>/dev/null | grep -q "Swift version $SWIFT_VERSION "; then
+            swift --version
+            exit 0
+          fi
           dir="$RUNNER_TEMP/swift-$SWIFT_VERSION"
           url="https://download.swift.org/swift-$SWIFT_VERSION-release/ubuntu2404/swift-$SWIFT_VERSION-RELEASE/swift-$SWIFT_VERSION-RELEASE-ubuntu24.04.tar.gz"
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/swift.tgz" "$url"
@@ -71,3 +76,4 @@ jobs:
           name: linux-swift-census
           path: ${{ runner.temp }}/linux-swift-census.json
           if-no-files-found: ignore
+          retention-days: 14

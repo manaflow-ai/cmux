@@ -263,8 +263,10 @@ def prefetch_artifacts(root: Path, swift: str, packages: list[str], store: Path)
     subprocess.run(args, check=False, stdout=subprocess.DEVNULL)
 
 
-def build_targets(root: Path, swift: str, data: dict, jobs: int, scratch: Path) -> None:
-    """Compile every buildable target, one package per worker, and record the result.
+def build_targets(root: Path, swift: str, data: dict, jobs: int, scratch: Path,
+                  only: set[str] | None = None) -> None:
+    """Compile buildable targets (all of them, or the keys in `only`), one package
+    per worker, and record the result.
 
     The static blocker stays the target's reason; the build decides whether it
     counts. A target that compiles despite a static blocker (a heuristic miss)
@@ -272,7 +274,7 @@ def build_targets(root: Path, swift: str, data: dict, jobs: int, scratch: Path) 
     """
     by_package: dict[str, list[str]] = {}
     for key, entry in data["targets"].items():
-        if entry["type"] in BUILDABLE:
+        if entry["type"] in BUILDABLE and (only is None or key in only):
             by_package.setdefault(entry["package"], []).append(key)
     prefetch_artifacts(root, swift, sorted(by_package), scratch / "artifact-store")
 
@@ -347,7 +349,9 @@ def main() -> int:
         p.add_argument("--root", type=Path, default=Path.cwd())
         p.add_argument("--swift", default=os.environ.get("SWIFT", "swift"))
         p.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
-        p.add_argument("--build", action="store_true", help="compile every target to measure it")
+        p.add_argument("--build", action="store_true",
+                       help="compile targets to measure them: every target for census; for check, "
+                            "the baseline's targets plus every target with no static blocker")
         p.add_argument("--scratch", type=Path, default=Path("/tmp/linux-swift-census"))
         p.add_argument("--json", type=Path, help="write the full per-target report here")
         p.add_argument("--baseline", type=Path, default=Path("scripts/ci/linux_swift_targets.json"))
@@ -356,25 +360,32 @@ def main() -> int:
     args = parser.parse_args()
     root = args.root.resolve()
     data = census(root, args.swift, args.jobs)
+    baseline_path = args.baseline if args.baseline.is_absolute() else root / args.baseline
+    baseline = json.loads(baseline_path.read_text()) if args.cmd == "check" else None
     if args.build:
-        build_targets(root, args.swift, data, max(1, args.jobs // 4), args.scratch)
+        only = None
+        if baseline is not None:
+            # A target with an unguarded Apple import or a blocked dependency
+            # cannot compile on Linux; skipping it keeps the check to minutes.
+            only = set(baseline["builds"]) | {k for k, v in data["targets"].items() if not v["blockers"]}
+        build_targets(root, args.swift, data, max(1, args.jobs // 4), args.scratch, only)
     summary = summarize(data)
     if args.json:
         args.json.write_text(json.dumps(dict(summary=summary, targets=data["targets"]), indent=1, sort_keys=True) + "\n")
     print(json.dumps({k: v for k, v in summary.items() if k != "builds"}, indent=1))
-    baseline_path = args.baseline if args.baseline.is_absolute() else root / args.baseline
     if args.cmd == "census":
         if args.write_baseline:
             baseline_path.write_text(json.dumps(
                 dict(builds_on_linux=summary["builds_on_linux"], targets=summary["targets"],
                      builds=summary["builds"]), indent=1) + "\n")
         return 0
-    baseline = json.loads(baseline_path.read_text())
-    lost = sorted(set(baseline["builds"]) - set(summary["builds"]))
+    # A removed or renamed target is not a regression; one that still exists
+    # and stopped compiling is.
+    lost = sorted(k for k in set(baseline["builds"]) - set(summary["builds"]) if k in data["targets"])
     gained = sorted(set(summary["builds"]) - set(baseline["builds"]))
     for key in lost:
-        entry = data["targets"].get(key)
-        why = "target removed" if entry is None else f"{entry['blockers']} {entry.get('imports') or entry.get('blocked_by') or entry.get('error', '')}"
+        entry = data["targets"][key]
+        why = f"{entry['blockers']} {entry.get('error') or entry.get('blocked_by') or entry.get('imports', '')}"
         print(f"::error title=Linux Swift ratchet::{key} built on Linux in the baseline and no longer does: {why}")
     if gained:
         print(f"::notice title=Linux Swift ratchet::{len(gained)} more target(s) build on Linux: {', '.join(gained)}. "
