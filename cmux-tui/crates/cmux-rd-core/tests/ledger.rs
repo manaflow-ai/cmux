@@ -141,9 +141,16 @@ fn shard(
 #[test]
 fn reassembly_stamps_first_shard_complete_and_release() {
     let mut r = Reassembler::new(200_000);
-    let key =
-        FrameBody { t_capture_us: 1, ref_frame: REF_NONE, access_unit: vec![9; 2_000] }.encode();
-    let next = FrameBody { t_capture_us: 2, ref_frame: 1, access_unit: vec![8; 2_000] }.encode();
+    let key = FrameBody {
+        t_capture_us: 1,
+        ref_frame: REF_NONE,
+        ltr_token: None,
+        access_unit: vec![9; 2_000],
+    }
+    .encode();
+    let next =
+        FrameBody { t_capture_us: 2, ref_frame: 1, ltr_token: None, access_unit: vec![8; 2_000] }
+            .encode();
     let len = 1_100;
     let mut push = |frame, index, body: &[u8], at| {
         let (h, payload) = shard(frame, index, 2, body, len);
@@ -189,9 +196,16 @@ fn shards_with_parity(
 
 #[test]
 fn last_shard_is_the_shard_that_made_the_frame_decodable() {
-    let key =
-        FrameBody { t_capture_us: 1, ref_frame: REF_NONE, access_unit: vec![9; 2_000] }.encode();
-    let next = FrameBody { t_capture_us: 2, ref_frame: 1, access_unit: vec![8; 2_000] }.encode();
+    let key = FrameBody {
+        t_capture_us: 1,
+        ref_frame: REF_NONE,
+        ltr_token: None,
+        access_unit: vec![9; 2_000],
+    }
+    .encode();
+    let next =
+        FrameBody { t_capture_us: 2, ref_frame: 1, ltr_token: None, access_unit: vec![8; 2_000] }
+            .encode();
     let len = 1_100;
 
     // FEC-recovered: data shard 1 is lost; the parity shard at 200 makes it decodable.

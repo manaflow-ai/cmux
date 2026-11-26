@@ -1217,6 +1217,8 @@ mod tests {
             frame: 9,
             damage: Rect { x: 0, y: 0, width: 16, height: 16 },
             force_idr: reason.is_some(),
+            force_ltr_refresh: false,
+            acknowledged_ltr_tokens: Vec::new(),
             idr_reason: reason,
             target_kbps: 8_000,
             picture: None,
