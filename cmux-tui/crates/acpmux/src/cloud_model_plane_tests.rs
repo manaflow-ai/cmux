@@ -94,6 +94,39 @@ fn a_machine_whose_plane_host_does_not_resolve_gets_no_route() {
     assert!(where_resolves(BTreeMap::new(), |_| true).is_empty());
 }
 
+/// A claimed spare (production, 2026-11-26, vm_d4fd30ea21883bace99c): its edge rule is swapped at
+/// the claim, and the guest's resolver can answer nothing or NXDOMAIN for a while after. The
+/// first sign-in check or spawn then sees no route; a later one, once the host resolves, must get
+/// it. A "does not resolve" kept for a minute had every Claude and Codex start in that minute
+/// fail with auth.signed_out on a machine whose route was fine.
+#[test]
+fn a_host_that_did_not_resolve_is_asked_again_and_a_resolved_one_is_reused() {
+    let cache: ResolveCache = Mutex::new(None);
+    let host = "coderouter.cmux.internal";
+    let t0 = Instant::now();
+    assert!(!resolves_cached(&cache, host, t0, |_| Some(false)), "NXDOMAIN: no route now");
+    let asked = &std::cell::Cell::new(0);
+    let ask = |answer: Option<bool>| {
+        move |_: &str| {
+            asked.set(asked.get() + 1);
+            answer
+        }
+    };
+    assert!(
+        resolves_cached(&cache, host, t0 + Duration::from_secs(1), ask(Some(true))),
+        "a second later it resolves: the route applies"
+    );
+    assert_eq!(asked.get(), 1, "the earlier NXDOMAIN was not reused");
+    assert!(!resolves_cached(&cache, "other.example", t0, |_| None), "no answer: no route now");
+    assert!(resolves_cached(&cache, "other.example", t0, ask(Some(true))), "asked again");
+    assert_eq!(asked.get(), 2, "the earlier silence was not reused");
+    // A resolved host is reused for a burst of spawns, and asked again after it.
+    assert!(resolves_cached(&cache, "other.example", t0 + ANSWER_REUSE / 2, ask(Some(false))));
+    assert_eq!(asked.get(), 2, "within the reuse window: not asked");
+    assert!(!resolves_cached(&cache, "other.example", t0 + ANSWER_REUSE, ask(Some(false))));
+    assert_eq!(asked.get(), 3, "past it: asked");
+}
+
 /// The reported bug: a daemon env with no route gets the machine's; a value anything else
 /// already set (the daemon's, the login shell's, a profile's) is kept.
 #[test]
