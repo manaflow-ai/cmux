@@ -8,7 +8,7 @@
 //! put in fleet wide pauses, esp when this is stuff that materially improves the app".
 //!
 //! Off unless `agents.harnessMagic.sidecars.enabled` is `true` (an opinionated nudge, like
-//! surgery and dedupe; Leo 2026-11-26: "only do it for our personal fleet situation"), and
+//! cold_wake; Leo 2026-11-26 on compaction: "only do it for our personal fleet situation"), and
 //! `ACPMUX_HM_SIDECARS=0` kills it. It fires at most once per rule per turn, steers only into a
 //! steerable turn (otherwise drops: a stale nudge on the next prompt helps no one), and fails
 //! open: a missing command, an unknown tool shape or a lost lock does nothing. The turn's
@@ -28,19 +28,35 @@ const MAX_KEY: usize = 300;
 /// Call ids remembered per turn (first sight only); past it the turn stops counting.
 const MAX_SEEN: usize = 512;
 
-static WAIT_SHAPED: LazyLock<Regex> = LazyLock::new(|| {
+/// `None` only if the pattern failed to compile; the rule then never fires (fails open).
+static WAIT_SHAPED: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
         r"(?i)\bsleep\s+#|\bwatch\b|\bgh\s+(pr|run|api|workflow)\b|\bgit\s+(fetch|status|log|ls-remote)\b|\bcurl\b|\bstatus\b|\bchecks?\b|\bpoll",
     )
-    .expect("wait regex")
+    .ok()
 });
-static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").expect("digits regex"));
+
+fn wait_shaped(key: &str) -> bool {
+    WAIT_SHAPED.as_ref().is_some_and(|re| re.is_match(key))
+}
 
 /// The command a repeat is counted by: spaces squashed, digit runs `#` (a PR number, a sleep
 /// length, a timestamp), cut to [`MAX_KEY`] bytes.
 pub(super) fn normalize(command: &str) -> String {
     let squashed = command.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut key = DIGITS.replace_all(&squashed, "#").into_owned();
+    let mut key = String::with_capacity(squashed.len());
+    let mut in_digits = false;
+    for c in squashed.chars() {
+        if c.is_ascii_digit() {
+            if !in_digits {
+                key.push('#');
+            }
+            in_digits = true;
+        } else {
+            key.push(c);
+            in_digits = false;
+        }
+    }
     if key.len() > MAX_KEY {
         let mut cut = MAX_KEY;
         while !key.is_char_boundary(cut) {
@@ -85,7 +101,7 @@ impl Rules {
         let command = super::claim_check::command(update)?;
         self.seen.insert(id.to_owned());
         let key = normalize(&command);
-        if !WAIT_SHAPED.is_match(&key) {
+        if !wait_shaped(&key) {
             return None;
         }
         let n = self.runs.entry(key.clone()).or_default();

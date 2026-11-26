@@ -119,3 +119,8 @@ fn off_by_default() {
     let kill = |k: &str| (k == "ACPMUX_HM_SIDECARS").then(|| "0".to_owned());
     assert!(!super::super::harness_magic::enabled_in(FEATURE, Some(&on), &kill));
 }
+
+#[test]
+fn the_wait_pattern_compiles() {
+    assert!(super::WAIT_SHAPED.is_some());
+}
