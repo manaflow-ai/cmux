@@ -2248,24 +2248,18 @@ class HotAwareWorkflows(unittest.TestCase):
                           if "=" in line) if output.exists() else {}
             return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
-    # cmux-next-guards.yml: tooling-tests never takes a Mac. Linux CI is one persistent pool (hq
-    # decisions/junctions.md 2026-11-20), so every pull request, hot-only or not, runs it on cmux-linux and the
-    # hot-route picker that kept a hot-only one off the minis is gone.
-
-    def test_tooling_tests_runs_on_linux_for_every_pull_request(self):
+    def test_tooling_tests_uses_linux_for_internal_and_fork_pull_requests(self):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         self.assertNotIn("hot-route", guards["jobs"])
-        job = guards["jobs"]["tooling-tests"]
-        # The window gate (base-coalesce.yml); no placement job. A pull request into feat-cmux-next runs them
-        # (or a stacked feat-cmux-next-* base, #51240) only with full-ci; its push runs them (#49046, affected-jobs.json).
-        self.assertEqual(job["needs"], "coalesce")
-        self.assertEqual(job["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "
-                                    "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, "
-                                    "'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
-        self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
-        self.assertNotIn("mini_runner", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        # The job's eligibility and coalescing are covered in test_ci_tooling_steps.
+        # A fork runs on hosted Linux. An internal change runs on the owned Linux pool.
+        self.assertEqual(
+            guards["jobs"]["tooling-tests"]["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'ubuntu-24.04' || 'cmux-linux' }}",
+        )
 
     # fleet-test-compile.yml: the plan step.
 
