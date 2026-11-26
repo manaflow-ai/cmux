@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 import { HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
 import { settleReact } from "../../../test/support/domTeardown";
 import {
@@ -111,6 +112,8 @@ test("nothing shows while the link is down, and the restore's chip is out of flo
   await draw(<HostRecoveringLine linkDown now={0} />);
   expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
   await draw(<HostRecoveringLine linkDown restoring={{ waitedMs: 0, at: 0 }} now={0} />);
+  expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
+  await draw(<HostRecoveringLine linkDown restoring={{ waitedMs: 0, at: 0 }} now={CONNECTION_QUIET_MS} />);
   const chip = container.querySelector(".acpmux-host-chip")!;
   expect(chip.textContent).toContain("Restoring sessions…");
   expectOutOfFlow(chip);
