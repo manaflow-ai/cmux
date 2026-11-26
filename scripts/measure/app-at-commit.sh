@@ -17,6 +17,15 @@
 # at a commit leaves Go's module cache under DIR, which Go writes read-only: a plain rm -rf failed on it, and as the
 # trap's last command its status became the step's (every --build-at bench ended exit 1, 2026-11-18). Never changes the
 # status of a step whose body failed.
+
+# A progress line while a build runs. The controller stops a measurement that prints nothing for 45 minutes
+# (CMUX_CI_MEASURE_SILENT_MAX), and callers send this function's stderr to a file (relaunch-restore.sh's
+# 2>"$out/reload-base.log"), so the cold Release builds of a base=SHA head=SHA pair printed nothing past that limit
+# and the step was stopped as hung before its first round (cmux#58024's bench, 2026-11-26). Sourcing saves the
+# step's own stdout as fd 9; measure_app_at_commit writes "still building" there every MEASURE_BUILD_PROGRESS_S
+# seconds (300 by default), whatever its caller redirected.
+exec 9>&1
+
 measure_remove_scratch() {
   chmod -R u+w "$1" 2>/dev/null || true
   rm -rf -- "$1"
@@ -57,8 +66,21 @@ measure_app_at_commit() {
     (cd "$tree" && ./scripts/download-prebuilt-ghosttykit.sh) >&2 || return 1
   fi
   mkdir -p "$root/.build/DerivedData"
+  : >"$tree.reload.log"
+  # The progress loop's stdout and stderr are /dev/null and its sleep closes fd 9, so a sleep it leaves behind holds
+  # no pipe: a caller that sourced this file inside a $(...) (fd 9 is then that pipe) would otherwise wait for it.
+  local every="${MEASURE_BUILD_PROGRESS_S:-300}" started progress
+  started="$(date +%s)"
+  (
+    while sleep "$every" 9>&-; do
+      echo "app-at-commit: still building $tag at ${full:0:12}, $(( $(date +%s) - started ))s: $(tail -n 1 "$tree.reload.log" 2>/dev/null | cut -c1-120)" >&9
+    done
+  ) >/dev/null 2>&1 &
+  progress=$!
   (cd "$tree" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
     --derived-data "$root/.build/DerivedData/cmux-measure-at" "$@") 2>&1 | tee "$tree.reload.log" >&2 || status=$?
+  kill "$progress" 2>/dev/null || true
+  wait "$progress" 2>/dev/null || true
   [[ "$status" == 0 ]] || return "$status"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$tree.reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
