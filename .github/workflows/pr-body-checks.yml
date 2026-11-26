@@ -55,7 +55,7 @@ permissions: {}
 # flight (tests/test_ci_label_events_skip_full_ci.py). Bots set and clear risk, hold and landing labels
 # on hundreds of open pull requests, and each of those events queued a runner for the same answer.
 concurrency:
-  group: pr-body-checks-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name) || github.event.action == 'unlabeled' && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name)) && format('-label-{0}', github.run_id) || '' }}
+  group: pr-body-checks-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -65,7 +65,7 @@ env:
 jobs:
   body:
     name: pr-capture-check, design spec, perf section, cloud backend
-    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name) || github.event.action == 'unlabeled' && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name))) }}
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
