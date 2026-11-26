@@ -9,19 +9,19 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
-  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
+  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -55,7 +55,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
+import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -148,6 +148,15 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
+/// A turn's time on its "Worked for" / "Working for" line: as `formatDuration`, but "<1s" under one
+/// second, never "0s" (Leo, 2026-11-25, on the line that read 0s: "let's just fix forward and improve
+/// it all"). The running line reads "Working for <1s" from its first frame, so its words keep one shape
+/// from the prompt to "Worked for": no "Working" that swaps to a time, and no fold that vanishes at
+/// the end because the turn was quick.
+export function turnSpan(ms: number): string {
+  return ms < 1000 ? "<1s" : formatDuration(ms);
+}
+
 /// A finished span's own time: "856ms" under a second, else as `formatDuration`; none for a span
 /// whose start and end were stamped at one moment, which measured nothing, so no row reads a
 /// floored "0s" (Leo, 2026-11-05: "it always only shows 0s?").
@@ -183,7 +192,7 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
     if (row.toolCount) return toolCalls(t, row.toolCount) + messages;
     return messages.slice(t("toolRun.separator").length);
   }
-  const time = formatDuration(row.durationMs);
+  const time = turnSpan(row.durationMs);
   return turnTimeLabel(t, row, time) + workedCallsText(t, row) + workedMessagesText(t, row);
 }
 
@@ -2352,10 +2361,10 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place (`outside`). Nor does a turn whose only work was
-    // subagents and that took under a second, which read "Worked for 0s" (no news, `footerSays`) with
-    // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
-    // Claude's and Codex's apps draw a lone subagent.
+    // alone: it draws no fold, its rows in place (`outside`), nor does a turn of subagents alone with
+    // no recorded time. A quick one keeps its fold, "Worked for <1s" (`turnSpan`): the "Working for"
+    // that stood over it while it ran stays, so the end swaps no line for loose rows (Leo, 2026-11-25:
+    // "i think it was replacing the "worked for" as it went", after cmux#55191 dropped its fold).
     const shown = shownAgentNames(body);
     // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
     // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
@@ -2371,8 +2380,7 @@ function shapeTurn(
       compactOnly ||
       (previous === undefined &&
         messages.sent + messages.received === 0 &&
-        ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
-          ((durationMs === undefined || durationMs < 1000) && lone)));
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) || (durationMs === undefined && lone)));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
     } else if (lone) {

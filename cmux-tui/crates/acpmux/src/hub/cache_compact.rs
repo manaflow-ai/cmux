@@ -378,7 +378,9 @@ impl Hub {
         // Surgery first (`surgery.rs`, RFD 0149): it masks old tool output with no model call, so
         // the chat lands under the threshold without a `/compact` turn; `/compact` when it says
         // no or fails (counted in `harnessMagic.surgery.fallbacks`).
-        if self.surgery_before_compact(session, compact_line(used, threshold), "cache_compact").await
+        if self
+            .surgery_before_compact(session, compact_line(used, threshold), "cache_compact")
+            .await
         {
             return;
         }
