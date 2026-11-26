@@ -5062,7 +5062,7 @@ jobs:
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: note-265
-    if: ${{ !cancelled() && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next generated files
     # Why: note-266
     concurrency:
@@ -5538,7 +5538,7 @@ jobs:
   # Why: note-63
   generated-verdict:
     needs: [path_route, swift-test, daemon-test]
-    if: ${{ !cancelled() && ((needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && ((needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.generated_host == 'generated-files')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next generated files (shared build)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
@@ -5549,6 +5549,7 @@ jobs:
           HOST: ${{ needs.path_route.outputs.generated_host }}
           HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.daemon-test.result }}
           VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
+          DEFERRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.generated_host == 'generated-files' }}
         run: |
           superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
             local what=$1 head bound=()
@@ -5560,6 +5561,10 @@ jobs:
             [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
             echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
           }
+          if [[ "$DEFERRED" == true ]]; then
+            echo "Generated cmux-next files are deferred to the feat-cmux-next base/batched tier for this pull request. Add the full-ci label to run the Mac generator here." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           case "$VERDICT" in
             fresh)
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
@@ -5703,6 +5708,8 @@ jobs:
           case "$word" in
             pass) echo "The tip check compiled and linked the app at $REF in Release (-Onone); not compiled again." ;;
             fail) status=1 ;;
+            # Why: 2026-11-25-fleet-compile-down.md
+            down) status=69 ;;
             *) "$client" compile-check --ref "$REF" --app --release \
                  --timeout 1200 --queue-timeout 300 || status=$? ;;
           esac
@@ -7285,7 +7292,7 @@ jobs:
   # Why: 2026-11-24-request-cmux-next-dev-publish-2.md, note-340
   pr-red-checks:
     needs: [checks]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.checks.result != 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     permissions:
       actions: read
       checks: read
