@@ -634,13 +634,32 @@ jobs:
     # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
     # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # 12: the post may wait up to POST_WAIT_SECONDS (8 min) for a spent budget's reset, only when both tokens are spent.
+    timeout-minutes: 12
     permissions:
       statuses: write
     steps:
+      # The cmux-bot App's own REST budget, as pr-router.yml's cmux/land-tier and cmux-next.yml's same-tree statuses
+      # post with. The job's GITHUB_TOKEN draws on the repository's budget, which every workflow drains: on
+      # 2026-11-25 run 45554419892 judged cmux#46179 green, its post was refused for that budget and ended green,
+      # and the land waited 5.3 h on "cmux-next/fast-gates: not posted yet" until a human merged past it.
+      - name: Mint the status token
+        id: status-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
       - name: Post the cmux-next/fast-gates status
         env:
           GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.status-token.outputs.token }}
+          POST_WAIT_SECONDS: '480'
           CONTEXT: cmux-next/fast-gates
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
@@ -689,21 +708,46 @@ jobs:
             description="base $BASE; receipt audit: gates red, receipt run ${RECEIPT_RUN##*/} by $RECEIPT_PRODUCER"
             description=${description:0:140}
           fi
-          # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
-          # run green with a named warning; a missing status is never treated as a pass by the
-          # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.
-          response=""
-          if ! response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
-            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
-            if grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$response"; then
-              echo "::warning title=GitHub API budget::cmux-next/fast-gates status could not be posted because the installation API budget is exhausted; the run remains advisory."
-              echo "- cmux-next/fast-gates status could not be posted because the GitHub installation API budget is exhausted; a missing status is not a pass." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
+          # A rate-limit refusal is status-posting infrastructure, not a gate verdict, but a missing status is no
+          # verdict either: nothing dispatched a fresh gate for it (cmux#46179 waited 5.3 h on one). So the post
+          # goes out on the cmux-bot App's token, then on GITHUB_TOKEN, each its own budget; when both refuse for
+          # the rate limit it waits for the soonest reset (a refused request spends nothing, and reading
+          # rate_limit is free), within POST_WAIT_SECONDS. Past that the job fails, named, so a re-run of the
+          # failed job posts it instead of a green run that posted nothing. Other API failures stay red at once.
+          throttled='rate limit exceeded|secondary rate limit|too many requests|HTTP 429'
+          deadline=$((SECONDS + ${POST_WAIT_SECONDS:-480}))
+          tries=0
+          while :; do
+            tries=$((tries + 1))
+            soonest=""
+            for token in "${APP_TOKEN:-}" "$GH_TOKEN"; do
+              [[ -n "$token" ]] || continue
+              if response="$(GH_TOKEN="$token" gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+                -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
+                echo "$CONTEXT: $state on $HEAD_SHA (base $BASE), try $tries"
+                exit 0
+              fi
+              if ! grep -qiE "$throttled" <<<"$response"; then
+                printf '%s\n' "$response" >&2
+                exit 1
+              fi
+              # A spent primary budget names its reset; a secondary limit (budget left) waits the minimum gap.
+              reset="$(GH_TOKEN="$token" gh api rate_limit --jq 'if .resources.core.remaining == 0 then .resources.core.reset else 0 end' 2>/dev/null || true)"
+              [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
+              wait=$(( reset > 0 ? reset - $(date +%s) + 2 : 0 ))
+              [[ -z "$soonest" ]] || (( wait >= soonest )) || soonest=$wait
+              [[ -n "$soonest" ]] || soonest=$wait
+            done
+            gap=${POST_MIN_GAP_SECONDS:-30}
+            (( soonest >= gap )) || soonest=$gap
+            if (( SECONDS + soonest > deadline )); then
+              echo "::error title=GitHub API budget::$CONTEXT ($state) was not posted on $HEAD_SHA: every token was refused for the rate limit after $tries tries and the next reset is ${soonest}s away; re-run this failed job to post it"
+              echo "- $CONTEXT ($state) was not posted: the GitHub API budget was spent on every token; re-run the failed post job (a missing status is not a pass)." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
-            printf '%s\n' "$response" >&2
-            exit 1
-          fi
-          echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"
+            echo "::warning title=GitHub API budget::$CONTEXT ($state) refused for the rate limit on every token (try $tries); posting again in ${soonest}s"
+            sleep "$soonest"
+          done
 
   # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
   fast-gates-fail-fast:
