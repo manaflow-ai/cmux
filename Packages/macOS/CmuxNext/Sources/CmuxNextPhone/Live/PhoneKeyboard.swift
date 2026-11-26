@@ -12,7 +12,7 @@ struct PhoneKeyboard {
     func strokes(for text: String) -> [PhoneKeyStroke]? {
         guard let strokes = try? PhoneRules.decode([Stroke]?.self, "strokes", "key_strokes", ["text": text], what: "the key strokes")
         else { return nil }
-        return strokes?.map { PhoneKeyStroke(usage: $0.usage, shift: $0.shift) }
+        return strokes.map { PhoneKeyStroke(usage: $0.usage, shift: $0.shift) }
     }
 
     /// The HID usage for a Mac virtual key code (`NSEvent.keyCode`); nil for

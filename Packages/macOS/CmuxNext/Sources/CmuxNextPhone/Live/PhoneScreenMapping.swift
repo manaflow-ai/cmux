@@ -40,7 +40,7 @@ public struct PhoneScreenMapping: Sendable, Hashable {
         var fields = sizes
         fields["point"] = [Double(viewPoint.x), Double(viewPoint.y)]
         guard let point = try? PhoneRules.decode([Double]?.self, "point", op, fields, what: "the screen point"),
-              let point, point.count == 2 else { return nil }
+              point.count == 2 else { return nil }
         return point
     }
 }

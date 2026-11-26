@@ -65,7 +65,7 @@ public actor AndroidPhoneBackend: PhoneBackend {
         if (try? await serial(id)) != nil { return }
         // Each emulator takes an even console port; adb names it emulator-<port>.
         guard let port = try? PhoneRules.decode(Int?.self, "port", "free_emulator_port", ["serials": Array(serials.values)],
-                                                what: "the emulator ports"), let port else {
+                                                what: "the emulator ports") else {
             throw PhoneError.unsupported(mode: id.mode, what: "more than 64 running emulators")
         }
         // Headless: the phone tab draws the screen, so no emulator window opens.
