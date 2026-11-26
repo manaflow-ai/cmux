@@ -36,6 +36,25 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(self.picked(pr(1, commits=[commit("2026-11-26T15:00:00Z")]),
                                      pr(2, adds=["2026-11-26T14:00:00Z"])), [])
 
+    def test_commit_after_the_add_clears_a_busy_pr(self):
+        busy = [commit("2026-11-26T14:00:00Z"), commit("2026-11-26T17:00:00Z")]
+        self.assertEqual(self.picked(pr(1, commits=busy, adds=["2026-11-26T15:00:00Z"])), [1])
+
+    def test_base_merge_after_the_add_is_a_stale_head(self):
+        heads = [commit("2026-11-26T14:00:00Z"),
+                 commit("2026-11-26T17:00:00Z", "Merge branch 'feat-cmux-next' into lane/x", 2)]
+        self.assertEqual(self.picked(pr(1, commits=heads, adds=["2026-11-26T15:00:00Z"])), [1])
+
+    def test_add_at_the_current_head_keeps_it(self):
+        self.assertEqual(self.picked(pr(1, commits=[commit("2026-11-26T15:00:00Z")], adds=["2026-11-26T15:30:00Z"]),
+                                     pr(2, commits=[commit("2026-11-26T15:00:00Z")])), [])
+
+    def test_stale_head_still_spares_people_and_land(self):
+        heads = [commit("2026-11-26T17:00:00Z")]
+        adds = ["2026-11-26T15:00:00Z"]
+        self.assertEqual(self.picked(pr(1, head="austin/x", commits=heads, adds=adds),
+                                     pr(2, labels=("full-ci", "ready-to-land"), commits=heads, adds=adds)), [])
+
     def test_base_merges_are_not_activity(self):
         merges = [commit("2026-11-26T08:00:00Z"),
                   commit("2026-11-26T16:00:00Z", "Merge remote-tracking branch 'origin/feat-cmux-next' into lane/x", 2),
