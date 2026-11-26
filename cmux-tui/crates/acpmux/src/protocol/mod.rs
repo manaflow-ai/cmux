@@ -243,6 +243,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<presence::LiveParams, presence::LiveResult>(method::MUX_LIVE),
         request::<presence::LiveListParams, presence::LiveListResult>(method::MUX_LIVE_LIST),
         request::<presence::RoomsParams, presence::RoomsResult>(method::MUX_ROOMS),
+        request::<presence::FollowParams, presence::FollowResult>(method::MUX_FOLLOW),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
         request::<here::HereParams, here::HereResult>(method::MUX_HERE),
         request::<sync::SyncPullParams, sync::SyncPullResult>(method::MUX_SYNC_PULL),

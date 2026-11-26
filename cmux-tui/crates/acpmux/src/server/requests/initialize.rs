@@ -150,6 +150,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_LIVE,
     method::MUX_LIVE_LIST,
     method::MUX_ROOMS,
+    method::MUX_FOLLOW,
     method::MUX_TYPING,
     method::MUX_UPLOADS_KEEP,
     method::MUX_USAGE,

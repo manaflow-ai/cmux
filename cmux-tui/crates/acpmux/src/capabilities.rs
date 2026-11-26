@@ -392,6 +392,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_LIVE_LIST,
             method::MUX_ROOMS,
             method::MUX_ROOM,
+            method::MUX_FOLLOW,
         ],
     },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
