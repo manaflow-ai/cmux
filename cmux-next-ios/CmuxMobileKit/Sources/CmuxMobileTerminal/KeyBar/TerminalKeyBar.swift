@@ -39,7 +39,6 @@ struct TerminalKeyBar: View {
         // the system draws the effect behind them) and off the trailing
         // edge. Soft, the style iOS gives a toolbar over scrolling content
         // (HIG, Scroll views: "scroll edge effect").
-        .scrollEdgeEffectStyle(.soft, for: .horizontal)
         // The pinned keys are the scroller's leading bar, as a toolbar is a
         // scroll view's: the keys scroll under them.
         .safeAreaBar(edge: .leading, spacing: TerminalDockMetrics.keySpacing) {
