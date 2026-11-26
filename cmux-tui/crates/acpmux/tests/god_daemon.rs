@@ -2459,6 +2459,25 @@ fn size_run(label: &str, bytes: u64) -> Value {
         std::thread::sleep(ALL_LOGS_POLL);
     }
     let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
+    // What the restart reads back of it: its bytes, and each field's (two levels into the
+    // folds), so a checkpoint that grows with the chat says which fold keeps what.
+    let checkpoint_bytes = std::fs::read(&checkpoint).ok();
+    let adoption_checkpoint_bytes = checkpoint_bytes.as_ref().map(Vec::len);
+    let adoption_checkpoint_fields =
+        checkpoint_bytes.and_then(|b| serde_json::from_slice::<Value>(&b).ok()).map(|point| {
+            let mut sizes = serde_json::Map::new();
+            let len = |v: &Value| serde_json::to_vec(v).map_or(0, |b| b.len());
+            for (key, value) in point.as_object().into_iter().flatten() {
+                sizes.insert(key.clone(), len(value).into());
+                for (inner, value) in value.as_object().into_iter().flatten() {
+                    sizes.insert(format!("{key}.{inner}"), len(value).into());
+                    for (leaf, value) in value.as_object().into_iter().flatten() {
+                        sizes.insert(format!("{key}.{inner}.{leaf}"), len(value).into());
+                    }
+                }
+            }
+            Value::Object(sizes)
+        });
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
@@ -2538,7 +2557,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
-        "adoptionCheckpointMs": adoption_checkpoint_ms,
+        "adoptionCheckpointMs": adoption_checkpoint_ms, "adoptionCheckpointBytes": adoption_checkpoint_bytes,
+        "adoptionCheckpointFields": adoption_checkpoint_fields,
         "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
