@@ -779,10 +779,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -973,10 +969,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -1124,19 +1116,37 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
-      # Without it every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339), which left
-      # the journey 1 min under this job's 50 and cancelled it, so no promote reached production. Same cache
-      # as cloud-journey-prod.yml's identical build.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Without a warm build every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339) and
+      # 36 min on run 45835919245 (job 140006782447), which left the journey under 15 of this job's 50 and
+      # cancelled it, so no promote reached production all of 2026-11-26. Its own rust-cache never filled: a
+      # cancelled job skips the post-step save (no v0-rust-journey-staging-* entry exists). So it reuses the
+      # build cmux-tui-headless-debug.yml saves on every feat-cmux-next cmux-tui push, the same key, path and
+      # build env as cmux-tui-sdks.yml's conformance job: the exact binary when the tree matches, else
+      # feat-cmux-next's shared target dir and an incremental build.
+      - name: Key the headless cmux-tui build
+        id: headless-key
+        run: |
+          set -euo pipefail
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+      - name: Restore the headless cmux-tui build
+        id: headless-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-          workspaces: cmux-tui
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
+      - name: Cache the cmux-tui target dir
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
-          # Save the build even when the journey goes red: the first run after #56495 built in 13 min but its
-          # journey ran past the job's 50 (job 139905166641), and a cancelled job never runs the save, so the
-          # cache would stay cold forever.
-          cache-on-failure: true
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          cache-workspace-crates: "true"
+          # cmux-tui-headless-debug.yml owns this key; read-only here.
+          save-if: false
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1145,10 +1155,19 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
+          # As cmux-tui-headless-debug.yml builds it, so the shared target dir's fingerprints match and the
+          # binary is the portable one (a build-host-native libghostty-vt dies with SIGILL on other hosts).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+          HEADLESS_HIT: ${{ steps.headless-cache.outputs.cache-hit }}
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          if [[ "$HEADLESS_HIT" == "true" && -x "target/debug/cmux-tui" ]]; then
+            binary="target/debug/cmux-tui"
+            echo "restored the headless debug cmux-tui for this tree; no build"
+          else
+            cargo build -p cmux-tui --bin cmux-tui --locked
+          fi
           test -x "$binary"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
@@ -1208,10 +1227,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
