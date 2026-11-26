@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tabs.newTabApp.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إضافة ترسم فوق مربع الكتابة في صفحة علامة التبويب الجديدة، بمعرّفها، مثل \"local/showcase-newtab\". يبقى مربع الكتابة دائمًا. لا تستخدمها صفحة علامة التبويب الجديدة الأصلية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proširenje koje crta preko polja za pisanje na stranici nove kartice, po svom ID-u, npr. \"local/showcase-newtab\". Polje za pisanje uvijek ostaje. Izvorna stranica nove kartice ga ne koristi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En udvidelse, der tegner over skrivefeltet på siden Ny fane, angivet med sit id, fx \"local/showcase-newtab\". Skrivefeltet bliver altid. Den indbyggede side Ny fane bruger den ikke."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Erweiterung, die über dem Eingabefeld der Seite „Neuer Tab“ zeichnet, angegeben mit ihrer ID, etwa \"local/showcase-newtab\". Das Eingabefeld bleibt immer erhalten. Die native Seite „Neuer Tab“ verwendet sie nicht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una extensión que dibuja sobre el redactor de Nueva pestaña, indicada por su id, como \"local/showcase-newtab\". El redactor siempre permanece. La página Nueva pestaña nativa no la usa."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une extension qui dessine par-dessus la zone de saisie de Nouvel onglet, désignée par son identifiant, par exemple \"local/showcase-newtab\". La zone de saisie reste toujours. La page Nouvel onglet native ne l’utilise pas."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un'estensione che disegna sopra il compositore di Nuova scheda, indicata dal suo id, ad esempio \"local/showcase-newtab\". Il compositore resta sempre. La pagina Nuova scheda nativa non la usa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規タブの入力欄の上に描画する拡張機能を ID で指定します（例: \"local/showcase-newtab\"）。入力欄は常に残ります。ネイティブの新規タブページでは使われません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្នែកបន្ថែមដែលគូរពីលើប្រអប់សរសេរនៃផ្ទាំងថ្មី តាម ID របស់វា ដូចជា \"local/showcase-newtab\"។ ប្រអប់សរសេរនៅតែមានជានិច្ច។ ទំព័រផ្ទាំងថ្មីដើមមិនប្រើវាទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 탭 입력창 위에 그리는 확장 프로그램을 ID로 지정합니다(예: \"local/showcase-newtab\"). 입력창은 항상 유지됩니다. 기본 새 탭 페이지에서는 사용하지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En utvidelse som tegner over skrivefeltet på siden Ny fane, angitt med ID-en sin, for eksempel \"local/showcase-newtab\". Skrivefeltet blir alltid værende. Den innebygde siden Ny fane bruker den ikke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozszerzenie, które rysuje nad polem tworzenia nowej karty, wskazane przez swój identyfikator, np. \"local/showcase-newtab\". Pole tworzenia zawsze zostaje. Natywna strona nowej karty go nie używa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma extensão que desenha sobre o editor da Nova aba, indicada pelo seu id, como \"local/showcase-newtab\". O editor sempre permanece. A página Nova aba nativa não a usa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расширение, которое рисует поверх поля ввода новой вкладки, по его ID, например \"local/showcase-newtab\". Поле ввода всегда остаётся. Встроенная страница новой вкладки его не использует."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่วนขยายที่วาดทับช่องเขียนของแท็บใหม่ ระบุด้วย ID เช่น \"local/showcase-newtab\" ช่องเขียนจะยังคงอยู่เสมอ หน้าแท็บใหม่แบบเนทีฟไม่ใช้ค่านี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Sekme yazma alanının üzerine çizen uzantı, kimliğiyle, örneğin \"local/showcase-newtab\". Yazma alanı her zaman kalır. Yerel Yeni Sekme sayfası bunu kullanmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Розширення, яке малює поверх поля вводу нової вкладки, за його ID, наприклад \"local/showcase-newtab\". Поле вводу завжди залишається. Вбудована сторінка нової вкладки його не використовує."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một tiện ích mở rộng vẽ lên trên ô soạn của Tab mới, theo id của nó, ví dụ \"local/showcase-newtab\". Ô soạn luôn được giữ lại. Trang Tab mới gốc không dùng nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按 ID 指定一个扩展，绘制在新标签页输入框之上，例如 \"local/showcase-newtab\"。输入框始终保留。原生新标签页页面不使用它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 ID 指定一個擴充功能，繪製在新分頁輸入框之上，例如 \"local/showcase-newtab\"。輸入框一律保留。原生新分頁頁面不會使用它。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

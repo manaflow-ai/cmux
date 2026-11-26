@@ -2,7 +2,6 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefPetWiring
 import CmuxNextCloud
-import CmuxNextCloudPlace
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -137,22 +136,11 @@ extension AgentTabStore {
             guard let services, let tabs, let found = tabs.record(for: tab), let session = found.record.session ?? tabs.sessions[tab],
                   let daemon = services.machines.daemons.first(where: { $0.store === found.store }),
                   services.placeEligible(found.record, session: session, on: daemon) else { return nil }
-            let record = found.record
-            // The control's blocked and slots-full facts (Rust decides, ``CloudPlaceFlows/ControlFacts``): a plan only once a
-            // read kept one, so a plan not read never claims No Plan or a full slot list. The chats are read only when Rust
-            // will count slots (signed in, plan kept): a header with no plan never walks every tab.
-            // Off unless the person turns it on (`defaults write … cmux.hybrid.blockedStates -bool YES`): the chip then shows
-            // Signed Out, No Plan and the slot holders. Unset, `place` is what it was.
-            var control: CloudPlaceFlows.ControlFacts?
-            if UserDefaults.standard.bool(forKey: "cmux.hybrid.blockedStates") {
-                let signedIn = services.cloud.isSignedIn
-                // A kept plan with no id is not known: Rust would read it as no plan at all.
-                let planId = signedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account)?.id : nil
-                control = CloudPlaceFlows.ControlFacts(signedIn: signedIn, restoring: services.cloud.auth.isRestoring,
-                                                       planKnown: planId != nil, planId: planId,
-                                                       chats: planId == nil ? [] : services.cloud.place.controlChats(services.placeChats()))
-            }
-            return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName,
+            // Rust's blocked, slots-full and Keep Running state (``CloudPlaceFlows/controlFacts(signedIn:restoring:planId:chats:)``), off
+            // unless the person turns it on (`defaults write … cmux.hybrid.blockedStates -bool YES`). Unset, `place` is what it was.
+            let planId = services.cloud.isSignedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account)?.id : nil
+            let control = UserDefaults.standard.bool(forKey: "cmux.hybrid.blockedStates") ? services.cloud.place.controlFacts(signedIn: services.cloud.isSignedIn, restoring: services.cloud.auth.isRestoring, planId: planId) { services.placeChats() } : nil
+            return services.cloud.place.placeJSON(session: session, onCloud: found.record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: found.record.hostName,
                                                   control: control, starts: services.cloud.tuiState)
         }
         tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
@@ -465,7 +453,7 @@ extension AgentTabStore {
             let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
-            host.linksHost = AgentTabStore.registryHost(of: daemon)
+            host.linksHost = AgentTabStore.registryHost(of: daemon); host.chatNoted = AgentTabRemoteHost.notesChats(of: machineID) // names from this daemon only (cmux#55668)
             host.servesSide = daemon.supports(DaemonCapability.agentSessionSide.rawValue)
             host.servesMachineLogin = daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID

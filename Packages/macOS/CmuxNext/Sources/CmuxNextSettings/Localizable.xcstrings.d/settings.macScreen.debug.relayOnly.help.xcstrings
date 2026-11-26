@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.macScreen.debug.relayOnly.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac Screen tabs connect only through the relay, to test it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تتصل علامات تبويب Mac Screen عبر خادم الترحيل فقط، لاختباره."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen kartice povezuju se samo preko releja, radi testiranja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen-faner forbinder kun via relæet for at teste det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tabs von Mac Screen verbinden sich nur über das Relay, um es zu testen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las pestañas de Mac Screen se conectan solo a través del relé, para probarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les onglets Mac Screen se connectent uniquement via le relais, pour le tester."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I pannelli Mac Screen si connettono solo tramite il relay, per verificarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "テストのため、Mac Screen タブはリレー経由でのみ接続します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំង Mac Screen ភ្ជាប់តាមរយៈការបញ្ជូនបន្តប៉ុណ្ណោះ ដើម្បីសាកល្បងវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "테스트를 위해 Mac Screen 탭이 릴레이를 통해서만 연결됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen-faner kobler til bare via reléet, for å teste det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karty ekranu Maca łączą się tylko przez przekaźnik, aby go przetestować."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As abas de Mac Screen se conectam somente pelo relay, para testá-lo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладки Mac Screen подключаются только через ретранслятор, чтобы проверить его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บ Mac Screen จะเชื่อมต่อผ่านรีเลย์เท่านั้น เพื่อทดสอบรีเลย์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Ekranı sekmeleri, denemek için yalnızca röle üzerinden bağlanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладки «Екран Mac» підключаються лише через ретранслятор, щоб перевірити його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các tab Mac Screen chỉ kết nối qua máy chủ chuyển tiếp, để kiểm tra nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen 标签页仅通过中继连接，以测试中继。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac Screen 標籤頁僅透過中繼連線，以便測試。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

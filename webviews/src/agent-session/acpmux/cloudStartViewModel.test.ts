@@ -42,6 +42,13 @@ test("the copy stage says the copy's own progress when the host reports it", () 
   });
 });
 
+test("a GitHub repository's start says it clones from GitHub, never that it copies the project (cmux#53226)", () => {
+  const cloning = { ...base, step: "folder", cwd: "github:manaflow-ai/cmuxterm-hq", folder: "cmuxterm-hq" } as const;
+  expect(stage(cloning)).toMatchObject({ id: "clone", label: "Cloning from GitHub" });
+  // A folder of this Mac is still copied.
+  expect(stage({ ...base, step: "folder", cwd: "/Users/dev/paint" })).toMatchObject({ label: "Copying your project" });
+});
+
 test("setup counts only once the host reports it, and a cached snapshot is quick", () => {
   const cloned = { ...base, hasRepository: true, clone: { state: "done" } } as const;
   // No setup reported: the next stage is the agent's.

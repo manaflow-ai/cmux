@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sandbox.error.cloudDisabled" : {
+      "comment" : "Chat: Sandboxed refused because an administrator turned off cmux Cloud",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud is turned off on this Mac, so sandboxed runs aren't available."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud ist auf diesem Mac deaktiviert, daher gibt es keine Sandbox-Läufe."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud est désactivé sur ce Mac : les exécutions isolées ne sont pas disponibles."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم إيقاف cmux Cloud على هذا الـ Mac، لذا التشغيلات المعزولة غير متاحة."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Cloud está desactivado en este Mac, así que no hay ejecuciones aisladas."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這部 Mac 已關閉 cmux Cloud，無法使用沙箱執行。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台 Mac 已关闭 cmux Cloud，无法使用沙箱运行。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac에서 cmux Cloud가 꺼져 있어 샌드박스 실행을 사용할 수 없습니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac では cmux Cloud がオフのため、サンドボックス実行は使えません。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud je isključen na ovom Macu, pa izolovana pokretanja nisu dostupna."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud er slået fra på denne Mac, så sandkassekørsler er ikke tilgængelige."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud è disattivato su questo Mac, quindi le esecuzioni in sandbox non sono disponibili."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud ត្រូវបានបិទលើ Mac នេះ ដូច្នេះមិនមានដំណើរការក្នុងប្រអប់ខ្សាច់ទេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud er slått av på denne Macen, så sandkassekjøringer er ikke tilgjengelige."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud jest wyłączony na tym Macu, więc uruchomienia w piaskownicy są niedostępne."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux Cloud está desativado neste Mac, então execuções isoladas não estão disponíveis."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud отключён на этом Mac, поэтому запуски в песочнице недоступны."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud ถูกปิดบน Mac นี้ จึงใช้การเรียกใช้แบบแซนด์บ็อกซ์ไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud bu Mac'te kapalı, bu yüzden korumalı çalıştırmalar kullanılamaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud вимкнено на цьому Mac, тож запуски в пісочниці недоступні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud đã tắt trên Mac này nên không thể chạy trong hộp cát."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

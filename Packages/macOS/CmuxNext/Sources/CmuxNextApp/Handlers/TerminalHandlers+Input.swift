@@ -104,13 +104,14 @@ extension TerminalHandlers {
             let daemon = ctx.services.daemon(for: pane)
             // action-wait-allow: the path to paste is known only after the screenshot folder is read
             return .waiting(.fileSystem) {
-                guard let url = await latestScreenshot() else {
+                guard let url = await ScreenshotFolderReader().newestSystemScreenshot() else {
                     return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot)
                 }
-                guard let text = shellQuoted(url.path) else { return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot) }
+                guard let text = WindowRules().shellQuoted(url.path) else { return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot) }
                 return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
             }
         })
+        InsertPhotoAction(target: { insertPhotoTarget($0, ctx) }, choose: { await InsertPhotoAction.choosePhotos(ctx.services.openPanel, window: ctx.activeWindow?.window) }).bind(into: registry)
         // `app`: an editor id, `finder`, `terminal`, or an app name, bundle id or path (EditorCatalog.openFolder).
         registry.bind("palette.terminalOpenDirectory", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
@@ -125,6 +126,15 @@ extension TerminalHandlers {
         })
     }
 
+    /// Insert Photo's pane: a chat takes the pictures through the one external-attach route (`chat.composer.get` reads it back).
+    private static func insertPhotoTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> InsertPhotoAction.Target? {
+        guard let (_, content) = ctx.visibleContent(invocation) else { return nil }
+        if case .agent(let view) = content { return .chat { ctx.services.externalOpen.chatAttach.attach($0, claimed: nil, target: view, openChat: { _ in false }, show: { _ in }) } }
+        guard case .terminal = content, let (tab, pane) = ctx.daemonTab(invocation), tab.kind == .pty else { return .refused(InsertPhotoAction.noPictureTarget) }
+        let surface = tab.surface, daemon = ctx.services.daemon(for: pane)
+        return .terminal(isLocal: daemon.isLocal) { text in await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) } }
+    }
+
     /// Types the KEY argument as INPUT turns it into keys (Go to Directory: a shell `cd` line, so remote terminals too).
     private static func typeArgument(_ invocation: ActionInvocation, _ key: String, _ input: (String) -> String?, _ ctx: AppActionContext) {
         if let text = invocation[key]?.stringValue.flatMap(input) ?? ctx.refuse(RefusalStrings.textArgumentRequired) { send(text, paste: false, invocation, ctx) }
@@ -135,17 +145,5 @@ extension TerminalHandlers {
         let surface = tab.surface
         // The tab's own machine: a Cloud terminal's input goes over its link.
         ctx.services.daemon(for: pane).send("send") { try await $0.send(surface, text: text, paste: paste) }
-    }
-
-    /// Newest picture in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop).
-    @concurrent
-    nonisolated private static func latestScreenshot() async -> URL? {
-        let folder = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment()).systemFolder()
-        return await ScreenshotFolderReader().newestPicture(in: folder)
-    }
-
-    /// `path` as one shell word (Rust's `tabs::panes::shell_quoted`); nil when the FFI does not answer.
-    nonisolated static func shellQuoted(_ path: String) -> String? {
-        WindowRules().shellQuoted(path)
     }
 }

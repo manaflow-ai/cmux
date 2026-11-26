@@ -48,7 +48,8 @@ export type AcceptRequest = { attempt_id: string };
 export type Accept = (shareId: string, request: AcceptRequest) => Promise<RedeemResult>;
 
 /** Who the room's own sign-in says this visitor is (`POST /whoami`); never their account or email. */
-export type WhoAmI = { signedIn: false } | { signedIn: true; name: string; avatarUrl?: string };
+/** `linkRole`: what the link lets this account do once joined, when the room's answer names it (`role`). */
+export type WhoAmI = { signedIn: false } | { signedIn: true; name: string; avatarUrl?: string; linkRole?: GuestRole };
 export type WhoAmIFetch = (shareId: string) => Promise<WhoAmI>;
 
 const ANONYMOUS: WhoAmI = { signedIn: false };
@@ -231,7 +232,8 @@ export const whoamiOverFetch =
       const name = joinName(displayName(body.name) ?? "");
       if (body.signed_in !== true || !name) return ANONYMOUS;
       const avatar = avatarUrl(body.avatar_url);
-      return { signedIn: true, name, ...(avatar ? { avatarUrl: avatar } : {}) };
+      const linkRole = role(body.role);
+      return { signedIn: true, name, ...(avatar ? { avatarUrl: avatar } : {}), ...(linkRole ? { linkRole } : {}) };
     } catch {
       return ANONYMOUS;
     }
