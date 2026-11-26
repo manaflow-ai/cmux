@@ -2685,6 +2685,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_undo",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_place",
       "params": true,
       "result": true
