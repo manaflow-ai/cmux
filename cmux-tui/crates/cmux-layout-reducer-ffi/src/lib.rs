@@ -69,7 +69,9 @@
 //! requests and replies, no JSON), and the column scroll reducer
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
 //! per scroll event and frame), and the pane close rules (`pane_close_*`:
-//! what a close shows, the overlay of pending closes, their landed sizes).
+//! what a close shows, the overlay of pending closes, their landed sizes), and the layout model's
+//! sizing and placement rules (`layout_model_*`: even splits, equalize, new column widths, where a
+//! new pane goes).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
@@ -93,6 +95,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod layout_model;
 mod pane_close;
 pub mod scroll;
 pub mod shown_resize;
@@ -623,6 +626,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 window_rules::respond(operation, request)?
             }
             operation if pane_close::handles(operation) => pane_close::respond(operation, request)?,
+            operation if layout_model::handles(operation) => {
+                layout_model::respond(operation, request)?
+            }
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
