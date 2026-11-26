@@ -163,10 +163,28 @@ def input_paths(root):
 
 
 def trees(root, rev, paths):
-    out = {}
+    """Each path's object id at REV ("" when it is not there), from one git process.
+
+    One `git cat-file --batch-check` for every path, not one `git rev-parse` each: in a checkout
+    with tens of thousands of packs every git process spends seconds opening them, and the key
+    names about 45 paths (2026-11-25, a developer Mac with 50,619 packs: 70 s per key, 2 s batched).
+    """
+    paths = list(paths)
+    if not paths:
+        return {}
     for rel in paths:
-        p = git(root, "rev-parse", "--verify", "--quiet", "%s:%s" % (rev, rel), check=False)
-        oid = p.stdout.strip() if p.returncode == 0 else ""
+        if "\n" in rel:
+            raise NoKey("path with a newline: %r" % rel)
+    p = subprocess.run(["git", "-C", str(root), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                       input="".join("%s:%s\n" % (rev, rel) for rel in paths), capture_output=True, text=True)
+    if p.returncode != 0:
+        raise ToolFailed("git cat-file --batch-check: %s" % p.stderr.strip()[:300])
+    lines = p.stdout.splitlines()
+    if len(lines) != len(paths):
+        raise ToolFailed("git cat-file --batch-check answered %d lines for %d paths" % (len(lines), len(paths)))
+    out = {}
+    for rel, line in zip(paths, lines):
+        oid = "" if line.endswith(" missing") else line.split(" ", 1)[0]
         if oid and (len(oid) != 40 or not set(oid) <= SHA_CHARS):
             raise NoKey("%s:%s is not a full object id: %r" % (rev, rel, oid))
         out[rel] = oid
