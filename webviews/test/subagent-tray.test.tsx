@@ -12,7 +12,7 @@
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
 import { PHASE_DWELL_MS } from "../src/agent-session/acpmux/subagents/hatStep";
-import { afterAll, beforeAll, describe, expect, setSystemTime, test, afterEach } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
