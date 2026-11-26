@@ -233,6 +233,11 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// The composer's text view: the stack's reported height leaves out how
+    /// far its attachment strip reaches above the field (`ComposerFieldRef`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
+    /// The bottom stack as drawn, its attachment strip included (`ComposerProof`).
+    @ObservationIgnored var drawnStackFrame: CGRect = .zero
     /// A workspace tab's composer stack at rest (the keyboard down), as its transcript placed it
     /// last. The tab's grid card and its page both place the newest turn from this one value
     /// (`restingTranscriptBottomInset`), so a card opens into its page without a jump.
@@ -826,8 +831,8 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
-    /// The composer's top in the stack: what the stack shows over it (an error, plan
-    /// progress, queued prompts) and their spacing.
+    /// The composer's top in the stack: what the stack shows over it (an error,
+    /// queued prompts) and their spacing.
     @State private var composerOffset: CGFloat = 0
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
@@ -869,11 +874,6 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                // Pinned plan progress while a turn runs (ACP web UI parity).
-                if let progress = store.runningPlan, let entries = store.runningPlanEntries {
-                    PlanProgressBar(progress: progress, entries: entries)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
                 if !store.outgoing.isEmpty {
                     OutgoingMessagesView(store: store)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -914,7 +914,8 @@ public struct AgentChatBottomStack: View {
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
-                                 })
+                                 },
+                                 fieldRef: surface.composerField)
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
@@ -938,7 +939,14 @@ public struct AgentChatBottomStack: View {
             // button is not in this stack: counting it moved the margin,
             // which moved the distance, which toggled the button (a layout
             // loop that flickered and could hang after a tab zoom).
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { drawn in
+                // The attachment strip draws over the transcript's last rows:
+                // adding or removing one moves no row (Leo, 2026-11-23: "no
+                // shift, nothing."; `ComposerHeightCapUITests`).
+                surface.drawnStackFrame = drawn
+                let overlap = surface.composerField.stripOverlap
+                let frame = CGRect(x: drawn.minX, y: drawn.minY + overlap, width: drawn.width,
+                                   height: max(0, drawn.height - overlap))
                 surface.bottomStackTop = frame.minY
                 if surface.stackHeight != frame.height { surface.stackHeight = frame.height }
                 if surface.stackMaxY != frame.maxY { surface.stackMaxY = frame.maxY }
@@ -982,7 +990,8 @@ public struct AgentChatBottomStack: View {
             // drags that start above it).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if surface.composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
+                if surface.composerFocused, !ChatComposerTextView.isScrollingDraft,
+                   t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
             })
         }
         .padding(.bottom, bottomPadding)

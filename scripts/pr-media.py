@@ -471,6 +471,13 @@ def check_size(path: Path, kind: str) -> list[str]:
 # blob already on the branch is ever read or fetched, and pushes it without force; a push that lost a race
 # (the branch moved) fetches the new tip and builds the commit again. One flock per clone serializes the
 # runs on a host. PR_MEDIA_REMOTE_URL overrides the remote (tests point it at a local repository).
+#
+# An upload's own objects (its blobs, the trees and the commit built on them) are written to a scratch
+# object dir inside the clone (WRITE_OBJECTS), read alongside the clone's own as an alternate, and removed
+# once the push is done, so the clone keeps only the fetched trees however many uploads the host makes.
+# Writing them into the clone itself grew it by every upload's media, never pruned (gigabytes a day on a
+# busy agent host). A run killed mid-upload leaves its scratch dir; the next upload, under the same lock,
+# removes it first.
 PUSH_ATTEMPTS = 6
 CACHE_ENV = "PR_MEDIA_CACHE_DIR"
 REMOTE_ENV = "PR_MEDIA_REMOTE_URL"
@@ -484,6 +491,7 @@ PUSH_TRANSIENT = re.compile(r"HTTP 50[0234]|RPC failed|remote end hung up|early 
 # so this is final and never retried.
 PUSH_REFUSED = re.compile(r"\[remote rejected\]|hook declined")
 DEFAULT_IDENTITY = ("cmux pr-media", "pr-media@users.noreply.github.com")
+WRITE_OBJECTS = "upload-objects"
 
 
 def cache_root() -> Path:
@@ -620,10 +628,11 @@ class MediaBranch:
         return git_env(self.secret_url, self.url)
 
     def git(self, *args: str, input: str | None = None, cwd: Path | None = None, timeout: float = GIT_TIMEOUT,
-            check: bool = True) -> subprocess.CompletedProcess:
+            check: bool = True, objects: dict[str, str] | None = None) -> subprocess.CompletedProcess:
         command = ["git", *credential_args(), "-C", str(cwd or self.dir), *args]
         try:
-            done = subprocess.run(command, input=input, capture_output=True, text=True, env=self.env(),
+            done = subprocess.run(command, input=input, capture_output=True, text=True,
+                                  env={**self.env(), **(objects or {})},
                                   timeout=timeout)
         except subprocess.TimeoutExpired as error:
             raise GitTransportError(f"git {args[0]} took longer than {timeout:.0f} s") from error
@@ -631,12 +640,12 @@ class MediaBranch:
             raise MediaError(redact(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}"))
         return done
 
-    def git_bytes(self, *args: str, input: bytes | None = None) -> bytes:
+    def git_bytes(self, *args: str, input: bytes | None = None, objects: dict[str, str] | None = None) -> bytes:
         """A local git command whose output is tree records: read and written as bytes, because text mode
         turns a `\r` in a name into `\n` and two names would become one."""
         try:
             done = subprocess.run(["git", "-C", str(self.dir), *args], input=input, capture_output=True,
-                                  env=self.env(), timeout=GIT_TIMEOUT)
+                                  env={**self.env(), **(objects or {})}, timeout=GIT_TIMEOUT)
         except subprocess.TimeoutExpired as error:
             raise MediaError(f"git {args[0]} took longer than {GIT_TIMEOUT:.0f} s") from error
         if done.returncode != 0:
@@ -714,12 +723,13 @@ class MediaBranch:
             return None
         return fields[2].decode("ascii")
 
-    def tree_with(self, base: str | None, changes: dict[str, str]) -> str:
+    def tree_with(self, base: str | None, changes: dict[str, str], objects: dict[str, str] | None = None) -> str:
         """The tree BASE with CHANGES (relative path -> blob) written in, built with `mktree --missing` so
-        nothing it leaves alone is read. Names stay bytes end to end, exactly as the branch has them."""
+        nothing it leaves alone is read. Names stay bytes end to end, exactly as the branch has them.
+        OBJECTS is the git environment that sends the new trees to an upload's scratch object dir."""
         entries: dict[bytes, tuple[bytes, bytes, bytes]] = {}
         if base:
-            for line in self.git_bytes("ls-tree", "-z", base).split(b"\0"):
+            for line in self.git_bytes("ls-tree", "-z", base, objects=objects).split(b"\0"):
                 if line:
                     meta, _, name = line.partition(b"\t")
                     mode, kind, sha = meta.split()
@@ -739,10 +749,11 @@ class MediaBranch:
             if old and old[1] != b"tree":
                 raise MediaError(f"{os.fsdecode(name)} is a file on {self.branch}, not a folder")
             entries[name] = (b"040000", b"tree",
-                             self.tree_with(old[2].decode("ascii") if old else None, inner).encode("ascii"))
+                             self.tree_with(old[2].decode("ascii") if old else None, inner,
+                                            objects).encode("ascii"))
         listing = b"".join(mode + b" " + kind + b" " + sha + b"\t" + name + b"\0"
                            for name, (mode, kind, sha) in entries.items())
-        return self.git_bytes("mktree", "-z", "--missing", input=listing).decode("ascii").strip()
+        return self.git_bytes("mktree", "-z", "--missing", input=listing, objects=objects).decode("ascii").strip()
 
     def identity(self) -> dict[str, str]:
         if self.git("config", "user.email", check=False).stdout.strip():
@@ -757,43 +768,62 @@ class MediaBranch:
         EXPECT (path -> the blob the caller saw there, None for absent) makes the write a compare-and-swap:
         every tip it builds on, the first and each one fetched after a lost race, must still hold exactly
         that, or nothing is written. Without it a run that saw a path free would silently replace a file
-        another uploader put there between its check and its push."""
+        another uploader put there between its check and its push.
+
+        Everything this write makes goes to a scratch object dir that is gone when it returns (see
+        WRITE_OBJECTS), so the cache clone does not grow by the upload."""
         for path in files:
             safe_remote_path(path)
         with self.locked():
             self.ensure_clone()
-            blobs = {path: self.git("hash-object", "-w", "--no-filters", "--", str(local.resolve())).stdout.strip()
-                     for path, local in files.items()}
-            for attempt in range(1, PUSH_ATTEMPTS + 1):
-                tip = self.fetch()
-                moved = sorted(path for path, seen in (expect or {}).items() if self.blob_sha(path) != seen)
-                if moved:
-                    raise MediaConflict(f"{', '.join(moved)} changed on {self.branch} while this run was uploading "
-                                     "(another upload got there first); nothing was written. Check what is "
-                                     "there now, then rename the file or pass --force to replace it.")
-                tree = self.tree_with(f"{tip}^{{tree}}", blobs)
-                env = {**self.env(), **self.identity()}
-                commit = subprocess.run(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
-                                        capture_output=True, text=True, env=env, timeout=60)
-                if commit.returncode != 0:
-                    raise MediaError(f"git commit-tree failed: {(commit.stderr or commit.stdout).strip()}")
-                # --no-thin: a thin pack deltas against what the remote has, which means reading the blob a
-                # replaced file had, and this clone has none (and must not fetch one).
-                done = self.git("push", "-q", "--no-thin", "origin",
-                                f"{commit.stdout.strip()}:refs/heads/{self.branch}", check=False)
-                if done.returncode == 0:
-                    self.tip = commit.stdout.strip()
-                    return self.tip
-                said = redact((done.stderr or done.stdout).strip())
-                failed = f"upload of {', '.join(files)} failed: {said}"
-                if PUSH_REFUSED.search(said) and not PUSH_RACE.search(said):
+            scratch = self.dir / WRITE_OBJECTS
+            shutil.rmtree(scratch, ignore_errors=True)  # a killed run's leftovers; we hold the lock
+            scratch.mkdir()
+            try:
+                return self._put(files, message, expect, scratch)
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
+
+    def _put(self, files: dict[str, Path], message: str, expect: dict[str, str | None] | None,
+             scratch: Path) -> str:
+        objects = {"GIT_OBJECT_DIRECTORY": str(scratch),
+                   "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(self.dir / "objects")}
+        blobs = {path: self.git("hash-object", "-w", "--no-filters", "--", str(local.resolve()),
+                                objects=objects).stdout.strip()
+                 for path, local in files.items()}
+        for attempt in range(1, PUSH_ATTEMPTS + 1):
+            tip = self.fetch()
+            moved = sorted(path for path, seen in (expect or {}).items() if self.blob_sha(path) != seen)
+            if moved:
+                raise MediaConflict(f"{', '.join(moved)} changed on {self.branch} while this run was uploading "
+                                "(another upload got there first); nothing was written. Check what is "
+                                "there now, then rename the file or pass --force to replace it.")
+            tree = self.tree_with(f"{tip}^{{tree}}", blobs, objects)
+            env = {**self.env(), **self.identity(), **objects}
+            commit = subprocess.run(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
+                                    capture_output=True, text=True, env=env, timeout=60)
+            if commit.returncode != 0:
+                raise MediaError(f"git commit-tree failed: {(commit.stderr or commit.stdout).strip()}")
+            # --no-thin: a thin pack deltas against what the remote has, which means reading the blob a
+            # replaced file had, and this clone has none (and must not fetch one).
+            done = self.git("push", "-q", "--no-thin", "origin",
+                            f"{commit.stdout.strip()}:refs/heads/{self.branch}", check=False, objects=objects)
+            if done.returncode == 0:
+                # The push moved the tracking ref to the new commit, which lives only in the scratch dir
+                # about to go: point it back at the fetched tip, and let the next read fetch the new one.
+                self.git("update-ref", self.tracking, tip)
+                self.tip = None
+                return commit.stdout.strip()
+            said = redact((done.stderr or done.stdout).strip())
+            failed = f"upload of {', '.join(files)} failed: {said}"
+            if PUSH_REFUSED.search(said) and not PUSH_RACE.search(said):
+                raise MediaError(failed)
+            if PUSH_RACE.search(said):
+                if attempt == PUSH_ATTEMPTS:
                     raise MediaError(failed)
-                if PUSH_RACE.search(said):
-                    if attempt == PUSH_ATTEMPTS:
-                        raise MediaError(failed)
-                elif not PUSH_TRANSIENT.search(said) or attempt == PUSH_ATTEMPTS:
-                    raise GitTransportError(failed)
-                retry_pause(0.5 * attempt + random.random())
+            elif not PUSH_TRANSIENT.search(said) or attempt == PUSH_ATTEMPTS:
+                raise GitTransportError(failed)
+            retry_pause(0.5 * attempt + random.random())
         raise AssertionError("unreachable")
 
 

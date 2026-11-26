@@ -224,3 +224,89 @@ public final class SettingsCustomizeLibrary: PageProvider {
         return (outcome.succeeded ? 0 : max(outcome.status, 1), outcome.output, outcome.errorOutput)
     }
 }
+
+/// Settings > Appearance > Looks (webviews `LooksGalleryCard.tsx`): `cmux.settings.looks {verb, id?,
+/// reference?, scheme?, yes?, ids?}` runs `cmux --json setup VERB …` through the bundled CLI and
+/// answers its JSON, or its error envelope (an install with no `yes` answers `setup.needs_consent`
+/// with the card the page shows before it installs). The catalog, the previews, the layers and every
+/// write are the CLI's (cmux-customize `setup`, cmux-tui `cli/setup/repo.rs`); this type keeps no state.
+///
+/// `gallery` and `preview` only read, so the page may ask for them; `install`, `remove`, `on`, `off`
+/// and `order` change the person's setup, so they run only on a click or key in the page or a call
+/// they approved, as the library's verbs do.
+@MainActor
+public final class SettingsLooks: PageProvider {
+    /// The one op this part serves.
+    public static let op = "cmux.settings.looks"
+    /// The verbs that change the person's setup.
+    nonisolated static let changes: Set<String> = ["install", "remove", "on", "off", "order"]
+
+    private let cli: @MainActor () async -> URL?
+    private let settingsFile: @MainActor () -> URL?
+    private let runCLI: SettingsCustomizeLibrary.Runner
+
+    public init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?,
+                runCLI: @escaping SettingsCustomizeLibrary.Runner) {
+        self.cli = cli
+        self.settingsFile = settingsFile
+        self.runCLI = runCLI
+    }
+
+    /// The app's: the bundled CLI run as a child process.
+    public convenience init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?) {
+        self.init(cli: cli, settingsFile: settingsFile, runCLI: { try await SettingsCustomizeLibrary.run($0, $1, $2) })
+    }
+
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard op == Self.op else { throw PageError.unknownOp(op) }
+        let arguments = try Self.arguments(params)
+        if let verb = arguments.dropFirst(2).first, Self.changes.contains(verb) {
+            guard context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "\(verb) needs a click in the page")
+            }
+        }
+        guard let binary = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
+        let environment = SettingsCustomizeLibrary.environment(ProcessInfo.processInfo.environment, settingsFile: settingsFile())
+        let (status, stdout, stderr) = try await runCLI(binary, arguments, environment)
+        return (try? JSONValue.parse(status == 0 ? stdout : stderr)) ?? .object([:])
+    }
+
+    /// The CLI's words for one page call: `--json setup VERB …`. Every id and reference is an argument
+    /// of its own and never a flag.
+    nonisolated static func arguments(_ params: JSONValue) throws -> [String] {
+        let base = ["--json", "setup"]
+        let word = { (key: String) throws -> String in
+            guard let value = params[key]?.stringValue, isWord(value) else {
+                throw PageError.invalidParams("\(key) is a look id or repo")
+            }
+            return value
+        }
+        switch params["verb"]?.stringValue ?? "" {
+        case "gallery":
+            return base + ["gallery"]
+        case "preview":
+            let scheme = params["scheme"]?.stringValue == "light" ? "light" : "dark"
+            return base + ["preview", try word("id"), "--scheme", scheme]
+        case "install":
+            let yes = params["yes"]?.boolValue == true
+            return base + ["install", try word("reference")] + (yes ? ["--yes"] : [])
+        case let verb where verb == "remove" || verb == "on" || verb == "off":
+            return base + [verb, try word("id")]
+        case "order":
+            guard case .array(let values)? = params["ids"], !values.isEmpty else {
+                throw PageError.invalidParams("ids is the looks' order, top first")
+            }
+            let ids = try values.map { value -> String in
+                guard let id = value.stringValue, isWord(id) else { throw PageError.invalidParams("ids are look ids") }
+                return id
+            }
+            return base + ["order"] + ids
+        default:
+            throw PageError.invalidParams("verb is gallery, preview, install, remove, on, off or order")
+        }
+    }
+
+    nonisolated static func isWord(_ text: String) -> Bool {
+        !text.isEmpty && !text.hasPrefix("-") && text.count <= 512 && !text.contains(where: { $0.isNewline })
+    }
+}
