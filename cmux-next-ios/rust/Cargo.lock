@@ -698,6 +698,7 @@ name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
  "serde_json",
 ]
@@ -717,6 +718,7 @@ dependencies = [
  "cmux-egress",
  "cmux-fault",
  "cmux-message-preview",
+ "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
  "cmux-rd-core",
@@ -733,8 +735,10 @@ dependencies = [
  "libc",
  "mdns-sd",
  "p256",
+ "rand_core 0.6.4",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -834,12 +838,16 @@ dependencies = [
  "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-rd-screen",
+ "cmux-relay-snapshot",
  "cmux-share-approval",
  "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
+ "cmux-vnc",
  "cmux-window-rules",
  "libc",
+ "p256",
+ "rand_core 0.6.4",
  "ring",
  "serde",
  "serde_json",
@@ -900,6 +908,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "cmux-share-approval",
  "serde",
  "serde_json",
 ]
@@ -1050,6 +1059,19 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-vnc"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "flate2",
+ "getrandom 0.3.4",
+ "num-bigint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

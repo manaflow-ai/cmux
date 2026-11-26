@@ -150,6 +150,8 @@ top, so a block copies between the two:
   "ui.animationSpeed": "fast",
   // The terminal theme's own colors, as appearance.themeEdits of the theme above.
   "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
+  // One look for both appearances: name a pair ("light:Rose Pine Dawn,dark:Rose Pine") and add
+  // "light": {...} and "dark": {...} inside "colors"; each paints only its side, over the plain colors.
   // Or a Ghostty theme block:
   // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
 }

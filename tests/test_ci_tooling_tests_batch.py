@@ -30,8 +30,14 @@ class ToolingTestsBatch(unittest.TestCase):
         for w, g in zip(want, got):
             if w.get("uses", "").startswith("actions/checkout") and w.get("with", {}).get("fetch-depth") == 2:
                 w["with"]["ref"] = "${{ inputs.sha || '' }}"
-            if w.get("id") == "tt-test-registry":
+            if w.get("id") in ("tt-test-registry", "setup-tooling-run"):
+                # The batch tests a merged tip: every finding warns.
                 w["run"] = w["run"].replace("${{ github.event_name == 'push' && '--warn-only' || '' }}", "--warn-only")
+                if "WARN_ONLY" in w.get("env", {}):
+                    w["env"]["WARN_ONLY"] = "--warn-only"
+            if w.get("id") == "setup-tooling-run":
+                # The batch's runner reads its own copy of the steps.
+                w["run"] = w["run"].replace(str(GUARDS.relative_to(ROOT)), str(BATCH.relative_to(ROOT)))
             self.assertEqual(w, g, w.get("name"))
 
     def test_the_pull_request_scope_switch_is_wired(self) -> None:

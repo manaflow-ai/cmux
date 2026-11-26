@@ -101,6 +101,47 @@ class RetryExhausted(unittest.TestCase):
         job = WORKFLOW.read_text().split("\n  retry-nightly-next:\n", 1)[1].split("\n  report-nightly-failure:\n", 1)[0]
         self.assertIn("issues: write", job)
 
+    def _retry_with_fake_gh(self, tmp: str, dispatch_failures: int, backoff: str) -> subprocess.CompletedProcess:
+        # A fake gh: the head read answers SHA; the first N dispatches fail as GitHub's HTTP 500 did in run
+        # 45744507889, then one succeeds. Each call is logged.
+        fake = Path(tmp) / "gh"
+        fake.write_text(
+            "#!/bin/sh\n"
+            f"echo \"$*\" >> {tmp}/calls\n"
+            f"case \"$1\" in api) echo {SHA}; exit 0;; esac\n"
+            f"n=$(grep -c '^workflow run' {tmp}/calls)\n"
+            f"if [ \"$n\" -le {dispatch_failures} ]; then echo 'could not create workflow dispatch event: HTTP 500' >&2; exit 1; fi\n")
+        fake.chmod(0o755)
+        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", RETRY="0", SHA=SHA, RUN_ID="7",
+                   RUN_ATTEMPT="1", GITHUB_REPOSITORY="o/r", RETRY_BACKOFF_SECONDS=backoff)
+        return subprocess.run(["bash", str(RETRY)], env=env, capture_output=True, text=True)
+
+    def test_a_failed_dispatch_backs_off_and_tries_again(self):
+        # Run 45744507889: one HTTP 500 on the dispatch ended the retry loop. Now it backs off and dispatches again,
+        # reading the head again first.
+        with tempfile.TemporaryDirectory() as tmp:
+            done = self._retry_with_fake_gh(tmp, dispatch_failures=1, backoff="0 0")
+            calls = (Path(tmp) / "calls").read_text().splitlines()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        # The nightly-next head, the feat-cmux-next tip (still SHA, so no tick), the failed dispatch; after the
+        # backoff only the head is read again before the second dispatch.
+        self.assertEqual([c.split()[0] for c in calls], ["api", "api", "workflow", "api", "workflow"])
+        self.assertIn("trying again in 0 s", done.stdout)
+
+    def test_dispatch_failures_past_the_backoff_fail_the_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            done = self._retry_with_fake_gh(tmp, dispatch_failures=9, backoff="0 0")
+            calls = (Path(tmp) / "calls").read_text().splitlines()
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(sum(c.startswith("workflow run") for c in calls), 3)
+
+    def test_the_retry_job_reads_scripts_from_the_mirror_before_github(self):
+        job = WORKFLOW.read_text().split("\n  retry-nightly-next:\n", 1)[1].split("\n  fixit-handoff:\n", 1)[0]
+        mirror = job.index("Read scripts/ci from the host's git mirror")
+        checkout = job.index("uses: actions/checkout@")
+        self.assertLess(mirror, checkout)
+        self.assertIn("if: steps.mirror-scripts.outputs.ok != 'true'", job[mirror:checkout + 200])
+
 
 def retry_calls(next_head: str, tip: str | None, tick_ok: bool = True) -> tuple[list[str], str]:
     """retry-ask-push-group.sh after a failed first run of SHA (RETRY empty), with nightly-next at `next_head` and

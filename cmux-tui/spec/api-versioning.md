@@ -5,6 +5,10 @@ This covers the cmux-tui daemon socket protocol (the raw mux protocol that the
 prompts that nobody revisits, so a change that silently breaks an old client
 hurts them more than it hurts a person at a keyboard.
 
+The public page users read is
+[API versions and the compatibility promise](https://cmux.com/docs/nightly/next/api-versions)
+(`web/data/next-docs/pages.ts`, slug `api-versions`); change both together.
+
 ## The promise
 
 1. **No breaking change ships without a new dated version.** Renaming,
@@ -96,4 +100,6 @@ and about 40 ns to resolve a pin a client has sent before.
 ## Not covered yet
 
 Resource API v2 (`cmux.protocol/2`), terminal byte streams,
-`session.events` stream items and the broker tools.
+`session.events` stream items and the broker tools. The broker tools (the lane GitHub broker
+agents publish through) are internal to the fleet, not a public surface, so
+they stay outside the promise until an outside client calls them.
