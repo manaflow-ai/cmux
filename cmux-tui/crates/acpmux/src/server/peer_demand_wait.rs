@@ -25,20 +25,18 @@ fn target_peer(hub: &Hub, m: &str, params: &Value) -> Option<Arc<crate::peer::Pe
     if !super::peer_forward::names_a_session(m) {
         return None;
     }
-    let key = session_key(params).ok()?;
-    super::peer_forward::target(hub, m, key).map(|(peer, ..)| peer)
+    super::peer_forward::demand_target(hub, m, params).map(|(peer, ..)| peer)
 }
 
 /// Whether request `m` only reads what a chat's listed row already holds: no use of its peer.
-fn lists(m: &str) -> bool {
-    m == method::MUX_INFO
+fn lists(m: &str, params: &Value) -> bool {
+    m == method::MUX_INFO && params.get("row").and_then(Value::as_bool) != Some(false)
 }
 
 /// A metadata read for a chat of a peer left undialed, answered from the row this daemon keeps
 /// of it (`lists`); None when it names no such chat (or one with no row), or the peer is linked.
 fn from_last_known(hub: &Hub, m: &str, params: &Value) -> Option<Value> {
-    let key = session_key(params).ok()?;
-    let (peer, _, row, _) = super::peer_forward::target(hub, m, key)?;
+    let (peer, _, row, _) = super::peer_forward::demand_target(hub, m, params)?;
     if !peer.idle_parked() || row.is_null() {
         return None;
     }
@@ -59,7 +57,7 @@ fn from_last_known(hub: &Hub, m: &str, params: &Value) -> Option<Value> {
 /// A listing read (`lists`) is neither: it is answered here, from the last-known row, while the
 /// peer waits to be used (Some), and goes on to a linked peer without counting as its use.
 pub(super) async fn use_peer(hub: &Hub, m: &str, params: &Value) -> Option<Value> {
-    if lists(m) {
+    if lists(m, params) {
         return from_last_known(hub, m, params);
     }
     let peer = target_peer(hub, m, params)?;

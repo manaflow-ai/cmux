@@ -6,6 +6,13 @@
 use super::*;
 use crate::peer::test_dial;
 
+#[test]
+fn row_false_info_is_not_answered_from_a_cached_row() {
+    assert!(lists(method::MUX_INFO, &json!({"row": true})));
+    assert!(lists(method::MUX_INFO, &json!({"waitLogs": false})));
+    assert!(!lists(method::MUX_INFO, &json!({"row": false})));
+}
+
 #[tokio::test]
 async fn a_list_of_a_hundred_and_thirty_idle_peers_rows_dials_none_and_an_open_dials_one() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-list-no-dial");
