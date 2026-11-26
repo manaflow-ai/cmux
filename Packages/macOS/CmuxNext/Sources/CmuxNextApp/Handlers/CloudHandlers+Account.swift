@@ -129,6 +129,8 @@ extension CloudHandlers {
     /// machine; its bootstrap status file says how far it got).
     static func createRequested(_ request: CloudMachineRequest, flow: CloudCreationFlow, window: WindowState?, _ context: AppActionContext) {
         let cloud = context.services.cloud, creations = cloud.creations, work = context.services.work
+        // When the caller asked: a machine the server made well before it is a reused one, and says so.
+        let askedAt = Date().timeIntervalSince1970
         result("new Cloud machine", context, pendingAfter: createdMachineWait, pending: newMachineFields(request, nil).merging(["status": .string("creating")]) { _, new in new }) {
             var request = request
             do { request.script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
@@ -142,7 +144,7 @@ extension CloudHandlers {
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }
-            var made: [String: Any] = ["machine": machineFacts(session), "workspaceId": creation.workspaceID as Any]
+            var made: [String: Any] = ["machine": machineFacts(session), "workspaceId": creation.workspaceID as Any, "askedAt": askedAt]
             if let script = request.script, let outcome = creation.bootstrap {
                 made["scriptKind"] = script.kind.rawValue
                 made["bootstrap"] = outcomeFacts(status: outcome.status, reason: outcome.reason, statusFile: CloudMachineBootstrap.statusPath, log: CloudMachineBootstrap.logPath)
