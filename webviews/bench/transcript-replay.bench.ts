@@ -445,7 +445,7 @@ async function split(cdp: CDPSession, run: () => Promise<void>, page: Page, reco
   >;
   const drawn = Object.entries(renders)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 16)
+    .slice(0, 40)
     .map(([name, count]) => `${name.slice(0, 40)}=${(count / records).toFixed(2)}`)
     .join(" ");
   return (
