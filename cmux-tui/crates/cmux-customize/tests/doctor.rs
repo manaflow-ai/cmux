@@ -407,6 +407,47 @@ fn json_outside_the_usual_settings_names_what_it_sets_and_random_json_is_named_u
     );
 }
 
+/// Records are written beside the resolved target when the settings file is a symlink.
+#[cfg(unix)]
+#[test]
+fn linked_settings_records_are_not_named_as_stray_json() {
+    let home = Home::new();
+    home.write("active.json", "{ \"appearance\": { \"density\": \"compact\" } }\n");
+    std::os::unix::fs::symlink("active.json", home.config("cmux-next.json")).unwrap();
+    home.write("active.json.defaults-forgotten.json", "{ \"forgotten\": [] }\n");
+    home.write("active.json.defaults-restored.json", "{ \"restored\": [] }\n");
+    home.write("other.json.defaults-forgotten.json", "{ \"other\": [] }\n");
+
+    let report = home.customize().doctor(&at(NOW));
+    assert!(
+        report.findings.iter().all(|finding| {
+            !finding.id.contains("active.json.defaults-forgotten")
+                && !finding.id.contains("active.json.defaults-restored")
+        }),
+        "{:#?}",
+        report.findings.iter().map(|finding| &finding.id).collect::<Vec<_>>()
+    );
+    assert!(report.findings.iter().all(|finding| finding.id != "ignored:active.json"));
+    find(&report, "ignored:other.json.defaults-forgotten.json");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_settings_target_outside_config_does_not_hide_local_files_with_the_same_names() {
+    let home = Home::new();
+    let target = home.dir.path().join("active.json");
+    fs::write(&target, "{}").unwrap();
+    home.write("active.json", "{}");
+    home.write("active.json.defaults-forgotten.json", "{}");
+    home.write("cmux-next.json.personal.json", "{}");
+    std::os::unix::fs::symlink(target, home.config("cmux-next.json")).unwrap();
+
+    let report = home.customize().doctor(&at(NOW));
+    find(&report, "ignored:active.json");
+    find(&report, "ignored:active.json.defaults-forgotten.json");
+    find(&report, "ignored:cmux-next.json.personal.json");
+}
+
 /// Leo, 2026-11-25, on "Customization: presence is not a setting" and "50 things change your customization: You are
 /// not following the default for sidebar.priorityView.shown and 49 more": "what is this and why is it so ugly". Your
 /// own values are not problems, and info findings (an unknown key, a stray file) are listed but never counted or
