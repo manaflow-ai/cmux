@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.workspaceRow.progress.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "شريط تقدم تحت الصف وعلامة الانشغال للعمل الجاري."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Traka napretka ispod reda i oznaka zauzetosti za rad u toku."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En statuslinje under rækken og optaget-mærket for igangværende arbejde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Fortschrittsbalken unter der Zeile und die Beschäftigt-Markierung laufender Arbeit."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A progress bar under the row and the busy mark of running work."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una barra de progreso bajo la fila y la marca de ocupado del trabajo en curso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une barre de progression sous la ligne et la marque d'activité du travail en cours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una barra di avanzamento sotto la riga e il segno di occupato del lavoro in corso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行の下の進行状況バーと、実行中の作業のビジーマーク。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របារវឌ្ឍនភាពក្រោមជួរ និងសញ្ញារវល់នៃការងារកំពុងដំណើរការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "행 아래의 진행률 막대와 실행 중인 작업의 사용 중 표시."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En fremdriftslinje under raden og opptatt-merket for pågående arbeid."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pasek postępu pod wierszem i znacznik zajętości trwającej pracy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma barra de progresso sob a linha e a marca de ocupado do trabalho em andamento."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Полоса хода выполнения под строкой и отметка занятости идущей работы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แถบความคืบหน้าใต้แถวและเครื่องหมายไม่ว่างของงานที่กำลังทำ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Satırın altında bir ilerleme çubuğu ve süren işin meşgul işareti."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Смуга поступу під рядком і позначка зайнятості поточної роботи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thanh tiến độ dưới hàng và dấu bận của công việc đang chạy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "行下方的进度条和正在运行的工作的忙碌标记。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "列下方的進度列和執行中工作的忙碌標記。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "checkpoint.manualRetention" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدم Keep checkpoint قبل مشاركة هذا المرجع في التسليم اليدوي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristite Zadrži kontrolni punkt prije nego što podijelite ovu referencu u ručnoj primopredaji."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug Keep checkpoint, før du deler denne reference i en manuel overlevering."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwenden Sie Kontrollpunkt beibehalten, bevor Sie diesen Verweis in einer manuellen Übergabe weitergeben."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Keep checkpoint before sharing this reference in a manual handoff."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilice Mantener punto de control antes de compartir esta referencia en un traspaso manual."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez Keep checkpoint avant de partager cette référence lors d'un transfert manuel."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilizzare Mantieni il punto di controllo prima di condividere questo riferimento in una consegna manuale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手動ハンドオフでこの参照を共有する前に、Keepチェックポイントを使用してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រើចំណុចត្រួតពិនិត្យរក្សាមុនពេលចែករំលែកឯកសារយោងនេះនៅក្នុងអំណោយដោយដៃ ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "수동 인계에서 이 참조를 공유하기 전에 체크포인트를 유지하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk Keep checkpoint før du deler denne referansen i en manuell overlevering."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj Zachowaj punkt kontrolny przed udostępnieniem tego odniesienia w ręcznym przekazaniu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Manter ponto de verificação antes de compartilhar esta referência em uma entrega manual."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используйте Keep checkpoint, прежде чем делиться этой ссылкой при ручной передаче."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้จุดตรวจสอบเก็บไว้ก่อนแชร์ข้อมูลอ้างอิงนี้ในการส่งมอบด้วยตนเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu referansı manuel bir devirde paylaşmadan önce Keep kontrol noktasını kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використовуйте Keep checkpoint, перш ніж ділитися цим посиланням під час передачі вручну."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sử dụng điểm kiểm tra Keep trước khi chia sẻ tài liệu tham khảo này trong phần bàn giao thủ công."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在手动切换中共享此参考之前，请使用保留检查点。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在手動交接中分享此參考之前，請先使用「保留檢查點」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
