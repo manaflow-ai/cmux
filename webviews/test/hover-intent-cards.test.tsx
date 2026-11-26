@@ -75,14 +75,15 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
 // 2026-10-29: "giving it faster scrttoll/hover over"); it was Codex's 250 ms, the app's other cards 450.
 test("the minimap's turn preview opens at once and follows the pointer from row to row", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
-  jest.useFakeTimers();
   try {
     await act(async () =>
       root.render(
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    // The rail's ticks draw in a real frame after the open (railFrame); the hover delays then run on the fake clock.
     await railFrame();
+    jest.useFakeTimers();
     const rail = dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     expect(rail).not.toBeNull();
     const tick = (index: number) => dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")[index]!;
