@@ -1477,7 +1477,10 @@ async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
     )?
 }
 
-fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {
+pub(crate) fn cloud_chat_folder_under(
+    home: &std::path::Path,
+    name: &str,
+) -> Result<PathBuf, RpcError> {
     let chats = home.join("chats");
     let dir = chats.join(name);
     let failed = |why: String| {
@@ -1509,6 +1512,9 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
             Err(error) => return Err(failed(error.to_string())),
         }
     }
+    // Marked as made by acpmux for this chat, so a remote Claude session may start in it
+    // (`hub/remote_cwd.rs` `chat_folder`); a folder from before the marker gets it here too.
+    mark_made_by_acpmux(&dir).map_err(|e| failed(e.to_string()))?;
     Ok(dir)
 }
 
@@ -1639,6 +1645,9 @@ mod cloud_chat_tests {
         let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
         assert_eq!(dir, home.join("chats/chat-1"));
         assert!(dir.is_dir());
+        assert!(dir.join(crate::trust::AGENT_HOME_MARKER).is_file(), "marked as acpmux's");
+        // A retry reuses the folder and keeps its marker.
+        assert_eq!(cloud_chat_folder_under(&home, "chat-1").unwrap(), dir);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
