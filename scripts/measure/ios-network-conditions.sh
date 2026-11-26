@@ -107,7 +107,7 @@ done
 [[ -z "$attach_bytes" || "$attach_bytes" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "ios-network-conditions.sh: attach_bytes is the photo size in bytes (default 5242880)" >&2; exit 2; }
 [[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
 
-export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=120
+export GIT_HTTP_LOW_SPEED_LIMIT=1 GIT_HTTP_LOW_SPEED_TIME=120
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 # A bare runner (cmux-ci test): the pinned Rust and Zig and the native build tools, as
