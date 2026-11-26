@@ -8,6 +8,7 @@
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::Duration;
 
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
