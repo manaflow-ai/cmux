@@ -35,6 +35,20 @@ use cmux_cloud_api::session::{
 
 const USAGE: &str = "usage: cmux vm access new --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux vm access exec --target vm:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
+
+/// The machine's command line from exec's words: one word is a shell line as written; several
+/// keep their argv, each shell-quoted (`-- sh -c 'cat > f'` runs as typed), as `cmux vm exec`
+/// and the VM API's `exec` join them.
+fn command_line(words: &[String]) -> String {
+    match words {
+        [line] => line.clone(),
+        _ => words
+            .iter()
+            .map(|word| super::cloud_start_chat::shell_quote(word))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const EXEC_TIMEOUT_DEFAULT_MS: u64 = 30_000;
 /// The provider's inline exec limit (five minutes).
@@ -157,7 +171,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             if timeout_ms == 0 || timeout_ms > EXEC_TIMEOUT_MAX_MS {
                 return Err(UsageError::new("--timeout-ms is at most 300000 (five minutes)"));
             }
-            Verb::Exec { command: words.join(" "), timeout_ms }
+            Verb::Exec { command: command_line(&words), timeout_ms }
         }
         _ => return Err(usage()),
     };
