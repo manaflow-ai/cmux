@@ -56,7 +56,6 @@
     "sidebar.controlsOnHover": true,
     // Account switching (parity table, account_switching): the reference app has one Personal row at the foot.
     // cmux drew that row mid-sidebar and a second avatar button at the foot, so the avatar goes.
-    "sidebar.showProfileControl": false,
     "sidebar.groupHeader.memberCount": false,
     "sidebar.groupHeader.unreadCount": false,
     "sidebar.workspaceRow.icon": false,
@@ -77,7 +76,7 @@
     // App Store) goes; sections draw no header, so the Chats section has no "Chats" title over New chat; and a
     // chat with no folder sits at the end of the list with no "No Folder" header. The priority view is not
     // turned on: the Chats section's Active work lists the chats that are working or waiting on you.
-    "sidebar.sections.hidden": [],
+    "sidebar.sections.hidden": ["sec_top"],
     "sidebar.sectionLook": "lines",
     "sidebar.folderlessUngrouped": true,
 
