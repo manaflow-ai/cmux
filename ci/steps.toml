@@ -2495,43 +2495,10 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
           "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
           "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
 needs = ["rust"]
-# THROWAWAY PROOF: route this step on the proof PR (removed in the next commit).
-pr_scope = false
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
 # The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
 bash scripts/ci/ios_link_ffi.sh 8
-# THROWAWAY PROOF (removed in the next commit): a neighbour test target (CmuxMobileShellTests) does not compile.
-set +e
-dd="${CMUX_DERIVED_DATA_SLOT:-${RUNNER_TEMP:-$CI_TOOLS}/dd-ios-sim}"
-out_dir="${RUNNER_TEMP:-$CI_TOOLS}/instant-perf-proof"
-rm -rf "$out_dir"; mkdir -p "$out_dir"
-echo "PROOF 1: whole package build-tests (expected to FAIL on the neighbour)"
-swift build --package-path cmux-next-ios/CmuxMobileKit --build-tests; echo "PROOF 1 exit $?"
-echo "PROOF 2: bench macOS with CMUX_MOBILE_KIT_TEST_TARGETS"
-CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests CMUX_INSTANT_PERF_OUT="$out_dir/macos.jsonl" \
-  swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests 2>&1 | tee "$out_dir/macos.log"
-echo "PROOF 2 exit ${PIPESTATUS[0]}"
-udid="$(python3 -I scripts/ci/ios_sim_udid.py)"
-echo "PROOF 3: whole scheme build-for-testing on the bench's derived data (expected to FAIL on the neighbour)"
-(cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-  -enableCodeCoverage NO -derivedDataPath "$dd" CODE_SIGNING_ALLOWED=NO -quiet 2>&1 | tail -30); echo "PROOF 3 done"
-echo "PROOF 4: bench iOS simulator with CMUX_MOBILE_KIT_TEST_TARGETS, same derived data"
-(cd cmux-next-ios/CmuxMobileKit && CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests \
-  TEST_RUNNER_CMUX_INSTANT_PERF_OUT="$out_dir/ios-simulator.jsonl" \
-  xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-  -enableCodeCoverage NO -derivedDataPath "$dd" CODE_SIGNING_ALLOWED=NO -quiet \
-  -only-testing:CmuxMobileInstantPerfTests -resultBundlePath "$out_dir/ios.xcresult"); echo "PROOF 4 exit $?"
-if [[ ! -s "$out_dir/ios-simulator.jsonl" ]]; then
-  xcrun xcresulttool get log --path "$out_dir/ios.xcresult" --type console 2>/dev/null |
-    sed -n 's/.*INSTANTPERF \({.*}\)$/\1/p' > "$out_dir/ios-simulator.jsonl" || true
-fi
-mac_n=$(grep -c '^INSTANTPERF {' "$out_dir/macos.log"); ios_n=$(grep -c '{' "$out_dir/ios-simulator.jsonl")
-echo "PROOF macOS INSTANTPERF lines: $mac_n"; grep '^INSTANTPERF {' "$out_dir/macos.log" | head -5
-echo "PROOF iOS simulator INSTANTPERF lines: $ios_n"; head -5 "$out_dir/ios-simulator.jsonl" | sed 's/^/INSTANTPERF(sim) /'
-python3 cmux-next-ios/scripts/instant_perf_table.py "$out_dir" || true
-(( mac_n > 0 && ios_n > 0 )) && echo "PROOF PASS: both benches printed INSTANTPERF with a neighbour broken" && exit 0
-echo "::error::PROOF FAIL"; exit 1
 # The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
 # tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
 if ! git diff --exit-code -- cmux-next-ios/; then
