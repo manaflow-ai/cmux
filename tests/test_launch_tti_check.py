@@ -173,6 +173,13 @@ class KeptMarksTests(unittest.TestCase):
         for name in set(marks) - {"unrelated.mark"}:
             self.assertEqual(marks[name], kept[name])
 
+    def test_the_daemon_steps_are_kept(self):
+        marks = {"main_start": 50.0, "daemon.prepare_start": 60.0, "daemon.reused": 80.0,
+                 "daemon.socket_connected": 90.0, "daemon_connected": 95.0}
+        kept = tti.kept_marks(marks)
+        for name in marks:
+            self.assertEqual(marks[name], kept[name])
+
     def test_the_prefixed_marks_are_capped_in_launch_order_and_named_ones_always_fit(self):
         marks = {f"cef.step.s{i:03d}": float(1000 - i) for i in range(tti.KEPT_MARKS_MAX + 30)}
         marks.update({"main_start": 50.0, "agent_pane.painted": 1600.0})

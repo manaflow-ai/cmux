@@ -116,5 +116,19 @@ class FindTest(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+class TreeKeyCliTest(unittest.TestCase):
+    """The real tree key CLI, not a fake key: a `key` subcommand it never took made every key empty, so every
+    land-tier head built both thin targets and no merge ever took one (h94 sweep, 2026-11-26)."""
+
+    def test_tree_key_reads_a_real_key(self):
+        import re
+        self.assertRegex(pr_head.tree_key("HEAD"), re.compile(r"^[0-9a-f]{40}$"))
+
+    def test_the_workflow_calls_the_cli_as_it_parses(self):
+        text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
+        self.assertNotIn('"$tk" key', text)
+        self.assertIn('"$tk" --version v2', text)
+
+
 if __name__ == "__main__":
     unittest.main()
