@@ -3,7 +3,8 @@
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! the group hover card's summary (`group_hover_summary`), the ports a
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), a workspace row's own layout
+//! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
+//! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -13,14 +14,16 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
-//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
-//! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-window-rules`' workspace auto-naming bookkeeping (`auto_namer_step`,
+//! `auto_name_hold_step`: one step of the state the app holds),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
+//! the onboarding tool window's rules (`onboarding_*`: its footer, Import
+//! from Browser's selection rules),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
@@ -31,6 +34,7 @@
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
 //! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
 //! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
+//! `cloud_autosize_rows`: one AutoSize notice added to a chat's AutoSize rows (RFD 0080 piece 4);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
@@ -39,6 +43,8 @@
 //! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
 //! ticket, signaling frames, follow mode's focus producer, viewer demand, the
 //! cursor shape delivery);
+//! `vnc_*`: the VNC client's rules for Packages/Shared/CmuxVNC (`cmux-vnc`:
+//! addresses, keysyms, security choice, version, authentication responses);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -48,13 +54,20 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
+//! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
+//! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
+//! step of the reducer whose state the app holds; `empty_workspace_cause`),
+//! `cmux-window-rules`' right column rule and subagent pane tracker
+//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), agent cursor visibility
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
@@ -80,6 +93,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod auto_namer;
 mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
@@ -89,15 +103,22 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_handoff;
 mod cloud_hybrid;
+mod cloud_launch;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
 mod cloud_task;
+mod dock_model;
 pub mod drag_handle;
+mod empty_workspace;
 pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod notification_rings;
+mod onboarding;
+mod pane_focus;
+mod pane_placement;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -106,7 +127,11 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_groups;
+mod tab_layout;
+mod tab_strip;
 pub mod typed;
+mod vnc;
 pub mod window_close_selection;
 mod window_rules;
 use sidebar_mirror::Mirror;
@@ -255,12 +280,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
-            b"sidebar_automatic_plan" => {
-                use cmux_layout_reducer::automatic;
-                let request: automatic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
-            }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
                 let request: settle::Request =
@@ -290,11 +309,25 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_list_rules" => {
+                use cmux_layout_reducer::sidebar_list_rules;
+                let request: sidebar_list_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_list_rules::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_row_layout" => {
                 use cmux_layout_reducer::sidebar_row_layout;
                 let request: sidebar_row_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_drag_geometry" => {
+                use cmux_layout_reducer::sidebar_drag_geometry;
+                let request: sidebar_drag_geometry::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
@@ -365,6 +398,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: capability::AnswerRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            b"cloud_approval_next" => {
+                use cmux_cloud_start_core::approval_answer;
+                let request: approval_answer::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
@@ -573,6 +613,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"focus_escape_exit" => {
+                let request: cmux_focus_core::wire::EscapeExitRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::escape_exit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_work_context" => {
+                let request: cmux_focus_core::wire::WorkContextRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::work_context(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"focus_input_world" => {
                 let request: cmux_focus_core::invariants::Observation =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -597,6 +649,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            operation if empty_workspace::handles(operation) => {
+                empty_workspace::respond(operation, request)?
+            }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
@@ -610,10 +665,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
             }
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            operation if cloud_launch::handles(operation) => {
+                cloud_launch::respond(operation, request)?
+            }
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
@@ -621,9 +680,20 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if auto_namer::handles(operation) => auto_namer::respond(operation, request)?,
+            operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
+            operation if pane_placement::handles(operation) => {
+                pane_placement::respond(operation, request)?
+            }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
+            operation if vnc::handles(operation) => vnc::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if tab_layout::handles(operation) => tab_layout::respond(operation, request)?,
+            operation if notification_rings::handles(operation) => {
+                notification_rings::respond(operation, request)?
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?
@@ -631,6 +701,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if dock_model::handles(operation) => dock_model::respond(operation, request)?,
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
+            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)

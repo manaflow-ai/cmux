@@ -125,6 +125,65 @@ fn colors_edit_the_terminal_theme_the_file_names_and_keep_other_edits() {
     );
 }
 
+/// One look for both appearances: a `light` and a `dark` half paint only
+/// their side, over the plain colors.
+#[test]
+fn light_and_dark_halves_paint_only_their_side_of_the_theme_pair() {
+    let file = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+              "colors": { "accent": "#907aa9", "foreground": "#575279",
+                          "light": { "background": "#faf4ed", "palette": ["#f2e9e1"] },
+                          "dark": { "background": "#191724", "foreground": "#e0def4" } } }"##,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&root, "appearance.themeEdits"),
+        Some(&json!({
+            "Rose Pine Dawn/accent": "#907aa9", "Rose Pine Dawn/foreground": "#575279",
+            "Rose Pine Dawn/background": "#faf4ed", "Rose Pine Dawn/0": "#f2e9e1",
+            "Rose Pine/accent": "#907aa9", "Rose Pine/foreground": "#e0def4",
+            "Rose Pine/background": "#191724",
+        }))
+    );
+}
+
+/// One theme for both appearances has no sides: its halves are refused, the
+/// plain colors still apply, and a half holds no half of its own.
+#[test]
+fn halves_need_a_light_dark_pair_and_hold_no_halves() {
+    let single = overlay(
+        r##"{ "appearance.theme": "Nord", "colors": { "accent": "#88c0d0", "light": { "accent": "#5e81ac" }, "dark": { "accent": "#81a1c1" } } }"##,
+    );
+    assert_eq!(
+        single.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["colors.light", "colors.dark"]
+    );
+    assert!(single.diagnostics.iter().all(|d| d.message == colors::HALF_NEEDS_PAIR));
+    let root = single.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.themeEdits"), Some(&json!({"Nord/accent": "#88c0d0"})));
+    let nested = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "light": { "dark": {}, "accent": "blue" }, "dark": "#000000" } }"##,
+    );
+    let mut paths: Vec<&str> = nested.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["colors.dark", "colors.light.accent", "colors.light.dark"]);
+}
+
+/// A plain `colors` map still paints both sides of a pair, as before halves.
+#[test]
+fn plain_colors_still_paint_both_sides_of_the_theme_pair() {
+    let file = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "accent": "#907aa9" } }"##,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&root, "appearance.themeEdits"),
+        Some(&json!({"Rose Pine Dawn/accent": "#907aa9", "Rose Pine/accent": "#907aa9"}))
+    );
+}
+
 #[test]
 fn a_ghostty_block_is_read_as_a_ghostty_theme_file() {
     let file = overlay(
@@ -497,6 +556,13 @@ fn the_theme_file_schema_takes_the_shipped_files_and_flags_others() {
     }
     assert!(!validator.is_valid(&json!({"terminal.term": "xterm"})));
     assert!(!validator.is_valid(&json!({"colors": {"background": "blue"}})));
+    assert!(validator.is_valid(&json!({"colors": {
+        "accent": "#907aa9",
+        "light": {"background": "#faf4ed", "palette": ["#f2e9e1"]},
+        "dark": {"background": "#191724"},
+    }})));
+    assert!(!validator.is_valid(&json!({"colors": {"light": {"dark": {}}}})));
+    assert!(!validator.is_valid(&json!({"colors": {"dark": {"background": "blue"}}})));
 }
 
 /// The daemon's settings owner applies the active theme file: over the

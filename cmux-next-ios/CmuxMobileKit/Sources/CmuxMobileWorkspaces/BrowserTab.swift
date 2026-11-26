@@ -362,6 +362,31 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
 
+    /// A Mac dev server on `https://localhost:<port>` with its own certificate (self-signed,
+    /// mkcert, `vite --https`): this iPhone's listener on the port is the forward to the
+    /// Mac's loopback (RFD 0089), so the page trusts that certificate as the Mac's browser
+    /// does for its own `localhost`. Every other host keeps iOS's usual check.
+    func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let space = challenge.protectionSpace
+        guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust,
+              let model, Self.trustsDevCertificate(host: space.host, port: space.port,
+                                                   isForwarded: { model.loopbackIsOpen?($0) ?? false })
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+
+    /// Whether a TLS server at `host:port` is a Mac loopback dev server this iPhone forwards.
+    static func trustsDevCertificate(host: String, port: Int, isForwarded: (URL) -> Bool) -> Bool {
+        let name = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        guard (1...65535).contains(port), let url = URL(string: "https://\(name):\(port)/"),
+              PhoneReach(url) == .macLoopback else { return false }
+        return isForwarded(url)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         // A navigation this guard let through (Back from a refused address too): the page shows again.
         model?.clearProblem()

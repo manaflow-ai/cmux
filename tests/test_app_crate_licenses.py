@@ -122,12 +122,18 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
                     "cmux-daemon-launch-core",
+                    # The staged-update pre-warm record (cmux-update-prewarm-core).
+                    "cmux-update-prewarm-core",
                     # The app health model (cmux-health-core).
                     "cmux-health-core",
                     # Each window's last frame for the launch's first frame (cmux-launch-image).
                     "cmux-launch-image",
                     # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
                     "cmux-pane-pictures",
+                    # The agent chat transcript's markdown parser (cmux-chat-markdown).
+                    "cmux-chat-markdown",
+                    # The remote chat wire (cmux-acpmux-remote-wire).
+                    "cmux-acpmux-remote-wire",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
@@ -138,6 +144,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-sdk-ffi",
                     # Predictive local echo for remote terminals (cmux-terminal-prediction).
                     "cmux-terminal-prediction",
+                    # The browser's address bar resolver, BrowserURLResolver step A (cmux-url-input, #57119).
+                    "cmux-url-input",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
                 ]

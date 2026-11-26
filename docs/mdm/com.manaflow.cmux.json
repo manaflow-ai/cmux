@@ -91,6 +91,12 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.compactShortTurns" : {
+      "default" : false,
+      "description" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for.",
+      "title" : "Compact Summary for Short Turns",
+      "type" : "boolean"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -256,11 +262,16 @@
       "title" : "Model Logo in Composer",
       "type" : "boolean"
     },
-    "agentPane.display.pinnedPlan" : {
-      "default" : false,
-      "description" : "Keeps the agent's task list under the latest message, not over the composer.",
-      "title" : "Pin Task List in Chat",
-      "type" : "boolean"
+    "agentPane.display.modelPickerOrder" : {
+      "default" : [
+
+      ],
+      "description" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Model Picker Harness Order",
+      "type" : "array"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -708,7 +719,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Compacts an idle Claude chat while its cache is warm, so the next message costs less.",
       "title" : "Compact Before the Cache Expires",
       "type" : "boolean"
@@ -819,6 +830,18 @@
       "title" : "Add Message Relay to Claude Code",
       "type" : "boolean"
     },
+    "agents.claudeOutputStyle" : {
+      "default" : "agent",
+      "description" : "The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting.",
+      "enum" : [
+        "agent",
+        "default",
+        "Explanatory",
+        "Learning"
+      ],
+      "title" : "Claude Code Response Style",
+      "type" : "string"
+    },
     "agents.cmuxMcp" : {
       "default" : "on",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
@@ -841,8 +864,20 @@
       "title" : "Use in Codex",
       "type" : "boolean"
     },
+    "agents.codexPersonality" : {
+      "default" : "agent",
+      "description" : "The personality new Codex chats use. Agent’s Own keeps Codex’s setting.",
+      "enum" : [
+        "agent",
+        "pragmatic",
+        "friendly",
+        "none"
+      ],
+      "title" : "Codex Personality",
+      "type" : "string"
+    },
     "agents.coldWake.compact" : {
-      "default" : true,
+      "default" : false,
       "description" : "A large chat whose cache expired is compacted before batched messages arrive.",
       "title" : "Compact Cold Chats Before Waking",
       "type" : "boolean"
@@ -856,10 +891,20 @@
       "type" : "number"
     },
     "agents.coldWake.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.",
       "title" : "Batch Wakes of Cold Chats",
       "type" : "boolean"
+    },
+    "agents.commitAttribution" : {
+      "default" : "agent",
+      "description" : "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting.",
+      "enum" : [
+        "agent",
+        "strip"
+      ],
+      "title" : "Co-Author Line on Commits and PRs",
+      "type" : "string"
     },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
@@ -1166,10 +1211,40 @@
       "title" : "Accent",
       "type" : "string"
     },
+    "appearance.accentGlow.dark" : {
+      "description" : "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow.",
+      "title" : "Accent Glow (Dark)",
+      "type" : "string"
+    },
+    "appearance.accentGlow.light" : {
+      "description" : "The glow's color in the light appearance. Unset, the dark color.",
+      "title" : "Accent Glow (Light)",
+      "type" : "string"
+    },
+    "appearance.accentGlow.opacity" : {
+      "description" : "How strong the accent glow is.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Accent Glow Opacity",
+      "type" : "number"
+    },
+    "appearance.accentGlow.radius" : {
+      "description" : "How far the accent glow spreads from the focused pane.",
+      "maximum" : 200,
+      "minimum" : 0,
+      "title" : "Accent Glow Radius",
+      "type" : "number"
+    },
     "appearance.agentGlow" : {
       "default" : false,
       "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
       "title" : "React to Agents",
+      "type" : "boolean"
+    },
+    "appearance.agentSignature" : {
+      "default" : false,
+      "description" : "Give each agent a small dot glyph made from its session, on sidebar rows and the running line.",
+      "title" : "Agent Dot Signatures",
       "type" : "boolean"
     },
     "appearance.appFont" : {
@@ -2577,6 +2652,28 @@
       "title" : "Toolbar Button Size",
       "type" : "number"
     },
+    "appearance.paneArt.dark" : {
+      "default" : [
+
+      ],
+      "description" : "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pane Art (Dark)",
+      "type" : "array"
+    },
+    "appearance.paneArt.light" : {
+      "default" : [
+
+      ],
+      "description" : "Pictures behind panes in the light appearance. Empty, the dark list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pane Art (Light)",
+      "type" : "array"
+    },
     "appearance.paneBackgrounds" : {
       "default" : "shared",
       "description" : "One background behind the window, or a copy in each pane.",
@@ -2662,6 +2759,16 @@
       "description" : "Marks experimental settings with a Beta chip.",
       "title" : "Beta Chips in Settings",
       "type" : "boolean"
+    },
+    "appearance.sidebarHeader.dark" : {
+      "description" : "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none.",
+      "title" : "Sidebar Header Image (Dark)",
+      "type" : "string"
+    },
+    "appearance.sidebarHeader.light" : {
+      "description" : "The sidebar header picture in the light appearance. Unset, the dark picture.",
+      "title" : "Sidebar Header Image (Light)",
+      "type" : "string"
     },
     "appearance.sidebarSurface" : {
       "default" : "same",
@@ -2922,6 +3029,30 @@
       "minimum" : 0,
       "title" : "Terminal Opacity",
       "type" : "number"
+    },
+    "appearance.tabClose.from" : {
+      "description" : "The color of a tab's close button. Unset, the text color.",
+      "title" : "Tab Close Color",
+      "type" : "string"
+    },
+    "appearance.tabClose.interpolation" : {
+      "description" : "How the close button's color blends to its hover color.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Tab Close Blend",
+      "type" : "string"
+    },
+    "appearance.tabClose.toDark" : {
+      "description" : "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover.",
+      "title" : "Tab Close Hover Color (Dark)",
+      "type" : "string"
+    },
+    "appearance.tabClose.toLight" : {
+      "description" : "The close button's hover color in the light appearance. Unset, the dark color.",
+      "title" : "Tab Close Hover Color (Light)",
+      "type" : "string"
     },
     "appearance.tabShape" : {
       "default" : "block",
@@ -4350,6 +4481,12 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
+      "type" : "boolean"
+    },
     "experiments.appFontChrome" : {
       "default" : false,
       "description" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts.",
@@ -4404,6 +4541,12 @@
       "title" : "Composer Refresh",
       "type" : "boolean"
     },
+    "experiments.expandedEditsEstimate" : {
+      "default" : false,
+      "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
+      "title" : "Expanded Edits Estimate",
+      "type" : "boolean"
+    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -4414,6 +4557,12 @@
       "default" : false,
       "description" : "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box.",
       "title" : "Forum",
+      "type" : "boolean"
+    },
+    "experiments.forumCallCard" : {
+      "default" : false,
+      "description" : "Agent forum searches, reads and posts show as forum rows with links to their threads.",
+      "title" : "Forum Tool Calls",
       "type" : "boolean"
     },
     "experiments.glassToolbarGroups" : {
@@ -4476,6 +4625,12 @@
       "title" : "See-Through Dock",
       "type" : "boolean"
     },
+    "experiments.startedTaskTitleChip" : {
+      "default" : false,
+      "description" : "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row.",
+      "title" : "Started Tasks: Title Opens Chat",
+      "type" : "boolean"
+    },
     "experiments.terminalAgentMark" : {
       "default" : false,
       "description" : "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat.",
@@ -4516,6 +4671,12 @@
       "default" : false,
       "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
       "title" : "Toasts v2",
+      "type" : "boolean"
+    },
+    "experiments.transcriptWorkLog" : {
+      "default" : false,
+      "description" : "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context.",
+      "title" : "Transcript Work Log",
       "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
@@ -4959,6 +5120,12 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.fadeInactivePanes" : {
+      "default" : false,
+      "description" : "Panes without the focus fade, and come back when you focus them.",
+      "title" : "Fade Inactive Panes",
+      "type" : "boolean"
     },
     "layout.focusFollowsMouse" : {
       "default" : false,
@@ -6388,7 +6555,8 @@
         "cmux",
         "claude",
         "codex",
-        "studio"
+        "studio",
+        "rex"
       ],
       "title" : "Sidebar Look",
       "type" : "string"
@@ -6519,12 +6687,6 @@
       "default" : false,
       "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
       "title" : "Show Sessions Started by Agents",
-      "type" : "boolean"
-    },
-    "sidebar.showAutomaticSessions" : {
-      "default" : false,
-      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
-      "title" : "Show Automatic Sessions",
       "type" : "boolean"
     },
     "sidebar.showChats" : {
@@ -7534,6 +7696,26 @@
         "inbox"
       ],
       "title" : "Tasks Layout",
+      "type" : "string"
+    },
+    "terminal.cursorBlink" : {
+      "description" : "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
+      "enum" : [
+        "on",
+        "off"
+      ],
+      "title" : "Cursor Blink",
+      "type" : "string"
+    },
+    "terminal.cursorStyle" : {
+      "description" : "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
+      "enum" : [
+        "block",
+        "bar",
+        "underline",
+        "block_hollow"
+      ],
+      "title" : "Cursor Style",
       "type" : "string"
     },
     "terminal.fontFamily" : {
